@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 600px; margin-top: 40px; position: relative;">
+    
+    <a href="/dashboard" style="position: absolute; top: 0; left: 0; color: var(--text-muted); font-size: 1.5rem; text-decoration: none;">
+        <i class="fas fa-times"></i>
+    </a>
+
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="margin-bottom: 10px;">List Your Item</h1>
+        <p style="color: var(--text-muted);">Snap a photo. We'll price it. You get paid.</p>
+    </div>
+
+    <div class="card no-hover">
+        <form method="POST" enctype="multipart/form-data">
+            
+            <label style="margin-bottom: 10px; display: block;">Item Photos</label>
+            
+            <div style="position: relative; margin-bottom: 25px;">
+                <input type="file" name="photos" id="file-input" accept="image/*" multiple required 
+                       style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
+                
+                <div style="border: 2px dashed #cbd5e1; border-radius: 16px; padding: 40px; text-align: center; background: rgba(255,255,255,0.5); transition: all 0.2s;">
+                    <i class="fas fa-camera" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px;"></i>
+                    <h4 style="margin-bottom: 5px;">Click to Upload Photos</h4>
+                    <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">or drag and drop them here</p>
+                    <p id="file-name" style="margin-top: 15px; font-weight: bold; color: var(--primary); display: none;"></p>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label>Category</label>
+                    <select name="category_id">
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Condition</label>
+                    <select name="quality">
+                        <option value="5">Like New (5/5)</option>
+                        <option value="4">Good (4/5)</option>
+                        <option value="3">Fair (3/5)</option>
+                        <option value="2">Project Piece (2/5)</option>
+                    </select>
+                </div>
+            </div>
+
+            <label>Item Name</label>
+            <input type="text" name="description" placeholder="e.g. IKEA Malm Desk" required>
+
+            <label>Description / Flaws</label>
+            <textarea name="long_description" rows="3" placeholder="Any scratches? Dimensions?"></textarea>
+
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 20px; padding: 15px; font-size: 1.1rem;">
+                Submit for Valuation
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        var fileName = e.target.files.length + ' files selected';
+        var display = document.getElementById('file-name');
+        if (e.target.files.length > 0) {
+            display.innerText = "✅ " + fileName;
+            display.style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}

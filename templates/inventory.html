@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<div class="container">
+
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <i class="fas fa-boxes" style="font-size: 1.5rem; color: var(--primary);"></i>
+        <h2 style="margin: 0;">Shop by Category</h2>
+    </div>
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 50px;">
+        
+        <a href="/inventory" style="flex: 1 1 150px; text-decoration: none;">
+            <div class="card text-center no-hover" 
+                 style="height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                 {% if not active_cat %}border: 2px solid var(--primary); background: white;{% endif %}">
+                
+                <i class="fas fa-th-large" style="font-size: 2.5rem; margin-bottom: 15px; color: {% if not active_cat %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
+                <div style="font-weight: 800; font-size: 1.1rem;">View All</div>
+                <div style="color: var(--text-muted); font-size: 0.85rem;">Show Everything</div>
+            </div>
+        </a>
+
+        {% for item in commodities %}
+        <a href="/inventory?category_id={{ item.id }}" style="flex: 1 1 150px; text-decoration: none;">
+            <div class="card text-center no-hover" 
+                 style="height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                 {% if active_cat|int == item.id %}border: 2px solid var(--primary); background: white;{% endif %}">
+                
+                <i class="fas {{ item.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; color: {% if active_cat|int == item.id %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
+                
+                <div class="{% if item.count_in_stock == 0 %}text-red{% else %}text-green{% endif %}" 
+                     style="font-size: 1.8rem; font-weight: 800; line-height: 1; margin-bottom: 5px;">
+                    {{ item.count_in_stock }}
+                </div>
+                
+                <div style="font-weight: 700; color: var(--text-muted); font-size: 0.9rem;">{{ item.name }}</div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #e2e8f0;">
+        <i class="fas fa-layer-group" style="font-size: 1.5rem; color: var(--accent);"></i>
+        <h2 style="margin: 0;">
+            {% if active_cat %}Filtered Results{% else %}All Inventory{% endif %}
+        </h2>
+    </div>
+    
+    <div class="grid-inventory">
+        {% for item in items %}
+        <a href="/item/{{ item.id }}" style="text-decoration: none; color: inherit;">
+            <div class="card" style="padding: 0; overflow: hidden; position: relative;">
+                
+                {% if item.status == 'sold' %}
+                <div style="position: absolute; inset: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 10;">
+                    <div style="color: #dc3545; font-weight: 900; font-size: 1.5rem; border: 4px solid #dc3545; padding: 10px 20px; transform: rotate(-12deg); text-transform: uppercase;">
+                        SOLD
+                    </div>
+                </div>
+                {% endif %}
+
+                <div style="height: 240px; overflow: hidden;">
+                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" 
+                         style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
+                </div>
+                
+                <div style="padding: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) }}</span>
+                        {% if item.status != 'sold' %}
+                        <span class="badge bg-green">Available</span>
+                        {% endif %}
+                    </div>
+                    <p style="margin: 0; font-size: 0.95rem; color: var(--text-muted); font-weight: 500;">
+                        {{ item.description }}
+                    </p>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 400px; margin-top: 60px;">
+    <div class="card text-center">
+        <h2 style="margin-bottom: 20px;">Create Account</h2>
+        <p style="color: var(--text-muted); margin-bottom: 20px;">
+            If you already reserved your spot, use the same email to claim your account.
+        </p>
+        <form method="POST">
+            <input type="text" name="full_name" placeholder="Full Name" required>
+            <input type="email" name="email" placeholder="Email Address" required>
+            <input type="password" name="password" placeholder="Choose Password" required>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+        </form>
+        <p style="margin-top: 20px; font-size: 0.9rem;">
+            Already have an account? <a href="/login" style="color: var(--primary); font-weight: bold;">Log In</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

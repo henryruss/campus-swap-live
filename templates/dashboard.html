@@ -1,0 +1,405 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    /* WIZARD CARD STYLES */
+    .step-card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 25px;
+        transition: all 0.2s;
+        position: relative;
+        overflow: hidden;
+    }
+    .step-card.done { border-color: #bbf7d0; background: #f0fdf4; }
+    .step-card.active { border: 2px solid var(--primary); background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+    .step-card.locked { opacity: 0.6; pointer-events: none; background: #f8fafc; }
+    
+    .step-number {
+        position: absolute; top: 20px; right: 25px;
+        font-size: 4rem; font-weight: 900; color: rgba(0,0,0,0.03); line-height: 1; pointer-events: none;
+    }
+    .step-icon-status {
+        position: absolute; top: 25px; right: 25px;
+        font-size: 1.2rem; color: #166534;
+        background: #dcfce7; width: 35px; height: 35px;
+        display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    }
+    
+    /* LOCKED DATA BOX */
+    .locked-box {
+        background: #f1f5f9; border: 1px solid #cbd5e1;
+        padding: 15px; border-radius: 8px; margin-top: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+
+    /* THE STATIC '@' INPUT */
+    .input-group {
+        display: flex; align-items: center;
+        border: 1px solid #cbd5e1; border-radius: 8px;
+        background: white; overflow: hidden;
+    }
+    .input-prefix {
+        background: #f1f5f9; color: var(--text-muted); padding: 12px 15px;
+        font-weight: bold; border-right: 1px solid #cbd5e1;
+    }
+    .input-group input {
+        border: none; border-radius: 0; padding: 12px; width: 100%;
+    }
+    .input-group input:focus { outline: none; box-shadow: none; }
+    .input-group:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(6, 78, 59, 0.1); }
+
+    /* SPECIAL HOVER FOR PAY BUTTON */
+    .btn-pay {
+        transition: all 0.3s ease;
+    }
+    .btn-pay:hover {
+        background-color: var(--primary) !important; /* Campus Green */
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(21, 128, 61, 0.3) !important;
+    }
+
+    /* --- MODERN CHECKBOX WIZARDRY --- */
+    .terms-label {
+        display: flex;
+        align-items: flex-start;
+        cursor: pointer;
+        padding: 15px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        transition: all 0.2s;
+        text-transform: none; /* Stops the ALL CAPS yelling */
+    }
+    .terms-label:hover {
+        border-color: #cbd5e1;
+        background: #f8fafc;
+    }
+    
+    /* Hide the real checkbox but keep it 'renderable' for validation bubbles */
+    .terms-label input {
+        position: absolute;
+        opacity: 0;
+        cursor: pointer;
+        height: 1px; /* Needs size to show error bubble */
+        width: 1px;
+        margin-left: 10px; /* Position error bubble near the box */
+    }
+    
+    /* Create a custom box */
+    .custom-check {
+        min-width: 24px;
+        height: 24px;
+        background-color: #fff;
+        border: 2px solid #cbd5e1;
+        border-radius: 6px;
+        margin-right: 15px;
+        margin-top: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }
+    
+    /* When checked, turn green */
+    .terms-label input:checked ~ .custom-check {
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+    
+    /* Create the checkmark */
+    .custom-check::after {
+        content: "";
+        display: none;
+        width: 6px;
+        height: 12px;
+        border: solid white;
+        border-width: 0 2.5px 2.5px 0;
+        transform: rotate(45deg);
+        margin-bottom: 2px;
+    }
+    
+    /* Show checkmark when checked */
+    .terms-label input:checked ~ .custom-check::after {
+        display: block;
+    }
+</style>
+
+<div class="container" style="margin-top: 40px;">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
+        <div>
+            <h1 style="margin-bottom: 5px;">Seller Studio</h1>
+            <p style="margin: 0; color: var(--text-muted);">Complete the 3-step setup to launch.</p>
+        </div>
+        <a href="/logout" class="btn btn-outline" style="padding: 8px 20px; font-size: 0.9rem;">Log Out</a>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 40px;">
+        
+        <div>
+            
+            <div id="step-1" class="step-card {% if current_user.pickup_address %}done{% else %}active{% endif %}">
+                <span class="step-number">1</span>
+                {% if current_user.pickup_address %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
+
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup Location</h3>
+                
+                {% if current_user.pickup_address %}
+                    <p style="color: var(--text-muted); margin-bottom: 5px;">Collection Point:</p>
+                    
+                    <div id="view-address" class="locked-box" style="background: rgba(255,255,255,0.6);">
+                        <span style="font-weight: 600;">{{ current_user.pickup_address }}</span>
+                        <button onclick="toggleEdit('address')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
+                    </div>
+
+                    <div id="edit-address" style="display: none; margin-top: 15px;">
+                        <form action="/update_profile" method="POST">
+                            <input type="text" name="address" value="{{ current_user.pickup_address }}" required>
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button type="submit" class="btn btn-primary">Update</button>
+                                <button type="button" onclick="toggleEdit('address')" class="btn btn-outline">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                {% else %}
+                    <p style="color: var(--text-muted);">Where should we pick up items?</p>
+                    <form action="/update_profile" method="POST" style="margin-top: 15px;">
+                        <input type="text" name="address" placeholder="e.g. Belk Hall, Room 204" required>
+                        <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Location</button>
+                    </form>
+                {% endif %}
+            </div>
+
+            <div id="step-2" class="step-card {% if my_items %}done{% elif current_user.pickup_address %}active{% else %}locked{% endif %}">
+                <span class="step-number">2</span>
+                {% if my_items %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
+
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-camera" style="color: var(--primary);"></i> Inventory</h3>
+                
+                {% if my_items %}
+                    <p style="color: var(--text-muted); margin-bottom: 15px;">{{ my_items|length }} item(s) drafted.</p>
+                    <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                        {% for item in my_items %}
+                        <div style="border-radius: 8px; overflow: hidden; height: 80px;">
+                            <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
+                        </div>
+                        {% endfor %}
+                        <a href="/add_item" style="border: 2px dashed #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-decoration: none;">
+                            <i class="fas fa-plus"></i>
+                        </a>
+                    </div>
+                {% else %}
+                    <p style="color: var(--text-muted);">Upload photos of your items.</p>
+                    <a href="/add_item" class="btn btn-primary" style="margin-top: 15px;">Draft Items &rarr;</a>
+                {% endif %}
+            </div>
+
+            <div id="step-3" class="step-card {% if current_user.has_paid %}done{% elif my_items %}active{% else %}locked{% endif %}">
+                <span class="step-number">3</span>
+                {% if current_user.has_paid %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
+
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout & Launch</h3>
+
+                {% if current_user.has_paid %}
+                    <div style="background: #dcfce7; border: 1px solid #bbf7d0; padding: 20px; border-radius: 12px;">
+                        <h4 style="color: #166534; margin-bottom: 5px;"><i class="fas fa-check-circle"></i> You are live!</h4>
+                        <p style="color: #166534; font-size: 0.9rem; margin: 0;">
+                            Payouts sent to: <strong>{{ current_user.payout_method }} (@{{ current_user.payout_handle }})</strong>
+                        </p>
+                    </div>
+
+                {% else %}
+                    
+                    {% if current_user.payout_handle %}
+                        
+                        <div id="view-payout" class="locked-box" style="background: #f0fdf4; border-color: #bbf7d0;">
+                            <div>
+                                <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
+                                <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
+                            </div>
+                            <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
+                        </div>
+
+                        <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                            <form action="/update_payout" method="POST">
+                                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                                    <div>
+                                        <label>Method</label>
+                                        <select name="payout_method">
+                                            <option value="Venmo">Venmo</option>
+                                            <option value="Zelle">Zelle</option>
+                                            <option value="PayPal">PayPal</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label>Handle</label>
+                                        <div class="input-group">
+                                            <div class="input-prefix">@</div>
+                                            <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 10px;">
+                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                    <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+                            <div style="background: #fffbeb; border: 1px solid #fcd34d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                                <strong style="color: #92400e; font-size: 0.9rem;">What does the $15 cover?</strong>
+                                <ul style="color: #92400e; font-size: 0.85rem; margin: 5px 0 0 20px; padding: 0;">
+                                    <li>Professional Movers during pickup week.</li>
+                                    <li>Climate-Controlled Storage for the summer.</li>
+                                    <li>Listing fees and payment processing.</li>
+                                </ul>
+                            </div>
+
+                            <form action="/create_checkout_session" method="POST">
+                                <label class="terms-label">
+                                    <input type="checkbox" required>
+                                    <span class="custom-check"></span>
+                                    <span style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
+                                        I understand that items are inspected upon pickup. Rejected items (dirty, broken) will not be accepted, and the fee is non-refundable.
+                                    </span>
+                                </label>
+
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <span>Activation Fee</span>
+                                    <strong style="font-size: 1.2rem;">$15.00</strong>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-accent btn-pay" style="width: 100%; padding: 18px; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                                    Pay & Go Live <i class="fas fa-bolt"></i>
+                                </button>
+                            </form>
+                        </div>
+
+                    {% else %}
+                        <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive payments.</p>
+                        <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
+                            <form action="/update_payout" method="POST">
+                                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                                    <div>
+                                        <label style="margin-top: 0;">Method</label>
+                                        <select name="payout_method" required>
+                                            <option value="Venmo">Venmo</option>
+                                            <option value="Zelle">Zelle</option>
+                                            <option value="PayPal">PayPal</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="margin-top: 0;">Username</label>
+                                        <div class="input-group">
+                                            <div class="input-prefix">@</div>
+                                            <input type="text" name="payout_handle" placeholder="username" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Secure Payout Info</button>
+                            </form>
+                        </div>
+                    {% endif %}
+
+                {% endif %}
+            </div>
+
+        </div>
+
+        <div>
+            <div class="card no-hover" style="position: sticky; top: 100px;">
+                <h4 style="margin-bottom: 20px; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem;">Seller Status</h4>
+                
+                <div style="text-align: center; margin-bottom: 30px;">
+                    {% if not current_user.has_paid %}
+                        <div style="font-size: 3rem; margin-bottom: 10px; color: var(--accent);">
+                            <i class="fas fa-hard-hat"></i>
+                        </div>
+                        <div style="font-weight: 800; font-size: 1.2rem;">Setup In Progress</div>
+                    {% else %}
+                        {# Count active/pending items using a namespace for scoping #}
+                        {% set ns = namespace(active=0, pending=0) %}
+                        {% for item in my_items %}
+                            {% if item.status == 'available' %}{% set ns.active = ns.active + 1 %}{% endif %}
+                            {% if item.status == 'pending_valuation' %}{% set ns.pending = ns.pending + 1 %}{% endif %}
+                        {% endfor %}
+
+                        {% if ns.active > 0 %}
+                            <div style="font-size: 3rem; margin-bottom: 10px; color: var(--primary);">
+                                <i class="fas fa-store"></i>
+                            </div>
+                            <div style="font-weight: 800; font-size: 1.2rem;">Shop is Live!</div>
+                        {% elif ns.pending > 0 %}
+                            <div style="font-size: 3rem; margin-bottom: 10px; color: #3b82f6;">
+                                <i class="fas fa-hourglass-half"></i>
+                            </div>
+                            <div style="font-weight: 800; font-size: 1.2rem;">Pending Review</div>
+                        {% else %}
+                            <div style="font-size: 3rem; margin-bottom: 10px; color: var(--primary);">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div style="font-weight: 800; font-size: 1.2rem;">Active Seller</div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
+                
+                <div style="font-size: 0.9rem; color: var(--text-muted);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Step 1: Address</span> 
+                        <strong style="color: {% if current_user.pickup_address %}var(--primary){% else %}inherit{% endif %}">
+                            {% if current_user.pickup_address %}Done{% else %}To Do{% endif %}
+                        </strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Step 2: Inventory</span> 
+                        <strong style="color: {% if my_items %}var(--primary){% else %}inherit{% endif %}">
+                            {% if my_items %}Done{% else %}To Do{% endif %}
+                        </strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Step 3: Payment</span> 
+                        <strong style="color: {% if current_user.has_paid %}var(--primary){% else %}inherit{% endif %}">
+                            {% if current_user.has_paid %}Done{% else %}To Do{% endif %}
+                        </strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const scrollTarget = urlParams.get('scroll');
+
+    if (scrollTarget) {
+        const element = document.getElementById(scrollTarget);
+        if (element) {
+            setTimeout(() => {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+    }
+
+    function toggleEdit(section) {
+        var view = document.getElementById('view-' + section);
+        var form = document.getElementById('edit-' + section);
+        
+        if (form.style.display === 'none') {
+            form.style.display = 'block';
+            if(view) view.style.display = 'none';
+        } else {
+            form.style.display = 'none';
+            if(view) view.style.display = 'flex';
+        }
+    }
+</script>
+{% endblock %}

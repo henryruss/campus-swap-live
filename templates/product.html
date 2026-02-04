@@ -1,0 +1,213 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    /* PRODUCT SPECIFIC STYLES */
+    .product-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 50px;
+        align-items: start;
+    }
+    
+    .gallery-container {
+        position: sticky;
+        top: 100px;
+    }
+
+    .main-photo-frame {
+        width: 100%;
+        height: 400px;
+        border-radius: 20px;
+        overflow: hidden;
+        cursor: zoom-in; /* Let them know they can click! */
+        box-shadow: var(--glass-shadow);
+        border: 1px solid rgba(255,255,255,0.5);
+        margin-bottom: 20px;
+        background: white;
+    }
+
+    .main-photo-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* Show whole item, don't crop */
+        transition: transform 0.3s;
+    }
+    .main-photo-frame:hover img { transform: scale(1.02); }
+
+    .thumbnail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        gap: 10px;
+    }
+    .thumbnail {
+        height: 80px;
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+        border: 2px solid transparent;
+        opacity: 0.7;
+        transition: all 0.2s;
+    }
+    .thumbnail.active {
+        border-color: var(--primary);
+        opacity: 1;
+    }
+    .thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* LIGHTBOX (THE ZOOM VIEW) */
+    .lightbox {
+        display: none; /* Hidden by default */
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.9);
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(5px);
+    }
+    
+    .lightbox img {
+        max-width: 90%;
+        max-height: 90%;
+        border-radius: 4px;
+        box-shadow: 0 0 50px rgba(0,0,0,0.5);
+    }
+    
+    .close-lightbox {
+        position: absolute;
+        top: 30px;
+        right: 40px;
+        color: white;
+        font-size: 3rem;
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+    .close-lightbox:hover { color: var(--accent); }
+
+    @media (max-width: 768px) {
+        .product-grid { grid-template-columns: 1fr; gap: 30px; }
+        .main-photo-frame { height: 300px; }
+    }
+</style>
+
+<div class="container">
+    
+    <div style="margin-bottom: 20px;">
+        <a href="/inventory" style="color: var(--text-muted); font-weight: 600;">
+            <i class="fas fa-arrow-left"></i> Back to Shop
+        </a>
+    </div>
+
+    <div class="product-grid">
+        
+        <div class="gallery-container">
+            <div class="main-photo-frame" onclick="openLightbox(this.querySelector('img').src)">
+                <img id="mainImage" src="{{ url_for('static', filename='uploads/' + item.photo_url) }}">
+            </div>
+
+            <div class="thumbnail-grid">
+                <div class="thumbnail active" onclick="switchPhoto(this, '{{ url_for('static', filename='uploads/' + item.photo_url) }}')">
+                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}">
+                </div>
+                
+                {% for photo in item.gallery_photos %}
+                {% if photo.photo_url != item.photo_url %}
+                <div class="thumbnail" onclick="switchPhoto(this, '{{ url_for('static', filename='uploads/' + photo.photo_url) }}')">
+                    <img src="{{ url_for('static', filename='uploads/' + photo.photo_url) }}">
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <div>
+            <div class="card no-hover" style="position: sticky; top: 100px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">
+                        ID: #{{ item.id }}
+                    </span>
+                    {% if item.status == 'sold' %}
+                        <span class="badge bg-red" style="font-size: 1rem;">SOLD</span>
+                    {% else %}
+                        <span class="badge bg-green" style="font-size: 1rem;">Available</span>
+                    {% endif %}
+                </div>
+
+                <h1 style="font-size: 2.5rem; margin-bottom: 10px;">{{ item.description }}</h1>
+                <div style="font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 20px;">
+                    ${{ "%.2f"|format(item.price) }}
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-bottom: 20px;">
+
+                <h4 style="margin-bottom: 10px;">Condition</h4>
+                <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 20px;">
+                    {% for i in range(1, 6) %}
+                        <i class="fas fa-star" style="color: {% if i <= item.quality %}#f59e0b{% else %}#e2e8f0{% endif %}; font-size: 1.2rem;"></i>
+                    {% endfor %}
+                    <span style="color: var(--text-muted); font-weight: 600; margin-left: 10px;">{{ item.quality }}/5</span>
+                </div>
+
+                <h4 style="margin-bottom: 10px;">Description</h4>
+                <p style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.7;">
+                    {{ item.long_description or "No detailed description provided." }}
+                </p>
+
+                {% if item.status == 'available' %}
+                    <a href="/buy_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                        Buy Now <i class="fas fa-shopping-cart"></i>
+                    </a>
+                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 15px;">
+                        <i class="fas fa-lock"></i> Secure payment via Stripe
+                    </p>
+                {% else %}
+                    <button class="btn" style="width: 100%; padding: 18px; background: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>
+                        Item Sold
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+    <span class="close-lightbox">&times;</span>
+    <img id="lightbox-img" src="">
+</div>
+
+<script>
+    // 1. Switch Main Photo when thumbnail clicked
+    function switchPhoto(thumb, src) {
+        document.getElementById('mainImage').src = src;
+        
+        // Update active class
+        document.querySelectorAll('.thumbnail').forEach(el => el.classList.remove('active'));
+        thumb.classList.add('active');
+    }
+
+    // 2. Open Lightbox
+    function openLightbox(src) {
+        var lightbox = document.getElementById('lightbox');
+        var img = document.getElementById('lightbox-img');
+        img.src = src;
+        lightbox.style.display = 'flex';
+    }
+
+    // 3. Close Lightbox
+    function closeLightbox() {
+        document.getElementById('lightbox').style.display = 'none';
+    }
+    
+    // Close on Escape key
+    document.addEventListener('keydown', function(event) {
+        if (event.key === "Escape") {
+            closeLightbox();
+        }
+    });
+</script>
+
+{% endblock %}

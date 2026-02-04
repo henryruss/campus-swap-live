@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 800px; margin-top: 40px;">
+    <h1>Edit Item</h1>
+    
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            
+            <h3>Details</h3>
+            <label>Short Title</label>
+            <input type="text" name="description" value="{{ item.description }}" required>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label>Price ($)</label>
+                    <input type="number" name="price" step="0.01" 
+                           value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
+                           placeholder="Pending">
+                </div>
+                <div>
+                    <label>Quality (1-5)</label>
+                    <input type="number" name="quality" min="1" max="5" value="{{ item.quality }}" required>
+                </div>
+            </div>
+
+            <label style="margin-top: 15px;">Long Description</label>
+            <textarea name="long_description" rows="5" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">{{ item.long_description }}</textarea>
+
+            <hr style="margin: 30px 0;">
+
+            <h3>Manage Photos</h3>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                {% for photo in item.gallery_photos %}
+                <div style="position: relative; text-align: center;">
+                    <img src="{{ url_for('static', filename='uploads/' + photo.photo_url) }}" 
+                         style="width: 100%; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                    
+                    <a href="/delete_photo/{{ photo.id }}" 
+                       onclick="return confirm('Delete this photo?');"
+                       style="
+                           position: absolute; top: -5px; right: -5px; 
+                           background: red; color: white; border-radius: 50%; 
+                           width: 20px; height: 20px; font-size: 12px; line-height: 20px; 
+                           text-decoration: none; font-weight: bold;
+                       ">
+                       X
+                    </a>
+                    
+                    {% if item.photo_url == photo.photo_url %}
+                    <div style="font-size: 0.7rem; color: #28a745; font-weight: bold; margin-top: 5px;">Main Cover</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <label style="font-weight: bold;">Add More Photos</label>
+            <input type="file" name="new_photos" accept="image/*" multiple style="margin-top: 5px;">
+            <p style="font-size: 0.8rem; color: #666;">New photos will be added to the gallery.</p>
+
+            <div style="margin-top: 30px; display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <a href="/admin" class="btn btn-outline">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

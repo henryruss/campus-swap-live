@@ -1,0 +1,325 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    /* Admin-Specific Styles */
+    .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+    
+    .stat-input { 
+        font-size: 2rem; text-align: center; border: none; background: transparent; 
+        font-weight: 800; color: var(--primary); width: 100%; 
+        border-bottom: 2px solid #cbd5e1; padding: 5px 0;
+    }
+    .stat-input:focus { border-bottom-color: var(--primary); outline: none; }
+
+    .admin-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    .admin-table th { text-align: left; padding: 15px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e2e8f0; }
+    .admin-table td { padding: 15px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    
+    /* TABLE INPUTS */
+    .table-select {
+        padding: 5px; border: 1px solid #ddd; border-radius: 4px; background: transparent; 
+        font-size: 0.85rem; cursor: pointer; width: 100%; max-width: 140px;
+    }
+    .table-input {
+        padding: 5px; border: 1px solid #ddd; border-radius: 4px; 
+        font-size: 0.9rem; width: 80px; text-align: right;
+    }
+
+    /* TEXT ACTION BUTTONS */
+    .text-btn { 
+        border: none; background: none; cursor: pointer; padding: 5px 10px; 
+        font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+        transition: 0.2s; text-decoration: none; display: inline-block;
+    }
+    .text-btn:hover { text-decoration: underline; }
+    
+    .btn-edit { color: var(--primary); }
+    .btn-sold { color: var(--accent); } 
+    .btn-undo { color: var(--text-muted); }
+    .btn-delete { color: #dc2626; }
+
+    .card.no-hover { transform: none !important; box-shadow: var(--glass-shadow) !important; }
+
+    .stock-card {
+        background: white; 
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+
+    /* HORIZONTAL FORM LAYOUT */
+    .add-form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr; 
+        gap: 20px;
+        align-items: end;
+    }
+    .add-form-full {
+        grid-column: span 4;
+        display: grid;
+        grid-template-columns: 3fr 1fr;
+        gap: 20px;
+        margin-top: 15px;
+    }
+</style>
+
+<div class="container">
+    
+    <div class="dashboard-header">
+        <div>
+            <h1 style="margin-bottom: 5px;">Manager Dashboard</h1>
+            <p style="margin: 0; color: var(--text-muted);">Welcome back. Manage your inventory and gallery.</p>
+        </div>
+        <a href="/" class="btn btn-outline">View Live Site &rarr;</a>
+    </div>
+
+    <div style="margin-bottom: 40px;">
+        <h3 style="border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px; color: var(--primary);">
+            📦 Essentials Stock
+        </h3>
+        
+        <form method="POST">
+            <input type="hidden" name="update_all_counts" value="true">
+            <div class="grid-3">
+                {% for cat in commodities %}
+                <div class="stock-card">
+                    <i class="fas {{ cat.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; display: block; color: var(--primary);"></i>
+                    
+                    <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em;">
+                        {{ cat.name }}
+                    </div>
+                    <input type="number" name="counts_{{ cat.id }}" value="{{ cat.count_in_stock }}" class="stat-input">
+                </div>
+                {% endfor %}
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button type="submit" class="btn btn-primary">Update Counts</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card no-hover" style="margin-bottom: 40px; background: rgba(255,255,255,0.9);">
+        <h3 style="margin-bottom: 20px;">➕ Quick Add Item</h3>
+        <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="add_item" value="true">
+            
+            <div class="add-form-grid">
+                <div>
+                    <label>Category</label>
+                    <select name="category_id" style="width: 100%;">
+                        {% for cat in all_cats %}
+                            <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Quality</label>
+                    <select name="quality" style="width: 100%;">
+                        <option value="5">5 - Like New</option>
+                        <option value="4" selected>4 - Great</option>
+                        <option value="3">3 - Good</option>
+                        <option value="2">2 - Fair</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Price ($)</label>
+                    <input type="number" name="price" step="0.01" placeholder="0.00" required style="width: 100%;">
+                </div>
+                <div></div>
+            </div>
+
+            <div class="add-form-full">
+                <div>
+                    <label>Title / Description</label>
+                    <input type="text" name="description" placeholder="e.g. Green Velvet Couch" required style="width: 100%;">
+                    <input type="text" name="long_description" placeholder="Optional details..." style="width: 100%; margin-top: 5px; font-size: 0.9rem;">
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div>
+                        <label>Photos</label>
+                        <input type="file" name="photos" accept="image/*" multiple required style="font-size: 0.9rem;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Upload Item</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <form method="POST">
+        {% if pending_items %}
+        <div class="card no-hover" style="border: 2px solid #fca5a5; margin-bottom: 30px;">
+            <h3 style="margin-bottom: 10px; color: #b91c1c;">🚨 Action Required ({{ pending_items|length }})</h3>
+            <p style="margin-bottom: 20px; font-size: 0.9rem;">Assign a price to approve these items.</p>
+            
+            <div style="overflow-x: auto;">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Seller</th>
+                            <th>Cat/Qual</th>
+                            <th>Set Price ($)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in pending_items %}
+                        <tr style="background: rgba(255,255,255,0.5);">
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    {% if item.photo_url %}
+                                    <a href="/edit_item/{{ item.id }}" target="_blank">
+                                        <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
+                                    </a>
+                                    {% endif %}
+                                    <div style="font-weight: 600;">{{ item.description }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                {% if item.seller %}
+                                    <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
+                                    <a href="mailto:{{ item.seller.email }}" style="font-size: 0.8rem; color: var(--primary);">{{ item.seller.email }}</a>
+                                {% else %}
+                                    <span style="color: #999;">Admin</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <select name="category_{{ item.id }}" class="table-select" style="margin-bottom: 5px;">
+                                    {% for cat in all_cats %}
+                                        <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
+                                    {% for i in range(5, 1, -1) %}
+                                    <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
+                                       class="table-input" style="border: 2px solid #fca5a5;">
+                            </td>
+                            <td>
+                                <div style="display: flex; gap: 5px;">
+                                    <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
+                                    <button type="submit" name="delete_item" value="{{ item.id }}" 
+                                            class="text-btn btn-delete" onclick="return confirm('Reject this item?');">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card no-hover">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3>📋 Gallery Items</h3>
+            </div>
+            
+            <div style="overflow-x: auto;">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Seller</th>
+                            <th>Category</th> 
+                            <th>Quality</th>
+                            <th>Price ($)</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in gallery_items %}
+                        <tr>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    {% if item.photo_url %}
+                                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover;">
+                                    {% else %}
+                                    <div style="width: 40px; height: 40px; background: #eee; border-radius: 8px;"></div>
+                                    {% endif %}
+                                    <div>
+                                        <div style="font-weight: 600;">{{ item.description }}</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">{{ item.date_added.strftime('%b %d') }}</div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <td>
+                                {% if item.seller %}
+                                    <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted);">{{ item.seller.email }}</div>
+                                {% else %}
+                                    <span style="color: #999; font-size: 0.9rem;">Admin</span>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <select name="category_{{ item.id }}" class="table-select">
+                                    {% for cat in all_cats %}
+                                        <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            
+                            <td>
+                                <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
+                                    {% for i in range(5, 1, -1) %}
+                                    <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            
+                            <td>
+                                <input type="number" name="price_{{ item.id }}" step="0.01" 
+                                       value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
+                                       class="table-input">
+                            </td>
+
+                            <td>
+                                {% if item.status == 'sold' %}
+                                    <span class="badge bg-red">SOLD</span>
+                                {% else %}
+                                    <span class="badge bg-green">ACTIVE</span>
+                                {% endif %}
+                            </td>
+                            
+                            <td style="text-align: right; min-width: 150px;">
+                                <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
+                                    
+                                    <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
+                                    
+                                    {% if item.status == 'available' %}
+                                        <button type="submit" name="mark_sold" value="{{ item.id }}" class="text-btn btn-sold">Sold</button>
+                                    {% elif item.status == 'sold' %}
+                                        <button type="submit" name="mark_available" value="{{ item.id }}" class="text-btn btn-undo">Active</button>
+                                    {% endif %}
+
+                                    <button type="submit" name="delete_item" value="{{ item.id }}" 
+                                            class="text-btn btn-delete" onclick="return confirm('Delete?');">Delete</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
+                <span style="margin-right: 15px; font-size: 0.9rem; color: #666;">Approving Pending Items or Changing Prices?</span>
+                <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary">
+                    💾 Save All Changes
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

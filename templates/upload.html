@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Photo - Campus Swap</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; text-align: center; max-width: 600px; margin: auto; background-color: #f9f9f9; }
+        
+        .card { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        
+        .success-icon { font-size: 50px; margin-bottom: 20px; }
+        h1 { margin-top: 0; color: #333; }
+        p { color: #666; }
+
+        /* Hide the ugly default file input */
+        input[type="file"] { display: none; }
+
+        /* Create a custom "Button" that looks professional */
+        .custom-file-upload {
+            border: 2px dashed #007bff;
+            display: inline-block;
+            padding: 40px 20px;
+            cursor: pointer;
+            width: 100%;
+            box-sizing: border-box;
+            border-radius: 10px;
+            background-color: #f0f8ff;
+            color: #007bff;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .custom-file-upload:hover { background-color: #e1f0ff; }
+
+        /* The Submit Button */
+        .btn { 
+            background-color: #28a745; color: white; border: none;
+            padding: 15px 30px; font-size: 1.2rem; cursor: pointer; border-radius: 5px; margin-top: 20px; width: 100%;
+        }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        /* Image Preview Area */
+        #preview-container { margin-top: 20px; display: none; }
+        #preview-image { max-width: 100%; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div class="success-icon">✅</div>
+        <h1>You're Booked!</h1>
+        <p>One last step. Upload a photo so we know what we're picking up.</p>
+
+        <form action="/upload_photo/{{ user.id }}" method="POST" enctype="multipart/form-data">
+            
+            <label for="file-upload" class="custom-file-upload">
+                📷 Click to Snap or Select Photo
+            </label>
+            <input id="file-upload" type="file" name="item_photo" accept="image/*" onchange="showPreview(event)" required>
+
+            <div id="preview-container">
+                <p>Looking good?</p>
+                <img id="preview-image" src="#" alt="Image Preview">
+                <button type="submit" class="btn">Confirm & Finish</button>
+            </div>
+
+        </form>
+    </div>
+
+    <script>
+        function showPreview(event) {
+            const input = event.target;
+            const preview = document.getElementById('preview-image');
+            const container = document.getElementById('preview-container');
+            const label = document.querySelector('.custom-file-upload');
+
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    container.style.display = "block"; // Show the image and submit button
+                    label.innerHTML = "🔄 Change Photo"; // Update button text
+                    label.style.border = "1px solid #ccc";
+                    label.style.padding = "10px";
+                    label.style.backgroundColor = "white";
+                }
+
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+    </script>
+
+</body>
+</html>
