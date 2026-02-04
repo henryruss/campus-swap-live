@@ -142,6 +142,18 @@
         
         <div>
             
+            {% if not current_user.password_hash %}
+            <div class="step-card active" style="border-color: #f59e0b; background: #fffbeb; margin-bottom: 30px;">
+                <h3 style="color: #92400e; margin-bottom: 10px;"><i class="fas fa-lock"></i> Save Your Progress</h3>
+                <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
+                
+                <form action="/set_password" method="POST" style="margin-top: 15px; display: flex; gap: 10px;">
+                    <input type="password" name="password" placeholder="Create Password" required style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; flex-grow: 1;">
+                    <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
+                </form>
+            </div>
+            {% endif %}
+
             <div id="step-1" class="step-card {% if current_user.pickup_address %}done{% else %}active{% endif %}">
                 <span class="step-number">1</span>
                 {% if current_user.pickup_address %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}

@@ -67,23 +67,42 @@ def load_user(user_id):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    # 1. TRACKING LOGIC
     if request.args.get('source'):
         session['source'] = request.args.get('source')
 
     if request.method == 'POST':
         email = request.form.get('email')
-        existing_user = User.query.filter_by(email=email).first()
         
-        if existing_user:
-            flash("You're already on the list! We'll email you soon.", "success")
+        # Check if user already exists
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            # SCENARIO A: User exists
+            if user.password_hash:
+                # If they have a password, ask them to login
+                flash("You already have an account. Please log in.", "info")
+                return redirect(url_for('login'))
+            else:
+                # SCENARIO B: Existing Lead (No password yet) -> Log them in & go to dashboard
+                login_user(user)
+                return redirect(url_for('dashboard'))
+        
         else:
+            # SCENARIO C: New Lead -> Create, Log In, & Redirect
             source = session.get('source', 'direct')
-            new_lead = User(email=email, referral_source=source)
-            db.session.add(new_lead)
-            db.session.commit()
-            flash("Success! Your seller spot is reserved.", "success")
             
-        return redirect(url_for('index'))
+            # Create User with NO password initially
+            new_user = User(email=email, referral_source=source)
+            db.session.add(new_user)
+            db.session.commit()
+            
+            # Auto-Login the new user
+            login_user(new_user)
+            
+            # Redirect straight to action
+            flash("Welcome! Complete your profile to secure your spot.", "success")
+            return redirect(url_for('dashboard'))
 
     return render_template('index.html')
 
@@ -357,6 +376,17 @@ def delete_photo(photo_id):
 # =========================================================
 # SECTION 4: SELLER AUTH & DASHBOARD
 # =========================================================
+
+# --- NEW ROUTE: SET PASSWORD (FOR GUESTS) ---
+@app.route('/set_password', methods=['POST'])
+@login_required
+def set_password():
+    password = request.form.get('password')
+    if password:
+        current_user.password_hash = generate_password_hash(password)
+        db.session.commit()
+        flash("Account secured! You can now log in anytime.", "success")
+    return redirect(url_for('dashboard'))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
