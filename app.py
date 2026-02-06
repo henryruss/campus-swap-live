@@ -88,14 +88,17 @@ def send_email(to_email, subject, html_content):
 
     try:
         resend.Emails.send({
-            "from": "https://usecampusswap.com/",
+            "from": "Campus Swap <onboarding@resend.dev>",
             "to": to_email,
             "subject": subject,
             "html": html_content
         })
         print(f"Email sent to {to_email}: {subject}")
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        # Log error but don't crash the route
+        print(f"Failed to send email to {to_email}: {e}")
+        import traceback
+        traceback.print_exc()  # Print full traceback for debugging
 
 
 def _item_sold_email_html(item, seller):
