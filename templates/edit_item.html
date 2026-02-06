@@ -6,7 +6,7 @@
     
     <div class="card">
         <form method="POST" enctype="multipart/form-data">
-            {{ csrf_token() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             
             <h3>Details</h3>
             <label>Short Title</label>

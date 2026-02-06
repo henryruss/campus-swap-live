@@ -5,7 +5,7 @@
     <div class="card text-center">
         <h2 style="margin-bottom: 20px;">Student Login</h2>
         <form method="POST">
-            {{ csrf_token() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div style="margin-bottom: 15px; text-align: left;">
                 <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
                 <input type="email" name="email" placeholder="Use your .edu email if possible" required style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;">

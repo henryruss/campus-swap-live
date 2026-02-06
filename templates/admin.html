@@ -82,7 +82,7 @@
         </h3>
         
         <form method="POST">
-            {{ csrf_token() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="hidden" name="update_all_counts" value="true">
             <div class="grid-3">
                 {% for cat in commodities %}
@@ -105,7 +105,7 @@
     <div class="card no-hover" style="margin-bottom: 40px; background: rgba(255,255,255,0.9);">
         <h3 style="margin-bottom: 20px;">➕ Quick Add Item</h3>
         <form method="POST" enctype="multipart/form-data">
-            {{ csrf_token() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="hidden" name="add_item" value="true">
             
             <div class="add-form-grid">
@@ -152,7 +152,7 @@
     </div>
 
     <form method="POST">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         {% if pending_items %}
         <div class="card no-hover" style="border: 2px solid #fca5a5; margin-bottom: 30px;">
             <h3 style="margin-bottom: 10px; color: #b91c1c;">🚨 Action Required ({{ pending_items|length }})</h3>
