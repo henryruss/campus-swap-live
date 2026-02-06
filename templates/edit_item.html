@@ -12,17 +12,26 @@
             <label>Short Title</label>
             <input type="text" name="description" value="{{ item.description }}" required>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
                 <div>
-                    <label>Price ($)</label>
-                    <input type="number" name="price" step="0.01" 
-                           value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
-                           placeholder="Pending">
+                    <label>Category</label>
+                    <select name="category_id" required>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div>
                     <label>Quality (1-5)</label>
                     <input type="number" name="quality" min="1" max="5" value="{{ item.quality }}" required>
                 </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <label>Price ($)</label>
+                <input type="number" name="price" step="0.01" 
+                       value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
+                       placeholder="Pending" style="width: 100%;">
             </div>
 
             <label style="margin-top: 15px;">Long Description</label>
@@ -35,7 +44,7 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; margin-bottom: 20px;">
                 {% for photo in item.gallery_photos %}
                 <div style="position: relative; text-align: center;">
-                    <img src="{{ url_for('static', filename='uploads/' + photo.photo_url) }}" 
+                    <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}" 
                          style="width: 100%; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
                     
                     <a href="/delete_photo/{{ photo.id }}" 
@@ -56,15 +65,60 @@
                 {% endfor %}
             </div>
 
-            <label style="font-weight: bold;">Add More Photos</label>
-            <input type="file" name="new_photos" accept="image/*" multiple style="margin-top: 5px;">
-            <p style="font-size: 0.8rem; color: #666;">New photos will be added to the gallery.</p>
+            <label style="font-weight: bold; margin-top: 20px; display: block;">Add More Photos</label>
+            <div style="border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; background: #f8fafc; margin-top: 10px;">
+                <input type="file" name="new_photos" id="new-photos-input" accept="image/*" multiple 
+                       style="display: none;" onchange="updateNewPhotosPreview(this)">
+                <label for="new-photos-input" style="cursor: pointer; display: inline-block;">
+                    <i class="fas fa-camera" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px; display: block;"></i>
+                    <span style="color: var(--primary); font-weight: 600;">Click to Add Photos</span>
+                </label>
+                <div id="new-photos-preview" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
+                    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px;">New photos to be added:</p>
+                    <div id="new-photos-list" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;"></div>
+                </div>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 10px;">
+                <i class="fas fa-info-circle"></i> New photos will be added to the gallery when you save.
+            </p>
 
             <div style="margin-top: 30px; display: flex; gap: 10px;">
                 <button type="submit" class="btn btn-primary">Save Changes</button>
-                <a href="/admin" class="btn btn-outline">Cancel</a>
+                {% if current_user.is_admin %}
+                    <a href="/admin" class="btn btn-outline">Cancel</a>
+                {% else %}
+                    <a href="/dashboard" class="btn btn-outline">Cancel</a>
+                {% endif %}
             </div>
         </form>
     </div>
 </div>
+
+<script>
+    function updateNewPhotosPreview(input) {
+        const preview = document.getElementById('new-photos-preview');
+        const list = document.getElementById('new-photos-list');
+        
+        if (input.files && input.files.length > 0) {
+            preview.style.display = 'block';
+            list.innerHTML = '';
+            
+            Array.from(input.files).forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const thumb = document.createElement('div');
+                    thumb.style.cssText = 'width: 80px; height: 80px; border-radius: 8px; overflow: hidden; border: 2px solid var(--primary);';
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+                    thumb.appendChild(img);
+                    list.appendChild(thumb);
+                };
+                reader.readAsDataURL(file);
+            });
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+</script>
 {% endblock %}

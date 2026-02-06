@@ -7,6 +7,7 @@ load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 from PIL import Image
 import stripe
 import resend
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -15,7 +16,16 @@ from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting
+
+def get_pickup_period_active():
+    """Get pickup period status from database, fallback to environment variable"""
+    # Check database first (allows admin toggle)
+    db_value = AppSetting.get('pickup_period_active')
+    if db_value is not None:
+        return db_value.lower() == 'true'
+    # Fallback to environment variable
+    return os.environ.get('PICKUP_PERIOD_ACTIVE', 'True').lower() == 'true'
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
@@ -73,6 +83,12 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+def get_user_dashboard():
+    """Helper function to determine where user should be redirected"""
+    if current_user.is_authenticated and current_user.is_admin:
+        return url_for('admin_panel')
+    return url_for('dashboard')
+
 
 # --- EMAIL HELPERS ---
 
@@ -109,7 +125,7 @@ def _item_sold_email_html(item, seller):
     payout_handle = seller.payout_handle or "—"
     return f"""
     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-        <h2 style="color: #166534;">Cha-Ching! 💸</h2>
+        <h2 style="color: #166534;">Cha-Ching!</h2>
         <p>Good news! Your item <strong>{item.description}</strong> has just been purchased.</p>
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>
@@ -135,6 +151,22 @@ def index():
     if request.method == 'POST':
         email = request.form.get('email')
         
+        # Check if pickup period is active
+        pickup_period_active = get_pickup_period_active()
+        if not pickup_period_active:
+            # Pickup period closed - still collect email for marketing
+            # Check if email already exists
+            existing_user = User.query.filter_by(email=email).first()
+            if not existing_user:
+                # Create a "waitlist only" user (no account creation)
+                waitlist_user = User(email=email, referral_source=session.get('source', 'direct'))
+                db.session.add(waitlist_user)
+                db.session.commit()
+            
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            return redirect(url_for('index'))
+        
+        # Pickup period is active - proceed with normal flow
         # Check if user already exists
         user = User.query.filter_by(email=email).first()
         
@@ -143,11 +175,11 @@ def index():
             if user.password_hash:
                 # If they have a password, ask them to login
                 flash("You already have an account. Please log in.", "info")
-                return redirect(url_for('login'))
+                return redirect(url_for('login', email=email))
             else:
                 # SCENARIO B: Existing Lead (No password yet) -> Log them in & go to dashboard
                 login_user(user)
-                return redirect(url_for('dashboard'))
+                return redirect(get_user_dashboard())
         
         else:
             # SCENARIO C: New Lead -> Create, Log In, & Redirect
@@ -168,7 +200,7 @@ def index():
                 "Welcome to Campus Swap!",
                 f"""
                 <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                    <h2 style="color: #166534;">You're on the list! 🎉</h2>
+                    <h2 style="color: #166534;">You're on the list!</h2>
                     <p>Thanks for joining Campus Swap. You're one step closer to turning your move-out items into cash.</p>
                     <p><strong>What's next?</strong></p>
                     <ul>
@@ -184,14 +216,50 @@ def index():
             
             # Redirect straight to action
             flash("Welcome! Complete your profile to secure your spot.", "success")
-            return redirect(url_for('dashboard'))
+            return redirect(get_user_dashboard())
+    
+    pickup_period_active = get_pickup_period_active()
+    return render_template('index.html', pickup_period_active=pickup_period_active)
 
-    return render_template('index.html')
+@app.route('/about')
+def about():
+    return render_template('about.html')
 
 
 # =========================================================
 # SECTION 2: MARKETPLACE ROUTES
 # =========================================================
+
+@app.route('/dropoff', methods=['GET', 'POST'])
+def dropoff():
+    """QR code landing page for in-person drop-offs. Quick signup without full onboarding."""
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        name = request.form.get('name', '').strip()
+        
+        if not email:
+            flash("Please provide your email.", "error")
+            return render_template('dropoff.html', prefill_name=name)
+        
+        # Check if user exists
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            # User exists - update name if provided and different
+            if name and name != user.full_name:
+                user.full_name = name
+                db.session.commit()
+            flash("Thanks! We'll email you when your item sells.", "success")
+        else:
+            # Create new lead user (like waitlist flow)
+            new_user = User(email=email, full_name=name, referral_source='in_person_dropoff')
+            db.session.add(new_user)
+            db.session.commit()
+            flash("Thanks! We'll email you when your item sells.", "success")
+        
+        return render_template('dropoff.html', success=True, email=email)
+    
+    return render_template('dropoff.html')
 
 @app.route('/inventory')
 def inventory():
@@ -254,16 +322,39 @@ def buy_item(item_id):
 
 @app.route('/item_success')
 def item_sold_success():
-    # WEBHOOK UPDATE: This route is now READ-ONLY.
     session_id = request.args.get('session_id')
     if not session_id:
         return redirect(url_for('inventory'))
     
-    session_obj = stripe.checkout.Session.retrieve(session_id)
-    item_id = session_obj.metadata.get('item_id')
-    
-    item = InventoryItem.query.get(item_id)
-    return render_template('item_success.html', item=item)
+    try:
+        session_obj = stripe.checkout.Session.retrieve(session_id)
+        item_id = session_obj.metadata.get('item_id')
+        
+        if not item_id:
+            flash("Invalid session.", "error")
+            return redirect(url_for('inventory'))
+        
+        item = InventoryItem.query.get(item_id)
+        if not item:
+            flash("Item not found.", "error")
+            return redirect(url_for('inventory'))
+        
+        # Verify payment and mark as sold immediately (in case webhook hasn't fired yet)
+        if session_obj.payment_status == 'paid' and item.status == 'available':
+            item.status = 'sold'
+            item.sold_at = datetime.utcnow()
+            if item.category and item.category.count_in_stock > 0:
+                item.category.count_in_stock -= 1
+            db.session.commit()
+            print(f"IMMEDIATE: Item {item_id} marked as sold from success page.")
+        
+        return render_template('item_success.html', item=item)
+    except Exception as e:
+        print(f"Error in item_success route: {e}")
+        import traceback
+        traceback.print_exc()
+        flash("Error processing payment. Please contact support.", "error")
+        return redirect(url_for('inventory'))
 
 
 # =========================================================
@@ -297,13 +388,18 @@ def webhook():
             item_id = session.get('metadata').get('item_id')
             item = InventoryItem.query.get(item_id)
             
-            if item and item.status == 'available':
-                # 1. Update DB
-                item.status = 'sold'
-                if item.category and item.category.count_in_stock > 0:
-                    item.category.count_in_stock -= 1
-                db.session.commit()
-                print(f"WEBHOOK: Item {item_id} sold.")
+            if item:
+                # Only update if still available (prevent double-processing)
+                if item.status == 'available':
+                    # 1. Update DB
+                    item.status = 'sold'
+                    item.sold_at = datetime.utcnow()  # Track when it sold
+                    if item.category and item.category.count_in_stock > 0:
+                        item.category.count_in_stock -= 1
+                    db.session.commit()
+                    print(f"WEBHOOK: Item {item_id} sold.")
+                else:
+                    print(f"WEBHOOK: Item {item_id} already marked as sold (status: {item.status}).")
                 
                 # 2. Email Seller (with 40% payout details)
                 if item.seller:
@@ -331,7 +427,7 @@ def webhook():
                     "You are officially a Campus Swap Seller!",
                     f"""
                     <div style="font-family: sans-serif; padding: 20px;">
-                        <h2>Welcome to the Team! 🚀</h2>
+                        <h2>Welcome to the Team!</h2>
                         <p>Thanks for activating your seller account, {user.full_name}.</p>
                         <p><strong>Your status is now: ACTIVE.</strong></p>
                         <p>Any items you drafted will be reviewed by our team shortly. Once approved, they will go live on the site.</p>
@@ -354,6 +450,13 @@ def admin_panel():
     if not current_user.is_authenticated or not current_user.is_admin:
          flash("Access denied.", "error")
          return redirect(url_for('index'))
+    
+    # Admin can toggle pickup period
+    if request.method == 'POST' and 'toggle_pickup_period' in request.form:
+        current_status = get_pickup_period_active()
+        new_status = not current_status
+        AppSetting.set('pickup_period_active', str(new_status))
+        flash(f"Pickup period {'activated' if new_status else 'closed'}.", "success")
 
     # 1. Update Category Counts
     if request.method == 'POST' and 'update_all_counts' in request.form:
@@ -366,19 +469,36 @@ def admin_panel():
                 except ValueError: pass
         db.session.commit()
 
-    # 2. Add Item (Admin Side)
+    # 2. Add Item (Admin Side - Quick Add for in-person drop-offs)
     if request.method == 'POST' and 'add_item' in request.form:
         cat_id = request.form.get('category_id')
         desc = request.form.get('description')
         long_desc = request.form.get('long_description')
-        price = request.form.get('price')
         quality = request.form.get('quality')
+        seller_email = request.form.get('seller_email', '').strip()
+        seller_name = request.form.get('seller_name', '').strip()
         files = request.files.getlist('photos')
         
+        # Handle seller assignment (optional)
+        seller_id = None
+        if seller_email:
+            seller = User.query.filter_by(email=seller_email).first()
+            if seller:
+                seller_id = seller.id
+            elif seller_name:
+                # Create new user if email provided but doesn't exist
+                new_seller = User(email=seller_email, full_name=seller_name)
+                db.session.add(new_seller)
+                db.session.flush()
+                seller_id = new_seller.id
+        
         if files and files[0].filename != '':
+            # Quick Add is always in-person drop-off, status pending (price set later)
+            collection_method = request.form.get('collection_method', 'in_person')
             new_item = InventoryItem(
                 category_id=cat_id, description=desc, long_description=long_desc,
-                price=float(price), quality=int(quality), photo_url="", status="available"
+                price=None, quality=int(quality), photo_url="", status="pending_valuation",
+                seller_id=seller_id, collection_method=collection_method
             )
             db.session.add(new_item)
             db.session.flush()
@@ -399,57 +519,98 @@ def admin_panel():
                         cover_set = True
                     db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
             
-            cat = InventoryCategory.query.get(cat_id)
-            if cat: cat.count_in_stock += 1
+            # Don't increment count_in_stock yet - item is pending, not available
             db.session.commit()
+            flash(f"Item '{desc}' added to pending items. Set price to approve.", "success")
 
     # 3. Bulk Update Items
     if request.method == 'POST' and 'bulk_update_items' in request.form:
+        updated_count = 0
         for key, value in request.form.items():
             if key.startswith('price_'):
                 try:
                     item_id = int(key.split('_')[1])
                     item = InventoryItem.query.get(item_id)
                     if item:
-                        new_price = float(value) if value else None
+                        new_price = float(value) if value and value.strip() else None
                         
                         # Auto-Activate if pending item gets a price
+                        # In-person items can go live without user paying; online items require payment
                         if item.status == 'pending_valuation' and new_price is not None:
-                            item.status = 'available'
-                            cat = InventoryCategory.query.get(item.category_id)
-                            if cat: cat.count_in_stock += 1
+                            # Check if item can go live (in-person items bypass payment requirement)
+                            can_go_live = False
+                            if item.collection_method == 'in_person':
+                                can_go_live = True  # In-person items don't require payment
+                            elif item.seller and item.seller.has_paid:
+                                can_go_live = True  # Online items require user to have paid
+                            elif not item.seller:
+                                can_go_live = True  # Admin-uploaded items (no seller) can go live
                             
-                            # NOTIFY SELLER THEIR ITEM IS LIVE
-                            if item.seller:
-                                item_url = url_for('product_detail', item_id=item.id, _external=True)
-                                send_email(
-                                    item.seller.email,
-                                    "Your Item is Live! - Campus Swap",
-                                    f"""
-                                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                                        <h2 style="color: #166534;">Your item is live! 🚀</h2>
-                                        <p>Great news! <strong>{item.description}</strong> has been approved and is now listed for sale.</p>
-                                        <p>Price: <strong>${(item.price or 0):.2f}</strong> — when it sells, you'll get 40%.</p>
-                                        <p><a href="{item_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">View listing</a></p>
-                                    </div>
-                                    """
-                                )
+                            if can_go_live:
+                                item.status = 'available'
+                                cat = InventoryCategory.query.get(item.category_id)
+                                if cat: cat.count_in_stock += 1
+                                
+                                # NOTIFY SELLER THEIR ITEM IS LIVE
+                                if item.seller:
+                                    try:
+                                        item_url = url_for('product_detail', item_id=item.id, _external=True)
+                                        send_email(
+                                            item.seller.email,
+                                            "Your Item is Live! - Campus Swap",
+                                            f"""
+                                            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                                                <h2 style="color: #166534;">Your item is live!</h2>
+                                                <p>Great news! <strong>{item.description}</strong> has been approved and is now listed for sale.</p>
+                                                <p>Price: <strong>${new_price:.2f}</strong> — when it sells, you'll get 40%.</p>
+                                                <p><a href="{item_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">View listing</a></p>
+                                            </div>
+                                            """
+                                        )
+                                    except Exception as e:
+                                        print(f"Error sending email notification: {e}")
+                            else:
+                                flash(f"{item.description} cannot go live yet - seller needs to complete payment.", "warning")
                         
                         item.price = new_price
+                        updated_count += 1
                         
                         # Quality & Category Updates
                         if f"quality_{item_id}" in request.form:
-                            item.quality = int(request.form[f"quality_{item_id}"])
+                            try:
+                                item.quality = int(request.form[f"quality_{item_id}"])
+                            except ValueError:
+                                pass
                         if f"category_{item_id}" in request.form:
-                            new_cat_id = int(request.form[f"category_{item_id}"])
-                            if item.category_id != new_cat_id and item.status == 'available':
-                                old_cat = InventoryCategory.query.get(item.category_id)
-                                new_cat = InventoryCategory.query.get(new_cat_id)
-                                if old_cat: old_cat.count_in_stock -= 1
-                                if new_cat: new_cat.count_in_stock += 1
-                            item.category_id = new_cat_id
-                except ValueError: pass
-        db.session.commit()
+                            try:
+                                new_cat_id = int(request.form[f"category_{item_id}"])
+                                if item.category_id != new_cat_id and item.status == 'available':
+                                    old_cat = InventoryCategory.query.get(item.category_id)
+                                    new_cat = InventoryCategory.query.get(new_cat_id)
+                                    if old_cat: old_cat.count_in_stock -= 1
+                                    if new_cat: new_cat.count_in_stock += 1
+                                item.category_id = new_cat_id
+                            except ValueError:
+                                pass
+                except (ValueError, TypeError) as e:
+                    print(f"Error updating item {key}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"Unexpected error updating item {key}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+        
+        try:
+            db.session.commit()
+            if updated_count > 0:
+                flash(f"Updated {updated_count} item(s).", "success")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error committing changes: {e}")
+            import traceback
+            traceback.print_exc()
+            flash("Error updating items. Please try again.", "error")
 
     # 4. Delete / Sold / Available Toggles
     if request.method == 'POST':
@@ -466,6 +627,7 @@ def admin_panel():
             item = InventoryItem.query.get(request.form.get('mark_sold'))
             if item and item.status == 'available':
                 item.status = "sold"
+                item.sold_at = datetime.utcnow()  # Track when it sold
                 cat = InventoryCategory.query.get(item.category_id)
                 if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
                 db.session.commit()
@@ -476,11 +638,20 @@ def admin_panel():
                         "Your Item Has Sold! - Campus Swap",
                         _item_sold_email_html(item, item.seller)
                     )
+        
+        elif 'mark_payout_sent' in request.form:
+            item = InventoryItem.query.get(request.form.get('mark_payout_sent'))
+            if item and item.status == 'sold':
+                item.payout_sent = True
+                db.session.commit()
+                flash(f"Payout marked as sent for {item.description}.", "success")
 
         elif 'mark_available' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_available'))
             if item and item.status == 'sold':
                 item.status = "available"
+                item.sold_at = None  # Reset sold timestamp
+                item.payout_sent = False  # Reset payout status
                 cat = InventoryCategory.query.get(item.category_id)
                 if cat: cat.count_in_stock += 1
                 db.session.commit()
@@ -489,16 +660,26 @@ def admin_panel():
     commodities = InventoryCategory.query.all()
     all_cats = InventoryCategory.query.all()
     
-    # Filter: Show pending items only if user has paid the fee
-    pending_items = InventoryItem.query.join(User).filter(
+    # Filter: Show pending items
+    # - In-person items can always be approved (no payment needed)
+    # - Online items from paid users can be approved
+    # - Admin-uploaded items (no seller) can be approved
+    from sqlalchemy import or_
+    pending_items = InventoryItem.query.outerjoin(User).filter(
         InventoryItem.status == 'pending_valuation',
-        User.has_paid == True 
+        or_(
+            InventoryItem.collection_method == 'in_person',  # In-person items (no payment needed)
+            User.has_paid == True,  # Items from users who paid
+            InventoryItem.seller_id.is_(None)  # Admin-uploaded items (no seller)
+        )
     ).order_by(InventoryItem.date_added.asc()).all()
     
     gallery_items = InventoryItem.query.filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.date_added.desc()).all()
     
+    pickup_period_active = get_pickup_period_active()
     return render_template('admin.html', commodities=commodities, all_cats=all_cats, 
-                           pending_items=pending_items, gallery_items=gallery_items)
+                           pending_items=pending_items, gallery_items=gallery_items,
+                           pickup_period_active=pickup_period_active)
 
 
 @app.route('/edit_item/<int:item_id>', methods=['GET', 'POST'])
@@ -510,7 +691,14 @@ def edit_item(item_id):
     # UPDATED to use is_admin
     if item.seller_id != current_user.id and not current_user.is_admin:
         flash("You cannot edit this item.", "error")
+        return redirect(get_user_dashboard())
+    
+    # Prevent editing live items (non-admin sellers)
+    if item.status == 'available' and not current_user.is_admin:
+        flash("This item is live and cannot be edited. Contact support if you need changes.", "error")
         return redirect(url_for('dashboard'))
+    
+    categories = InventoryCategory.query.all()
     
     if request.method == 'POST':
         item.description = request.form['description']
@@ -518,14 +706,39 @@ def edit_item(item_id):
              item.price = float(request.form['price'])
         item.quality = int(request.form['quality'])
         item.long_description = request.form['long_description']
+        if request.form.get('category_id'):
+            item.category_id = int(request.form['category_id'])
+        
+        # Handle new photo uploads
+        new_photos = request.files.getlist('new_photos')
+        if new_photos and new_photos[0].filename != '':
+            for i, file in enumerate(new_photos):
+                if file.filename:
+                    filename = f"item_{item.id}_{int(time.time())}_{i}.jpg"
+                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    
+                    img = Image.open(file).convert("RGBA")
+                    bg = Image.new("RGB", img.size, (255, 255, 255))
+                    bg.paste(img, (0, 0), img)
+                    bg.save(save_path, "JPEG", quality=80)
+                    
+                    # If no cover photo exists, set first new photo as cover
+                    if not item.photo_url:
+                        item.photo_url = filename
+                    
+                    db.session.add(ItemPhoto(item_id=item.id, photo_url=filename))
         
         db.session.commit()
+        flash("Item updated successfully!", "success")
         
         if current_user.is_admin:
-             return redirect(url_for('admin_panel'))
-        return redirect(url_for('dashboard'))
+            # Check if item was pending - if so, redirect to pending section
+            if item.status == 'pending_valuation':
+                return redirect(url_for('admin_panel') + '#pending-items')
+            return redirect(url_for('admin_panel'))
+        return redirect(get_user_dashboard())
         
-    return render_template('edit_item.html', item=item)
+    return render_template('edit_item.html', item=item, categories=categories)
 
 
 @app.route('/delete_photo/<int:photo_id>')
@@ -536,7 +749,7 @@ def delete_photo(photo_id):
     
     # Security check
     if item.seller_id != current_user.id and not current_user.is_admin:
-        return redirect(url_for('dashboard'))
+        return redirect(get_user_dashboard())
 
     try:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], photo.photo_url)
@@ -552,6 +765,8 @@ def delete_photo(photo_id):
 
     db.session.delete(photo)
     db.session.commit()
+    if current_user.is_admin:
+        return redirect(url_for('admin_panel'))
     return redirect(url_for('edit_item', item_id=item.id))
 
 
@@ -572,19 +787,71 @@ def set_password():
             "Account Secured - Campus Swap",
             f"""
             <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                <h2 style="color: #166534;">Account Secured! 🔐</h2>
+                <h2 style="color: #166534;">Account Secured!</h2>
                 <p>Your password has been set successfully. You can now log in anytime with your email and password.</p>
                 <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
             </div>
             """
         )
         flash("Account secured! You can now log in anytime.", "success")
-    return redirect(url_for('dashboard'))
+    return redirect(get_user_dashboard())
+
+@app.route('/account_settings')
+@login_required
+def account_settings():
+    return render_template('account_settings.html')
+
+@app.route('/change_password', methods=['POST'])
+@login_required
+def change_password():
+    current_password = request.form.get('current_password')
+    new_password = request.form.get('new_password')
+    confirm_password = request.form.get('confirm_password')
+    
+    # Validate new password matches confirmation
+    if new_password != confirm_password:
+        flash("New passwords do not match.", "error")
+        return redirect(url_for('account_settings'))
+    
+    if len(new_password) < 6:
+        flash("Password must be at least 6 characters long.", "error")
+        return redirect(url_for('account_settings'))
+    
+    # If user has existing password, verify current password
+    if current_user.password_hash:
+        if not current_password:
+            flash("Please enter your current password.", "error")
+            return redirect(url_for('account_settings'))
+        
+        if not check_password_hash(current_user.password_hash, current_password):
+            flash("Current password is incorrect.", "error")
+            return redirect(url_for('account_settings'))
+    
+    # Update password
+    current_user.password_hash = generate_password_hash(new_password)
+    db.session.commit()
+    
+    flash("Password updated successfully!", "success")
+    return redirect(url_for('account_settings'))
+
+@app.route('/update_account_info', methods=['POST'])
+@login_required
+def update_account_info():
+    full_name = request.form.get('full_name', '').strip()
+    
+    if full_name:
+        current_user.full_name = full_name
+        db.session.commit()
+        flash("Account information updated successfully!", "success")
+    else:
+        flash("Full name cannot be empty.", "error")
+    
+    return redirect(url_for('account_settings'))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        return redirect(get_user_dashboard())
 
     if request.method == 'POST':
         email = request.form.get('email')
@@ -606,14 +873,14 @@ def register():
                     "Your Campus Swap Account is Ready!",
                     f"""
                     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                        <h2 style="color: #166534;">Account Complete! 🔐</h2>
+                        <h2 style="color: #166534;">Account Complete!</h2>
                         <p>Hi {full_name or 'there'}, your Campus Swap account is all set.</p>
                         <p>You can now log in anytime with your email and password to manage your items and track payouts.</p>
                         <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
                     </div>
                     """
                 )
-                return redirect(url_for('dashboard'))
+                return redirect(get_user_dashboard())
             else:
                 flash("Account already exists. Please log in.", "error")
                 return redirect(url_for('login'))
@@ -628,7 +895,7 @@ def register():
             "Welcome to Campus Swap!",
             f"""
             <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                <h2 style="color: #166534;">Welcome, {full_name or 'there'}! 🎉</h2>
+                <h2 style="color: #166534;">Welcome, {full_name or 'there'}!</h2>
                 <p>Your Campus Swap account has been created. You're ready to start selling.</p>
                 <p><strong>Next steps:</strong></p>
                 <ul>
@@ -640,7 +907,7 @@ def register():
             </div>
             """
         )
-        return redirect(url_for('dashboard'))
+        return redirect(get_user_dashboard())
 
     return render_template('register.html')
 
@@ -648,7 +915,10 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        return redirect(get_user_dashboard())
+    
+    # Pre-fill email if passed as query param (from waitlist redirect)
+    prefill_email = request.args.get('email', '')
         
     if request.method == 'POST':
         email = request.form.get('email')
@@ -657,10 +927,11 @@ def login():
         
         if user and user.password_hash and check_password_hash(user.password_hash, password):
             login_user(user)
-            return redirect(url_for('dashboard'))
+            return redirect(get_user_dashboard())
         else:
             flash("Invalid email or password.", "error")
-    return render_template('login.html')
+            prefill_email = email  # Keep email filled on error
+    return render_template('login.html', prefill_email=prefill_email)
 
 @app.route('/logout')
 @login_required
@@ -671,8 +942,44 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    # Admins should use admin panel, not seller dashboard
+    if current_user.is_admin:
+        return redirect(url_for('admin_panel'))
+    
+    # Refresh user object to ensure we have latest data (especially has_paid status)
+    # This is important after payment webhook updates
+    # Expire the cached user object and reload from database
+    db.session.expire(current_user)
+    db.session.refresh(current_user)
+    
     my_items = InventoryItem.query.filter_by(seller_id=current_user.id).all()
-    return render_template('dashboard.html', my_items=my_items)
+    # Check if user has any online items (which require payment)
+    has_online_items = any(item.collection_method == 'online' for item in my_items)
+    
+    # Calculate payout statistics
+    live_items = [item for item in my_items if item.status == 'available']
+    sold_items = [item for item in my_items if item.status == 'sold']
+    
+    # Estimated payout (40% of live items)
+    estimated_payout = sum(item.price for item in live_items if item.price) * 0.40
+    
+    # Paid out (40% of sold items where payout_sent=True)
+    paid_out = sum(item.price for item in sold_items if item.price and item.payout_sent) * 0.40
+    
+    # Pending payouts (40% of sold items where payout_sent=False)
+    pending_payouts = sum(item.price for item in sold_items if item.price and not item.payout_sent) * 0.40
+    
+    # Total potential (estimated + pending + paid)
+    total_potential = estimated_payout + pending_payouts + paid_out
+    
+    return render_template('dashboard.html', 
+                          my_items=my_items, 
+                          has_online_items=has_online_items,
+                          estimated_payout=estimated_payout,
+                          paid_out=paid_out,
+                          pending_payouts=pending_payouts,
+                          total_potential=total_potential,
+                          sold_items=sold_items)
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -682,7 +989,8 @@ def update_profile():
         current_user.pickup_address = address
         db.session.commit()
         flash("Address updated.", "success")
-    return redirect(url_for('dashboard', scroll='step-1'))
+    # Remove scroll parameter - form is already visible
+    return redirect(get_user_dashboard())
 
 @app.route('/update_payout', methods=['POST'])
 @login_required
@@ -701,7 +1009,8 @@ def update_payout():
             flash("Payout info secured.", "success")
         else:
             flash("Please enter a valid handle.", "error")
-    return redirect(url_for('dashboard', scroll='step-3'))
+    # Remove scroll parameter - form is already visible, no need to scroll
+    return redirect(get_user_dashboard())
 
 @app.route('/create_checkout_session', methods=['POST'])
 @login_required
@@ -730,15 +1039,46 @@ def create_checkout_session():
 @app.route('/success')
 @login_required
 def payment_success():
-    # WEBHOOK UPDATE: This route is now READ-ONLY.
     session_id = request.args.get('session_id')
     if session_id:
-         flash("Payment successful! You can now list items.", "success")
-    return redirect(url_for('dashboard'))
+        try:
+            # Verify payment status directly from Stripe (in case webhook hasn't fired yet)
+            stripe_session = stripe.checkout.Session.retrieve(session_id)
+            
+            # Check if this is a seller activation payment
+            if stripe_session.metadata and stripe_session.metadata.get('type') == 'seller_activation':
+                user_id = int(stripe_session.metadata.get('user_id'))
+                
+                # Verify it's the current user
+                if user_id == current_user.id and stripe_session.payment_status == 'paid':
+                    # Update user payment status if not already set
+                    if not current_user.has_paid:
+                        current_user.has_paid = True
+                        current_user.is_seller = True
+                        db.session.commit()
+                    
+                    # Refresh user object to ensure latest data
+                    db.session.expire(current_user)
+                    db.session.refresh(current_user)
+                    
+                    flash("Payment successful! You can now list items.", "success")
+        except Exception as e:
+            print(f"Error verifying payment: {e}")
+            # Still show success message - webhook will handle it
+            flash("Payment received! Processing...", "info")
+    else:
+        flash("Payment successful! You can now list items.", "success")
+    
+    return redirect(get_user_dashboard())
 
 @app.route('/add_item', methods=['GET', 'POST'])
 @login_required
 def add_item():
+    # Block item uploads when pickup period is closed
+    if not get_pickup_period_active():
+        flash("Pickup period has ended. Items can no longer be added. Check back next year!", "error")
+        return redirect(get_user_dashboard())
+    
     categories = InventoryCategory.query.all()
 
     if request.method == 'POST':
@@ -751,7 +1091,8 @@ def add_item():
         if files and files[0].filename != '':
             new_item = InventoryItem(
                 seller_id=current_user.id, category_id=cat_id, description=desc,
-                long_description=long_desc, quality=int(quality), status="pending_valuation", photo_url=""
+                long_description=long_desc, quality=int(quality), status="pending_valuation", photo_url="",
+                collection_method='online'  # User-uploaded items are always 'online'
             )
             db.session.add(new_item)
             db.session.flush()
@@ -774,7 +1115,7 @@ def add_item():
             
             db.session.commit()
             flash("Item drafted! Complete your activation to list it.", "success")
-            return redirect(url_for('dashboard'))
+            return redirect(get_user_dashboard())
             
     return render_template('add_item.html', categories=categories)
 

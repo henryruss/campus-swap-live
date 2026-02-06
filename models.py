@@ -47,6 +47,13 @@ class InventoryItem(db.Model):
     status = db.Column(db.String(20), default='pending_valuation')
     date_added = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # COLLECTION METHOD: 'online' (default) or 'in_person'
+    collection_method = db.Column(db.String(20), default='online')
+    
+    # PAYOUT TRACKING
+    sold_at = db.Column(db.DateTime, nullable=True)  # When item was marked sold
+    payout_sent = db.Column(db.Boolean, default=False)  # Whether seller has been paid
+    
     category_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=False)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
@@ -57,3 +64,24 @@ class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     photo_url = db.Column(db.String(200), nullable=False)
+
+class AppSetting(db.Model):
+    """Simple key-value store for app-wide settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.String(200), nullable=False)
+    
+    @staticmethod
+    def get(key, default=None):
+        setting = AppSetting.query.filter_by(key=key).first()
+        return setting.value if setting else default
+    
+    @staticmethod
+    def set(key, value):
+        setting = AppSetting.query.filter_by(key=key).first()
+        if setting:
+            setting.value = str(value)
+        else:
+            setting = AppSetting(key=key, value=str(value))
+            db.session.add(setting)
+        db.session.commit()

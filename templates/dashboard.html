@@ -20,12 +20,19 @@
     .step-number {
         position: absolute; top: 20px; right: 25px;
         font-size: 4rem; font-weight: 900; color: rgba(0,0,0,0.03); line-height: 1; pointer-events: none;
+        z-index: 0;
     }
     .step-icon-status {
-        position: absolute; top: 25px; right: 25px;
+        position: absolute; top: 20px; right: 25px;
         font-size: 1.2rem; color: #166534;
         background: #dcfce7; width: 35px; height: 35px;
         display: flex; align-items: center; justify-content: center; border-radius: 50%;
+        z-index: 1;
+        border: 2px solid white;
+    }
+    /* When checkmark is present, move number to left */
+    .step-card.done .step-number {
+        right: 70px;
     }
     
     /* LOCKED DATA BOX */
@@ -126,6 +133,29 @@
     .terms-label input:checked ~ .custom-check::after {
         display: block;
     }
+    
+    @media (max-width: 768px) {
+        .step-card {
+            padding: 20px;
+        }
+        .step-number {
+            font-size: 3rem;
+            top: 15px;
+            right: 15px;
+        }
+        .grid-split {
+            grid-template-columns: 1fr !important;
+        }
+        div[style*="grid-template-columns: 2fr 1fr"] {
+            grid-template-columns: 1fr !important;
+        }
+        div[style*="grid-template-columns: 1fr 2fr"] {
+            grid-template-columns: 1fr !important;
+        }
+        .grid-inventory {
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        }
+    }
 </style>
 
 <div class="container" style="margin-top: 40px;">
@@ -196,136 +226,237 @@
                 <h3 style="margin-bottom: 10px;"><i class="fas fa-camera" style="color: var(--primary);"></i> Inventory</h3>
                 
                 {% if my_items %}
-                    <p style="color: var(--text-muted); margin-bottom: 15px;">{{ my_items|length }} item(s) drafted.</p>
-                    <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                        {% for item in my_items %}
-                        <div style="border-radius: 8px; overflow: hidden; height: 80px;">
-                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
+                    {% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
+                    {% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
+                    {% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
+                    
+                    {% if pending_items %}
+                    <div style="margin-bottom: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
+                                <i class="fas fa-hourglass-half" style="color: #3b82f6;"></i> Pending Approval ({{ pending_items|length }})
+                            </h4>
                         </div>
-                        {% endfor %}
-                        <a href="/add_item" style="border: 2px dashed #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-decoration: none;">
-                            <i class="fas fa-plus"></i>
-                        </a>
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px;">These items are awaiting pricing. You can still edit them.</p>
+                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                            {% for item in pending_items %}
+                            <div style="position: relative; border-radius: 8px; overflow: hidden; height: 80px; border: 2px solid #3b82f6;">
+                                <a href="/edit_item/{{ item.id }}" style="display: block; width: 100%; height: 100%;">
+                                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                </a>
+                                <a href="/edit_item/{{ item.id }}" 
+                                   style="position: absolute; top: 5px; right: 5px; background: rgba(59, 130, 246, 0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; text-decoration: none;">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
                     </div>
+                    {% endif %}
+                    
+                    {% if live_items %}
+                    <div style="margin-bottom: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
+                                <i class="fas fa-store" style="color: var(--primary);"></i> Live Items ({{ live_items|length }})
+                            </h4>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px;">These items are live in the shop. Prices are set and cannot be edited.</p>
+                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;">
+                            {% for item in live_items %}
+                            <div style="position: relative; border-radius: 8px; overflow: hidden; border: 2px solid #bbf7d0; background: #f0fdf4;">
+                                <div style="height: 80px; overflow: hidden;">
+                                    <a href="/item/{{ item.id }}" target="_blank" style="display: block; width: 100%; height: 100%;">
+                                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                    </a>
+                                </div>
+                                <div style="padding: 8px;">
+                                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--primary); margin-bottom: 2px;">
+                                        ${{ "%.0f"|format(item.price) if item.price else "—" }}
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        {{ item.description }}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if sold_items %}
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
+                                <i class="fas fa-check-circle" style="color: #15803d;"></i> Sold Items ({{ sold_items|length }})
+                            </h4>
+                        </div>
+                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">
+                            {% for item in sold_items %}
+                            <div style="position: relative; border-radius: 8px; overflow: hidden; height: 80px; opacity: 0.7;">
+                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover; filter: grayscale(50%);">
+                                <div style="position: absolute; top: 5px; right: 5px; background: #15803d; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">
+                                    SOLD
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 20px;">
+                        <i class="fas fa-plus"></i> Add More Items
+                    </a>
                 {% else %}
                     <p style="color: var(--text-muted);">Upload photos of your items.</p>
                     <a href="/add_item" class="btn btn-primary" style="margin-top: 15px;">Draft Items &rarr;</a>
                 {% endif %}
             </div>
 
-            <div id="step-3" class="step-card {% if current_user.has_paid %}done{% elif my_items %}active{% else %}locked{% endif %}">
+            {% if not current_user.has_paid and has_online_items %}
+            <div id="step-3" class="step-card {% if my_items %}active{% else %}locked{% endif %}">
                 <span class="step-number">3</span>
-                {% if current_user.has_paid %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
 
                 <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout & Launch</h3>
+                
+                {% if current_user.payout_handle %}
+                    
+                    <div id="view-payout" class="locked-box" style="background: #f0fdf4; border-color: #bbf7d0;">
+                        <div>
+                            <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
+                            <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
+                        </div>
+                        <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
+                    </div>
 
-                {% if current_user.has_paid %}
-                    <div style="background: #dcfce7; border: 1px solid #bbf7d0; padding: 20px; border-radius: 12px;">
-                        <h4 style="color: #166534; margin-bottom: 5px;"><i class="fas fa-check-circle"></i> You are live!</h4>
-                        <p style="color: #166534; font-size: 0.9rem; margin: 0;">
-                            Payouts sent to: <strong>{{ current_user.payout_method }} (@{{ current_user.payout_handle }})</strong>
-                        </p>
+                    <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                        <form action="/update_payout" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label>Method</label>
+                                    <select name="payout_method">
+                                        <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
+                                        <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
+                                        <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Handle</label>
+                                    <div class="input-group">
+                                        <div class="input-prefix">@</div>
+                                        <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                                <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+                        <div style="background: #fffbeb; border: 1px solid #fcd34d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <strong style="color: #92400e; font-size: 0.9rem;">What does the $15 cover?</strong>
+                            <ul style="color: #92400e; font-size: 0.85rem; margin: 5px 0 0 20px; padding: 0;">
+                                <li>Professional Movers during pickup week.</li>
+                                <li>Climate-Controlled Storage for the summer.</li>
+                                <li>Listing fees and payment processing.</li>
+                            </ul>
+                        </div>
+
+                        <form action="/create_checkout_session" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <label class="terms-label">
+                                <input type="checkbox" required>
+                                <span class="custom-check"></span>
+                                <span style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
+                                    I understand that items are inspected upon pickup. Rejected items (dirty, broken) will not be accepted, and the fee is non-refundable.
+                                </span>
+                            </label>
+
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <span>Activation Fee</span>
+                                <strong style="font-size: 1.2rem;">$15.00</strong>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-accent btn-pay" style="width: 100%; padding: 18px; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
+                                Pay & Go Live <i class="fas fa-bolt"></i>
+                            </button>
+                        </form>
                     </div>
 
                 {% else %}
-                    
-                    {% if current_user.payout_handle %}
-                        
-                        <div id="view-payout" class="locked-box" style="background: #f0fdf4; border-color: #bbf7d0;">
-                            <div>
-                                <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
-                                <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
+                    <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive payments.</p>
+                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
+                        <form action="/update_payout" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="margin-top: 0;">Method</label>
+                                    <select name="payout_method" required>
+                                        <option value="Venmo">Venmo</option>
+                                        <option value="Zelle">Zelle</option>
+                                        <option value="PayPal">PayPal</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="margin-top: 0;">Username</label>
+                                    <div class="input-group">
+                                        <div class="input-prefix">@</div>
+                                        <input type="text" name="payout_handle" placeholder="username" required>
+                                    </div>
+                                </div>
                             </div>
-                            <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
-                        </div>
-
-                        <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                            <form action="/update_payout" method="POST">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                                    <div>
-                                        <label>Method</label>
-                                        <select name="payout_method">
-                                            <option value="Venmo">Venmo</option>
-                                            <option value="Zelle">Zelle</option>
-                                            <option value="PayPal">PayPal</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label>Handle</label>
-                                        <div class="input-group">
-                                            <div class="input-prefix">@</div>
-                                            <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                    <button type="submit" class="btn btn-primary">Save Changes</button>
-                                    <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
-                                </div>
-                            </form>
-                        </div>
-
-                        <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-                            <div style="background: #fffbeb; border: 1px solid #fcd34d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                                <strong style="color: #92400e; font-size: 0.9rem;">What does the $15 cover?</strong>
-                                <ul style="color: #92400e; font-size: 0.85rem; margin: 5px 0 0 20px; padding: 0;">
-                                    <li>Professional Movers during pickup week.</li>
-                                    <li>Climate-Controlled Storage for the summer.</li>
-                                    <li>Listing fees and payment processing.</li>
-                                </ul>
-                            </div>
-
-                            <form action="/create_checkout_session" method="POST">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <label class="terms-label">
-                                    <input type="checkbox" required>
-                                    <span class="custom-check"></span>
-                                    <span style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
-                                        I understand that items are inspected upon pickup. Rejected items (dirty, broken) will not be accepted, and the fee is non-refundable.
-                                    </span>
-                                </label>
-
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                    <span>Activation Fee</span>
-                                    <strong style="font-size: 1.2rem;">$15.00</strong>
-                                </div>
-                                
-                                <button type="submit" class="btn btn-accent btn-pay" style="width: 100%; padding: 18px; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
-                                    Pay & Go Live <i class="fas fa-bolt"></i>
-                                </button>
-                            </form>
-                        </div>
-
-                    {% else %}
-                        <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive payments.</p>
-                        <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
-                            <form action="/update_payout" method="POST">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                                    <div>
-                                        <label style="margin-top: 0;">Method</label>
-                                        <select name="payout_method" required>
-                                            <option value="Venmo">Venmo</option>
-                                            <option value="Zelle">Zelle</option>
-                                            <option value="PayPal">PayPal</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style="margin-top: 0;">Username</label>
-                                        <div class="input-group">
-                                            <div class="input-prefix">@</div>
-                                            <input type="text" name="payout_handle" placeholder="username" required>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button type="submit" class="btn btn-primary">Secure Payout Info</button>
-                            </form>
-                        </div>
-                    {% endif %}
-
+                            <button type="submit" class="btn btn-primary">Secure Payout Info</button>
+                        </form>
+                    </div>
                 {% endif %}
             </div>
+            {% endif %}
+
+            <!-- Payout Settings (Always visible after payment) -->
+            {% if current_user.has_paid %}
+            <div class="step-card" style="border-color: #bbf7d0; background: #f0fdf4;">
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Settings</h3>
+                
+                <div id="view-payout" class="locked-box" style="background: rgba(255,255,255,0.6);">
+                    <div>
+                        <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
+                        <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
+                    </div>
+                    <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Edit</button>
+                </div>
+
+                <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                    <form action="/update_payout" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label>Method</label>
+                                <select name="payout_method">
+                                    <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
+                                    <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
+                                    <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Handle</label>
+                                <div class="input-group">
+                                    <div class="input-prefix">@</div>
+                                    <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                            <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
 
         </div>
 
@@ -334,12 +465,14 @@
                 <h4 style="margin-bottom: 20px; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem;">Seller Status</h4>
                 
                 <div style="text-align: center; margin-bottom: 30px;">
-                    {% if not current_user.has_paid %}
+                    {% set has_in_person_items = my_items|selectattr('collection_method', 'equalto', 'in_person')|list|length > 0 %}
+                    {% set needs_payment = has_online_items and not current_user.has_paid %}
+                    {% if needs_payment or not current_user.pickup_address or not my_items %}
                         <div style="font-size: 3rem; margin-bottom: 10px; color: var(--accent);">
                             <i class="fas fa-hard-hat"></i>
                         </div>
                         <div style="font-weight: 800; font-size: 1.2rem;">Setup In Progress</div>
-                    {% else %}
+                    {% elif (current_user.has_paid or has_in_person_items) and current_user.pickup_address and my_items %}
                         {# Count active/pending items using a namespace for scoping #}
                         {% set ns = namespace(active=0, pending=0) %}
                         {% for item in my_items %}
@@ -368,6 +501,88 @@
 
                 <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
                 
+                {% if my_items %}
+                {% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
+                {% set ns = namespace(total_value=0) %}
+                {% for item in live_items %}
+                    {% if item.price %}{% set ns.total_value = ns.total_value + item.price %}{% endif %}
+                {% endfor %}
+                
+                {% if live_items|length > 0 or sold_items|length > 0 %}
+                <div style="background: #f0fdf4; border: 2px solid #bbf7d0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                        <i class="fas fa-dollar-sign" style="color: #166534; font-size: 1.5rem;"></i>
+                        <h4 style="margin: 0; color: #166534;">Payout Tracker</h4>
+                    </div>
+                    
+                    {% if total_potential > 0 %}
+                    <!-- Progress Bar -->
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 0.9rem; color: var(--text-muted);">Paid Out</span>
+                            <span style="font-size: 0.9rem; font-weight: 600; color: #166534;">
+                                ${{ "%.2f"|format(paid_out) }} / ${{ "%.2f"|format(total_potential) }}
+                            </span>
+                        </div>
+                        {% set progress_percent = (paid_out / total_potential * 100) if total_potential > 0 else 0 %}
+                        <div style="background: #e2e8f0; border-radius: 8px; height: 24px; overflow: hidden; position: relative;">
+                            <div style="background: linear-gradient(90deg, #166534 0%, #059669 100%); height: 100%; width: {{ progress_percent|round(1) }}%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center;">
+                                {% if paid_out > 0 and progress_percent > 15 %}
+                                <span style="color: white; font-size: 0.75rem; font-weight: 600;">
+                                    ${{ "%.2f"|format(paid_out) }}
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Payout Breakdown -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        {% if estimated_payout > 0 %}
+                        <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Estimated</div>
+                            <div style="font-size: 1.3rem; font-weight: 700; color: #166534;">
+                                ${{ "%.2f"|format(estimated_payout) }}
+                            </div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                                {{ live_items|length }} live item{{ 's' if live_items|length != 1 else '' }}
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if pending_payouts > 0 %}
+                        <div style="background: #fffbeb; padding: 12px; border-radius: 8px; border: 1px solid #fcd34d;">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Pending</div>
+                            <div style="font-size: 1.3rem; font-weight: 700; color: #92400e;">
+                                ${{ "%.2f"|format(pending_payouts) }}
+                            </div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                                Awaiting payment
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    {% if paid_out > 0 %}
+                    <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 10px;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Paid Out</div>
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #166534;">
+                            ${{ "%.2f"|format(paid_out) }}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <div style="background: #e0f2fe; border: 1px solid #93c5fd; border-radius: 8px; padding: 10px; margin-top: 15px;">
+                        <p style="font-size: 0.8rem; color: #1e40af; margin: 0; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Payouts are processed weekly. You'll receive payment via {{ current_user.payout_method or 'your selected method' }}.</span>
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+                
                 <div style="font-size: 0.9rem; color: var(--text-muted);">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                         <span>Step 1: Address</span> 
@@ -381,12 +596,14 @@
                             {% if my_items %}Done{% else %}To Do{% endif %}
                         </strong>
                     </div>
+                    {% if has_online_items %}
                     <div style="display: flex; justify-content: space-between;">
                         <span>Step 3: Payment</span> 
                         <strong style="color: {% if current_user.has_paid %}var(--primary){% else %}inherit{% endif %}">
                             {% if current_user.has_paid %}Done{% else %}To Do{% endif %}
                         </strong>
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -395,15 +612,28 @@
 </div>
 
 <script>
+    // Prevent scroll jump by scrolling immediately if needed, before page fully renders
     const urlParams = new URLSearchParams(window.location.search);
     const scrollTarget = urlParams.get('scroll');
 
     if (scrollTarget) {
+        // Scroll immediately without delay to prevent jump to top
+        window.addEventListener('DOMContentLoaded', function() {
+            const element = document.getElementById(scrollTarget);
+            if (element) {
+                // Use requestAnimationFrame to ensure DOM is ready
+                requestAnimationFrame(() => {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+            }
+        }, { once: true });
+        
+        // Also try immediately (in case DOMContentLoaded already fired)
         const element = document.getElementById(scrollTarget);
         if (element) {
-            setTimeout(() => {
+            requestAnimationFrame(() => {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
+            });
         }
     }
 

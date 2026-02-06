@@ -1,13 +1,104 @@
 {% extends "layout.html" %}
 {% block content %}
-<div style="max-width: 700px; margin: 80px auto; padding: 20px; text-align: center;">
-    <h1>Our Story</h1>
-    <p style="font-size: 1.2rem; line-height: 1.6; color: #555;">
-        Campus Swap started when we saw hundreds of perfectly good couches being thrown into dumpsters during move-out week. 
-        <br><br>
-        We realized there was a better way. We built a system to rescue these items, store them over the summer, and sell them back to incoming students at a fraction of the retail price.
-        <br><br>
-        We are built by students, for students.
-    </p>
+<style>
+    .story-section {
+        margin-bottom: 50px;
+    }
+    .story-image {
+        width: 100%;
+        max-width: 600px;
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        margin: 30px auto;
+        display: block;
+    }
+    .highlight-box {
+        background: #f0fdf4;
+        border-left: 4px solid var(--primary);
+        padding: 25px;
+        border-radius: 12px;
+        margin: 30px 0;
+    }
+    .campus-badge {
+        display: inline-block;
+        background: var(--primary);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin: 5px 5px 5px 0;
+    }
+</style>
+
+<div class="container" style="max-width: 900px; margin-top: 60px;">
+    
+    <!-- Hero Section -->
+    <div class="card" style="text-align: center; margin-bottom: 40px;">
+        <h1 style="font-size: 3rem; margin-bottom: 15px;">Our Story</h1>
+        <p style="font-size: 1.3rem; color: var(--text-muted); font-weight: 500;">
+            Built by students, for students.
+        </p>
+    </div>
+
+    <!-- Image -->
+    <div style="text-align: center; margin-bottom: 50px;">
+        <img src="{{ url_for('static', filename='unitpic.jpg') }}" 
+             alt="Campus Swap Team" 
+             class="story-image">
+    </div>
+
+    <!-- Main Story -->
+    <div class="card story-section">
+        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">How It Started</h2>
+        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 20px;">
+            We're college students, just like you. During move-out week, we watched perfectly good couches, mini-fridges, and furniture pile up in dumpsters. We were throwing our own stuff out too—and we thought: <strong>why can't we make money on this?</strong>
+        </p>
+        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 20px;">
+            So we did something about it. We built Campus Swap to give students a better way to handle move-out. Instead of dragging your stuff to the curb, you snap a photo. We handle pickup, storage, and selling—and you get 40% when your item sells.
+        </p>
+        
+        <div class="highlight-box">
+            <p style="font-size: 1.15rem; line-height: 1.9; color: var(--text-main); margin: 0;">
+                <strong>We're not a big corporation.</strong> We're students who saw a problem and built a solution. We know what it's like to move out of a dorm, and we know what incoming students need. That's why Campus Swap works.
+            </p>
+        </div>
+    </div>
+
+    <!-- Where We Are -->
+    <div class="card story-section">
+        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">Where We're Growing</h2>
+        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 25px;">
+            We started at <strong>Davidson College</strong> and saw how much students loved the service. Now we're expanding to <strong>UNC</strong> and beyond.
+        </p>
+        <div style="margin-top: 20px;">
+            <span class="campus-badge">Davidson College</span>
+            <span class="campus-badge">UNC Chapel Hill</span>
+            <span class="campus-badge" style="background: var(--accent);">More Coming Soon</span>
+        </div>
+    </div>
+
+    <!-- Mission -->
+    <div class="card story-section" style="background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);">
+        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">Our Mission</h2>
+        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 15px;">
+            Campus Swap exists because we believe move-out doesn't have to be wasteful. We believe students deserve to get paid for their stuff, and incoming students deserve affordable furniture.
+        </p>
+        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted);">
+            <strong>We're students helping students.</strong> That's it. No corporate speak, no complicated process. Just a simple way to turn your move-out items into cash.
+        </p>
+    </div>
+
+    <!-- CTA -->
+    <div class="card" style="text-align: center; background: var(--primary); color: white; margin-top: 40px;">
+        <h2 style="color: white; margin-bottom: 15px;">Ready to Join Us?</h2>
+        <p style="font-size: 1.1rem; margin-bottom: 25px; opacity: 0.95;">
+            Start selling your items today. It takes less than a minute.
+        </p>
+        <a href="/#join" class="btn" style="background: white; color: var(--primary); font-size: 1.1rem; padding: 15px 30px;">
+            Get Started <i class="fas fa-arrow-right"></i>
+        </a>
+    </div>
+
 </div>
 {% endblock %}

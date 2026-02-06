@@ -1,6 +1,156 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<style>
+    .upload-zone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 16px;
+        padding: 40px;
+        text-align: center;
+        background: rgba(255,255,255,0.5);
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    .upload-zone:hover {
+        border-color: var(--primary);
+        background: rgba(6, 78, 59, 0.05);
+    }
+    .upload-zone.has-files {
+        padding: 20px;
+        display: none; /* Hide upload zone when files are selected */
+    }
+    
+    .preview-container {
+        display: none;
+        margin-top: 20px;
+        position: relative;
+        z-index: 10;
+    }
+    .preview-container.active {
+        display: block;
+    }
+    .preview-container.active ~ .upload-zone {
+        display: none; /* Hide upload zone when previews are active */
+    }
+    /* When previews are active, disable file input overlay */
+    .preview-container.active ~ #file-input {
+        pointer-events: none !important;
+        z-index: 0 !important;
+    }
+    
+    .preview-carousel {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .preview-main {
+        flex: 1;
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f1f5f9;
+        min-height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .preview-main img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        max-height: 300px;
+    }
+    
+    .carousel-nav {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: white;
+        border: 2px solid var(--primary);
+        color: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 20;
+        pointer-events: auto;
+    }
+    .carousel-nav:hover {
+        background: var(--primary);
+        color: white;
+    }
+    .carousel-nav:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+    
+    .preview-thumbnails {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .preview-thumb {
+        position: relative;
+        width: 80px;
+        height: 80px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.2s;
+        z-index: 20;
+        pointer-events: auto;
+    }
+    .preview-thumb.active {
+        border-color: var(--primary);
+    }
+    .preview-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    
+    .preview-thumb-remove {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        width: 24px;
+        height: 24px;
+        background: #dc2626;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        cursor: pointer;
+        border: 2px solid white;
+        transition: all 0.2s;
+    }
+    .preview-thumb-remove:hover {
+        background: #991b1b;
+        transform: scale(1.1);
+    }
+    
+    .file-count {
+        margin-top: 10px;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+</style>
+
 <div class="container" style="max-width: 600px; margin-top: 40px; position: relative;">
     
     <a href="/dashboard" style="position: absolute; top: 0; left: 0; color: var(--text-muted); font-size: 1.5rem; text-decoration: none;">
@@ -13,20 +163,56 @@
     </div>
 
     <div class="card no-hover">
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" id="item-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             
             <label style="margin-bottom: 10px; display: block;">Item Photos</label>
             
             <div style="position: relative; margin-bottom: 25px;">
+                <!-- File input - only active when no files selected -->
                 <input type="file" name="photos" id="file-input" accept="image/*" multiple required 
                        style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
                 
-                <div style="border: 2px dashed #cbd5e1; border-radius: 16px; padding: 40px; text-align: center; background: rgba(255,255,255,0.5); transition: all 0.2s;">
+                <div class="upload-zone" id="upload-zone">
                     <i class="fas fa-camera" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px;"></i>
                     <h4 style="margin-bottom: 5px;">Click to Upload Photos</h4>
                     <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">or drag and drop them here</p>
-                    <p id="file-name" style="margin-top: 15px; font-weight: bold; color: var(--primary); display: none;"></p>
+                </div>
+                
+                <!-- Preview Container -->
+                <div class="preview-container" id="preview-container" style="position: relative; z-index: 10;">
+                    <div class="preview-carousel">
+                        <button type="button" class="carousel-nav" id="prev-btn" onclick="changeImage(-1)">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        
+                        <div class="preview-main" id="preview-main">
+                            <img id="main-preview" src="" alt="Preview" style="display: none;">
+                            <div id="no-preview" style="color: var(--text-muted);">
+                                <i class="fas fa-image" style="font-size: 3rem; margin-bottom: 10px;"></i>
+                                <p>No preview available</p>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="carousel-nav" id="next-btn" onclick="changeImage(1)">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="preview-thumbnails" id="thumbnails"></div>
+                    
+                    <div class="file-count">
+                        <i class="fas fa-images"></i>
+                        <span id="file-count-text">0 photos selected</span>
+                    </div>
+                    
+                    <!-- Add More Photos Button (shown when previews are active) -->
+                    <div id="add-more-container" style="display: none; margin-top: 15px;">
+                        <button type="button" id="add-more-photos-btn" 
+                                style="width: 100%; padding: 12px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; color: var(--primary); cursor: pointer; font-weight: 600; transition: all 0.2s;">
+                            <i class="fas fa-plus"></i> Add More Photos
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -64,12 +250,224 @@
 </div>
 
 <script>
-    document.getElementById('file-input').addEventListener('change', function(e) {
-        var fileName = e.target.files.length + ' files selected';
-        var display = document.getElementById('file-name');
-        if (e.target.files.length > 0) {
-            display.innerText = "✅ " + fileName;
-            display.style.display = 'block';
+    let selectedFiles = [];
+    let currentImageIndex = 0;
+    
+    const fileInput = document.getElementById('file-input');
+    const uploadZone = document.getElementById('upload-zone');
+    const previewContainer = document.getElementById('preview-container');
+    const mainPreview = document.getElementById('main-preview');
+    const noPreview = document.getElementById('no-preview');
+    const thumbnailsContainer = document.getElementById('thumbnails');
+    const fileCountText = document.getElementById('file-count-text');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    
+    // Handle file selection - ADD to existing files instead of replacing
+    fileInput.addEventListener('change', function(e) {
+        const newFiles = Array.from(e.target.files);
+        if (newFiles.length > 0) {
+            // Add new files to existing selection (avoid duplicates by filename)
+            const existingNames = new Set(selectedFiles.map(f => f.name));
+            const uniqueNewFiles = newFiles.filter(f => !existingNames.has(f.name));
+            selectedFiles = selectedFiles.concat(uniqueNewFiles);
+            
+            // Update file input to reflect all selected files
+            const dataTransfer = new DataTransfer();
+            selectedFiles.forEach(file => dataTransfer.items.add(file));
+            fileInput.files = dataTransfer.files;
+            
+            updatePreviews();
+            uploadZone.classList.add('has-files');
+            previewContainer.classList.add('active');
+        }
+    });
+    
+    // Show/hide "Add More Photos" button
+    function toggleAddMoreButton(show) {
+        const container = document.getElementById('add-more-container');
+        const btn = document.getElementById('add-more-photos-btn');
+        if (container && btn) {
+            container.style.display = show ? 'block' : 'none';
+            if (show) {
+                btn.onclick = () => {
+                    fileInput.click();
+                };
+                btn.onmouseenter = () => {
+                    btn.style.background = '#f1f5f9';
+                    btn.style.borderColor = 'var(--primary)';
+                };
+                btn.onmouseleave = () => {
+                    btn.style.background = '#f8fafc';
+                    btn.style.borderColor = '#cbd5e1';
+                };
+            }
+        }
+    }
+    
+    // Update previews when files change
+    function updatePreviews() {
+        if (selectedFiles.length === 0) {
+            previewContainer.classList.remove('active');
+            uploadZone.classList.remove('has-files');
+            fileInput.value = '';
+            fileInput.style.pointerEvents = 'auto';
+            fileInput.style.zIndex = '2';
+            // Hide "add more" button
+            toggleAddMoreButton(false);
+            return;
+        }
+        
+        // When previews are shown, disable file input overlay
+        fileInput.style.pointerEvents = 'none';
+        fileInput.style.zIndex = '0';
+        
+        // Show "add more photos" button
+        toggleAddMoreButton(true);
+        
+        // Update file count
+        fileCountText.textContent = selectedFiles.length + (selectedFiles.length === 1 ? ' photo selected' : ' photos selected');
+        
+        // Clear thumbnails
+        thumbnailsContainer.innerHTML = '';
+        
+        // Create thumbnails and previews
+        selectedFiles.forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // Create thumbnail
+                const thumb = document.createElement('div');
+                thumb.className = 'preview-thumb' + (index === currentImageIndex ? ' active' : '');
+                thumb.onclick = () => showImage(index);
+                
+                const thumbImg = document.createElement('img');
+                thumbImg.src = e.target.result;
+                thumb.appendChild(thumbImg);
+                
+                const removeBtn = document.createElement('div');
+                removeBtn.className = 'preview-thumb-remove';
+                removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+                removeBtn.onclick = (event) => {
+                    event.stopPropagation();
+                    removeImage(index);
+                };
+                thumb.appendChild(removeBtn);
+                
+                thumbnailsContainer.appendChild(thumb);
+                
+                // Update main preview if this is the current image
+                if (index === currentImageIndex) {
+                    mainPreview.src = e.target.result;
+                    mainPreview.style.display = 'block';
+                    noPreview.style.display = 'none';
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        updateCarouselButtons();
+    }
+    
+    // Show specific image
+    function showImage(index) {
+        if (index < 0 || index >= selectedFiles.length) return;
+        
+        currentImageIndex = index;
+        const file = selectedFiles[index];
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            mainPreview.src = e.target.result;
+            mainPreview.style.display = 'block';
+            noPreview.style.display = 'none';
+            
+            // Update active thumbnail
+            document.querySelectorAll('.preview-thumb').forEach((thumb, i) => {
+                thumb.classList.toggle('active', i === index);
+            });
+            
+            updateCarouselButtons();
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // Change image (carousel navigation)
+    function changeImage(direction) {
+        const newIndex = currentImageIndex + direction;
+        if (newIndex >= 0 && newIndex < selectedFiles.length) {
+            showImage(newIndex);
+        }
+    }
+    
+    // Update carousel navigation buttons
+    function updateCarouselButtons() {
+        prevBtn.disabled = currentImageIndex === 0;
+        nextBtn.disabled = currentImageIndex === selectedFiles.length - 1;
+        
+        // Hide carousel nav if only one image
+        if (selectedFiles.length <= 1) {
+            prevBtn.style.display = 'none';
+            nextBtn.style.display = 'none';
+        } else {
+            prevBtn.style.display = 'flex';
+            nextBtn.style.display = 'flex';
+        }
+    }
+    
+    // Remove image
+    function removeImage(index) {
+        selectedFiles.splice(index, 1);
+        
+        // Update file input (create new FileList)
+        const dataTransfer = new DataTransfer();
+        selectedFiles.forEach(file => dataTransfer.items.add(file));
+        fileInput.files = dataTransfer.files;
+        
+        // Adjust current index if needed
+        if (currentImageIndex >= selectedFiles.length) {
+            currentImageIndex = Math.max(0, selectedFiles.length - 1);
+        }
+        
+        if (selectedFiles.length === 0) {
+            previewContainer.classList.remove('active');
+            uploadZone.classList.remove('has-files');
+            fileInput.required = true;
+        } else {
+            updatePreviews();
+        }
+    }
+    
+    // Drag and drop support
+    uploadZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        uploadZone.style.borderColor = 'var(--primary)';
+        uploadZone.style.background = 'rgba(6, 78, 59, 0.1)';
+    });
+    
+    uploadZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#cbd5e1';
+        uploadZone.style.background = 'rgba(255,255,255,0.5)';
+    });
+    
+    uploadZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        uploadZone.style.borderColor = '#cbd5e1';
+        uploadZone.style.background = 'rgba(255,255,255,0.5)';
+        
+        const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+        if (files.length > 0) {
+            // Add to existing files
+            selectedFiles = selectedFiles.concat(files);
+            
+            // Update file input
+            const dataTransfer = new DataTransfer();
+            selectedFiles.forEach(file => dataTransfer.items.add(file));
+            fileInput.files = dataTransfer.files;
+            
+            updatePreviews();
+            uploadZone.classList.add('has-files');
+            previewContainer.classList.add('active');
         }
     });
 </script>

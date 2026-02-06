@@ -8,7 +8,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div style="margin-bottom: 15px; text-align: left;">
                 <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
-                <input type="email" name="email" placeholder="Use your .edu email if possible" required style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;">
+                <input type="email" name="email" value="{{ prefill_email or '' }}" placeholder="Use your .edu email if possible" required style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;">
                 <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Campus Swap is built by students, for students.
                 </small>

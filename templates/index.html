@@ -241,7 +241,7 @@
                 <div class="step-icon"><i class="fas fa-warehouse"></i></div>
                 <div style="flex: 1; padding-left: 30px;">
                     <h3>2. Hand It Off In May</h3>
-                    <p>Approved items are picked up and brought to a Campus SWap store by our team.</p>
+                    <p>Approved items are picked up and brought to a Campus Swap store by our team.</p>
                 </div>
             </div>
 
@@ -257,14 +257,43 @@
     </div>
 
     <div id="join" class="card reveal fade-up" style="text-align: center; padding: 60px; max-width: 700px; margin: 0 auto 100px;">
-        <i class="fas fa-ticket-alt" style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;"></i>
-        <h2 style="font-size: 2.5rem; margin-bottom: 10px;">Secure Your Seller Spot</h2>
-        <p style="margin-bottom: 30px; font-size: 1.1rem;">Retail space is limited. Join the waitlist now to secure your spot- and never drag a couch to the curb again!</p>
+        <div style="margin-bottom: 30px;">
+            <i class="fas fa-ticket-alt" style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;"></i>
+            <h2 style="font-size: 2.5rem; margin-bottom: 15px;">Secure Your Seller Spot</h2>
+            
+            {% if pickup_period_active %}
+            <div style="background: #fffbeb; border: 2px solid #fcd34d; border-radius: 12px; padding: 12px 20px; margin: 0 auto 20px; max-width: 500px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <i class="fas fa-clock" style="color: #92400e; font-size: 1rem;"></i>
+                <span style="color: #92400e; font-weight: 600; font-size: 0.95rem;">Limited Time: Pickup Period Open</span>
+            </div>
+            {% else %}
+            <div style="background: #f0f9ff; border: 2px solid #93c5fd; border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 500px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
+                    <i class="fas fa-calendar-check" style="color: #1e40af; font-size: 1.2rem;"></i>
+                    <strong style="color: #1e40af; font-size: 0.95rem;">Pickup Period Closed</strong>
+                </div>
+                <p style="color: #1e40af; font-size: 0.85rem; margin: 0;">
+                    Enter your email to be notified when signups open next year!
+                </p>
+            </div>
+            {% endif %}
+            
+            <p style="margin-bottom: 30px; font-size: 1.1rem; color: var(--text-muted);">
+                {% if pickup_period_active %}
+                Retail space is limited. Join the waitlist now to secure your spot—and never drag a couch to the curb again!
+                {% else %}
+                We'll notify you when signups open for next year's pickup period.
+                {% endif %}
+            </p>
+        </div>
         
         <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="email" name="email" placeholder="student@college.edu" required style="width: 300px;">
-            <button type="submit" class="btn btn-primary">Join Waitlist</button>
+            <input type="email" name="email" placeholder="student@college.edu" required 
+                   style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+            <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">
+                {% if pickup_period_active %}Join Waitlist{% else %}Get Notified{% endif %}
+            </button>
         </form>
     </div>
 </div>

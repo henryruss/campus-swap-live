@@ -91,6 +91,7 @@
     @media (max-width: 768px) {
         .product-grid { grid-template-columns: 1fr; gap: 30px; }
         .main-photo-frame { height: 300px; }
+        .gallery-container { position: static; }
     }
 </style>
 
@@ -106,18 +107,18 @@
         
         <div class="gallery-container">
             <div class="main-photo-frame" onclick="openLightbox(this.querySelector('img').src)">
-                <img id="mainImage" src="{{ url_for('static', filename='uploads/' + item.photo_url) }}">
+                <img id="mainImage" src="{{ url_for('uploaded_file', filename=item.photo_url) }}">
             </div>
 
             <div class="thumbnail-grid">
-                <div class="thumbnail active" onclick="switchPhoto(this, '{{ url_for('static', filename='uploads/' + item.photo_url) }}')">
-                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}">
+                <div class="thumbnail active" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=item.photo_url) }}')">
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}">
                 </div>
                 
                 {% for photo in item.gallery_photos %}
                 {% if photo.photo_url != item.photo_url %}
-                <div class="thumbnail" onclick="switchPhoto(this, '{{ url_for('static', filename='uploads/' + photo.photo_url) }}')">
-                    <img src="{{ url_for('static', filename='uploads/' + photo.photo_url) }}">
+                <div class="thumbnail" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=photo.photo_url) }}')">
+                    <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}">
                 </div>
                 {% endif %}
                 {% endfor %}
@@ -158,6 +159,18 @@
                 </p>
 
                 {% if item.status == 'available' %}
+                    <div style="background: #fffbeb; border: 2px solid #fcd34d; border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: flex-start; gap: 10px;">
+                            <i class="fas fa-info-circle" style="color: #92400e; font-size: 1.2rem; margin-top: 2px;"></i>
+                            <div>
+                                <strong style="color: #92400e; display: block; margin-bottom: 5px;">In-Store Pickup Required</strong>
+                                <p style="color: #92400e; font-size: 0.9rem; margin: 0; line-height: 1.5;">
+                                    After purchase, you must visit our retail location to pick up your item. We'll email you pickup details and store hours.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <a href="/buy_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
                         Buy Now <i class="fas fa-shopping-cart"></i>
                     </a>
