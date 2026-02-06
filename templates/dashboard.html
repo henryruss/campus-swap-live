@@ -148,6 +148,7 @@
                 <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
                 
                 <form action="/set_password" method="POST" style="margin-top: 15px; display: flex; gap: 10px;">
+                    {{ csrf_token() }}
                     <input type="password" name="password" placeholder="Create Password" required style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; flex-grow: 1;">
                     <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
                 </form>
@@ -170,6 +171,7 @@
 
                     <div id="edit-address" style="display: none; margin-top: 15px;">
                         <form action="/update_profile" method="POST">
+                            {{ csrf_token() }}
                             <input type="text" name="address" value="{{ current_user.pickup_address }}" required>
                             <div style="display: flex; gap: 10px; margin-top: 10px;">
                                 <button type="submit" class="btn btn-primary">Update</button>
@@ -180,6 +182,7 @@
                 {% else %}
                     <p style="color: var(--text-muted);">Where should we pick up items?</p>
                     <form action="/update_profile" method="POST" style="margin-top: 15px;">
+                        {{ csrf_token() }}
                         <input type="text" name="address" placeholder="e.g. Belk Hall, Room 204" required>
                         <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Location</button>
                     </form>
@@ -197,7 +200,7 @@
                     <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-bottom: 20px;">
                         {% for item in my_items %}
                         <div style="border-radius: 8px; overflow: hidden; height: 80px;">
-                            <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
+                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
                         </div>
                         {% endfor %}
                         <a href="/add_item" style="border: 2px dashed #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-decoration: none;">
@@ -238,6 +241,7 @@
 
                         <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
                             <form action="/update_payout" method="POST">
+                                {{ csrf_token() }}
                                 <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
                                     <div>
                                         <label>Method</label>
@@ -273,6 +277,7 @@
                             </div>
 
                             <form action="/create_checkout_session" method="POST">
+                                {{ csrf_token() }}
                                 <label class="terms-label">
                                     <input type="checkbox" required>
                                     <span class="custom-check"></span>
@@ -296,6 +301,7 @@
                         <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive payments.</p>
                         <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
                             <form action="/update_payout" method="POST">
+                                {{ csrf_token() }}
                                 <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
                                     <div>
                                         <label style="margin-top: 0;">Method</label>

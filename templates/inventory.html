@@ -62,7 +62,7 @@
                 {% endif %}
 
                 <div style="height: 240px; overflow: hidden;">
-                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" 
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" 
                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
                 </div>
                 

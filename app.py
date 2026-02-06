@@ -1,12 +1,18 @@
 import os
 import time
+import json
+from dotenv import load_dotenv
+load_dotenv()  # Load .env for local dev (Render uses env vars directly)
+
 from PIL import Image
 import stripe
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory
+import resend
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
+from flask_wtf.csrf import CSRFProtect
 
 # Import Models
 from models import db, User, InventoryCategory, InventoryItem, ItemPhoto
@@ -18,10 +24,8 @@ app = Flask(__name__)
 # On Render, set this as an Environment Variable called 'SECRET_KEY'.
 app.secret_key = os.environ.get('SECRET_KEY', 'dev_key_for_local_use')
 
-# 1. DATABASE CONFIGURATION (The Postgres Fix)
-# Render provides 'DATABASE_URL'. If it exists, use it. If not, use local SQLite.
+# 1. DATABASE CONFIGURATION
 db_url = os.environ.get('DATABASE_URL')
-
 if db_url:
     # Fix for SQLAlchemy: Render gives 'postgres://', but SQLAlchemy needs 'postgresql://'
     if db_url.startswith("postgres://"):
@@ -33,7 +37,7 @@ else:
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# 2. STORAGE CONFIGURATION (The Persistent Disk Fix)
+# 2. STORAGE CONFIGURATION
 # Check if the Render Disk folder exists. If so, use it.
 if os.path.exists('/var/data'):
     app.config['UPLOAD_FOLDER'] = '/var/data'
@@ -48,8 +52,17 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 db.init_app(app)
 migrate = Migrate(app, db)
 
-# STRIPE CONFIGURATION
+# CSRF Protection (exempt webhook - Stripe sends raw POST without token)
+csrf = CSRFProtect(app)
+
+# --- EXTERNAL SERVICES CONFIGURATION ---
+
+# STRIPE
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
+endpoint_secret = os.environ.get('STRIPE_WEBHOOK_SECRET')
+
+# RESEND (EMAIL)
+resend.api_key = os.environ.get('RESEND_API_KEY')  # Also loaded from .env via load_dotenv()
 
 # LOGIN MANAGER
 login_manager = LoginManager()
@@ -59,6 +72,51 @@ login_manager.login_view = 'login'
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+# --- EMAIL HELPERS ---
+
+def send_email(to_email, subject, html_content):
+    """
+    Sends an email using Resend.
+    NOTE: Until you verify a domain, you can only send to your own email.
+    Once verified, change 'onboarding@resend.dev' to your domain (e.g. hello@usecampusswap.com)
+    """
+    if not resend.api_key:
+        print(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
+        return
+
+    try:
+        resend.Emails.send({
+            "from": "https://usecampusswap.com/",
+            "to": to_email,
+            "subject": subject,
+            "html": html_content
+        })
+        print(f"Email sent to {to_email}: {subject}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+
+def _item_sold_email_html(item, seller):
+    """Build HTML for item sold notification with 40% payout details."""
+    sale_price = item.price or 0
+    payout_amount = round(sale_price * 0.40, 2)
+    payout_method = seller.payout_method or "Venmo"
+    payout_handle = seller.payout_handle or "—"
+    return f"""
+    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+        <h2 style="color: #166534;">Cha-Ching! 💸</h2>
+        <p>Good news! Your item <strong>{item.description}</strong> has just been purchased.</p>
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>
+            <p style="margin: 0 0 8px;"><strong>Your payout (40%):</strong> ${payout_amount:.2f}</p>
+            <p style="margin: 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>
+        </div>
+        <p>We'll process your payout shortly. Our team handles the handover to the buyer—you don't need to do anything!</p>
+        <p>Thanks for selling with Campus Swap!</p>
+    </div>
+    """
 
 
 # =========================================================
@@ -100,6 +158,27 @@ def index():
             # Auto-Login the new user
             login_user(new_user)
             
+            # Send Welcome Email (Waitlist/Lead)
+            dashboard_url = url_for('dashboard', _external=True)
+            send_email(
+                email,
+                "Welcome to Campus Swap!",
+                f"""
+                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                    <h2 style="color: #166534;">You're on the list! 🎉</h2>
+                    <p>Thanks for joining Campus Swap. You're one step closer to turning your move-out items into cash.</p>
+                    <p><strong>What's next?</strong></p>
+                    <ul>
+                        <li>Add your pickup location</li>
+                        <li>Upload photos of your items</li>
+                        <li>Complete activation to go live</li>
+                    </ul>
+                    <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                    <p>Let's make move-out easy.</p>
+                </div>
+                """
+            )
+            
             # Redirect straight to action
             flash("Welcome! Complete your profile to secure your spot.", "success")
             return redirect(url_for('dashboard'))
@@ -131,7 +210,6 @@ def product_detail(item_id):
     return render_template('product.html', item=item)
 
 # --- IMAGE SERVING ROUTE (CRITICAL FOR RENDER) ---
-# Since photos are on a separate disk, we can't just link to 'static/'
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -162,6 +240,8 @@ def buy_item(item_id):
             }],
             mode='payment',
             client_reference_id=str(item.id),
+            # Metadata is crucial for the Webhook to know what to do
+            metadata={'type': 'item_purchase', 'item_id': item.id},
             success_url=url_for('item_sold_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
             cancel_url=url_for('inventory', _external=True),
         )
@@ -171,28 +251,104 @@ def buy_item(item_id):
 
 @app.route('/item_success')
 def item_sold_success():
+    # WEBHOOK UPDATE: This route is now READ-ONLY.
     session_id = request.args.get('session_id')
+    if not session_id:
+        return redirect(url_for('inventory'))
+    
     session_obj = stripe.checkout.Session.retrieve(session_id)
-    item_id = session_obj.client_reference_id
+    item_id = session_obj.metadata.get('item_id')
     
     item = InventoryItem.query.get(item_id)
-    if item and item.status == 'available':
-        item.status = 'sold'
-        if item.category.count_in_stock > 0:
-            item.category.count_in_stock -= 1
-        db.session.commit()
-        
     return render_template('item_success.html', item=item)
 
 
 # =========================================================
-# SECTION 3: ADMIN ROUTES
+# SECTION 3: STRIPE WEBHOOK (CORE LOGIC)
+# =========================================================
+
+@app.route('/webhook', methods=['POST'])
+@csrf.exempt  # Stripe sends raw POST; no CSRF token in webhook payload
+def webhook():
+    if not endpoint_secret:
+        return 'STRIPE_WEBHOOK_SECRET not configured', 500
+
+    payload = request.get_data(as_text=True)
+    sig_header = request.headers.get('Stripe-Signature')
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, endpoint_secret
+        )
+    except ValueError as e:
+        return 'Invalid payload', 400
+    except stripe.error.SignatureVerificationError as e:
+        return 'Invalid signature', 400
+
+    # Handle the event
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        
+        # --- CASE 1: ITEM PURCHASE ---
+        if session.get('metadata', {}).get('type') == 'item_purchase':
+            item_id = session.get('metadata').get('item_id')
+            item = InventoryItem.query.get(item_id)
+            
+            if item and item.status == 'available':
+                # 1. Update DB
+                item.status = 'sold'
+                if item.category and item.category.count_in_stock > 0:
+                    item.category.count_in_stock -= 1
+                db.session.commit()
+                print(f"WEBHOOK: Item {item_id} sold.")
+                
+                # 2. Email Seller (with 40% payout details)
+                if item.seller:
+                    send_email(
+                        item.seller.email,
+                        "Your Item Has Sold! - Campus Swap",
+                        _item_sold_email_html(item, item.seller)
+                    )
+
+        # --- CASE 2: SELLER ACTIVATION ---
+        elif session.get('metadata', {}).get('type') == 'seller_activation':
+            user_id = session.get('metadata').get('user_id')
+            user = User.query.get(user_id)
+            
+            if user:
+                # 1. Update DB
+                user.has_paid = True
+                user.is_seller = True
+                db.session.commit()
+                print(f"WEBHOOK: User {user_id} activated.")
+                
+                # 2. Email User
+                send_email(
+                    user.email,
+                    "You are officially a Campus Swap Seller!",
+                    f"""
+                    <div style="font-family: sans-serif; padding: 20px;">
+                        <h2>Welcome to the Team! 🚀</h2>
+                        <p>Thanks for activating your seller account, {user.full_name}.</p>
+                        <p><strong>Your status is now: ACTIVE.</strong></p>
+                        <p>Any items you drafted will be reviewed by our team shortly. Once approved, they will go live on the site.</p>
+                        <br>
+                        <a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+                    </div>
+                    """
+                )
+
+    return 'Success', 200
+
+
+# =========================================================
+# SECTION 4: ADMIN ROUTES
 # =========================================================
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_panel():
-    # Only allow Admin (User ID 1 or specific email)
-    if not current_user.is_authenticated or current_user.id != 1:
+    # Only allow Admin (Checks is_admin flag)
+    if not current_user.is_authenticated or not current_user.is_admin:
          flash("Access denied.", "error")
          return redirect(url_for('index'))
 
@@ -259,6 +415,22 @@ def admin_panel():
                             item.status = 'available'
                             cat = InventoryCategory.query.get(item.category_id)
                             if cat: cat.count_in_stock += 1
+                            
+                            # NOTIFY SELLER THEIR ITEM IS LIVE
+                            if item.seller:
+                                item_url = url_for('product_detail', item_id=item.id, _external=True)
+                                send_email(
+                                    item.seller.email,
+                                    "Your Item is Live! - Campus Swap",
+                                    f"""
+                                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                                        <h2 style="color: #166534;">Your item is live! 🚀</h2>
+                                        <p>Great news! <strong>{item.description}</strong> has been approved and is now listed for sale.</p>
+                                        <p>Price: <strong>${(item.price or 0):.2f}</strong> — when it sells, you'll get 40%.</p>
+                                        <p><a href="{item_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">View listing</a></p>
+                                    </div>
+                                    """
+                                )
                         
                         item.price = new_price
                         
@@ -294,6 +466,13 @@ def admin_panel():
                 cat = InventoryCategory.query.get(item.category_id)
                 if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
                 db.session.commit()
+                # Email seller (same as webhook - 40% payout details)
+                if item.seller:
+                    send_email(
+                        item.seller.email,
+                        "Your Item Has Sold! - Campus Swap",
+                        _item_sold_email_html(item, item.seller)
+                    )
 
         elif 'mark_available' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_available'))
@@ -325,7 +504,8 @@ def edit_item(item_id):
     item = InventoryItem.query.get_or_404(item_id)
     
     # Security: Only Owner or Admin can edit
-    if item.seller_id != current_user.id and current_user.id != 1:
+    # UPDATED to use is_admin
+    if item.seller_id != current_user.id and not current_user.is_admin:
         flash("You cannot edit this item.", "error")
         return redirect(url_for('dashboard'))
     
@@ -336,10 +516,9 @@ def edit_item(item_id):
         item.quality = int(request.form['quality'])
         item.long_description = request.form['long_description']
         
-        # (Image handling logic would go here if re-uploading)
         db.session.commit()
         
-        if current_user.id == 1:
+        if current_user.is_admin:
              return redirect(url_for('admin_panel'))
         return redirect(url_for('dashboard'))
         
@@ -353,7 +532,7 @@ def delete_photo(photo_id):
     item = photo.item
     
     # Security check
-    if item.seller_id != current_user.id and current_user.id != 1:
+    if item.seller_id != current_user.id and not current_user.is_admin:
         return redirect(url_for('dashboard'))
 
     try:
@@ -374,10 +553,9 @@ def delete_photo(photo_id):
 
 
 # =========================================================
-# SECTION 4: SELLER AUTH & DASHBOARD
+# SECTION 5: SELLER AUTH & DASHBOARD
 # =========================================================
 
-# --- NEW ROUTE: SET PASSWORD (FOR GUESTS) ---
 @app.route('/set_password', methods=['POST'])
 @login_required
 def set_password():
@@ -385,6 +563,18 @@ def set_password():
     if password:
         current_user.password_hash = generate_password_hash(password)
         db.session.commit()
+        dashboard_url = url_for('dashboard', _external=True)
+        send_email(
+            current_user.email,
+            "Account Secured - Campus Swap",
+            f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Account Secured! 🔐</h2>
+                <p>Your password has been set successfully. You can now log in anytime with your email and password.</p>
+                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+            </div>
+            """
+        )
         flash("Account secured! You can now log in anytime.", "success")
     return redirect(url_for('dashboard'))
 
@@ -407,6 +597,19 @@ def register():
                 user.full_name = full_name
                 db.session.commit()
                 login_user(user)
+                dashboard_url = url_for('dashboard', _external=True)
+                send_email(
+                    email,
+                    "Your Campus Swap Account is Ready!",
+                    f"""
+                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                        <h2 style="color: #166534;">Account Complete! 🔐</h2>
+                        <p>Hi {full_name or 'there'}, your Campus Swap account is all set.</p>
+                        <p>You can now log in anytime with your email and password to manage your items and track payouts.</p>
+                        <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                    </div>
+                    """
+                )
                 return redirect(url_for('dashboard'))
             else:
                 flash("Account already exists. Please log in.", "error")
@@ -416,6 +619,24 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
+        dashboard_url = url_for('dashboard', _external=True)
+        send_email(
+            email,
+            "Welcome to Campus Swap!",
+            f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Welcome, {full_name or 'there'}! 🎉</h2>
+                <p>Your Campus Swap account has been created. You're ready to start selling.</p>
+                <p><strong>Next steps:</strong></p>
+                <ul>
+                    <li>Add your pickup address</li>
+                    <li>Upload photos of your items</li>
+                    <li>Complete activation ($15) to go live</li>
+                </ul>
+                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+            </div>
+            """
+        )
         return redirect(url_for('dashboard'))
 
     return render_template('register.html')
@@ -495,6 +716,7 @@ def create_checkout_session():
             }],
             mode='payment',
             client_reference_id=str(current_user.id),
+            metadata={'type': 'seller_activation', 'user_id': current_user.id},
             success_url=url_for('payment_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
             cancel_url=url_for('dashboard', _external=True),
         )
@@ -505,17 +727,10 @@ def create_checkout_session():
 @app.route('/success')
 @login_required
 def payment_success():
+    # WEBHOOK UPDATE: This route is now READ-ONLY.
     session_id = request.args.get('session_id')
-    if not session_id:
-        return redirect(url_for('dashboard'))
-
-    session_obj = stripe.checkout.Session.retrieve(session_id)
-    if session_obj.client_reference_id == str(current_user.id):
-        user_to_update = User.query.get(current_user.id)
-        user_to_update.has_paid = True
-        user_to_update.is_seller = True 
-        db.session.commit()
-        flash("Payment successful! You can now list items.", "success")
+    if session_id:
+         flash("Payment successful! You can now list items.", "success")
     return redirect(url_for('dashboard'))
 
 @app.route('/add_item', methods=['GET', 'POST'])

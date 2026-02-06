@@ -82,6 +82,7 @@
         </h3>
         
         <form method="POST">
+            {{ csrf_token() }}
             <input type="hidden" name="update_all_counts" value="true">
             <div class="grid-3">
                 {% for cat in commodities %}
@@ -104,6 +105,7 @@
     <div class="card no-hover" style="margin-bottom: 40px; background: rgba(255,255,255,0.9);">
         <h3 style="margin-bottom: 20px;">➕ Quick Add Item</h3>
         <form method="POST" enctype="multipart/form-data">
+            {{ csrf_token() }}
             <input type="hidden" name="add_item" value="true">
             
             <div class="add-form-grid">
@@ -150,6 +152,7 @@
     </div>
 
     <form method="POST">
+        {{ csrf_token() }}
         {% if pending_items %}
         <div class="card no-hover" style="border: 2px solid #fca5a5; margin-bottom: 30px;">
             <h3 style="margin-bottom: 10px; color: #b91c1c;">🚨 Action Required ({{ pending_items|length }})</h3>
@@ -173,7 +176,7 @@
                                 <div style="display: flex; align-items: center; gap: 10px;">
                                     {% if item.photo_url %}
                                     <a href="/edit_item/{{ item.id }}" target="_blank">
-                                        <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
+                                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
                                     </a>
                                     {% endif %}
                                     <div style="font-weight: 600;">{{ item.description }}</div>
@@ -242,7 +245,7 @@
                             <td>
                                 <div style="display: flex; align-items: center; gap: 15px;">
                                     {% if item.photo_url %}
-                                    <img src="{{ url_for('static', filename='uploads/' + item.photo_url) }}" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover;">
+                                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover;">
                                     {% else %}
                                     <div style="width: 40px; height: 40px; background: #eee; border-radius: 8px;"></div>
                                     {% endif %}

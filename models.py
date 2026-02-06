@@ -10,12 +10,15 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(128), nullable=True)
     full_name = db.Column(db.String(100), nullable=True)
     
+    # NEW: ADMIN TOGGLE
+    is_admin = db.Column(db.Boolean, default=False)
+    
     # SELLER INFO
     phone = db.Column(db.String(20), nullable=True)
     pickup_address = db.Column(db.String(200), nullable=True)
     
-    # PAYOUT INFO (Moved to End)
-    payout_method = db.Column(db.String(20), nullable=True) # 'Venmo' or 'Zelle'
+    # PAYOUT INFO
+    payout_method = db.Column(db.String(20), nullable=True)
     payout_handle = db.Column(db.String(100), nullable=True)
     
     # STATUS

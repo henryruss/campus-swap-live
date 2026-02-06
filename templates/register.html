@@ -8,6 +8,7 @@
             If you already reserved your spot, use the same email to claim your account.
         </p>
         <form method="POST">
+            {{ csrf_token() }}
             <input type="text" name="full_name" placeholder="Full Name" required>
             <input type="email" name="email" placeholder="Email Address" required>
             <input type="password" name="password" placeholder="Choose Password" required>

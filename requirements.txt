@@ -1,10 +1,12 @@
 alembic==1.18.3
+python-dotenv==1.0.1
 blinker==1.9.0
 certifi==2026.1.4
 charset-normalizer==3.4.4
 click==8.3.1
 Flask==3.1.2
 Flask-Login==0.6.3
+Flask-WTF==1.2.1
 Flask-Migrate==4.1.0
 Flask-SQLAlchemy==3.1.1
 gunicorn==25.0.1
@@ -16,9 +18,10 @@ MarkupSafe==3.0.3
 packaging==26.0
 pillow==12.1.0
 psycopg2-binary==2.9.11
-requests==2.32.5
 SQLAlchemy==2.0.46
 stripe==14.2.0
 typing_extensions==4.15.0
 urllib3==2.6.3
 Werkzeug==3.1.5
+resend>=2.0.0
+requests>=2.31.0
