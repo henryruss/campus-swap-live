@@ -777,24 +777,81 @@ def delete_photo(photo_id):
 @app.route('/set_password', methods=['POST'])
 @login_required
 def set_password():
-    password = request.form.get('password')
-    if password:
-        current_user.password_hash = generate_password_hash(password)
-        db.session.commit()
-        dashboard_url = url_for('dashboard', _external=True)
-        send_email(
-            current_user.email,
-            "Account Secured - Campus Swap",
-            f"""
-            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                <h2 style="color: #166534;">Account Secured!</h2>
-                <p>Your password has been set successfully. You can now log in anytime with your email and password.</p>
-                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-            </div>
-            """
-        )
+    try:
+        password = request.form.get('password')
+        if not password:
+            flash("Password is required.", "error")
+            return redirect(get_user_dashboard())
+        
+        # Save password to database
+        try:
+            current_user.password_hash = generate_password_hash(password)
+            db.session.commit()
+        except Exception as db_error:
+            db.session.rollback()
+            print(f"Database error in set_password: {db_error}")
+            import traceback
+            traceback.print_exc()
+            flash("Error saving password. Please try again.", "error")
+            return redirect(get_user_dashboard())
+        
+        # Try to send email (non-critical - don't fail if this breaks)
+        try:
+            # Build dashboard URL safely
+            try:
+                dashboard_url = url_for('dashboard', _external=True)
+            except Exception as url_error:
+                print(f"Error building dashboard URL: {url_error}")
+                # Fallback to relative URL
+                dashboard_url = url_for('dashboard')
+            
+            send_email(
+                current_user.email,
+                "Account Secured - Campus Swap",
+                f"""
+                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                    <h2 style="color: #166534;">Account Secured!</h2>
+                    <p>Your password has been set successfully. You can now log in anytime with your email and password.</p>
+                    <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                </div>
+                """
+            )
+        except Exception as email_error:
+            # Email failure is non-critical - log but don't crash
+            print(f"Email sending failed in set_password (non-critical): {email_error}")
+            import traceback
+            traceback.print_exc()
+        
         flash("Account secured! You can now log in anytime.", "success")
-    return redirect(get_user_dashboard())
+        
+        # Redirect with fallback
+        try:
+            return redirect(get_user_dashboard())
+        except Exception as redirect_error:
+            print(f"Redirect error in set_password: {redirect_error}")
+            # Fallback redirect
+            try:
+                if current_user.is_admin:
+                    return redirect(url_for('admin_panel'))
+                return redirect(url_for('dashboard'))
+            except:
+                return redirect(url_for('index'))
+                
+    except Exception as e:
+        # Catch-all for any unexpected errors
+        print(f"Unexpected error in set_password route: {e}")
+        import traceback
+        traceback.print_exc()
+        flash("An error occurred. Your password may have been saved. Please try logging in.", "error")
+        # Try to redirect anyway
+        try:
+            if current_user.is_authenticated:
+                if current_user.is_admin:
+                    return redirect(url_for('admin_panel'))
+                return redirect(url_for('dashboard'))
+        except:
+            pass
+        return redirect(url_for('index'))
 
 @app.route('/account_settings')
 @login_required
