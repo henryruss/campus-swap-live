@@ -8,7 +8,7 @@ from PIL import Image
 import stripe
 import resend
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -275,8 +275,6 @@ def sitemap():
 @app.route('/robots.txt')
 def robots_txt():
     """Generate robots.txt file"""
-    from flask import Response
-    
     base_url = request.url_root.rstrip('/')
     robots = [
         'User-agent: *',
@@ -289,6 +287,59 @@ def robots_txt():
     ]
     
     return Response('\n'.join(robots), mimetype='text/plain')
+
+@app.route('/favicon.ico')
+@app.route('/favicon.png')
+def favicon(size=None):
+    """Generate resized favicon from logo.jpg"""
+    try:
+        # Get size from query parameter or use default
+        size = request.args.get('size', type=int) or 512
+        
+        logo_path = os.path.join('static', 'logo.jpg')
+        
+        if not os.path.exists(logo_path):
+            # Fallback to default favicon if logo doesn't exist
+            return Response('', mimetype='image/x-icon'), 404
+        
+        # Open and resize the logo
+        img = Image.open(logo_path)
+        
+        # Convert to RGB if necessary (handles RGBA, P mode, etc.)
+        if img.mode != 'RGB':
+            # Create white background for transparency
+            rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'RGBA':
+                rgb_img.paste(img, mask=img.split()[3])  # Use alpha channel as mask
+            else:
+                rgb_img.paste(img)
+            img = rgb_img
+        
+        # Make it square by cropping to center
+        width, height = img.size
+        size_square = min(width, height)
+        left = (width - size_square) // 2
+        top = (height - size_square) // 2
+        img = img.crop((left, top, left + size_square, top + size_square))
+        
+        # Resize to requested size
+        img = img.resize((size, size), Image.Resampling.LANCZOS)
+        
+        # Save to BytesIO
+        from io import BytesIO
+        img_io = BytesIO()
+        img.save(img_io, 'PNG', quality=95)
+        img_io.seek(0)
+        
+        # Return with caching headers
+        response = Response(img_io.read(), mimetype='image/png')
+        response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
+        return response
+        
+    except Exception as e:
+        print(f"Error generating favicon: {e}")
+        # Return empty favicon on error
+        return Response('', mimetype='image/x-icon'), 404
 
 
 # =========================================================
