@@ -95,6 +95,11 @@
         .grid-split { grid-template-columns: 1fr; } 
         .hero-title { font-size: 3rem; } 
         .hero-sentence { font-size: 1.4rem; }
+        /* Store section responsive */
+        .store-info-grid {
+            grid-template-columns: 1fr !important;
+            gap: 30px !important;
+        }
     }
 </style>
 
@@ -215,7 +220,7 @@
             <i class="fas fa-box-open" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
             <h2 style="font-size: 2.5rem;">We Bridge the Summer Gap</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                You leave in May. Buyers are here all summer, and more arrive next semester. We store and sell your items on your behalf so you don't have to dump them.
+                You leave in May. Buyers are here all summer, and more arrive next semester. We transport, store, and sell your items on your behalf so you don't have to dump them.
             </p>
         </div>
     </div>
@@ -253,6 +258,34 @@
                 <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
                 <div style="flex: 1;"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Store Location Section -->
+    <div class="card reveal fade-up" style="margin: 80px auto; max-width: 900px; padding: 50px;">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <i class="fas fa-store" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px;"></i>
+            <h2 style="font-size: 2.5rem; margin-bottom: 15px; color: var(--text-main);">Store Location Coming Soon</h2>
+            <p style="font-size: 1.2rem; color: var(--text-muted); margin-bottom: 30px;">
+                We're opening a physical store location soon! Check back for updates on our address and hours.
+            </p>
+        </div>
+        
+        <div style="background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 8px; padding: 20px; margin-top: 30px;">
+            <div style="display: flex; align-items: start; gap: 12px;">
+                <i class="fas fa-shipping-fast" style="color: var(--primary); font-size: 1.2rem; margin-top: 2px;"></i>
+                <div>
+                    <p style="color: var(--text-main); font-size: 1rem; margin: 0; line-height: 1.6;">
+                        <strong>In-Store Pickup Only</strong> — We don't ship items yet. Once our store opens, all purchases must be picked up at our physical location. Come visit us to see items in person before you buy!
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 40px; padding-top: 30px; border-top: 1px solid #e2e8f0;">
+            <p style="font-size: 1rem; color: var(--text-muted); margin-bottom: 0;">
+                Questions? <a href="mailto:hello@usecampusswap.com" style="color: var(--primary); font-weight: 600;">Contact us</a>
+            </p>
         </div>
     </div>
 

@@ -3,9 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Campus Swap</title>
+    
+    <!-- Primary Meta Tags -->
+    <title>Campus Swap - Buy & Sell College Furniture | In-Store Pickup Required</title>
+    <meta name="title" content="Campus Swap - Buy & Sell College Furniture | In-Store Pickup Required">
+    <meta name="description" content="Campus Swap is a physical store where students can buy and sell furniture, appliances, and dorm essentials. Visit our store to browse items in person. We pick up items during move-out and pay sellers 40% when items sell.">
+    <meta name="keywords" content="campus swap, college furniture, dorm essentials, buy furniture, sell furniture, UNC Chapel Hill, Davidson College, student marketplace, move-out sale">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://usecampusswap.com/">
+    <meta property="og:title" content="Campus Swap - Buy & Sell College Furniture">
+    <meta property="og:description" content="Visit our physical store to buy and sell college furniture. We're students helping students turn move-out items into cash.">
+    <meta property="og:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://usecampusswap.com/">
+    <meta property="twitter:title" content="Campus Swap - Buy & Sell College Furniture">
+    <meta property="twitter:description" content="Visit our physical store to buy and sell college furniture. We're students helping students turn move-out items into cash.">
+    <meta property="twitter:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='logo.jpg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.jpg') }}">
+    
+    <!-- Stylesheets -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Structured Data for Organization (enables Google sitelinks) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Campus Swap",
+      "url": "https://usecampusswap.com",
+      "logo": "{{ url_for('static', filename='logo.jpg', _external=True) }}",
+      "description": "Campus Swap helps students buy and sell furniture, appliances, and dorm essentials. We pick up items during move-out and pay sellers 40% when items sell.",
+      "sameAs": [
+        "https://usecampusswap.com"
+      ],
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://usecampusswap.com/inventory?search={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    
+    <!-- Structured Data for Website (helps with sitelinks) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Campus Swap",
+      "url": "https://usecampusswap.com",
+      "logo": "{{ url_for('static', filename='logo.jpg', _external=True) }}",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://usecampusswap.com/inventory?search={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    
+    <!-- BreadcrumbList for better navigation structure (helps Google understand site hierarchy) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://usecampusswap.com"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Shop The Drop",
+          "item": "https://usecampusswap.com/inventory"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "About",
+          "item": "https://usecampusswap.com/about"
+        }
+      ]
+    }
+    </script>
 </head>
 <body>
 
@@ -16,13 +105,30 @@
                  style="height: 45px; width: auto; display: block; mix-blend-mode: multiply;">
         </a>
         
-        <nav class="nav-links">
-            <a href="/inventory" class="nav-item">
+        <nav class="nav-links" role="navigation" aria-label="Main navigation">
+            <form id="store-locator-form" style="display: flex; align-items: center; gap: 8px; margin-right: 20px;" onsubmit="return handleStoreSearch(event)">
+                <input type="text" 
+                       id="zip-code-input" 
+                       placeholder="Zip code" 
+                       pattern="[0-9]{5}" 
+                       maxlength="5"
+                       style="width: 100px; padding: 8px 10px; font-size: 0.9rem; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,0.9);">
+                <button type="submit" 
+                        style="padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; white-space: nowrap;">
+                    <i class="fas fa-search"></i> Find Store
+                </button>
+            </form>
+            
+            <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">
                 <i class="fas fa-shopping-bag"></i> Shop The Drop
             </a>
             
+            <a href="/about" class="nav-item" aria-label="About Campus Swap">
+                <i class="fas fa-info-circle"></i> About
+            </a>
+            
             {% if current_user.is_authenticated %}
-                <a href="/dashboard" class="nav-item" style="margin-right: 15px;">
+                <a href="/dashboard" class="nav-item" aria-label="Dashboard">
                     <i class="fas fa-columns"></i> Dashboard
                 </a>
                 <div style="position: relative; display: inline-block;">
@@ -87,11 +193,17 @@
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 30px;">
                 The sustainable way to move out and move in.
             </p>
-            <div style="margin-bottom: 40px;">
+            <div style="margin-bottom: 30px;">
                 <a href="/inventory">Shop</a>
                 <a href="/register">Sell</a>
                 <a href="/about">About</a>
                 <a href="/login">Login</a>
+            </div>
+            <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.1);">
+                <p style="color: var(--text-muted); font-size: 0.9rem;">
+                    <i class="fas fa-map-marker-alt" style="color: var(--primary); margin-right: 8px;"></i>
+                    Store location coming soon
+                </p>
             </div>
             <p style="font-size: 0.8rem; opacity: 0.5;">&copy; 2026 Campus Swap. All rights reserved.</p>
         </div>
@@ -180,6 +292,29 @@
                 });
             }
         });
+        
+        // Store locator function
+        function handleStoreSearch(event) {
+            event.preventDefault();
+            const zipInput = document.getElementById('zip-code-input');
+            const zipCode = zipInput.value.trim();
+            
+            if (!zipCode || zipCode.length !== 5) {
+                alert('Please enter a valid 5-digit zip code.');
+                return false;
+            }
+            
+            // For now, we only have one location, so show store info
+            // Store location coming soon
+            const message = `Thanks for your interest!\n\n` +
+                          `📍 Our store location is coming soon.\n` +
+                          `We'll update this page with our address and hours once we're ready to open.\n\n` +
+                          `In the meantime, you can browse our inventory online!`;
+            
+            alert(message);
+            
+            return false;
+        }
     </script>
 </body>
 </html>
