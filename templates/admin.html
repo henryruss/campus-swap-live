@@ -78,6 +78,11 @@
     .admin-section[open] .summary-chevron {
         transform: rotate(180deg);
     }
+    
+    /* Rotate chevron for collapsible details sections */
+    details[open] summary .fa-chevron-right {
+        transform: rotate(90deg);
+    }
 
     .stock-card {
         background: white; 
@@ -235,6 +240,40 @@
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;">
                 <i class="fas fa-info-circle"></i> Select a data type, then preview in browser or download as CSV.
             </p>
+        </div>
+        
+        <!-- Mass Email Section -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 20px;">
+            <details style="cursor: pointer;">
+                <summary style="color: var(--primary); font-weight: 600; font-size: 0.95rem; margin-bottom: 15px; list-style: none; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-chevron-right" style="font-size: 0.7rem; transition: transform 0.2s;"></i>
+                    <span>Mass Email Marketing</span>
+                </summary>
+                <div style="margin-top: 15px;">
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+                        Send marketing emails to all users in your database. Use HTML for formatting.
+                    </p>
+                    <form method="POST" action="/admin/mass-email" id="mass-email-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <div style="margin-bottom: 15px;">
+                            <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 5px;">Subject</label>
+                            <input type="text" name="subject" placeholder="e.g., Spring Move-Out Special!" required
+                                   style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 5px;">Email Content (HTML)</label>
+                            <textarea name="html_content" rows="12" placeholder='<div style="font-family: sans-serif; padding: 20px; max-width: 500px;"><h2>Your Message Here</h2><p>Email content...</p></div>' required
+                                      style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 0.9rem;"></textarea>
+                            <small style="color: var(--text-muted); font-size: 0.8rem;">Use HTML for formatting. Preview before sending!</small>
+                        </div>
+                        <div style="text-align: right;">
+                            <button type="submit" class="btn btn-primary" data-confirm="Send this email to ALL users in the database?">
+                                <i class="fas fa-paper-plane"></i> Send Mass Email
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </details>
         </div>
         
         <!-- Database Reset Section -->
@@ -785,14 +824,15 @@
             }, 5000);
         }
         
-        // Handle all form submissions with AJAX (except file uploads and database reset)
-        document.querySelectorAll('form').forEach(function(form) {
-            // Skip file upload forms and database reset
-            if (form.enctype === 'multipart/form-data' || 
-                form.action.includes('database/reset') ||
-                form.querySelector('input[name="toggle_pickup_period"]')) {
-                return;
-            }
+            // Handle all form submissions with AJAX (except file uploads, database reset, and mass email)
+            document.querySelectorAll('form').forEach(function(form) {
+                // Skip file upload forms, database reset, pickup period toggle, and mass email
+                if (form.enctype === 'multipart/form-data' || 
+                    form.action.includes('database/reset') ||
+                    form.action.includes('mass-email') ||
+                    form.querySelector('input[name="toggle_pickup_period"]')) {
+                    return;
+                }
             
             form.addEventListener('submit', function(e) {
                 e.preventDefault();

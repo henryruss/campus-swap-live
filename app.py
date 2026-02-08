@@ -123,29 +123,42 @@ def get_user_dashboard():
 
 # --- EMAIL HELPERS ---
 
-def send_email(to_email, subject, html_content):
+def send_email(to_email, subject, html_content, from_email=None):
     """
     Sends an email using Resend.
-    NOTE: Until you verify a domain, you can only send to your own email.
-    Once verified, change 'onboarding@resend.dev' to your domain (e.g. hello@usecampusswap.com)
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject line
+        html_content: HTML email content
+        from_email: Optional sender email (defaults to configured sender)
+    
+    NOTE: Until you verify a domain in Resend, you can only send to your own email.
+    Once verified, update the default 'from' address to your domain (e.g. hello@usecampusswap.com)
     """
     if not resend.api_key:
         print(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
-        return
+        return False
+
+    # Default sender - update this once domain is verified
+    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <onboarding@resend.dev>')
+    sender = from_email or default_from
 
     try:
         resend.Emails.send({
-            "from": "Campus Swap <onboarding@resend.dev>",
+            "from": sender,
             "to": to_email,
             "subject": subject,
             "html": html_content
         })
         print(f"Email sent to {to_email}: {subject}")
+        return True
     except Exception as e:
         # Log error but don't crash the route
         print(f"Failed to send email to {to_email}: {e}")
         import traceback
         traceback.print_exc()  # Print full traceback for debugging
+        return False
 
 
 def _item_sold_email_html(item, seller):
@@ -224,27 +237,7 @@ def index():
             # Auto-Login the new user
             login_user(new_user)
             
-            # Send Welcome Email (Waitlist/Lead)
-            dashboard_url = url_for('dashboard', _external=True)
-            send_email(
-                email,
-                "Welcome to Campus Swap!",
-                f"""
-                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                    <h2 style="color: #166534;">You're on the list!</h2>
-                    <p>Thanks for joining Campus Swap. You're one step closer to turning your move-out items into cash.</p>
-                    <p><strong>What's next?</strong></p>
-                    <ul>
-                        <li>Add your pickup location</li>
-                        <li>Upload photos of your items</li>
-                        <li>Complete activation to go live</li>
-                    </ul>
-                    <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-                    <p>Let's make move-out easy.</p>
-                </div>
-                """
-            )
-            
+            # Email captured for marketing - no welcome email sent to avoid spam
             # Redirect straight to action
             flash("Welcome! Complete your profile to secure your spot.", "success")
             return redirect(get_user_dashboard())
@@ -569,21 +562,7 @@ def webhook():
                 db.session.commit()
                 print(f"WEBHOOK: User {user_id} activated.")
                 
-                # 2. Email User
-                send_email(
-                    user.email,
-                    "You are officially a Campus Swap Seller!",
-                    f"""
-                    <div style="font-family: sans-serif; padding: 20px;">
-                        <h2>Welcome to the Team!</h2>
-                        <p>Thanks for activating your seller account, {user.full_name}.</p>
-                        <p><strong>Your status is now: ACTIVE.</strong></p>
-                        <p>Any items you drafted will be reviewed by our team shortly. Once approved, they will go live on the site.</p>
-                        <br>
-                        <a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
-                    </div>
-                    """
-                )
+                # No email sent - user already sees confirmation on site
 
     return 'Success', 200
 
@@ -706,24 +685,7 @@ def admin_panel():
                                 cat = InventoryCategory.query.get(item.category_id)
                                 if cat: cat.count_in_stock += 1
                                 
-                                # NOTIFY SELLER THEIR ITEM IS LIVE
-                                if item.seller:
-                                    try:
-                                        item_url = url_for('product_detail', item_id=item.id, _external=True)
-                                        send_email(
-                                            item.seller.email,
-                                            "Your Item is Live! - Campus Swap",
-                                            f"""
-                                            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                                                <h2 style="color: #166534;">Your item is live!</h2>
-                                                <p>Great news! <strong>{item.description}</strong> has been approved and is now listed for sale.</p>
-                                                <p>Price: <strong>${new_price:.2f}</strong> — when it sells, you'll get 40%.</p>
-                                                <p><a href="{item_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">View listing</a></p>
-                                            </div>
-                                            """
-                                        )
-                                    except Exception as e:
-                                        print(f"Error sending email notification: {e}")
+                                # No email sent - seller can see item status in dashboard
                             else:
                                 flash(f"{item.description} cannot go live yet - seller needs to complete payment.", "warning")
                         
@@ -995,17 +957,7 @@ def set_password():
                 # Fallback to relative URL
                 dashboard_url = url_for('dashboard')
             
-            send_email(
-                current_user.email,
-                "Account Secured - Campus Swap",
-                f"""
-                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                    <h2 style="color: #166534;">Account Secured!</h2>
-                    <p>Your password has been set successfully. You can now log in anytime with your email and password.</p>
-                    <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-                </div>
-                """
-            )
+            # No email sent - user already sees confirmation on site
         except Exception as email_error:
             # Email failure is non-critical - log but don't crash
             print(f"Email sending failed in set_password (non-critical): {email_error}")
@@ -1117,18 +1069,7 @@ def register():
                 db.session.commit()
                 login_user(user)
                 dashboard_url = url_for('dashboard', _external=True)
-                send_email(
-                    email,
-                    "Your Campus Swap Account is Ready!",
-                    f"""
-                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                        <h2 style="color: #166534;">Account Complete!</h2>
-                        <p>Hi {full_name or 'there'}, your Campus Swap account is all set.</p>
-                        <p>You can now log in anytime with your email and password to manage your items and track payouts.</p>
-                        <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-                    </div>
-                    """
-                )
+                # No email sent - user already logged in and sees dashboard
                 return redirect(get_user_dashboard())
             else:
                 # Account already exists with password - redirect to login with message
@@ -1140,23 +1081,7 @@ def register():
         db.session.commit()
         login_user(new_user)
         dashboard_url = url_for('dashboard', _external=True)
-        send_email(
-            email,
-            "Welcome to Campus Swap!",
-            f"""
-            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                <h2 style="color: #166534;">Welcome, {full_name or 'there'}!</h2>
-                <p>Your Campus Swap account has been created. You're ready to start selling.</p>
-                <p><strong>Next steps:</strong></p>
-                <ul>
-                    <li>Add your pickup address</li>
-                    <li>Upload photos of your items</li>
-                    <li>Complete activation ($15) to go live</li>
-                </ul>
-                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-            </div>
-            """
-        )
+        # No email sent - user already logged in and sees dashboard
         return redirect(get_user_dashboard())
 
     return render_template('register.html')
@@ -1846,6 +1771,84 @@ def admin_database_reset():
         db.session.rollback()
         flash(f"Error resetting database: {str(e)}", "error")
         return redirect(url_for('admin_panel') + '#database')
+
+@app.route('/admin/mass-email', methods=['POST'])
+@login_required
+def admin_mass_email():
+    """Send marketing email to all users in database"""
+    if not current_user.is_admin:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'message': "Access denied."}), 403
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    subject = request.form.get('subject', '').strip()
+    html_content = request.form.get('html_content', '').strip()
+    
+    if not subject or not html_content:
+        error_msg = "Subject and email content are required."
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 400
+        flash(error_msg, "error")
+        return redirect(url_for('admin_panel') + '#mass-email')
+    
+    # Get all users with email addresses
+    users = User.query.filter(User.email.isnot(None)).all()
+    total_users = len(users)
+    
+    if total_users == 0:
+        error_msg = "No users found in database."
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 400
+        flash(error_msg, "error")
+        return redirect(url_for('admin_panel') + '#mass-email')
+    
+    # Send emails
+    sent_count = 0
+    failed_count = 0
+    failed_emails = []
+    
+    for user in users:
+        try:
+            if send_email(user.email, subject, html_content):
+                sent_count += 1
+            else:
+                failed_count += 1
+                failed_emails.append(user.email)
+        except Exception as e:
+            print(f"Error sending email to {user.email}: {e}")
+            failed_count += 1
+            failed_emails.append(user.email)
+    
+    # Prepare response message
+    if sent_count == total_users:
+        message = f"Successfully sent email to all {sent_count} users!"
+    elif sent_count > 0:
+        message = f"Sent to {sent_count} users. {failed_count} failed."
+        if failed_emails:
+            message += f" Failed: {', '.join(failed_emails[:5])}"
+            if len(failed_emails) > 5:
+                message += f" and {len(failed_emails) - 5} more."
+    else:
+        message = f"Failed to send emails. Check logs for details."
+    
+    if is_ajax:
+        return jsonify({
+            'success': sent_count > 0,
+            'message': message,
+            'sent': sent_count,
+            'failed': failed_count,
+            'total': total_users
+        })
+    
+    if sent_count > 0:
+        flash(message, "success")
+    else:
+        flash(message, "error")
+    
+    return redirect(url_for('admin_panel') + '#mass-email')
 
 if __name__ == '__main__':
     with app.app_context():
