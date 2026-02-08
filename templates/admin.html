@@ -40,6 +40,44 @@
     .btn-delete { color: #dc2626; }
 
     .card.no-hover { transform: none !important; box-shadow: var(--glass-shadow) !important; }
+    .card.no-hover:hover { transform: none !important; box-shadow: var(--glass-shadow) !important; }
+    
+    /* Collapsible section styling */
+    .admin-section {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: white;
+        overflow: hidden;
+    }
+    .section-summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #f8fafc;
+        border-bottom: 2px solid #e2e8f0;
+        transition: background 0.2s;
+    }
+    .section-summary:hover {
+        background: #f1f5f9;
+    }
+    .section-summary::-webkit-details-marker {
+        display: none;
+    }
+    .section-summary h3 {
+        color: var(--primary);
+        font-size: 1.25rem;
+    }
+    .summary-chevron {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        transition: transform 0.2s;
+    }
+    .admin-section[open] .summary-chevron {
+        transform: rotate(180deg);
+    }
 
     .stock-card {
         background: white; 
@@ -136,204 +174,402 @@
         </div>
     </div>
 
-    <div style="margin-bottom: 40px;">
-        <h3 style="border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px; color: var(--primary);">
-            <i class="fas fa-boxes"></i> Essentials Stock
-        </h3>
-        
-        <form method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="hidden" name="update_all_counts" value="true">
-            <div class="grid-3">
-                {% for cat in commodities %}
-                <div class="stock-card">
-                    <i class="fas {{ cat.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; display: block; color: var(--primary);"></i>
-                    
-                    <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em;">
-                        {{ cat.name }}
-                    </div>
-                    <input type="number" name="counts_{{ cat.id }}" value="{{ cat.count_in_stock }}" class="stat-input">
-                </div>
-                {% endfor %}
-            </div>
-            <div style="text-align: right; margin-top: 20px;">
-                <button type="submit" class="btn btn-primary">Update Counts</button>
-            </div>
-        </form>
-    </div>
-
-    <div class="card no-hover" style="margin-bottom: 40px; background: rgba(255,255,255,0.9);">
-        <h3 style="margin-bottom: 10px;">
-            <i class="fas fa-plus-circle"></i> Quick Add Item (In-Person Drop-off)
-        </h3>
-        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
-            Use this form when receiving items at the POD. Price will be set later in pending items.
-        </p>
-        
-        <form method="POST" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="hidden" name="add_item" value="true">
-            <input type="hidden" name="collection_method" value="in_person">
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                <div>
-                    <label>Category</label>
-                    <select name="category_id" required>
-                        {% for cat in all_cats %}
-                            <option value="{{ cat.id }}">{{ cat.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div>
-                    <label>Quality</label>
-                    <select name="quality" required>
-                        <option value="5">5 - Like New</option>
-                        <option value="4" selected>4 - Great</option>
-                        <option value="3">3 - Good</option>
-                        <option value="2">2 - Fair</option>
-                    </select>
-                </div>
-            </div>
-
-            <div style="margin-bottom: 20px;">
-                <label>Title / Description</label>
-                <input type="text" name="description" placeholder="e.g. Green Velvet Couch" required>
-                <input type="text" name="long_description" placeholder="Optional details..." style="margin-top: 8px; font-size: 0.9rem;">
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <label>Photo</label>
-                <div style="position: relative;">
-                    <input type="file" name="photos" id="admin-file-input" accept="image/*" multiple required 
-                           style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
-                    <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; background: #f8fafc; transition: all 0.2s;">
-                        <i class="fas fa-camera" style="color: var(--primary); margin-right: 8px;"></i>
-                        <span id="admin-file-label" style="font-size: 0.9rem; color: var(--text-muted);">Choose files</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                <div>
-                    <label>Seller Name</label>
-                    <input type="text" name="seller_name" placeholder="John Doe">
-                </div>
-                <div>
-                    <label>Seller Email</label>
-                    <input type="email" name="seller_email" placeholder="john@college.edu">
-                </div>
-            </div>
-            
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px; padding: 10px; background: #f8fafc; border-radius: 6px;">
-                <i class="fas fa-info-circle"></i> If email exists, links to that user. If new email + name provided, creates user. Leave blank for admin-uploaded items.
-            </p>
-            
-            <button type="submit" class="btn btn-primary" style="width: 100%;">
-                <i class="fas fa-plus"></i> Add to Pending Items
-            </button>
-        </form>
-    </div>
-
-    <form method="POST">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        {% if pending_items %}
-        <div id="pending-items" class="card no-hover" style="border: 2px solid #fca5a5; margin-bottom: 30px;">
-            <h3 style="margin-bottom: 10px; color: #b91c1c;">
-                <i class="fas fa-exclamation-triangle"></i> Action Required ({{ pending_items|length }})
+    <!-- Database Overview -->
+    <details class="admin-section" open style="margin-bottom: 40px;">
+        <summary class="section-summary">
+            <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
+                <i class="fas fa-database"></i> Database Overview
             </h3>
-            <p style="margin-bottom: 20px; font-size: 0.9rem;">Assign a price to approve these items.</p>
-            
-            <div style="overflow-x: auto;">
-                <table class="admin-table">
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>Seller</th>
-                            <th>Type</th>
-                            <th>Cat/Qual</th>
-                            <th>Set Price ($)</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in pending_items %}
-                        <tr style="background: rgba(255,255,255,0.5);">
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    {% if item.photo_url %}
-                                    <a href="/edit_item/{{ item.id }}" target="_blank">
-                                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
-                                    </a>
-                                    {% endif %}
-                                    <div style="font-weight: 600;">{{ item.description }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                {% if item.seller %}
-                                    <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
-                                    <a href="mailto:{{ item.seller.email }}" style="font-size: 0.8rem; color: var(--primary);">{{ item.seller.email }}</a>
-                                    {% if not item.seller.has_paid and item.collection_method == 'online' %}
-                                        <span style="font-size: 0.7rem; color: #dc2626; display: block; margin-top: 2px;">
-                                            <i class="fas fa-exclamation-circle"></i> Payment Required
-                                        </span>
-                                    {% endif %}
-                                {% else %}
-                                    <span style="color: #999;">Admin</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if item.collection_method == 'in_person' %}
-                                    <span style="background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
-                                        <i class="fas fa-box"></i> In-Person
-                                    </span>
-                                {% else %}
-                                    <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
-                                        <i class="fas fa-globe"></i> Online
-                                    </span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <select name="category_{{ item.id }}" class="table-select" style="margin-bottom: 5px;">
-                                    {% for cat in all_cats %}
-                                        <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-                                    {% endfor %}
-                                </select>
-                                <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
-                                    {% for i in range(5, 1, -1) %}
-                                    <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
-                                    {% endfor %}
-                                </select>
-                            </td>
-                            <td>
-                                <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
-                                       class="table-input" style="border: 2px solid #fca5a5;">
-                            </td>
-                            <td>
-                                <div style="display: flex; gap: 5px;">
-                                    <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
-                                    <button type="submit" name="delete_item" value="{{ item.id }}" 
-                                            class="text-btn btn-delete" onclick="return confirm('Reject this item?');">Reject</button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <i class="fas fa-chevron-down summary-chevron"></i>
+        </summary>
+        <div class="card no-hover" style="margin-top: 20px;">
+        <div class="grid-3" style="margin-bottom: 30px;">
+            <div class="stock-card">
+                <i class="fas fa-users" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px;"></i>
+                <div style="font-size: 2rem; font-weight: 800; color: var(--text-main);">{{ total_users }}</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem;">Total Users</div>
             </div>
-
-            <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
-                <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary">
-                    <i class="fas fa-save"></i> Save Changes
-                </button>
+            <div class="stock-card">
+                <i class="fas fa-box" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px;"></i>
+                <div style="font-size: 2rem; font-weight: 800; color: var(--text-main);">{{ total_items }}</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem;">Total Items</div>
+            </div>
+            <div class="stock-card">
+                <i class="fas fa-check-circle" style="font-size: 2rem; color: #15803d; margin-bottom: 10px;"></i>
+                <div style="font-size: 2rem; font-weight: 800; color: #15803d;">{{ sold_items }}</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem;">Sold Items</div>
+            </div>
+            <div class="stock-card">
+                <i class="fas fa-clock" style="font-size: 2rem; color: var(--accent); margin-bottom: 10px;"></i>
+                <div style="font-size: 2rem; font-weight: 800; color: var(--accent);">{{ pending_items_count }}</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem;">Pending Items</div>
+            </div>
+            <div class="stock-card">
+                <i class="fas fa-store" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px;"></i>
+                <div style="font-size: 2rem; font-weight: 800; color: var(--primary);">{{ available_items }}</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem;">Available Items</div>
             </div>
         </div>
-        {% endif %}
-
-        <div class="card no-hover">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3><i class="fas fa-images"></i> Gallery Items</h3>
+        
+        <!-- Data Export Section -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 20px;">
+            <h4 style="margin-bottom: 15px; color: var(--text-main);">Export Data</h4>
+            <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 200px;">
+                    <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 8px; color: var(--text-main);">Data Type</label>
+                    <select id="export-data-type" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; background: white; cursor: pointer;">
+                        <option value="users">Users</option>
+                        <option value="items">Items</option>
+                        <option value="sales">Sales</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <a id="preview-btn" href="/admin/preview/users" class="btn btn-outline" style="padding: 10px 20px;">
+                        <i class="fas fa-eye"></i> Preview
+                    </a>
+                    <a id="download-btn" href="/admin/export/users" class="btn btn-primary" style="padding: 10px 20px;">
+                        <i class="fas fa-download"></i> Download CSV
+                    </a>
+                </div>
             </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;">
+                <i class="fas fa-info-circle"></i> Select a data type, then preview in browser or download as CSV.
+            </p>
+        </div>
+        
+        <!-- Database Reset Section -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 20px;">
+            <details style="cursor: pointer;">
+                <summary style="color: #dc2626; font-weight: 600; font-size: 0.9rem; margin-bottom: 10px; list-style: none; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-chevron-right" style="font-size: 0.7rem; transition: transform 0.2s;"></i>
+                    <span>Database Reset (Advanced)</span>
+                </summary>
+                <div style="margin-top: 15px; padding: 15px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;">
+                    <p style="color: #991b1b; font-size: 0.85rem; margin-bottom: 12px;">
+                        <i class="fas fa-exclamation-triangle"></i> This will delete ALL data and recreate the database with default categories. Cannot be undone.
+                    </p>
+                    <form method="POST" action="/admin/database/reset" onsubmit="return confirmReset()" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <div style="flex: 1; min-width: 200px;">
+                            <label style="display: block; margin-bottom: 5px; color: #991b1b; font-weight: 600; font-size: 0.85rem;">
+                                Type "reset database" to confirm:
+                            </label>
+                            <input type="text" name="confirmation" placeholder="reset database" 
+                                   style="width: 100%; padding: 8px 12px; border: 1px solid #fecaca; border-radius: 6px; font-size: 0.9rem;">
+                        </div>
+                        <button type="submit" class="btn" style="background: #dc2626; color: white; border: none; padding: 8px 16px;">
+                            <i class="fas fa-trash-alt"></i> Reset
+                        </button>
+                    </form>
+                </div>
+            </details>
+        </div>
+        </div>
+    </details>
+
+    <!-- Quick Add Item -->
+    <details class="admin-section" open style="margin-bottom: 40px;">
+        <summary class="section-summary">
+            <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
+                <i class="fas fa-plus-circle"></i> Quick Add Item (In-Person Drop-off)
+            </h3>
+            <i class="fas fa-chevron-down summary-chevron"></i>
+        </summary>
+        <div class="card no-hover" style="margin-top: 20px; background: rgba(255,255,255,0.9);">
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
+                Use this form when receiving items at the POD. Price will be set later in pending items.
+            </p>
             
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="add_item" value="true">
+                <input type="hidden" name="collection_method" value="in_person">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label>Category</label>
+                        <select name="category_id" required>
+                            {% for cat in all_cats %}
+                                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Quality</label>
+                        <select name="quality" required>
+                            <option value="5">5 - Like New</option>
+                            <option value="4" selected>4 - Great</option>
+                            <option value="3">3 - Good</option>
+                            <option value="2">2 - Fair</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label>Title / Description</label>
+                    <input type="text" name="description" placeholder="e.g. Green Velvet Couch" required>
+                    <input type="text" name="long_description" placeholder="Optional details..." style="margin-top: 8px; font-size: 0.9rem;">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label>Photo</label>
+                    <div style="position: relative;">
+                        <input type="file" name="photos" id="admin-file-input" accept="image/*" multiple required 
+                               style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
+                        <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; background: #f8fafc; transition: all 0.2s;">
+                            <i class="fas fa-camera" style="color: var(--primary); margin-right: 8px;"></i>
+                            <span id="admin-file-label" style="font-size: 0.9rem; color: var(--text-muted);">Choose files</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <div>
+                        <label>Seller Name</label>
+                        <input type="text" name="seller_name" placeholder="John Doe">
+                    </div>
+                    <div>
+                        <label>Seller Email</label>
+                        <input type="email" name="seller_email" placeholder="john@college.edu">
+                    </div>
+                </div>
+                
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px; padding: 10px; background: #f8fafc; border-radius: 6px;">
+                    <i class="fas fa-info-circle"></i> If email exists, links to that user. If new email + name provided, creates user. Leave blank for admin-uploaded items.
+                </p>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    <i class="fas fa-plus"></i> Add to Pending Items
+                </button>
+            </form>
+        </div>
+    </details>
+
+    <!-- Category Management -->
+    <details class="admin-section" open style="margin-bottom: 40px;">
+        <summary class="section-summary">
+            <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
+                <i class="fas fa-tags"></i> Category Management
+            </h3>
+            <i class="fas fa-chevron-down summary-chevron"></i>
+        </summary>
+        <div id="categories" class="card no-hover" style="margin-top: 20px;">
+        
+        <!-- Add New Category -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+            <h4 style="margin-bottom: 15px;">Add New Category</h4>
+            <form method="POST" action="/admin/category/add">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div style="display: grid; grid-template-columns: 2fr 1fr auto; gap: 15px; align-items: end;">
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 5px;">Category Name</label>
+                        <input type="text" name="name" placeholder="e.g., Desk" required 
+                               style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 5px;">Icon (FontAwesome)</label>
+                        <input type="text" name="icon" placeholder="fa-desk" value="fa-box"
+                               style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                        <small style="color: var(--text-muted); font-size: 0.8rem;">e.g., fa-couch, fa-bed</small>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Add
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Essentials Stock -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
+            <h4 style="margin-bottom: 15px; color: var(--text-main);">Essentials Stock Counts</h4>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="update_all_counts" value="true">
+                <div class="grid-3">
+                    {% for cat in commodities %}
+                    <div class="stock-card">
+                        <i class="fas {{ cat.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; display: block; color: var(--primary);"></i>
+                        
+                        <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em;">
+                            {{ cat.name }}
+                        </div>
+                        <input type="number" name="counts_{{ cat.id }}" value="{{ cat.count_in_stock }}" class="stat-input">
+                    </div>
+                    {% endfor %}
+                </div>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">Update Counts</button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Existing Categories -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
+            <h4 style="margin-bottom: 15px;">Existing Categories</h4>
+            <form method="POST" action="/admin/category/bulk-update">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div style="overflow-x: auto;">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 80px;">Icon</th>
+                                <th>Name & Icon</th>
+                                <th style="width: 100px;">Items</th>
+                                <th style="width: 150px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cat in all_cats %}
+                            <tr>
+                                <td style="text-align: center; vertical-align: middle;">
+                                    <i class="fas {{ cat.image_url }}" style="font-size: 1.5rem; color: var(--primary);"></i>
+                                </td>
+                                <td>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <input type="text" name="cat_name_{{ cat.id }}" value="{{ cat.name }}" 
+                                               style="flex: 1; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 600; min-width: 150px;">
+                                        <input type="text" name="cat_icon_{{ cat.id }}" value="{{ cat.image_url }}" placeholder="fa-icon"
+                                               style="width: 120px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                    </div>
+                                </td>
+                                <td style="text-align: center;">
+                                    <span style="font-weight: 600; color: var(--text-main);">{{ cat.items|length }}</span>
+                                </td>
+                                <td>
+                                    {% if cat.items|length == 0 %}
+                                    <form method="POST" action="/admin/category/delete/{{ cat.id }}" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <button type="submit" class="text-btn btn-delete" data-confirm="Delete category '{{ cat.name }}'?">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </button>
+                                    </form>
+                                    {% else %}
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;">
+                                        Cannot delete (has items)
+                                    </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="text-align: right; margin-top: 20px; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save All Category Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+        </div>
+    </details>
+
+    <!-- Gallery Items -->
+    <details id="gallery-items" class="admin-section" open style="margin-bottom: 40px;">
+        <summary class="section-summary">
+            <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
+                <i class="fas fa-images"></i> Gallery Items
+            </h3>
+            <i class="fas fa-chevron-down summary-chevron"></i>
+        </summary>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            {% if pending_items %}
+            <div id="pending-items" class="card no-hover" style="border: 2px solid #fca5a5; margin-top: 20px; margin-bottom: 30px;">
+                <h3 style="margin-bottom: 10px; color: #b91c1c;">
+                    <i class="fas fa-exclamation-triangle"></i> Action Required ({{ pending_items|length }})
+                </h3>
+                <p style="margin-bottom: 20px; font-size: 0.9rem;">Assign a price to approve these items.</p>
+                
+                <div style="overflow-x: auto;">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Seller</th>
+                                <th>Type</th>
+                                <th>Cat/Qual</th>
+                                <th>Set Price ($)</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in pending_items %}
+                            <tr style="background: rgba(255,255,255,0.5);">
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        {% if item.photo_url %}
+                                        <a href="/edit_item/{{ item.id }}" target="_blank">
+                                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
+                                        </a>
+                                        {% endif %}
+                                        <div style="font-weight: 600;">{{ item.description }}</div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if item.seller %}
+                                        <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
+                                        <a href="mailto:{{ item.seller.email }}" style="font-size: 0.8rem; color: var(--primary);">{{ item.seller.email }}</a>
+                                        {% if not item.seller.has_paid and item.collection_method == 'online' %}
+                                            <span style="font-size: 0.7rem; color: #dc2626; display: block; margin-top: 2px;">
+                                                <i class="fas fa-exclamation-circle"></i> Payment Required
+                                            </span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span style="color: #999;">Admin</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.collection_method == 'in_person' %}
+                                        <span style="background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
+                                            <i class="fas fa-box"></i> In-Person
+                                        </span>
+                                    {% else %}
+                                        <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
+                                            <i class="fas fa-globe"></i> Online
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <select name="category_{{ item.id }}" class="table-select" style="margin-bottom: 5px;">
+                                        {% for cat in all_cats %}
+                                            <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
+                                        {% for i in range(5, 1, -1) %}
+                                        <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
+                                           class="table-input" style="border: 2px solid #fca5a5;">
+                                </td>
+                                <td>
+                                    <div style="display: flex; gap: 5px;">
+                                        <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
+                                    <button type="submit" name="delete_item" value="{{ item.id }}" 
+                                            class="text-btn btn-delete" data-confirm="Reject '{{ item.description }}'?">Reject</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
+                    <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card no-hover" style="margin-top: 20px;">
             <div style="overflow-x: auto;">
                 <table class="admin-table">
                     <thead>
@@ -432,20 +668,20 @@
                                     <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
                                     
                                     {% if item.status == 'available' %}
-                                        <button type="submit" name="mark_sold" value="{{ item.id }}" class="text-btn btn-sold">Sold</button>
+                                        <button type="submit" name="mark_sold" value="{{ item.id }}" class="text-btn btn-sold" data-confirm="Mark '{{ item.description }}' as sold?">Sold</button>
                                     {% elif item.status == 'sold' %}
                                         {% if not item.payout_sent %}
                                             <button type="submit" name="mark_payout_sent" value="{{ item.id }}" 
                                                     class="text-btn" style="color: #166534;" 
-                                                    onclick="return confirm('Mark payout as sent for {{ item.description }}?');">
+                                                    data-confirm="Mark payout as sent for '{{ item.description }}'?">
                                                 Mark Paid
                                             </button>
                                         {% endif %}
-                                        <button type="submit" name="mark_available" value="{{ item.id }}" class="text-btn btn-undo">Active</button>
+                                        <button type="submit" name="mark_available" value="{{ item.id }}" class="text-btn btn-undo" data-confirm="Mark '{{ item.description }}' as available again?">Active</button>
                                     {% endif %}
 
                                     <button type="submit" name="delete_item" value="{{ item.id }}" 
-                                            class="text-btn btn-delete" onclick="return confirm('Delete?');">Delete</button>
+                                            class="text-btn btn-delete" data-confirm="Delete '{{ item.description }}'?">Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -459,24 +695,189 @@
                     <i class="fas fa-save"></i> Save Changes
                 </button>
             </div>
-        </div>
-    </form>
+            </div>
+        </form>
+    </details>
 </div>
 
 <script>
     // Update file input label
-    document.getElementById('admin-file-input').addEventListener('change', function(e) {
-        const label = document.getElementById('admin-file-label');
-        const count = e.target.files.length;
-        if (count > 0) {
-            label.textContent = count + (count === 1 ? ' file selected' : ' files selected');
-            label.parentElement.style.borderColor = 'var(--primary)';
-            label.parentElement.style.background = '#f0fdf4';
-        } else {
-            label.textContent = 'Choose files';
-            label.parentElement.style.borderColor = '#cbd5e1';
-            label.parentElement.style.background = '#f8fafc';
+    const adminFileInput = document.getElementById('admin-file-input');
+    if (adminFileInput) {
+        adminFileInput.addEventListener('change', function(e) {
+            const label = document.getElementById('admin-file-label');
+            const count = e.target.files.length;
+            if (count > 0) {
+                label.textContent = count + (count === 1 ? ' file selected' : ' files selected');
+                label.parentElement.style.borderColor = 'var(--primary)';
+                label.parentElement.style.background = '#f0fdf4';
+            } else {
+                label.textContent = 'Choose files';
+                label.parentElement.style.borderColor = '#cbd5e1';
+                label.parentElement.style.background = '#f8fafc';
+            }
+        });
+    }
+    
+    // Database reset confirmation
+    function confirmReset() {
+        const confirmation = document.querySelector('input[name="confirmation"]').value.toLowerCase();
+        if (confirmation !== 'reset database') {
+            alert('Please type "reset database" exactly to confirm.');
+            return false;
         }
+        return confirm('Are you absolutely sure? This will delete ALL data and cannot be undone!');
+    }
+    
+    // Export data type selector
+    document.addEventListener('DOMContentLoaded', function() {
+        // Restore scroll position if set
+        const savedScrollPos = sessionStorage.getItem('adminScrollPos');
+        if (savedScrollPos) {
+            window.scrollTo(0, parseInt(savedScrollPos));
+            sessionStorage.removeItem('adminScrollPos');
+        }
+        
+        const dataTypeSelect = document.getElementById('export-data-type');
+        const previewBtn = document.getElementById('preview-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        
+        if (dataTypeSelect && previewBtn && downloadBtn) {
+            dataTypeSelect.addEventListener('change', function() {
+                const type = this.value;
+                previewBtn.href = `/admin/preview/${type}`;
+                downloadBtn.href = `/admin/export/${type}`;
+            });
+        }
+        
+        // AJAX form handler - intercept all form submissions
+        function showFlashMessage(message, type) {
+            const flashContainer = document.querySelector('.container');
+            if (!flashContainer) return;
+            
+            const flashDiv = document.createElement('div');
+            flashDiv.className = 'flash-message card no-hover';
+            flashDiv.style.cssText = `
+                background: ${type === 'error' ? '#fef2f2' : '#f0fdf4'}; 
+                color: ${type === 'error' ? '#991b1b' : '#166534'}; 
+                border: 1px solid ${type === 'error' ? '#fecaca' : '#bbf7d0'}; 
+                padding: 15px; margin-bottom: 20px;
+                transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+                opacity: 1;
+                transform: translateY(0);
+            `;
+            flashDiv.innerHTML = `<i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i> ${message}`;
+            
+            const main = document.querySelector('main');
+            if (main && main.firstChild) {
+                main.insertBefore(flashDiv, main.firstChild);
+            } else if (flashContainer) {
+                flashContainer.insertBefore(flashDiv, flashContainer.firstChild);
+            }
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(function() {
+                flashDiv.style.opacity = '0';
+                flashDiv.style.transform = 'translateY(-10px)';
+                setTimeout(function() {
+                    flashDiv.remove();
+                }, 500);
+            }, 5000);
+        }
+        
+        // Handle all form submissions with AJAX (except file uploads and database reset)
+        document.querySelectorAll('form').forEach(function(form) {
+            // Skip file upload forms and database reset
+            if (form.enctype === 'multipart/form-data' || 
+                form.action.includes('database/reset') ||
+                form.querySelector('input[name="toggle_pickup_period"]')) {
+                return;
+            }
+            
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Check for confirmation dialogs on the clicked button
+                const clickedBtn = e.submitter || form.querySelector('button[type="submit"]:not([disabled])');
+                if (clickedBtn) {
+                    const confirmMsg = clickedBtn.getAttribute('data-confirm');
+                    if (confirmMsg && !confirm(confirmMsg)) {
+                        return false;
+                    }
+                }
+                
+                const formData = new FormData(form);
+                formData.append('X-Requested-With', 'XMLHttpRequest');
+                
+                // Show loading state
+                const allSubmitBtns = form.querySelectorAll('button[type="submit"]');
+                const originalTexts = {};
+                allSubmitBtns.forEach(btn => {
+                    originalTexts[btn] = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                });
+                
+                fetch(form.action || window.location.pathname, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => Promise.reject(err));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    allSubmitBtns.forEach(btn => {
+                        btn.disabled = false;
+                        btn.innerHTML = originalTexts[btn];
+                    });
+                    
+                    if (data.success) {
+                        showFlashMessage(data.message, 'success');
+                        
+                        // Handle different response types
+                        if (data.remove_row && data.item_id) {
+                            // Remove the row from table - find by button value
+                            const buttons = document.querySelectorAll(`button[value="${data.item_id}"]`);
+                            buttons.forEach(btn => {
+                                const row = btn.closest('tr');
+                                if (row) {
+                                    row.style.transition = 'opacity 0.3s';
+                                    row.style.opacity = '0';
+                                    setTimeout(() => row.remove(), 300);
+                                }
+                            });
+                        }
+                        
+                        if (data.reload) {
+                            // Reload page after a short delay to show success message
+                            setTimeout(() => {
+                                // Preserve scroll position
+                                const scrollPos = window.pageYOffset || document.documentElement.scrollTop;
+                                sessionStorage.setItem('adminScrollPos', scrollPos);
+                                window.location.reload();
+                            }, 1000);
+                        }
+                    } else {
+                        showFlashMessage(data.message || 'An error occurred', 'error');
+                    }
+                })
+                .catch(error => {
+                    allSubmitBtns.forEach(btn => {
+                        btn.disabled = false;
+                        btn.innerHTML = originalTexts[btn];
+                    });
+                    console.error('Error:', error);
+                    const errorMsg = error.message || 'An error occurred. Please try again.';
+                    showFlashMessage(errorMsg, 'error');
+                });
+            });
+        });
     });
 </script>
 {% endblock %}

@@ -97,8 +97,15 @@
 
 <div class="container">
     
+    <!-- Store Indicator -->
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 25px; padding: 12px 16px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <i class="fas fa-store" style="color: var(--primary); font-size: 1.2rem;"></i>
+        <span style="font-size: 0.9rem; color: var(--text-muted);">Shopping:</span>
+        <span style="font-weight: 600; color: var(--text-main);">{{ current_store }}</span>
+    </div>
+    
     <div style="margin-bottom: 20px;">
-        <a href="/inventory" style="color: var(--text-muted); font-weight: 600;">
+        <a href="/inventory?store={{ current_store }}" style="color: var(--text-muted); font-weight: 600;">
             <i class="fas fa-arrow-left"></i> Back to Shop
         </a>
     </div>
@@ -159,23 +166,29 @@
                 </p>
 
                 {% if item.status == 'available' %}
-                    <div style="background: #fffbeb; border: 2px solid #fcd34d; border-radius: 12px; padding: 15px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: flex-start; gap: 10px;">
-                            <i class="fas fa-info-circle" style="color: #92400e; font-size: 1.2rem; margin-top: 2px;"></i>
-                            <div>
-                                <strong style="color: #92400e; display: block; margin-bottom: 5px;">In-Store Pickup Required</strong>
-                                <p style="color: #92400e; font-size: 0.9rem; margin: 0; line-height: 1.5;">
-                                    After purchase, you must visit our retail location to pick up your item. We'll email you pickup details and store hours.
-                                </p>
+                    <!-- Delivery Method Section -->
+                    <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 25px; background: #f8fafc;">
+                        <h4 style="margin-bottom: 15px; font-size: 1rem; color: var(--text-main);">Delivery Method</h4>
+                        <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: white; border: 2px solid var(--primary); border-radius: 8px;">
+                            <i class="fas fa-store" style="color: var(--primary); font-size: 1.2rem;"></i>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">In-Store Pickup</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Pick up at our physical store location</div>
                             </div>
+                            <i class="fas fa-check-circle" style="color: var(--primary); font-size: 1.2rem;"></i>
                         </div>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; margin-bottom: 0; line-height: 1.5;">
+                            <i class="fas fa-info-circle" style="margin-right: 6px;"></i>
+                            We don't support shipping yet. All items must be picked up in person at our store.
+                        </p>
                     </div>
                     
-                    <a href="/buy_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
-                        Buy Now <i class="fas fa-shopping-cart"></i>
+                    <a href="/buy_item/{{ item.id }}?store={{ current_store }}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                        Reserve Item <i class="fas fa-calendar-check"></i>
                     </a>
-                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 15px;">
-                        <i class="fas fa-lock"></i> Secure payment via Stripe
+                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                        <i class="fas fa-lock"></i> Secure payment via Stripe<br>
+                        <span style="font-size: 0.8rem;">Reserving secures this item. You'll pick it up at our store.</span>
                     </p>
                 {% else %}
                     <button class="btn" style="width: 100%; padding: 18px; background: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>

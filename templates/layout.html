@@ -24,13 +24,10 @@
     <meta property="twitter:description" content="Visit our physical store to buy and sell college furniture. We're students helping students turn move-out items into cash.">
     <meta property="twitter:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
     
-    <!-- Favicon - Multiple sizes for better display -->
-    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('favicon') }}?size=16">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('favicon') }}?size=32">
-    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('favicon') }}?size=192">
-    <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('favicon') }}?size=512">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('favicon') }}?size=180">
-    <link rel="shortcut icon" href="{{ url_for('favicon') }}?size=32">
+    <!-- Favicon - Use original logo for best appearance -->
+    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='logo.jpg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.jpg') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='logo.jpg') }}">
     
     <!-- Stylesheets -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -53,6 +50,34 @@
         "target": "https://usecampusswap.com/inventory?search={search_term_string}",
         "query-input": "required name=search_term_string"
       }
+    }
+    </script>
+    
+    <!-- Structured Data for LocalBusiness (shows address in Google search results) -->
+    {% set current_store_name = get_current_store() %}
+    {% set store_info = get_store_info(current_store_name) %}
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "name": "Campus Swap",
+      "description": "Campus Swap helps students buy and sell furniture, appliances, and dorm essentials at UNC Chapel Hill.",
+      "url": "https://usecampusswap.com",
+      "logo": "{{ url_for('static', filename='logo.jpg', _external=True) }}",
+      "image": "{{ url_for('static', filename='logo.jpg', _external=True) }}",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "{{ store_info.address }}",
+        "addressLocality": "{{ store_info.city }}",
+        "addressRegion": "{{ store_info.state }}",
+        "postalCode": "{{ store_info.zip }}",
+        "addressCountry": "US"
+      },
+      "areaServed": {
+        "@type": "City",
+        "name": "{{ store_info.city }}"
+      },
+      "priceRange": "$$"
     }
     </script>
     
@@ -102,33 +127,38 @@
 </head>
 <body>
 
-    <header>
-        <a href="/" class="logo">
-            <img src="{{ url_for('static', filename='logo.jpg') }}" 
-                 alt="Campus Swap" 
-                 style="height: 45px; width: auto; display: block; mix-blend-mode: multiply;">
-        </a>
-        
-        <nav class="nav-links" role="navigation" aria-label="Main navigation">
-            <form id="store-locator-form" style="display: flex; align-items: center; gap: 8px; margin-right: 20px;" onsubmit="return handleStoreSearch(event)">
-                <input type="text" 
-                       id="zip-code-input" 
-                       placeholder="Zip code" 
-                       pattern="[0-9]{5}" 
-                       maxlength="5"
-                       style="width: 100px; padding: 8px 10px; font-size: 0.9rem; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,0.9);">
-                <button type="submit" 
-                        style="padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; white-space: nowrap;">
-                    <i class="fas fa-search"></i> Find Store
-                </button>
-            </form>
-            
-            <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">
-                <i class="fas fa-shopping-bag"></i> Shop The Drop
+    <header style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px;">
+        <div style="display: flex; align-items: center; gap: 25px;">
+            <a href="/" class="logo">
+                <img src="{{ url_for('static', filename='logo.jpg') }}" 
+                     alt="Campus Swap" 
+                     style="height: 45px; width: auto; display: block; mix-blend-mode: multiply;">
             </a>
             
             <a href="/about" class="nav-item" aria-label="About Campus Swap">
                 <i class="fas fa-info-circle"></i> About
+            </a>
+        </div>
+        
+        <div style="display: flex; justify-content: center; position: relative;">
+            <div id="store-selector-container" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(255,255,255,0.9); border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; transition: all 0.2s; white-space: nowrap;" onclick="toggleStoreDropdown()">
+                <i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 0.9rem;"></i>
+                <span style="font-size: 0.9rem; color: var(--text-muted);">Your store:</span>
+                <span id="store-display" style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">UNC Chapel Hill</span>
+                <i class="fas fa-chevron-down" style="color: var(--text-muted); font-size: 0.75rem; margin-left: 4px;"></i>
+            </div>
+            <div id="store-dropdown" style="display: none; position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%); background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000; overflow: hidden;">
+                <div style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Select Store</div>
+                <div class="store-option" onclick="selectStore('UNC Chapel Hill')" style="padding: 12px 16px; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-store" style="color: var(--primary);"></i>
+                    <span style="font-weight: 600;">UNC Chapel Hill</span>
+                </div>
+            </div>
+        </div>
+        
+        <nav class="nav-links" role="navigation" aria-label="Main navigation" style="display: flex; align-items: center; gap: 20px; justify-content: flex-end;">
+            <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">
+                <i class="fas fa-shopping-bag"></i> Shop The Drop
             </a>
             
             {% if current_user.is_authenticated %}
@@ -297,28 +327,65 @@
             }
         });
         
-        // Store locator function
-        function handleStoreSearch(event) {
-            event.preventDefault();
-            const zipInput = document.getElementById('zip-code-input');
-            const zipCode = zipInput.value.trim();
-            
-            if (!zipCode || zipCode.length !== 5) {
-                alert('Please enter a valid 5-digit zip code.');
-                return false;
+        // Store selector dropdown toggle
+        function toggleStoreDropdown() {
+            const dropdown = document.getElementById('store-dropdown');
+            if (dropdown) {
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+        
+        // Store selector function - defined globally so it can be called from inventory page
+        window.selectStore = function(storeName) {
+            // Update display
+            const storeDisplay = document.getElementById('store-display');
+            if (storeDisplay) {
+                storeDisplay.textContent = storeName;
             }
             
-            // For now, we only have one location, so show store info
-            // Store location coming soon
-            const message = `Thanks for your interest!\n\n` +
-                          `📍 Our store location is coming soon.\n` +
-                          `We'll update this page with our address and hours once we're ready to open.\n\n` +
-                          `In the meantime, you can browse our inventory online!`;
+            // Close dropdown
+            const dropdown = document.getElementById('store-dropdown');
+            if (dropdown) {
+                dropdown.style.display = 'none';
+            }
             
-            alert(message);
+            // Store selection in sessionStorage
+            sessionStorage.setItem('selectedStore', storeName);
             
-            return false;
-        }
+            // If on inventory page, reload with store parameter
+            if (window.location.pathname === '/inventory') {
+                const url = new URL(window.location);
+                url.searchParams.set('store', storeName);
+                window.location.href = url.toString();
+            } else {
+                // Otherwise redirect to inventory with store
+                window.location.href = '/inventory?store=' + encodeURIComponent(storeName);
+            }
+        };
+        
+        // Load saved store selection on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const storeParam = urlParams.get('store');
+            const savedStore = sessionStorage.getItem('selectedStore') || 'UNC Chapel Hill';
+            const storeToUse = storeParam || savedStore;
+            
+            const storeDisplay = document.getElementById('store-display');
+            if (storeDisplay) {
+                storeDisplay.textContent = storeToUse;
+            }
+            
+            sessionStorage.setItem('selectedStore', storeToUse);
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function(e) {
+                const container = document.getElementById('store-selector-container');
+                const dropdown = document.getElementById('store-dropdown');
+                if (container && dropdown && !container.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                }
+            });
+        });
     </script>
 </body>
 </html>

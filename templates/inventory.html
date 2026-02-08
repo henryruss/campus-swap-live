@@ -4,19 +4,12 @@
 
 <div class="container">
 
-    <!-- Store Notice Banner -->
-    <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 2px solid #fcd34d; border-radius: 12px; padding: 20px; margin-bottom: 30px; display: flex; align-items: center; gap: 15px;">
-        <div style="flex-shrink: 0;">
-            <i class="fas fa-store" style="font-size: 2rem; color: #92400e;"></i>
-        </div>
-        <div style="flex: 1;">
-            <h3 style="margin: 0 0 8px 0; color: #78350f; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                <i class="fas fa-map-marker-alt"></i> Visit Our Physical Store
-            </h3>
-            <p style="margin: 0; color: #92400e; font-size: 0.95rem; line-height: 1.6;">
-                <strong>All items require in-store pickup.</strong> Browse online now. Our store location is coming soon—check back for updates!
-            </p>
-        </div>
+    <!-- Subtle Store Indicator -->
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 25px; padding: 10px 16px; background: #f8fafc; border-left: 3px solid var(--primary); border-radius: 6px;">
+        <i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 0.9rem;"></i>
+        <span style="font-size: 0.9rem; color: var(--text-muted);">
+            Showing items from <strong style="color: var(--text-main);">{{ current_store }}</strong>
+        </span>
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
@@ -65,7 +58,7 @@
     
     <div class="grid-inventory">
         {% for item in items %}
-        <a href="/item/{{ item.id }}" style="text-decoration: none; color: inherit;">
+        <a href="/item/{{ item.id }}?store={{ current_store }}" style="text-decoration: none; color: inherit;">
             <div class="card" style="padding: 0; overflow: hidden; position: relative;">
                 
                 {% if item.status == 'sold' %}

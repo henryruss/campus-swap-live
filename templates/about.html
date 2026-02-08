@@ -1,104 +1,134 @@
 {% extends "layout.html" %}
 {% block content %}
 <style>
-    .story-section {
-        margin-bottom: 50px;
+    .about-hero {
+        text-align: center;
+        padding: 80px 20px 60px;
+        max-width: 800px;
+        margin: 0 auto;
     }
-    .story-image {
+    .about-image {
         width: 100%;
-        max-width: 600px;
-        border-radius: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        margin: 30px auto;
+        max-width: 700px;
+        border-radius: 8px;
+        margin: 50px auto;
         display: block;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    .highlight-box {
-        background: #f0fdf4;
-        border-left: 4px solid var(--primary);
-        padding: 25px;
-        border-radius: 12px;
-        margin: 30px 0;
+    .about-section {
+        max-width: 800px;
+        margin: 0 auto 60px;
+        padding: 0 20px;
     }
-    .campus-badge {
-        display: inline-block;
+    .about-section h2 {
+        font-size: 2rem;
+        margin-bottom: 25px;
+        color: var(--text-main);
+        font-weight: 800;
+    }
+    .about-section p {
+        font-size: 1.1rem;
+        line-height: 1.8;
+        color: var(--text-muted);
+        margin-bottom: 20px;
+    }
+    .about-section strong {
+        color: var(--text-main);
+        font-weight: 700;
+    }
+    .campus-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 25px;
+    }
+    .campus-item {
+        padding: 10px 20px;
         background: var(--primary);
         color: white;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 0.9rem;
+        border-radius: 6px;
+        font-size: 0.95rem;
         font-weight: 600;
-        margin: 5px 5px 5px 0;
+    }
+    .about-cta {
+        text-align: center;
+        padding: 60px 20px;
+        max-width: 600px;
+        margin: 60px auto 0;
     }
 </style>
 
-<div class="container" style="max-width: 900px; margin-top: 60px;">
-    
-    <!-- Hero Section -->
-    <div class="card" style="text-align: center; margin-bottom: 40px;">
-        <h1 style="font-size: 3rem; margin-bottom: 15px;">Our Story</h1>
-        <p style="font-size: 1.3rem; color: var(--text-muted); font-weight: 500;">
-            Built by students, for students.
-        </p>
-    </div>
-
-    <!-- Image -->
-    <div style="text-align: center; margin-bottom: 50px;">
-        <img src="{{ url_for('static', filename='unitpic.jpg') }}" 
-             alt="Campus Swap Team" 
-             class="story-image">
-    </div>
-
-    <!-- Main Story -->
-    <div class="card story-section">
-        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">How It Started</h2>
-        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 20px;">
-            We're college students, just like you. During move-out week, we watched perfectly good couches, mini-fridges, and furniture pile up in dumpsters. We were throwing our own stuff out too—and we thought: <strong>why can't we make money on this?</strong>
-        </p>
-        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 20px;">
-            So we did something about it. We built Campus Swap to give students a better way to handle move-out. Instead of dragging your stuff to the curb, you snap a photo. We handle pickup, storage, and selling—and you get 40% when your item sells.
-        </p>
-        
-        <div class="highlight-box">
-            <p style="font-size: 1.15rem; line-height: 1.9; color: var(--text-main); margin: 0;">
-                <strong>We're not a big corporation.</strong> We're students who saw a problem and built a solution. We know what it's like to move out of a dorm, and we know what incoming students need. That's why Campus Swap works.
-            </p>
-        </div>
-    </div>
-
-    <!-- Where We Are -->
-    <div class="card story-section">
-        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">Where We're Growing</h2>
-        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 25px;">
-            We started at <strong>Davidson College</strong> and saw how much students loved the service. Now we're expanding to <strong>UNC</strong> and beyond.
-        </p>
-        <div style="margin-top: 20px;">
-            <span class="campus-badge">Davidson College</span>
-            <span class="campus-badge">UNC Chapel Hill</span>
-            <span class="campus-badge" style="background: var(--accent);">More Coming Soon</span>
-        </div>
-    </div>
-
-    <!-- Mission -->
-    <div class="card story-section" style="background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);">
-        <h2 style="font-size: 2rem; margin-bottom: 20px; color: var(--primary);">Our Mission</h2>
-        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted); margin-bottom: 15px;">
-            Campus Swap exists because we believe move-out doesn't have to be wasteful. We believe students deserve to get paid for their stuff, and incoming students deserve affordable furniture.
-        </p>
-        <p style="font-size: 1.1rem; line-height: 1.9; color: var(--text-muted);">
-            <strong>We're students helping students.</strong> That's it. No corporate speak, no complicated process. Just a simple way to turn your move-out items into cash.
-        </p>
-    </div>
-
-    <!-- CTA -->
-    <div class="card" style="text-align: center; background: var(--primary); color: white; margin-top: 40px;">
-        <h2 style="color: white; margin-bottom: 15px;">Ready to Join Us?</h2>
-        <p style="font-size: 1.1rem; margin-bottom: 25px; opacity: 0.95;">
-            Start selling your items today. It takes less than a minute.
-        </p>
-        <a href="/#join" class="btn" style="background: white; color: var(--primary); font-size: 1.1rem; padding: 15px 30px;">
-            Get Started <i class="fas fa-arrow-right"></i>
-        </a>
-    </div>
-
+<div class="about-hero">
+    <h1 style="font-size: 3.5rem; margin-bottom: 20px; color: var(--text-main); font-weight: 900;">Our Story</h1>
+    <p style="font-size: 1.3rem; color: var(--text-muted); font-weight: 500; line-height: 1.6;">
+        Built by students, for students. We're turning move-out waste into opportunity.
+    </p>
 </div>
+
+<img src="{{ url_for('static', filename='unitpic.jpg') }}" 
+     alt="Campus Swap Team" 
+     class="about-image">
+
+<div class="about-section">
+    <h2>The Problem We Saw</h2>
+    <p>
+        Every spring, college campuses across America face the same wasteful cycle. Students pack up their dorms, and perfectly good furniture—couches, mini-fridges, desks, mattresses—ends up in dumpsters. We watched this happen at our own schools and realized: <strong>this doesn't have to be the way it works.</strong>
+    </p>
+    <p>
+        Students spend hundreds of dollars on furniture at the start of the year, only to abandon it months later. Incoming students then spend hundreds more buying the same items brand new. It's wasteful, expensive, and completely unnecessary.
+    </p>
+</div>
+
+<div class="about-section">
+    <h2>Our Solution</h2>
+    <p>
+        Campus Swap bridges the gap between move-out and move-in. Instead of throwing your furniture away, you snap a photo and we handle the rest. We pick up your items, store them over the summer, and sell them to incoming students. When your item sells, you get 40% of the sale price—money you'd otherwise leave on the curb.
+    </p>
+    <p>
+        For buyers, Campus Swap means affordable, quality furniture without the hassle of moving it yourself. Everything is stored safely, priced fairly, and ready when you need it.
+    </p>
+</div>
+
+<div class="about-section">
+    <h2>Why We're Different</h2>
+    <p>
+        We're not a corporation. We're college students who experienced this problem firsthand. We know what it's like to lug a mini-fridge down three flights of stairs, only to realize you can't take it with you. We know the frustration of paying full price for furniture you'll only use for a year.
+    </p>
+    <p>
+        <strong>That personal experience drives everything we do.</strong> We've built Campus Swap to be simple, fair, and genuinely helpful—because we're solving a problem we've lived through ourselves.
+    </p>
+</div>
+
+<div class="about-section">
+    <h2>Where We're Growing</h2>
+    <p>
+        We started at Davidson College, where we saw immediate demand from both sellers and buyers. The concept resonated because it solves a real problem students face every year. Now we're expanding to UNC Chapel Hill and planning to bring Campus Swap to campuses nationwide.
+    </p>
+    <div class="campus-list">
+        <span class="campus-item">Davidson College</span>
+        <span class="campus-item">UNC Chapel Hill</span>
+        <span class="campus-item" style="background: var(--accent);">More Coming Soon</span>
+    </div>
+</div>
+
+<div class="about-section">
+    <h2>Our Vision</h2>
+    <p>
+        We believe move-out doesn't have to be wasteful. We believe students deserve to get paid for their furniture, and incoming students deserve affordable options. Most importantly, we believe in creating a sustainable cycle that benefits everyone involved.
+    </p>
+    <p>
+        Campus Swap is more than a business—it's a movement toward smarter, more sustainable campus living. Every item we save from a landfill, every dollar we put back in a student's pocket, every affordable piece of furniture we provide to an incoming student moves us closer to that vision.
+    </p>
+</div>
+
+<div class="about-cta">
+    <h2 style="margin-bottom: 15px; color: var(--text-main);">Ready to Join Us?</h2>
+    <p style="font-size: 1.1rem; color: var(--text-muted); margin-bottom: 30px;">
+        Whether you're selling your furniture or looking for affordable options, Campus Swap makes the process simple.
+    </p>
+    <a href="/#join" class="btn btn-primary" style="font-size: 1.1rem; padding: 15px 30px;">
+        Get Started <i class="fas fa-arrow-right"></i>
+    </a>
+</div>
+
 {% endblock %}

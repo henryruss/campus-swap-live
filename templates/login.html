@@ -1,29 +1,86 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="container" style="max-width: 400px; margin-top: 60px;">
-    <div class="card text-center">
-        <h2 style="margin-bottom: 20px;">Student Login</h2>
-        <form method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <div style="margin-bottom: 15px; text-align: left;">
-                <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
-                <input type="email" name="email" value="{{ prefill_email or '' }}" placeholder="Use your .edu email if possible" required style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;">
-                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
-                    Campus Swap is built by students, for students.
-                </small>
-            </div>
-            
-            <div style="margin-bottom: 20px; text-align: left;">
-                <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
-                <input type="password" name="password" placeholder="Password" required style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;">
-            </div>
+<div class="container" style="max-width: 450px; margin-top: 60px;">
+    <div class="card">
+        <div id="login-section" {% if show_signup %}style="display: none;"{% endif %}>
+            <h2 style="margin-bottom: 20px; text-align: center;">Log In</h2>
+            <form method="POST" id="login-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="form_type" value="login"/>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
+                    <input type="email" name="email" id="email-input" value="{{ prefill_email or '' }}" placeholder="your@email.com" required>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
+                    <input type="password" name="password" id="password-input" placeholder="Password" required>
+                </div>
 
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Log In</button>
-        </form>
-        <p style="margin-top: 20px; font-size: 0.9rem;">
-            New here? <a href="/#join" style="color: var(--primary); font-weight: bold;">Secure Your Spot</a>
-        </p>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Log In</button>
+            </form>
+            
+            <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 15px;">
+                    Don't have an account?
+                </p>
+                <button type="button" onclick="switchToSignup()" class="btn btn-outline" style="width: 100%;">
+                    Create Account
+                </button>
+            </div>
+        </div>
+        
+        <div id="signup-section" {% if show_signup %}style="display: block;"{% else %}style="display: none;"{% endif %}>
+            <h2 style="margin-bottom: 20px; text-align: center;">Create Account</h2>
+            <form method="POST" action="/register" id="signup-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Full Name</label>
+                    <input type="text" name="full_name" placeholder="Your full name" required>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
+                    <input type="email" name="email" id="signup-email-input" placeholder="your@email.com" required>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
+                    <input type="password" name="password" placeholder="Choose a password (min 6 characters)" required minlength="6">
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+            </form>
+            
+            <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 15px;">
+                    Already have an account?
+                </p>
+                <button type="button" onclick="switchToLogin()" class="btn btn-outline" style="width: 100%;">
+                    Log In
+                </button>
+            </div>
+        </div>
     </div>
 </div>
+
+<script>
+function switchToSignup() {
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('signup-section').style.display = 'block';
+    // Copy email from login form to signup form
+    const loginEmail = document.getElementById('email-input').value;
+    if (loginEmail) {
+        document.getElementById('signup-email-input').value = loginEmail;
+    }
+}
+
+function switchToLogin() {
+    document.getElementById('signup-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'block';
+}
+</script>
 {% endblock %}

@@ -8,7 +8,9 @@ from PIL import Image
 import stripe
 import resend
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response
+import csv
+from io import StringIO
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -27,8 +29,37 @@ def get_pickup_period_active():
     # Fallback to environment variable
     return os.environ.get('PICKUP_PERIOD_ACTIVE', 'True').lower() == 'true'
 
+def get_current_store():
+    """Get current store location - defaults to UNC Chapel Hill"""
+    store = AppSetting.get('current_store')
+    if store:
+        return store
+    # Default store
+    return 'UNC Chapel Hill'
+
+def get_store_info(store_name):
+    """Get store information by name"""
+    stores = {
+        'UNC Chapel Hill': {
+            'name': 'UNC Chapel Hill',
+            'address': 'Store location coming soon',
+            'zip': '27514',
+            'city': 'Chapel Hill',
+            'state': 'NC'
+        }
+    }
+    return stores.get(store_name, stores['UNC Chapel Hill'])
+
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
+
+@app.context_processor
+def inject_store_functions():
+    """Make store functions available to all templates"""
+    return dict(
+        get_current_store=get_current_store,
+        get_store_info=get_store_info
+    )
 
 # SECURITY: This secret key enables sessions. 
 # On Render, set this as an Environment Variable called 'SECRET_KEY'.
@@ -291,54 +322,51 @@ def robots_txt():
 @app.route('/favicon.ico')
 @app.route('/favicon.png')
 def favicon(size=None):
-    """Generate resized favicon from logo.jpg"""
+    """Serve favicon - use original logo for small sizes, resize for larger"""
     try:
         # Get size from query parameter or use default
-        size = request.args.get('size', type=int) or 512
+        requested_size = request.args.get('size', type=int)
         
         logo_path = os.path.join('static', 'logo.jpg')
         
         if not os.path.exists(logo_path):
-            # Fallback to default favicon if logo doesn't exist
             return Response('', mimetype='image/x-icon'), 404
         
-        # Open and resize the logo
-        img = Image.open(logo_path)
+        # For small favicon sizes (16, 32), just serve the original
+        # Browsers will handle scaling and it preserves the original appearance
+        if requested_size and requested_size <= 32:
+            return send_from_directory('static', 'logo.jpg')
         
-        # Convert to RGB if necessary (handles RGBA, P mode, etc.)
-        if img.mode != 'RGB':
-            # Create white background for transparency
-            rgb_img = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'RGBA':
-                rgb_img.paste(img, mask=img.split()[3])  # Use alpha channel as mask
+        # For larger sizes, resize if needed
+        if requested_size:
+            img = Image.open(logo_path)
+            # Maintain aspect ratio
+            width, height = img.size
+            aspect_ratio = width / height
+            
+            if aspect_ratio > 1:
+                new_width = requested_size
+                new_height = int(requested_size / aspect_ratio)
             else:
-                rgb_img.paste(img)
-            img = rgb_img
+                new_height = requested_size
+                new_width = int(requested_size * aspect_ratio)
+            
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            from io import BytesIO
+            img_io = BytesIO()
+            img.save(img_io, 'JPEG', quality=95)
+            img_io.seek(0)
+            
+            response = Response(img_io.read(), mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'public, max-age=31536000'
+            return response
         
-        # Make it square by cropping to center
-        width, height = img.size
-        size_square = min(width, height)
-        left = (width - size_square) // 2
-        top = (height - size_square) // 2
-        img = img.crop((left, top, left + size_square, top + size_square))
-        
-        # Resize to requested size
-        img = img.resize((size, size), Image.Resampling.LANCZOS)
-        
-        # Save to BytesIO
-        from io import BytesIO
-        img_io = BytesIO()
-        img.save(img_io, 'PNG', quality=95)
-        img_io.seek(0)
-        
-        # Return with caching headers
-        response = Response(img_io.read(), mimetype='image/png')
-        response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
-        return response
+        # Default: serve original
+        return send_from_directory('static', 'logo.jpg')
         
     except Exception as e:
-        print(f"Error generating favicon: {e}")
-        # Return empty favicon on error
+        print(f"Error serving favicon: {e}")
         return Response('', mimetype='image/x-icon'), 404
 
 
@@ -380,6 +408,7 @@ def dropoff():
 @app.route('/inventory')
 def inventory():
     cat_id = request.args.get('category_id')
+    store_name = request.args.get('store', get_current_store())
     commodities = InventoryCategory.query.all() 
     
     # Show Available or Sold (Hide Pending)
@@ -389,12 +418,15 @@ def inventory():
         query = query.filter_by(category_id=cat_id)
         
     items = query.all()
-    return render_template('inventory.html', commodities=commodities, items=items, active_cat=cat_id)
+    store_info = get_store_info(store_name)
+    return render_template('inventory.html', commodities=commodities, items=items, active_cat=cat_id, current_store=store_name, store_info=store_info)
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     item = InventoryItem.query.get_or_404(item_id)
-    return render_template('product.html', item=item)
+    store_name = request.args.get('store', get_current_store())
+    store_info = get_store_info(store_name)
+    return render_template('product.html', item=item, current_store=store_name, store_info=store_info)
 
 # --- IMAGE SERVING ROUTE (CRITICAL FOR RENDER) ---
 @app.route('/uploads/<filename>')
@@ -576,14 +608,21 @@ def admin_panel():
 
     # 1. Update Category Counts
     if request.method == 'POST' and 'update_all_counts' in request.form:
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        updated = 0
         for key, value in request.form.items():
             if key.startswith('counts_'):
                 try:
                     cat_id = int(key.split('_')[1])
                     cat = InventoryCategory.query.get(cat_id)
-                    if cat: cat.count_in_stock = int(value)
+                    if cat: 
+                        cat.count_in_stock = int(value)
+                        updated += 1
                 except ValueError: pass
         db.session.commit()
+        if is_ajax:
+            return jsonify({'success': True, 'message': f"Updated {updated} categor{'y' if updated == 1 else 'ies'}."})
+        flash(f"Updated {updated} categor{'y' if updated == 1 else 'ies'}.", "success")
 
     # 2. Add Item (Admin Side - Quick Add for in-person drop-offs)
     if request.method == 'POST' and 'add_item' in request.form:
@@ -718,26 +757,38 @@ def admin_panel():
                     continue
         
         try:
+            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             db.session.commit()
             if updated_count > 0:
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"Updated {updated_count} item(s).", 'reload': True})
                 flash(f"Updated {updated_count} item(s).", "success")
         except Exception as e:
             db.session.rollback()
             print(f"Error committing changes: {e}")
             import traceback
             traceback.print_exc()
+            if is_ajax:
+                return jsonify({'success': False, 'message': "Error updating items. Please try again."}), 500
             flash("Error updating items. Please try again.", "error")
 
     # 4. Delete / Sold / Available Toggles
     if request.method == 'POST':
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
         if 'delete_item' in request.form:
             item = InventoryItem.query.get(request.form.get('delete_item'))
             if item:
+                item_desc = item.description
+                item_id = item.id
                 if item.status == 'available':
                     cat = InventoryCategory.query.get(item.category_id)
                     if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
                 db.session.delete(item)
                 db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"Item '{item_desc}' deleted.", 'remove_row': True, 'item_id': item_id})
+                flash(f"Item '{item_desc}' deleted.", "success")
         
         elif 'mark_sold' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_sold'))
@@ -749,18 +800,27 @@ def admin_panel():
                 db.session.commit()
                 # Email seller (same as webhook - 40% payout details)
                 if item.seller:
-                    send_email(
-                        item.seller.email,
-                        "Your Item Has Sold! - Campus Swap",
-                        _item_sold_email_html(item, item.seller)
-                    )
+                    try:
+                        send_email(
+                            item.seller.email,
+                            "Your Item Has Sold! - Campus Swap",
+                            _item_sold_email_html(item, item.seller)
+                        )
+                    except Exception as e:
+                        print(f"Error sending email: {e}")
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"Item '{item.description}' marked as sold.", 'reload': True})
+                flash(f"Item '{item.description}' marked as sold.", "success")
         
         elif 'mark_payout_sent' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_payout_sent'))
             if item and item.status == 'sold':
                 item.payout_sent = True
                 db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"Payout marked as sent for {item.description}.", 'reload': True})
                 flash(f"Payout marked as sent for {item.description}.", "success")
+                return redirect(url_for('admin_panel') + '#gallery-items')
 
         elif 'mark_available' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_available'))
@@ -771,6 +831,9 @@ def admin_panel():
                 cat = InventoryCategory.query.get(item.category_id)
                 if cat: cat.count_in_stock += 1
                 db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"Item '{item.description}' marked as available.", 'reload': True})
+                flash(f"Item '{item.description}' marked as available.", "success")
 
     # Data Loading
     commodities = InventoryCategory.query.all()
@@ -793,9 +856,20 @@ def admin_panel():
     gallery_items = InventoryItem.query.filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.date_added.desc()).all()
     
     pickup_period_active = get_pickup_period_active()
+    
+    # Calculate database stats
+    total_users = User.query.count()
+    total_items = InventoryItem.query.count()
+    sold_items = InventoryItem.query.filter_by(status='sold').count()
+    pending_items_count = InventoryItem.query.filter_by(status='pending_valuation').count()
+    available_items = InventoryItem.query.filter_by(status='available').count()
+    
     return render_template('admin.html', commodities=commodities, all_cats=all_cats, 
                            pending_items=pending_items, gallery_items=gallery_items,
-                           pickup_period_active=pickup_period_active)
+                           pickup_period_active=pickup_period_active,
+                           total_users=total_users, total_items=total_items,
+                           sold_items=sold_items, pending_items_count=pending_items_count,
+                           available_items=available_items)
 
 
 @app.route('/edit_item/<int:item_id>', methods=['GET', 'POST'])
@@ -1034,10 +1108,12 @@ def register():
         user = User.query.filter_by(email=email).first()
         
         if user:
-            # Converting a Lead to a User
+            # User exists - check if they have a password
             if user.password_hash is None:
+                # Waitlist user - create account
                 user.password_hash = generate_password_hash(password)
-                user.full_name = full_name
+                if full_name:
+                    user.full_name = full_name
                 db.session.commit()
                 login_user(user)
                 dashboard_url = url_for('dashboard', _external=True)
@@ -1055,8 +1131,9 @@ def register():
                 )
                 return redirect(get_user_dashboard())
             else:
-                flash("Account already exists. Please log in.", "error")
-                return redirect(url_for('login'))
+                # Account already exists with password - redirect to login with message
+                flash("An account with this email already exists. Please log in.", "error")
+                return redirect(url_for('login', email=email))
         
         new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
         db.session.add(new_user)
@@ -1096,15 +1173,34 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
-        user = User.query.filter_by(email=email).first()
+        form_type = request.form.get('form_type', 'login')
         
-        if user and user.password_hash and check_password_hash(user.password_hash, password):
-            login_user(user)
-            return redirect(get_user_dashboard())
+        # If it's a login attempt
+        if form_type == 'login':
+            user = User.query.filter_by(email=email).first()
+            
+            if not user:
+                # User doesn't exist - suggest creating account
+                flash("No account found with this email. Create an account below.", "error")
+                return render_template('login.html', prefill_email=email, show_signup=True)
+            elif not user.password_hash:
+                # User exists but has no password (waitlist user) - redirect to signup
+                flash("Please create an account with this email.", "error")
+                return render_template('login.html', prefill_email=email, show_signup=True)
+            elif not check_password_hash(user.password_hash, password):
+                # Wrong password
+                flash("Invalid password. Please try again.", "error")
+                return render_template('login.html', prefill_email=email, show_signup=False)
+            else:
+                # Successful login
+                login_user(user)
+                return redirect(get_user_dashboard())
         else:
-            flash("Invalid email or password.", "error")
-            prefill_email = email  # Keep email filled on error
-    return render_template('login.html', prefill_email=prefill_email)
+            # This shouldn't happen as signup form posts to /register
+            flash("Please use the Create Account form.", "error")
+    
+    show_signup = request.args.get('signup') == 'true' or request.args.get('show_signup') == 'true'
+    return render_template('login.html', prefill_email=prefill_email, show_signup=show_signup)
 
 @app.route('/logout')
 @login_required
@@ -1291,6 +1387,465 @@ def add_item():
             return redirect(get_user_dashboard())
             
     return render_template('add_item.html', categories=categories)
+
+# =========================================================
+# SECTION: ADMIN DATABASE MANAGEMENT
+# =========================================================
+
+@app.route('/admin/category/add', methods=['POST'])
+@login_required
+def admin_add_category():
+    """Add a new category"""
+    if not current_user.is_admin:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'message': "Access denied."}), 403
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    name = request.form.get('name', '').strip()
+    icon = request.form.get('icon', 'fa-box').strip()
+    
+    if not name:
+        if is_ajax:
+            return jsonify({'success': False, 'message': "Category name is required."}), 400
+        flash("Category name is required.", "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    
+    # Check if category already exists
+    existing = InventoryCategory.query.filter_by(name=name).first()
+    if existing:
+        if is_ajax:
+            return jsonify({'success': False, 'message': f"Category '{name}' already exists."}), 400
+        flash(f"Category '{name}' already exists.", "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    
+    new_category = InventoryCategory(name=name, image_url=icon, count_in_stock=0)
+    db.session.add(new_category)
+    db.session.commit()
+    
+    if is_ajax:
+        return jsonify({'success': True, 'message': f"Category '{name}' added successfully!", 'reload': True})
+    flash(f"Category '{name}' added successfully!", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+@app.route('/admin/category/edit/<int:cat_id>', methods=['POST'])
+@login_required
+def admin_edit_category(cat_id):
+    """Edit an existing category"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    category = InventoryCategory.query.get_or_404(cat_id)
+    name = request.form.get('name', '').strip()
+    icon = request.form.get('icon', '').strip()
+    
+    if not name:
+        flash("Category name is required.", "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    
+    # Check if another category has this name
+    existing = InventoryCategory.query.filter(InventoryCategory.name == name, InventoryCategory.id != cat_id).first()
+    if existing:
+        flash(f"Category '{name}' already exists.", "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    
+    category.name = name
+    if icon:
+        category.image_url = icon
+    db.session.commit()
+    
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    if is_ajax:
+        return jsonify({'success': True, 'message': "Category updated successfully!", 'reload': True})
+    flash(f"Category updated successfully!", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+@app.route('/admin/category/bulk-update', methods=['POST'])
+@login_required
+def admin_bulk_update_categories():
+    """Bulk update multiple categories at once"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    updated_count = 0
+    errors = []
+    
+    # Process all category updates
+    for key, value in request.form.items():
+        if key.startswith('cat_name_'):
+            cat_id = int(key.replace('cat_name_', ''))
+            new_name = value.strip()
+            icon_key = f'cat_icon_{cat_id}'
+            new_icon = request.form.get(icon_key, '').strip()
+            
+            if not new_name:
+                errors.append(f"Category ID {cat_id}: Name cannot be empty.")
+                continue
+            
+            category = InventoryCategory.query.get(cat_id)
+            if not category:
+                errors.append(f"Category ID {cat_id}: Not found.")
+                continue
+            
+            # Check if another category has this name
+            existing = InventoryCategory.query.filter(
+                InventoryCategory.name == new_name, 
+                InventoryCategory.id != cat_id
+            ).first()
+            if existing:
+                errors.append(f"Category '{new_name}' already exists.")
+                continue
+            
+            # Update category
+            category.name = new_name
+            if new_icon:
+                category.image_url = new_icon
+            updated_count += 1
+    
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    try:
+        db.session.commit()
+        if updated_count > 0:
+            if is_ajax:
+                return jsonify({
+                    'success': True, 
+                    'message': f"Updated {updated_count} categor{'y' if updated_count == 1 else 'ies'} successfully!",
+                    'reload': True
+                })
+            flash(f"Updated {updated_count} categor{'y' if updated_count == 1 else 'ies'} successfully!", "success")
+        if errors:
+            if is_ajax:
+                return jsonify({'success': False, 'message': '; '.join(errors)}), 400
+            for error in errors:
+                flash(error, "error")
+    except Exception as e:
+        db.session.rollback()
+        error_msg = f"Error updating categories: {str(e)}"
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 500
+        flash(error_msg, "error")
+    
+    if not is_ajax:
+        return redirect(url_for('admin_panel') + '#categories')
+
+@app.route('/admin/category/delete/<int:cat_id>', methods=['POST'])
+@login_required
+def admin_delete_category(cat_id):
+    """Delete a category (only if no items use it)"""
+    if not current_user.is_admin:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'message': "Access denied."}), 403
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    category = InventoryCategory.query.get_or_404(cat_id)
+    
+    # Check if category has items
+    item_count = InventoryItem.query.filter_by(category_id=cat_id).count()
+    if item_count > 0:
+        error_msg = f"Cannot delete category '{category.name}' - it has {item_count} item(s). Please reassign or delete items first."
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 400
+        flash(error_msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    
+    cat_name = category.name
+    db.session.delete(category)
+    db.session.commit()
+    
+    if is_ajax:
+        return jsonify({'success': True, 'message': f"Category '{cat_name}' deleted successfully!", 'reload': True})
+    flash(f"Category '{cat_name}' deleted successfully!", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+@app.route('/admin/preview/users')
+@login_required
+def admin_preview_users():
+    """Preview all users in browser"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    users = User.query.order_by(User.date_joined.desc()).all()
+    
+    # Prepare data for template
+    headers = ['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle']
+    rows = []
+    for user in users:
+        rows.append({
+            'email': user.email,
+            'full_name': user.full_name or '',
+            'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
+            'has_account': 'Yes' if user.password_hash else 'No (Waitlist)',
+            'is_seller': 'Yes' if user.is_seller else 'No',
+            'has_paid': 'Yes' if user.has_paid else 'No',
+            'is_admin': 'Yes' if user.is_admin else 'No',
+            'payout_method': user.payout_method or '',
+            'payout_handle': user.payout_handle or ''
+        })
+    
+    return render_template('data_preview.html', 
+                         title='Users Preview',
+                         export_url='/admin/export/users',
+                         headers=headers,
+                         rows=rows,
+                         row_keys=['email', 'full_name', 'date_joined', 'has_account', 'is_seller', 'has_paid', 'is_admin', 'payout_method', 'payout_handle'])
+
+@app.route('/admin/export/users')
+@login_required
+def admin_export_users():
+    """Export all users to CSV"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    users = User.query.order_by(User.date_joined.desc()).all()
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Header row
+    writer.writerow(['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle'])
+    
+    # Data rows
+    for user in users:
+        writer.writerow([
+            user.email,
+            user.full_name or '',
+            user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
+            'Yes' if user.password_hash else 'No (Waitlist)',
+            'Yes' if user.is_seller else 'No',
+            'Yes' if user.has_paid else 'No',
+            'Yes' if user.is_admin else 'No',
+            user.payout_method or '',
+            user.payout_handle or ''
+        ])
+    
+    output.seek(0)
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = f'attachment; filename=campus_swap_users_{datetime.utcnow().strftime("%Y%m%d")}.csv'
+    return response
+
+@app.route('/admin/preview/items')
+@login_required
+def admin_preview_items():
+    """Preview all items in browser"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    items = InventoryItem.query.order_by(InventoryItem.date_added.desc()).all()
+    
+    # Prepare data for template
+    headers = ['ID', 'Description', 'Category', 'Price', 'Quality', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent']
+    rows = []
+    for item in items:
+        seller_email = item.seller.email if item.seller else ''
+        seller_name = item.seller.full_name if item.seller else ''
+        category_name = item.category.name if item.category else ''
+        
+        rows.append({
+            'id': item.id,
+            'description': item.description,
+            'category': category_name,
+            'price': f"${item.price:.2f}" if item.price else '',
+            'quality': item.quality,
+            'status': item.status,
+            'collection_method': item.collection_method,
+            'seller_email': seller_email,
+            'seller_name': seller_name,
+            'date_added': item.date_added.strftime('%Y-%m-%d %H:%M:%S') if item.date_added else '',
+            'sold_at': item.sold_at.strftime('%Y-%m-%d %H:%M:%S') if item.sold_at else '',
+            'payout_sent': 'Yes' if item.payout_sent else 'No'
+        })
+    
+    return render_template('data_preview.html', 
+                         title='Items Preview',
+                         export_url='/admin/export/items',
+                         headers=headers,
+                         rows=rows,
+                         row_keys=['id', 'description', 'category', 'price', 'quality', 'status', 'collection_method', 'seller_email', 'seller_name', 'date_added', 'sold_at', 'payout_sent'])
+
+@app.route('/admin/export/items')
+@login_required
+def admin_export_items():
+    """Export all items to CSV"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    items = InventoryItem.query.order_by(InventoryItem.date_added.desc()).all()
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Header row
+    writer.writerow(['ID', 'Description', 'Category', 'Price', 'Quality', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent'])
+    
+    # Data rows
+    for item in items:
+        seller_email = item.seller.email if item.seller else ''
+        seller_name = item.seller.full_name if item.seller else ''
+        category_name = item.category.name if item.category else ''
+        
+        writer.writerow([
+            item.id,
+            item.description,
+            category_name,
+            item.price or '',
+            item.quality,
+            item.status,
+            item.collection_method,
+            seller_email,
+            seller_name,
+            item.date_added.strftime('%Y-%m-%d %H:%M:%S') if item.date_added else '',
+            item.sold_at.strftime('%Y-%m-%d %H:%M:%S') if item.sold_at else '',
+            'Yes' if item.payout_sent else 'No'
+        ])
+    
+    output.seek(0)
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = f'attachment; filename=campus_swap_items_{datetime.utcnow().strftime("%Y%m%d")}.csv'
+    return response
+
+@app.route('/admin/preview/sales')
+@login_required
+def admin_preview_sales():
+    """Preview sales data in browser"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    sold_items = InventoryItem.query.filter_by(status='sold').order_by(InventoryItem.sold_at.desc()).all()
+    
+    # Prepare data for template
+    headers = ['Item ID', 'Description', 'Sale Price', 'Payout Amount (40%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
+    rows = []
+    total_payout = 0
+    for item in sold_items:
+        payout_amount = item.price * 0.40 if item.price else 0
+        total_payout += payout_amount
+        seller_email = item.seller.email if item.seller else ''
+        seller_name = item.seller.full_name if item.seller else ''
+        payout_method = item.seller.payout_method if item.seller else ''
+        payout_handle = item.seller.payout_handle if item.seller else ''
+        
+        rows.append({
+            'id': item.id,
+            'description': item.description,
+            'sale_price': f"${item.price:.2f}" if item.price else '$0.00',
+            'payout_amount': f"${payout_amount:.2f}",
+            'seller_email': seller_email,
+            'seller_name': seller_name,
+            'payout_method': payout_method,
+            'payout_handle': payout_handle,
+            'sold_date': item.sold_at.strftime('%Y-%m-%d %H:%M:%S') if item.sold_at else '',
+            'payout_sent': 'Yes' if item.payout_sent else 'No'
+        })
+    
+    return render_template('data_preview.html', 
+                         title='Sales Preview',
+                         export_url='/admin/export/sales',
+                         headers=headers,
+                         rows=rows,
+                         row_keys=['id', 'description', 'sale_price', 'payout_amount', 'seller_email', 'seller_name', 'payout_method', 'payout_handle', 'sold_date', 'payout_sent'],
+                         total_payout=total_payout)
+
+@app.route('/admin/export/sales')
+@login_required
+def admin_export_sales():
+    """Export sold items with payout information"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    sold_items = InventoryItem.query.filter_by(status='sold').order_by(InventoryItem.sold_at.desc()).all()
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Header row
+    writer.writerow(['Item ID', 'Description', 'Sale Price', 'Payout Amount (40%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
+    
+    # Data rows
+    for item in sold_items:
+        payout_amount = item.price * 0.40 if item.price else 0
+        seller_email = item.seller.email if item.seller else ''
+        seller_name = item.seller.full_name if item.seller else ''
+        payout_method = item.seller.payout_method if item.seller else ''
+        payout_handle = item.seller.payout_handle if item.seller else ''
+        
+        writer.writerow([
+            item.id,
+            item.description,
+            item.price or 0,
+            f"{payout_amount:.2f}",
+            seller_email,
+            seller_name,
+            payout_method,
+            payout_handle,
+            item.sold_at.strftime('%Y-%m-%d %H:%M:%S') if item.sold_at else '',
+            'Yes' if item.payout_sent else 'No'
+        ])
+    
+    output.seek(0)
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = f'attachment; filename=campus_swap_sales_{datetime.utcnow().strftime("%Y%m%d")}.csv'
+    return response
+
+@app.route('/admin/database/reset', methods=['POST'])
+@login_required
+def admin_database_reset():
+    """Safely reset database - requires confirmation"""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    confirmation = request.form.get('confirmation', '').strip().lower()
+    
+    # Require explicit confirmation
+    if confirmation != 'reset database':
+        flash("Please type 'reset database' to confirm. This action cannot be undone.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    
+    try:
+        # Drop all tables and recreate
+        db.drop_all()
+        db.create_all()
+        
+        # Recreate default categories
+        default_categories = [
+            {"name": "Couch/Sofa", "icon": "fa-couch"},
+            {"name": "Mattress", "icon": "fa-bed"},
+            {"name": "Mini-Fridge", "icon": "fa-snowflake"},
+            {"name": "Climate Control", "icon": "fa-wind"},
+            {"name": "Television", "icon": "fa-tv"},
+        ]
+        
+        for cat_data in default_categories:
+            category = InventoryCategory(
+                name=cat_data["name"],
+                image_url=cat_data["icon"],
+                count_in_stock=0
+            )
+            db.session.add(category)
+        
+        db.session.commit()
+        
+        flash("Database reset successfully! Default categories have been created.", "success")
+        return redirect(url_for('admin_panel'))
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error resetting database: {str(e)}", "error")
+        return redirect(url_for('admin_panel') + '#database')
 
 if __name__ == '__main__':
     with app.app_context():
