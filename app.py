@@ -225,6 +225,71 @@ def index():
 def about():
     return render_template('about.html')
 
+@app.route('/sitemap.xml')
+def sitemap():
+    """Generate dynamic sitemap.xml for Google Search Console"""
+    from flask import Response
+    
+    # Base URL
+    base_url = request.url_root.rstrip('/')
+    
+    # Get current date for lastmod
+    current_date = datetime.utcnow().strftime('%Y-%m-%d')
+    
+    # Start building XML
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
+    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+    
+    # Static pages with priorities
+    static_pages = [
+        {'url': '/', 'priority': '1.0', 'changefreq': 'weekly'},
+        {'url': '/inventory', 'priority': '0.9', 'changefreq': 'daily'},
+        {'url': '/about', 'priority': '0.8', 'changefreq': 'monthly'},
+        {'url': '/register', 'priority': '0.7', 'changefreq': 'monthly'},
+        {'url': '/login', 'priority': '0.6', 'changefreq': 'monthly'},
+    ]
+    
+    for page in static_pages:
+        xml.append('  <url>')
+        xml.append(f'    <loc>{base_url}{page["url"]}</loc>')
+        xml.append(f'    <lastmod>{current_date}</lastmod>')
+        xml.append(f'    <changefreq>{page["changefreq"]}</changefreq>')
+        xml.append(f'    <priority>{page["priority"]}</priority>')
+        xml.append('  </url>')
+    
+    # Add all available (live) product pages
+    available_items = InventoryItem.query.filter_by(status='available').all()
+    for item in available_items:
+        xml.append('  <url>')
+        xml.append(f'    <loc>{base_url}/item/{item.id}</loc>')
+        xml.append(f'    <lastmod>{item.date_added.strftime("%Y-%m-%d") if item.date_added else current_date}</lastmod>')
+        xml.append('    <changefreq>weekly</changefreq>')
+        xml.append('    <priority>0.7</priority>')
+        xml.append('  </url>')
+    
+    xml.append('</urlset>')
+    
+    # Return XML response
+    return Response('\n'.join(xml), mimetype='application/xml')
+
+@app.route('/robots.txt')
+def robots_txt():
+    """Generate robots.txt file"""
+    from flask import Response
+    
+    base_url = request.url_root.rstrip('/')
+    robots = [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /admin',
+        'Disallow: /dashboard',
+        'Disallow: /account_settings',
+        'Disallow: /webhook',
+        f'Sitemap: {base_url}/sitemap.xml'
+    ]
+    
+    return Response('\n'.join(robots), mimetype='text/plain')
+
 
 # =========================================================
 # SECTION 2: MARKETPLACE ROUTES
