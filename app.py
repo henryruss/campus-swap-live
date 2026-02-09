@@ -1805,14 +1805,28 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_panel') + '#mass-email')
     
+    # Check if Resend API key is configured
+    if not resend.api_key:
+        error_msg = "RESEND_API_KEY is not configured. Cannot send emails."
+        print(f"ERROR: {error_msg}")
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 500
+        flash(error_msg, "error")
+        return redirect(url_for('admin_panel') + '#mass-email')
+    
     # Send emails using batch API to respect rate limits (2 req/s)
     # Batch API allows up to 100 emails per request
     sent_count = 0
     failed_count = 0
     failed_emails = []
+    error_details = []
     
     # Get sender email
     sender = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <onboarding@resend.dev>')
+    
+    print(f"Starting mass email send to {total_users} users")
+    print(f"Using sender: {sender}")
+    print(f"Subject: {subject}")
     
     # Split users into batches of 100
     batch_size = 100
@@ -1823,6 +1837,9 @@ def admin_mass_email():
             # Prepare batch email data
             batch_data = []
             for user in user_batch:
+                if not user.email:
+                    print(f"WARNING: User {user.id} has no email, skipping")
+                    continue
                 batch_data.append({
                     "from": sender,
                     "to": user.email,
@@ -1830,45 +1847,79 @@ def admin_mass_email():
                     "html": html_content
                 })
             
+            if not batch_data:
+                print(f"Batch {batch_idx + 1}: No valid emails in batch, skipping")
+                continue
+            
+            print(f"Batch {batch_idx + 1}/{len(user_batches)}: Attempting to send {len(batch_data)} emails...")
+            
             # Send batch
             response = resend.Emails.send_batch(batch_data)
             
+            print(f"Batch {batch_idx + 1} response: {json.dumps(response, default=str)}")
+            
             # Count successful sends
-            if response and isinstance(response, dict) and 'data' in response:
-                # Batch API returns data with email IDs
-                batch_sent = len(response.get('data', []))
-                sent_count += batch_sent
-                print(f"Batch {batch_idx + 1}/{len(user_batches)}: Sent {batch_sent} emails")
+            if response and isinstance(response, dict):
+                if 'data' in response:
+                    # Batch API returns data with email IDs
+                    batch_sent = len(response.get('data', []))
+                    sent_count += batch_sent
+                    print(f"Batch {batch_idx + 1}/{len(user_batches)}: Successfully sent {batch_sent} emails")
+                elif 'error' in response:
+                    # API returned an error
+                    error_info = response.get('error', {})
+                    error_msg = f"Resend API error: {error_info}"
+                    print(f"ERROR - Batch {batch_idx + 1}: {error_msg}")
+                    error_details.append(error_msg)
+                    failed_count += len(batch_data)
+                    failed_emails.extend([d['to'] for d in batch_data])
+                else:
+                    # Unexpected response format
+                    print(f"WARNING - Batch {batch_idx + 1}: Unexpected response format: {response}")
+                    error_details.append(f"Unexpected response format: {response}")
+                    failed_count += len(batch_data)
+                    failed_emails.extend([d['to'] for d in batch_data])
             else:
-                # If response format is unexpected, assume all failed
-                print(f"Batch {batch_idx + 1} response format unexpected: {response}")
-                failed_count += len(user_batch)
-                failed_emails.extend([u.email for u in user_batch])
+                # Response is None or not a dict
+                print(f"ERROR - Batch {batch_idx + 1}: No response or invalid response type: {type(response)}")
+                error_details.append(f"No response from Resend API")
+                failed_count += len(batch_data)
+                failed_emails.extend([d['to'] for d in batch_data])
                 
         except Exception as e:
             # If batch fails, mark all emails in batch as failed
-            error_msg = str(e)
-            print(f"Batch {batch_idx + 1} failed: {error_msg}")
+            error_msg = f"Exception in batch {batch_idx + 1}: {str(e)}"
+            error_type = type(e).__name__
+            print(f"ERROR - Batch {batch_idx + 1} exception ({error_type}): {error_msg}")
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
+            error_details.append(f"{error_type}: {error_msg}")
             failed_count += len(user_batch)
-            failed_emails.extend([u.email for u in user_batch])
+            failed_emails.extend([u.email for u in user_batch if u.email])
         
         # Rate limit: 2 req/s = wait 0.5 seconds between batches
         # Add extra buffer to be safe
         if batch_idx < len(user_batches) - 1:  # Don't wait after last batch
             time.sleep(0.6)  # Wait 600ms between batches
     
+    print(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
+    
     # Prepare response message
     if sent_count == total_users:
         message = f"Successfully sent email to all {sent_count} users!"
     elif sent_count > 0:
         message = f"Sent to {sent_count} users. {failed_count} failed."
+        if error_details:
+            message += f" Errors: {'; '.join(error_details[:3])}"
         if failed_emails:
-            message += f" Failed: {', '.join(failed_emails[:5])}"
+            message += f" Failed emails: {', '.join(failed_emails[:5])}"
             if len(failed_emails) > 5:
                 message += f" and {len(failed_emails) - 5} more."
     else:
-        message = f"Failed to send emails. Check logs for details."
-    
+        message = f"Failed to send emails. Check server logs for details."
+        if error_details:
+            message += f" Errors: {'; '.join(error_details[:5])}"
+
     if is_ajax:
         return jsonify({
             'success': sent_count > 0,
