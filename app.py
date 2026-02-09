@@ -923,19 +923,13 @@ def webhook():
                 try:
                     activation_content = f"""
                     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                        <h2 style="color: #166534;">Seller Activation Complete!</h2>
+                        <h2 style="color: #166534;">You're all set!</h2>
                         <p>Hi {user.full_name or 'there'},</p>
-                        <p>Great news! Your seller activation payment has been processed successfully.</p>
+                        <p>Your item has been submitted and you've confirmed your space in our store for the summer.</p>
                         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                            <p style="margin: 0 0 8px;"><strong>Status:</strong> Active Seller</p>
-                            <p style="margin: 0;">You can now list items for sale!</p>
+                            <p style="margin: 0 0 8px;"><strong>What happens next:</strong></p>
+                            <p style="margin: 0;">We will come to your listed address during move-out week to pick your item up. More information about exact pickup logistics will follow.</p>
                         </div>
-                        <p>Next steps:</p>
-                        <ul>
-                            <li>Submit items for valuation in your dashboard</li>
-                            <li>Our team will review and price your items</li>
-                            <li>Once approved, items go live and start selling</li>
-                        </ul>
                         <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
                         <p>Thanks for joining Campus Swap!</p>
                     </div>
@@ -1883,13 +1877,13 @@ def payment_success():
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     
-                    flash("Payment successful! You can now list items.", "success")
+                    flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week—more details on exact pickup logistics will follow.", "success")
         except Exception as e:
             logger.error(f"Error verifying payment: {e}", exc_info=True)
             # Still show success message - webhook will handle it
             flash("Payment received! Processing...", "info")
     else:
-        flash("Payment successful! You can now list items.", "success")
+        flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week—more details on exact pickup logistics will follow.", "success")
     
     return redirect(get_user_dashboard())
 

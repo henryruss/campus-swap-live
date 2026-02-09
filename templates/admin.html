@@ -516,7 +516,7 @@
             </h3>
             <i class="fas fa-chevron-down summary-chevron"></i>
         </summary>
-        <form method="POST">
+        <form method="POST" id="admin-gallery-form" action="{{ url_for('admin_panel') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             {% if pending_items %}
             <div id="pending-items" class="card no-hover" style="border: 2px solid #fca5a5; margin-top: 20px; margin-bottom: 30px;">
@@ -827,13 +827,14 @@
             }, 5000);
         }
         
-            // Handle all form submissions with AJAX (except file uploads, database reset, and mass email)
+            // Handle all form submissions with AJAX (except file uploads, database reset, mass email, and gallery form)
             document.querySelectorAll('form').forEach(function(form) {
-                // Skip file upload forms, database reset, pickup period toggle, and mass email
+                // Skip file upload forms, database reset, pickup period toggle, mass email, and gallery/pending items form
                 if (form.enctype === 'multipart/form-data' || 
                     form.action.includes('database/reset') ||
                     form.action.includes('mass-email') ||
-                    form.querySelector('input[name="toggle_pickup_period"]')) {
+                    form.querySelector('input[name="toggle_pickup_period"]') ||
+                    form.id === 'admin-gallery-form') {
                     return;
                 }
             
