@@ -1805,22 +1805,57 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_panel') + '#mass-email')
     
-    # Send emails
+    # Send emails using batch API to respect rate limits (2 req/s)
+    # Batch API allows up to 100 emails per request
     sent_count = 0
     failed_count = 0
     failed_emails = []
     
-    for user in users:
+    # Get sender email
+    sender = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <onboarding@resend.dev>')
+    
+    # Split users into batches of 100
+    batch_size = 100
+    user_batches = [users[i:i + batch_size] for i in range(0, len(users), batch_size)]
+    
+    for batch_idx, user_batch in enumerate(user_batches):
         try:
-            if send_email(user.email, subject, html_content):
-                sent_count += 1
+            # Prepare batch email data
+            batch_data = []
+            for user in user_batch:
+                batch_data.append({
+                    "from": sender,
+                    "to": user.email,
+                    "subject": subject,
+                    "html": html_content
+                })
+            
+            # Send batch
+            response = resend.Emails.send_batch(batch_data)
+            
+            # Count successful sends
+            if response and isinstance(response, dict) and 'data' in response:
+                # Batch API returns data with email IDs
+                batch_sent = len(response.get('data', []))
+                sent_count += batch_sent
+                print(f"Batch {batch_idx + 1}/{len(user_batches)}: Sent {batch_sent} emails")
             else:
-                failed_count += 1
-                failed_emails.append(user.email)
+                # If response format is unexpected, assume all failed
+                print(f"Batch {batch_idx + 1} response format unexpected: {response}")
+                failed_count += len(user_batch)
+                failed_emails.extend([u.email for u in user_batch])
+                
         except Exception as e:
-            print(f"Error sending email to {user.email}: {e}")
-            failed_count += 1
-            failed_emails.append(user.email)
+            # If batch fails, mark all emails in batch as failed
+            error_msg = str(e)
+            print(f"Batch {batch_idx + 1} failed: {error_msg}")
+            failed_count += len(user_batch)
+            failed_emails.extend([u.email for u in user_batch])
+        
+        # Rate limit: 2 req/s = wait 0.5 seconds between batches
+        # Add extra buffer to be safe
+        if batch_idx < len(user_batches) - 1:  # Don't wait after last batch
+            time.sleep(0.6)  # Wait 600ms between batches
     
     # Prepare response message
     if sent_count == total_users:
