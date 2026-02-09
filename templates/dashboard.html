@@ -41,6 +41,7 @@
         padding: 15px; border-radius: 8px; margin-top: 10px;
         display: flex; justify-content: space-between; align-items: center;
     }
+    .locked-box .locked-box-address { word-break: break-word; min-width: 0; flex: 1; }
 
     /* THE STATIC '@' INPUT */
     .input-group {
@@ -155,13 +156,37 @@
         .grid-inventory {
             grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
         }
+        /* Seller Studio header: stack on mobile so title and Log Out don't squash */
+        .dashboard-header {
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .dashboard-header-text {
+            flex: 1;
+            min-width: 0;
+        }
+        .dashboard-header .btn-outline {
+            flex-shrink: 0;
+        }
+        /* Address/payout locked boxes: stack so Change button is below text, not on top */
+        .locked-box {
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .locked-box > *:first-child {
+            flex: 1 1 100%;
+            min-width: 0;
+        }
+        .locked-box-btn {
+            align-self: flex-end;
+        }
     }
 </style>
 
 <div class="container" style="margin-top: 40px;">
     
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
-        <div>
+    <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
+        <div class="dashboard-header-text">
             <h1 style="margin-bottom: 5px;">Seller Studio</h1>
             <p style="margin: 0; color: var(--text-muted);">Complete the 3-step setup to launch.</p>
         </div>
@@ -195,8 +220,8 @@
                     <p style="color: var(--text-muted); margin-bottom: 5px;">Collection Point:</p>
                     
                     <div id="view-address" class="locked-box" style="background: rgba(255,255,255,0.6);">
-                        <span style="font-weight: 600;">{{ current_user.pickup_address }}</span>
-                        <button onclick="toggleEdit('address')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
+                        <span class="locked-box-address" style="font-weight: 600;">{{ current_user.pickup_address }}</span>
+                        <button type="button" onclick="toggleEdit('address')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Change</button>
                     </div>
 
                     <div id="edit-address" style="display: none; margin-top: 15px;">
@@ -326,7 +351,7 @@
                             <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
                             <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
                         </div>
-                        <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Change</button>
+                        <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Change</button>
                     </div>
 
                     <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
@@ -426,7 +451,7 @@
                         <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
                         <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
                     </div>
-                    <button onclick="toggleEdit('payout')" class="btn btn-outline" style="padding: 5px 10px; font-size: 0.8rem;">Edit</button>
+                    <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Edit</button>
                 </div>
 
                 <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">

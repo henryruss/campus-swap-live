@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 instance/
 .env
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+coverage.xml
+*.cover

@@ -26,7 +26,9 @@ class User(UserMixin, db.Model):
     has_paid = db.Column(db.Boolean, default=False)
     
     # MARKETING
-    referral_source = db.Column(db.String(50), default='direct') 
+    referral_source = db.Column(db.String(50), default='direct')
+    unsubscribed = db.Column(db.Boolean, default=False)
+    unsubscribe_token = db.Column(db.String(64), unique=True, nullable=True)
     
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)

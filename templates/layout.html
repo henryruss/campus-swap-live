@@ -295,6 +295,22 @@
     </style>
 
     <script>
+        // Global loading state handler
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add loading states to all forms
+            document.querySelectorAll('form').forEach(function(form) {
+                form.addEventListener('submit', function(e) {
+                    const submitBtn = e.submitter || form.querySelector('button[type="submit"]:not([disabled])');
+                    if (submitBtn && !submitBtn.dataset.noLoading) {
+                        submitBtn.disabled = true;
+                        const originalText = submitBtn.innerHTML;
+                        submitBtn.dataset.originalText = originalText;
+                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (submitBtn.textContent.trim() || 'Processing...');
+                    }
+                });
+            });
+        });
+        
         // Auto-dismiss flash messages after 5 seconds
         document.addEventListener('DOMContentLoaded', function() {
             const flashMessages = document.querySelectorAll('.flash-message');

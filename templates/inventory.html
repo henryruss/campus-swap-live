@@ -49,14 +49,52 @@
         {% endfor %}
     </div>
 
+    <!-- Search Box -->
+    <div style="margin-bottom: 30px;">
+        <form method="GET" action="/inventory" style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" 
+                   name="search" 
+                   placeholder="Search items..." 
+                   value="{{ search_query }}"
+                   style="flex: 1; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 1rem;">
+            {% if active_cat %}
+            <input type="hidden" name="category_id" value="{{ active_cat }}">
+            {% endif %}
+            {% if current_store %}
+            <input type="hidden" name="store" value="{{ current_store }}">
+            {% endif %}
+            <button type="submit" class="btn btn-primary" style="padding: 12px 24px;">
+                <i class="fas fa-search"></i> Search
+            </button>
+            {% if search_query %}
+            <a href="/inventory{% if active_cat %}?category_id={{ active_cat }}{% endif %}{% if current_store %}{% if active_cat %}&{% else %}?{% endif %}store={{ current_store }}{% endif %}" 
+               class="btn btn-outline" 
+               style="padding: 12px 24px;">
+                Clear
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #e2e8f0;">
         <i class="fas fa-layer-group" style="font-size: 1.5rem; color: var(--accent);"></i>
         <h2 style="margin: 0;">
-            {% if active_cat %}Filtered Results{% else %}All Inventory{% endif %}
+            {% if search_query %}
+                Search Results{% if active_cat %} ({{ commodities|selectattr('id', 'equalto', active_cat|int)|map(attribute='name')|first }}){% endif %}
+            {% elif active_cat %}
+                {{ commodities|selectattr('id', 'equalto', active_cat|int)|map(attribute='name')|first }}
+            {% else %}
+                All Inventory
+            {% endif %}
         </h2>
+        {% if pagination %}
+        <span style="color: var(--text-muted); font-size: 0.9rem;">
+            ({{ pagination.total }} item{{ 's' if pagination.total != 1 else '' }})
+        </span>
+        {% endif %}
     </div>
     
-    {% if items|length == 0 %}
+    {% if not items or items|length == 0 %}
     <div style="padding: 30px; text-align: center; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 30px;">
         <i class="fas fa-clock" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px; opacity: 0.7;"></i>
         <h3 style="color: var(--text-main); margin-bottom: 10px;">Items Coming Soon!</h3>
@@ -75,7 +113,7 @@
     
     <div class="grid-inventory">
         {% for item in items %}
-        <a href="/item/{{ item.id }}?store={{ current_store }}" style="text-decoration: none; color: inherit;">
+        <a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}{% if pagination and pagination.page > 1 %}&page={{ pagination.page }}{% endif %}" style="text-decoration: none; color: inherit;">
             <div class="card" style="padding: 0; overflow: hidden; position: relative;">
                 
                 {% if item.status == 'sold' %}
@@ -88,6 +126,8 @@
 
                 <div style="height: 240px; overflow: hidden;">
                     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" 
+                         loading="lazy"
+                         alt="{{ item.description }}"
                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
                 </div>
                 

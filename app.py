@@ -1,6 +1,10 @@
 import os
 import time
 import json
+import logging
+import re
+import secrets
+import html as html_module
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 
@@ -8,17 +12,37 @@ from PIL import Image
 import stripe
 import resend
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
 import csv
-from io import StringIO
+from io import StringIO, BytesIO
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import or_, and_
 
 # Import Models
 from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting
+
+# Import Constants
+from constants import (
+    PAYOUT_PERCENTAGE, SELLER_ACTIVATION_FEE_CENTS,
+    MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
+    IMAGE_QUALITY, THUMBNAIL_SIZE,
+    MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
+    MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
+    MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
+    ITEMS_PER_PAGE
+)
+
+# Configure Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def get_pickup_period_active():
     """Get pickup period status from database, fallback to environment variable"""
@@ -96,6 +120,21 @@ migrate = Migrate(app, db)
 # CSRF Protection (exempt webhook - Stripe sends raw POST without token)
 csrf = CSRFProtect(app)
 
+# Rate Limiting
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
+    )
+    logger.info("Rate limiting enabled")
+except ImportError:
+    limiter = None
+    logger.warning("Flask-Limiter not installed. Rate limiting disabled.")
+
 # --- EXTERNAL SERVICES CONFIGURATION ---
 
 # STRIPE
@@ -123,48 +162,158 @@ def get_user_dashboard():
 
 # --- EMAIL HELPERS ---
 
-def send_email(to_email, subject, html_content, from_email=None):
+def generate_unsubscribe_token():
+    """Generate a secure random token for unsubscribe links"""
+    return secrets.token_urlsafe(32)
+
+def ensure_unsubscribe_token(user):
+    """Ensure user has an unsubscribe token, creating one if needed"""
+    # If user is detached, merge it into the current session
+    if user not in db.session:
+        user = db.session.merge(user)
+    if not user.unsubscribe_token:
+        user.unsubscribe_token = generate_unsubscribe_token()
+        db.session.commit()
+    return user.unsubscribe_token
+
+def html_to_text(html_content):
+    """Convert HTML email content to plain text version"""
+    # Remove HTML tags and decode entities
+    text = re.sub(r'<[^>]+>', '', html_content)
+    text = html_module.unescape(text)
+    # Clean up whitespace
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    return text.strip()
+
+def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
     """
-    Sends an email using Resend.
+    Wrap email content in a proper HTML template with footer.
+    
+    Args:
+        html_content: The main email content (HTML)
+        unsubscribe_url: Optional unsubscribe URL for marketing emails
+        is_marketing: Whether this is a marketing email (adds unsubscribe link)
+    """
+    footer = ""
+    if is_marketing and unsubscribe_url:
+        footer = f"""
+        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 0.85rem; color: #64748b;">
+            <p style="margin: 0 0 10px;">Campus Swap</p>
+            <p style="margin: 0 0 10px;">Physical address coming soon</p>
+            <p style="margin: 0;">
+                <a href="{unsubscribe_url}" style="color: #64748b; text-decoration: underline;">Unsubscribe from these emails</a>
+            </p>
+        </div>
+        """
+    elif is_marketing:
+        # Marketing email but no unsubscribe URL provided (shouldn't happen, but handle gracefully)
+        footer = """
+        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 0.85rem; color: #64748b;">
+            <p style="margin: 0 0 10px;">Campus Swap</p>
+            <p style="margin: 0;">Physical address coming soon</p>
+        </div>
+        """
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td style="padding: 20px 0;">
+                <table role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="padding: 30px;">
+                            {html_content}
+                            {footer}
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+def send_email(to_email, subject, html_content, from_email=None, is_marketing=False, user=None):
+    """
+    Sends an email using Resend with automatic unsubscribe handling for marketing emails.
     
     Args:
         to_email: Recipient email address
         subject: Email subject line
-        html_content: HTML email content
+        html_content: HTML email content (will be wrapped in template)
         from_email: Optional sender email (defaults to configured sender)
+        is_marketing: If True, adds unsubscribe link and headers (default: False)
+        user: User object (required if is_marketing=True, used for unsubscribe token)
     
-    NOTE: Until you verify a domain in Resend, you can only send to your own email.
-    Once verified, update the default 'from' address to your domain (e.g. hello@usecampusswap.com)
+    Returns:
+        bool: True if email sent successfully, False otherwise
     """
     if not resend.api_key:
-        print(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
+        logger.warning(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
         return False
 
-    # Default sender - update this once domain is verified
-    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <onboarding@resend.dev>')
+    # Check if user is unsubscribed (for marketing emails)
+    if is_marketing and user and user.unsubscribed:
+        logger.info(f"Skipping email to {to_email}: User has unsubscribed")
+        return False
+
+    # Default sender - use team@usecampusswap.com
+    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <team@usecampusswap.com>')
     sender = from_email or default_from
 
+    # Generate unsubscribe URL if marketing email
+    unsubscribe_url = None
+    if is_marketing:
+        if not user:
+            logger.warning(f"Marketing email to {to_email} but no user object provided. Cannot add unsubscribe link.")
+        else:
+            # Ensure user has unsubscribe token
+            token = ensure_unsubscribe_token(user)
+            unsubscribe_url = url_for('unsubscribe', token=token, _external=True)
+
+    # Wrap content in email template
+    wrapped_html = wrap_email_template(html_content, unsubscribe_url, is_marketing=is_marketing)
+    
+    # Generate plain text version
+    plain_text = html_to_text(html_content)
+
+    # Prepare email data
+    email_data = {
+        "from": sender,
+        "to": to_email,
+        "subject": subject,
+        "html": wrapped_html,
+        "text": plain_text
+    }
+
+    # Add headers for marketing emails (improves deliverability)
+    if is_marketing and unsubscribe_url:
+        email_data["headers"] = {
+            "List-Unsubscribe": f"<{unsubscribe_url}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "Precedence": "bulk"
+        }
+
     try:
-        resend.Emails.send({
-            "from": sender,
-            "to": to_email,
-            "subject": subject,
-            "html": html_content
-        })
-        print(f"Email sent to {to_email}: {subject}")
+        resend.Emails.send(email_data)
+        logger.info(f"Email sent to {to_email}: {subject}")
         return True
     except Exception as e:
         # Log error but don't crash the route
-        print(f"Failed to send email to {to_email}: {e}")
-        import traceback
-        traceback.print_exc()  # Print full traceback for debugging
+        logger.error(f"Failed to send email to {to_email}: {e}", exc_info=True)
         return False
 
 
 def _item_sold_email_html(item, seller):
-    """Build HTML for item sold notification with 40% payout details."""
+    """Build HTML for item sold notification with payout details."""
     sale_price = item.price or 0
-    payout_amount = round(sale_price * 0.40, 2)
+    payout_amount = round(sale_price * PAYOUT_PERCENTAGE, 2)
     payout_method = seller.payout_method or "Venmo"
     payout_handle = seller.payout_handle or "—"
     return f"""
@@ -173,13 +322,101 @@ def _item_sold_email_html(item, seller):
         <p>Good news! Your item <strong>{item.description}</strong> has just been purchased.</p>
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>
-            <p style="margin: 0 0 8px;"><strong>Your payout (40%):</strong> ${payout_amount:.2f}</p>
+            <p style="margin: 0 0 8px;"><strong>Your payout ({int(PAYOUT_PERCENTAGE * 100)}%):</strong> ${payout_amount:.2f}</p>
             <p style="margin: 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>
         </div>
         <p>We'll process your payout shortly. Our team handles the handover to the buyer—you don't need to do anything!</p>
         <p>Thanks for selling with Campus Swap!</p>
     </div>
     """
+
+
+# --- VALIDATION HELPERS ---
+
+def validate_email(email):
+    """Validate email format"""
+    if not email or len(email) > MAX_EMAIL_LENGTH:
+        return False
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
+def validate_file_upload(file):
+    """Validate uploaded file: size, extension, and MIME type"""
+    if not file or not file.filename:
+        return False, "No file provided"
+    
+    # Check file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)  # Reset file pointer
+    
+    if file_size > MAX_UPLOAD_SIZE:
+        return False, f"File size exceeds {MAX_UPLOAD_SIZE / (1024*1024):.1f}MB limit"
+    
+    # Check extension
+    filename = secure_filename(file.filename)
+    if not filename:
+        return False, "Invalid filename"
+    
+    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+    if ext not in ALLOWED_EXTENSIONS:
+        return False, f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+    
+    # Check MIME type
+    mime_type = file.content_type
+    if mime_type and mime_type.lower() not in ALLOWED_MIME_TYPES:
+        return False, "Invalid file type"
+    
+    return True, None
+
+
+def validate_price(price):
+    """Validate price is within acceptable range"""
+    try:
+        price_float = float(price)
+        if price_float < MIN_PRICE or price_float > MAX_PRICE:
+            return False, f"Price must be between ${MIN_PRICE:.2f} and ${MAX_PRICE:.2f}"
+        return True, price_float
+    except (ValueError, TypeError):
+        return False, "Invalid price format"
+
+
+def validate_quality(quality):
+    """Validate quality rating"""
+    try:
+        quality_int = int(quality)
+        if quality_int < MIN_QUALITY or quality_int > MAX_QUALITY:
+            return False, f"Quality must be between {MIN_QUALITY} and {MAX_QUALITY}"
+        return True, quality_int
+    except (ValueError, TypeError):
+        return False, "Invalid quality value"
+
+
+# --- ERROR HANDLERS ---
+
+@app.errorhandler(404)
+def not_found_error(error):
+    logger.warning(f"404 error: {request.url}")
+    return render_template('error.html', 
+                         error_code=404, 
+                         error_message="Page not found"), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"500 error: {error}", exc_info=True)
+    db.session.rollback()
+    return render_template('error.html',
+                         error_code=500,
+                         error_message="An internal error occurred. Please try again later."), 500
+
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    logger.warning(f"413 error: File too large")
+    flash("File is too large. Maximum size is 10MB.", "error")
+    return redirect(request.url), 413
 
 
 # =========================================================
@@ -193,7 +430,20 @@ def index():
         session['source'] = request.args.get('source')
 
     if request.method == 'POST':
-        email = request.form.get('email')
+        email = request.form.get('email', '').strip()
+        
+        # Validate email
+        if not email:
+            flash("Please provide your email address.", "error")
+            return render_template('index.html', pickup_period_active=get_pickup_period_active())
+        
+        if not validate_email(email):
+            flash("Please provide a valid email address.", "error")
+            return render_template('index.html', pickup_period_active=get_pickup_period_active())
+        
+        if len(email) > MAX_EMAIL_LENGTH:
+            flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
+            return render_template('index.html', pickup_period_active=get_pickup_period_active())
         
         # Check if pickup period is active
         pickup_period_active = get_pickup_period_active()
@@ -202,10 +452,11 @@ def index():
             # Check if email already exists
             existing_user = User.query.filter_by(email=email).first()
             if not existing_user:
-                # Create a "waitlist only" user (no account creation)
-                waitlist_user = User(email=email, referral_source=session.get('source', 'direct'))
-                db.session.add(waitlist_user)
+                # Create a guest account (no password set yet)
+                guest_user = User(email=email, referral_source=session.get('source', 'direct'))
+                db.session.add(guest_user)
                 db.session.commit()
+                logger.info(f"Guest account created (pickup period closed): {email}")
             
             flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
             return redirect(url_for('index'))
@@ -239,7 +490,7 @@ def index():
             
             # Email captured for marketing - no welcome email sent to avoid spam
             # Redirect straight to action
-            flash("Welcome! Complete your profile to secure your spot.", "success")
+            flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
             return redirect(get_user_dashboard())
     
     pickup_period_active = get_pickup_period_active()
@@ -359,7 +610,7 @@ def favicon(size=None):
         return send_from_directory('static', 'logo.jpg')
         
     except Exception as e:
-        print(f"Error serving favicon: {e}")
+        logger.error(f"Error serving favicon: {e}", exc_info=True)
         return Response('', mimetype='image/x-icon'), 404
 
 
@@ -388,7 +639,7 @@ def dropoff():
                 db.session.commit()
             flash("Thanks! We'll email you when your item sells.", "success")
         else:
-            # Create new lead user (like waitlist flow)
+            # Create new guest account (no password set yet)
             new_user = User(email=email, full_name=name, referral_source='in_person_dropoff')
             db.session.add(new_user)
             db.session.commit()
@@ -398,27 +649,83 @@ def dropoff():
     
     return render_template('dropoff.html')
 
+@app.route('/unsubscribe/<token>', methods=['GET', 'POST'])
+def unsubscribe(token):
+    """Handle email unsubscribe requests"""
+    user = User.query.filter_by(unsubscribe_token=token).first()
+    
+    if not user:
+        flash("Invalid unsubscribe link. If you continue to receive emails, please contact support.", "error")
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        # Process unsubscribe
+        user.unsubscribed = True
+        db.session.commit()
+        flash("You have been successfully unsubscribed from marketing emails.", "success")
+        return render_template('unsubscribe_success.html')
+    
+    # GET request - show confirmation page
+    return render_template('unsubscribe_confirm.html', user_email=user.email)
+
 @app.route('/inventory')
 def inventory():
-    cat_id = request.args.get('category_id')
+    """Display inventory with pagination, search, and optimized queries"""
+    cat_id = request.args.get('category_id', type=int)
     store_name = request.args.get('store', get_current_store())
-    commodities = InventoryCategory.query.all() 
+    search_query = request.args.get('search', '').strip()
+    page = request.args.get('page', 1, type=int)
     
-    # Show Available or Sold (Hide Pending)
-    query = InventoryItem.query.filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.status.asc(), InventoryItem.date_added.desc())
-
+    commodities = InventoryCategory.query.all()
+    
+    # Build query with eager loading to prevent N+1 queries
+    query = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller)
+    ).filter(InventoryItem.status != 'pending_valuation')
+    
+    # Apply category filter
     if cat_id:
         query = query.filter_by(category_id=cat_id)
-        
-    items = query.all()
+    
+    # Apply search filter
+    if search_query:
+        search_pattern = f"%{search_query}%"
+        query = query.filter(
+            or_(
+                InventoryItem.description.ilike(search_pattern),
+                InventoryItem.long_description.ilike(search_pattern)
+            )
+        )
+    
+    # Order by status (available first) then date
+    query = query.order_by(InventoryItem.status.asc(), InventoryItem.date_added.desc())
+    
+    # Paginate results
+    pagination = query.paginate(
+        page=page,
+        per_page=ITEMS_PER_PAGE,
+        error_out=False
+    )
+    
+    items = pagination.items
     store_info = get_store_info(store_name)
-    return render_template('inventory.html', commodities=commodities, items=items, active_cat=cat_id, current_store=store_name, store_info=store_info)
+    
+    return render_template('inventory.html', 
+                         commodities=commodities, 
+                         items=items,
+                         pagination=pagination,
+                         search_query=search_query,
+                         active_cat=cat_id, 
+                         current_store=store_name, 
+                         store_info=store_info)
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     item = InventoryItem.query.get_or_404(item_id)
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
+    # Preserve search and filter parameters for "Back" link
     return render_template('product.html', item=item, current_store=store_name, store_info=store_info)
 
 # --- IMAGE SERVING ROUTE (CRITICAL FOR RENDER) ---
@@ -428,38 +735,68 @@ def uploaded_file(filename):
 
 @app.route('/buy_item/<int:item_id>')
 def buy_item(item_id):
-    item = InventoryItem.query.get_or_404(item_id)
-    
-    if item.status == 'sold':
-        return "Sorry! This item was just purchased."
-
+    """Create Stripe checkout session for item purchase with race condition protection"""
     try:
-        # Note: We use the new 'uploaded_file' route for the image URL here
-        img_url = url_for('uploaded_file', filename=item.photo_url, _external=True)
+        # Use pessimistic locking to prevent race conditions
+        item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
+        
+        if not item:
+            logger.warning(f"Item {item_id} not found")
+            from flask import abort
+            # Let 404 propagate - don't catch it in the exception handler
+            raise abort(404)
+        
+        # Double-check status with lock
+        if item.status != 'available':
+            logger.info(f"Item {item_id} not available (status: {item.status})")
+            flash("Sorry! This item is no longer available.", "error")
+            return redirect(url_for('product_detail', item_id=item_id))
+        
+        if item.price is None or item.price <= 0:
+            logger.warning(f"Item {item_id} has invalid price: {item.price}")
+            flash("This item is not available for purchase.", "error")
+            return redirect(url_for('product_detail', item_id=item_id))
+        
+        # Create checkout session
+        img_url = url_for('uploaded_file', filename=item.photo_url, _external=True) if item.photo_url else None
+        
+        line_items = [{
+            'price_data': {
+                'currency': 'usd',
+                'product_data': {
+                    'name': item.description,
+                    'images': [img_url] if img_url else [],
+                },
+                'unit_amount': int(item.price * 100),
+            },
+            'quantity': 1,
+        }]
         
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': item.description,
-                        'images': [img_url],
-                    },
-                    'unit_amount': int(item.price * 100),
-                },
-                'quantity': 1,
-            }],
+            line_items=line_items,
             mode='payment',
             client_reference_id=str(item.id),
-            # Metadata is crucial for the Webhook to know what to do
             metadata={'type': 'item_purchase', 'item_id': item.id},
             success_url=url_for('item_sold_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
             cancel_url=url_for('inventory', _external=True),
         )
+        
+        logger.info(f"Checkout session created for item {item_id}")
         return redirect(checkout_session.url, code=303)
+        
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error in buy_item: {e}")
+        flash("Payment processing error. Please try again.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
     except Exception as e:
-        return str(e)
+        # Don't catch 404 errors - let them propagate
+        from werkzeug.exceptions import NotFound
+        if isinstance(e, NotFound):
+            raise
+        logger.error(f"Unexpected error in buy_item: {e}", exc_info=True)
+        flash("An error occurred. Please try again.", "error")
+        return redirect(url_for('inventory'))
 
 @app.route('/item_success')
 def item_sold_success():
@@ -481,17 +818,30 @@ def item_sold_success():
             return redirect(url_for('inventory'))
         
         # Verify payment and mark as sold immediately (in case webhook hasn't fired yet)
-        if session_obj.payment_status == 'paid' and item.status == 'available':
+        # Use pessimistic locking to prevent race conditions
+        item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
+        if item and session_obj.payment_status == 'paid' and item.status == 'available':
             item.status = 'sold'
             item.sold_at = datetime.utcnow()
             if item.category and item.category.count_in_stock > 0:
                 item.category.count_in_stock -= 1
             db.session.commit()
-            print(f"IMMEDIATE: Item {item_id} marked as sold from success page.")
+            logger.info(f"IMMEDIATE: Item {item_id} marked as sold from success page.")
+            
+            # Email seller (webhook should handle this, but backup in case webhook fails)
+            if item.seller:
+                try:
+                    send_email(
+                        item.seller.email,
+                        "Your Item Has Sold! - Campus Swap",
+                        _item_sold_email_html(item, item.seller)
+                    )
+                except Exception as email_error:
+                    logger.error(f"Failed to send item sold email: {email_error}")
         
         return render_template('item_success.html', item=item)
     except Exception as e:
-        print(f"Error in item_success route: {e}")
+        logger.error(f"Error in item_success route: {e}", exc_info=True)
         import traceback
         traceback.print_exc()
         flash("Error processing payment. Please contact support.", "error")
@@ -527,28 +877,35 @@ def webhook():
         # --- CASE 1: ITEM PURCHASE ---
         if session.get('metadata', {}).get('type') == 'item_purchase':
             item_id = session.get('metadata').get('item_id')
-            item = InventoryItem.query.get(item_id)
+            
+            # Use pessimistic locking to prevent race conditions
+            item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
             
             if item:
-                # Only update if still available (prevent double-processing)
+                # Double-check status before updating (prevent double-processing)
                 if item.status == 'available':
                     # 1. Update DB
                     item.status = 'sold'
-                    item.sold_at = datetime.utcnow()  # Track when it sold
+                    item.sold_at = datetime.utcnow()
                     if item.category and item.category.count_in_stock > 0:
                         item.category.count_in_stock -= 1
                     db.session.commit()
-                    print(f"WEBHOOK: Item {item_id} sold.")
+                    logger.info(f"WEBHOOK: Item {item_id} marked as sold")
+                    
+                    # 2. Email Seller (with payout details)
+                    if item.seller:
+                        try:
+                            send_email(
+                                item.seller.email,
+                                "Your Item Has Sold! - Campus Swap",
+                                _item_sold_email_html(item, item.seller)
+                            )
+                        except Exception as email_error:
+                            logger.error(f"Failed to send email to seller for item {item_id}: {email_error}")
                 else:
-                    print(f"WEBHOOK: Item {item_id} already marked as sold (status: {item.status}).")
-                
-                # 2. Email Seller (with 40% payout details)
-                if item.seller:
-                    send_email(
-                        item.seller.email,
-                        "Your Item Has Sold! - Campus Swap",
-                        _item_sold_email_html(item, item.seller)
-                    )
+                    logger.warning(f"WEBHOOK: Item {item_id} already marked as sold (status: {item.status})")
+            else:
+                logger.error(f"WEBHOOK: Item {item_id} not found in database")
 
         # --- CASE 2: SELLER ACTIVATION ---
         elif session.get('metadata', {}).get('type') == 'seller_activation':
@@ -560,9 +917,38 @@ def webhook():
                 user.has_paid = True
                 user.is_seller = True
                 db.session.commit()
-                print(f"WEBHOOK: User {user_id} activated.")
+                logger.info(f"WEBHOOK: User {user_id} activated as seller")
                 
-                # No email sent - user already sees confirmation on site
+                # 2. Send activation confirmation email
+                try:
+                    activation_content = f"""
+                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                        <h2 style="color: #166534;">Seller Activation Complete!</h2>
+                        <p>Hi {user.full_name or 'there'},</p>
+                        <p>Great news! Your seller activation payment has been processed successfully.</p>
+                        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                            <p style="margin: 0 0 8px;"><strong>Status:</strong> Active Seller</p>
+                            <p style="margin: 0;">You can now list items for sale!</p>
+                        </div>
+                        <p>Next steps:</p>
+                        <ul>
+                            <li>Submit items for valuation in your dashboard</li>
+                            <li>Our team will review and price your items</li>
+                            <li>Once approved, items go live and start selling</li>
+                        </ul>
+                        <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                        <p>Thanks for joining Campus Swap!</p>
+                    </div>
+                    """
+                    send_email(
+                        user.email,
+                        "Seller Activation Complete - Campus Swap",
+                        activation_content
+                    )
+                except Exception as email_error:
+                    logger.error(f"Failed to send seller activation email: {email_error}")
+            else:
+                logger.error(f"WEBHOOK: User {user_id} not found in database")
 
     return 'Success', 200
 
@@ -627,11 +1013,26 @@ def admin_panel():
                 seller_id = new_seller.id
         
         if files and files[0].filename != '':
+            # Validate quality
+            quality_valid, quality_value = validate_quality(quality)
+            if not quality_valid:
+                flash(f"Invalid quality: {quality_value}", "error")
+                return redirect(url_for('admin_panel') + '#add-item')
+            
+            # Validate description length
+            if len(desc) > MAX_DESCRIPTION_LENGTH:
+                flash(f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)", "error")
+                return redirect(url_for('admin_panel') + '#add-item')
+            
+            if long_desc and len(long_desc) > MAX_LONG_DESCRIPTION_LENGTH:
+                flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
+                return redirect(url_for('admin_panel') + '#add-item')
+            
             # Quick Add is always in-person drop-off, status pending (price set later)
             collection_method = request.form.get('collection_method', 'in_person')
             new_item = InventoryItem(
                 category_id=cat_id, description=desc, long_description=long_desc,
-                price=None, quality=int(quality), photo_url="", status="pending_valuation",
+                price=None, quality=quality_value, photo_url="", status="pending_valuation",
                 seller_id=seller_id, collection_method=collection_method
             )
             db.session.add(new_item)
@@ -640,18 +1041,43 @@ def admin_panel():
             cover_set = False
             for i, file in enumerate(files):
                 if file.filename:
+                    # Validate file upload
+                    is_valid, error_msg = validate_file_upload(file)
+                    if not is_valid:
+                        db.session.rollback()
+                        flash(f"File upload error: {error_msg}", "error")
+                        return redirect(url_for('admin_panel') + '#add-item')
+                    
                     filename = f"item_{new_item.id}_{int(time.time())}_{i}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
-                    img = Image.open(file).convert("RGBA")
-                    bg = Image.new("RGB", img.size, (255, 255, 255))
-                    bg.paste(img, (0, 0), img)
-                    bg.save(save_path, "JPEG", quality=80)
-                    
-                    if not cover_set:
-                        new_item.photo_url = filename
-                        cover_set = True
-                    db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                    try:
+                        img = Image.open(file).convert("RGBA")
+                        bg = Image.new("RGB", img.size, (255, 255, 255))
+                        bg.paste(img, (0, 0), img)
+                        
+                        # Resize if image is too large (max 2000px on longest side)
+                        max_dimension = 2000
+                        if bg.width > max_dimension or bg.height > max_dimension:
+                            if bg.width > bg.height:
+                                new_width = max_dimension
+                                new_height = int(bg.height * (max_dimension / bg.width))
+                            else:
+                                new_height = max_dimension
+                                new_width = int(bg.width * (max_dimension / bg.height))
+                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                        
+                        if not cover_set:
+                            new_item.photo_url = filename
+                            cover_set = True
+                        db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                    except Exception as img_error:
+                        db.session.rollback()
+                        logger.error(f"Error processing image: {img_error}", exc_info=True)
+                        flash("Error processing image. Please try again.", "error")
+                        return redirect(url_for('admin_panel') + '#add-item')
             
             # Don't increment count_in_stock yet - item is pending, not available
             db.session.commit()
@@ -666,7 +1092,15 @@ def admin_panel():
                     item_id = int(key.split('_')[1])
                     item = InventoryItem.query.get(item_id)
                     if item:
-                        new_price = float(value) if value and value.strip() else None
+                        # Validate price if provided
+                        if value and value.strip():
+                            price_valid, price_result = validate_price(value)
+                            if not price_valid:
+                                flash(f"Invalid price for item {item_id}: {price_result}", "error")
+                                continue
+                            new_price = price_result
+                        else:
+                            new_price = None
                         
                         # Auto-Activate if pending item gets a price
                         # In-person items can go live without user paying; online items require payment
@@ -685,19 +1119,42 @@ def admin_panel():
                                 cat = InventoryCategory.query.get(item.category_id)
                                 if cat: cat.count_in_stock += 1
                                 
-                                # No email sent - seller can see item status in dashboard
+                                # Send email notification to seller
+                                if item.seller and item.seller.email:
+                                    try:
+                                        email_content = f"""
+                                        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                                            <h2 style="color: #166534;">Your Item is Now Live!</h2>
+                                            <p>Great news! Your item <strong>{item.description}</strong> has been approved and is now available for purchase.</p>
+                                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                                                <p style="margin: 0 0 8px;"><strong>Price:</strong> ${new_price:.2f}</p>
+                                                <p style="margin: 0;"><strong>Status:</strong> Available for purchase</p>
+                                            </div>
+                                            <p>View your item and track its status in your <a href="{url_for('dashboard', _external=True)}">dashboard</a>.</p>
+                                            <p>Thanks for selling with Campus Swap!</p>
+                                        </div>
+                                        """
+                                        send_email(
+                                            item.seller.email,
+                                            "Your Item is Now Live! - Campus Swap",
+                                            email_content
+                                        )
+                                    except Exception as email_error:
+                                        logger.error(f"Failed to send item approved email: {email_error}")
                             else:
                                 flash(f"{item.description} cannot go live yet - seller needs to complete payment.", "warning")
                         
+                        old_price = item.price
                         item.price = new_price
                         updated_count += 1
                         
                         # Quality & Category Updates
                         if f"quality_{item_id}" in request.form:
-                            try:
-                                item.quality = int(request.form[f"quality_{item_id}"])
-                            except ValueError:
-                                pass
+                            quality_valid, quality_value = validate_quality(request.form[f"quality_{item_id}"])
+                            if quality_valid:
+                                item.quality = quality_value
+                            else:
+                                flash(f"Invalid quality for item {item_id}: {quality_value}", "error")
                         if f"category_{item_id}" in request.form:
                             try:
                                 new_cat_id = int(request.form[f"category_{item_id}"])
@@ -710,10 +1167,10 @@ def admin_panel():
                             except ValueError:
                                 pass
                 except (ValueError, TypeError) as e:
-                    print(f"Error updating item {key}: {e}")
+                    logger.error(f"Error updating item {key}: {e}", exc_info=True)
                     continue
                 except Exception as e:
-                    print(f"Unexpected error updating item {key}: {e}")
+                    logger.error(f"Unexpected error updating item {key}: {e}", exc_info=True)
                     import traceback
                     traceback.print_exc()
                     continue
@@ -721,13 +1178,16 @@ def admin_panel():
         try:
             is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             db.session.commit()
+            if is_ajax:
+                msg = f"Updated {updated_count} item(s)." if updated_count > 0 else "Changes saved."
+                return jsonify({'success': True, 'message': msg, 'reload': True})
             if updated_count > 0:
-                if is_ajax:
-                    return jsonify({'success': True, 'message': f"Updated {updated_count} item(s).", 'reload': True})
                 flash(f"Updated {updated_count} item(s).", "success")
+            else:
+                flash("Changes saved.", "success")
         except Exception as e:
             db.session.rollback()
-            print(f"Error committing changes: {e}")
+            logger.error(f"Error committing changes: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
             if is_ajax:
@@ -760,7 +1220,7 @@ def admin_panel():
                 cat = InventoryCategory.query.get(item.category_id)
                 if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
                 db.session.commit()
-                # Email seller (same as webhook - 40% payout details)
+                # Email seller (same as webhook - payout details)
                 if item.seller:
                     try:
                         send_email(
@@ -769,7 +1229,7 @@ def admin_panel():
                             _item_sold_email_html(item, item.seller)
                         )
                     except Exception as e:
-                        print(f"Error sending email: {e}")
+                        logger.error(f"Error sending email: {e}", exc_info=True)
                 if is_ajax:
                     return jsonify({'success': True, 'message': f"Item '{item.description}' marked as sold.", 'reload': True})
                 flash(f"Item '{item.description}' marked as sold.", "success")
@@ -797,16 +1257,18 @@ def admin_panel():
                     return jsonify({'success': True, 'message': f"Item '{item.description}' marked as available.", 'reload': True})
                 flash(f"Item '{item.description}' marked as available.", "success")
 
-    # Data Loading
+    # Data Loading with optimized queries
     commodities = InventoryCategory.query.all()
     all_cats = InventoryCategory.query.all()
     
-    # Filter: Show pending items
+    # Filter: Show pending items with eager loading
     # - In-person items can always be approved (no payment needed)
     # - Online items from paid users can be approved
     # - Admin-uploaded items (no seller) can be approved
-    from sqlalchemy import or_
-    pending_items = InventoryItem.query.outerjoin(User).filter(
+    pending_items = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller)
+    ).outerjoin(User).filter(
         InventoryItem.status == 'pending_valuation',
         or_(
             InventoryItem.collection_method == 'in_person',  # In-person items (no payment needed)
@@ -815,7 +1277,10 @@ def admin_panel():
         )
     ).order_by(InventoryItem.date_added.asc()).all()
     
-    gallery_items = InventoryItem.query.filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.date_added.desc()).all()
+    gallery_items = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller)
+    ).filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.date_added.desc()).all()
     
     pickup_period_active = get_pickup_period_active()
     
@@ -853,34 +1318,86 @@ def edit_item(item_id):
     categories = InventoryCategory.query.all()
     
     if request.method == 'POST':
-        item.description = request.form['description']
+        # Validate inputs
+        description = request.form.get('description', '').strip()
+        if not description or len(description) > MAX_DESCRIPTION_LENGTH:
+            flash(f"Description is required and must be under {MAX_DESCRIPTION_LENGTH} characters.", "error")
+            return render_template('edit_item.html', item=item, categories=categories)
+        
+        item.description = description
+        
+        # Validate price
         if request.form.get('price'):
-             item.price = float(request.form['price'])
-        item.quality = int(request.form['quality'])
-        item.long_description = request.form['long_description']
+            price_valid, price_result = validate_price(request.form['price'])
+            if not price_valid:
+                flash(f"Invalid price: {price_result}", "error")
+                return render_template('edit_item.html', item=item, categories=categories)
+            item.price = price_result
+        
+        # Validate quality
+        quality_valid, quality_value = validate_quality(request.form.get('quality', item.quality))
+        if not quality_valid:
+            flash(f"Invalid quality: {quality_value}", "error")
+            return render_template('edit_item.html', item=item, categories=categories)
+        item.quality = quality_value
+        
+        long_description = request.form.get('long_description', '').strip()
+        if long_description and len(long_description) > MAX_LONG_DESCRIPTION_LENGTH:
+            flash(f"Long description is too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters).", "error")
+            return render_template('edit_item.html', item=item, categories=categories)
+        item.long_description = long_description
+        
         if request.form.get('category_id'):
-            item.category_id = int(request.form['category_id'])
+            try:
+                item.category_id = int(request.form['category_id'])
+            except (ValueError, TypeError):
+                flash("Invalid category.", "error")
+                return render_template('edit_item.html', item=item, categories=categories)
         
         # Handle new photo uploads
         new_photos = request.files.getlist('new_photos')
         if new_photos and new_photos[0].filename != '':
             for i, file in enumerate(new_photos):
                 if file.filename:
+                    # Validate file upload
+                    is_valid, error_msg = validate_file_upload(file)
+                    if not is_valid:
+                        flash(f"File upload error: {error_msg}", "error")
+                        return redirect(url_for('edit_item', item_id=item_id))
+                    
                     filename = f"item_{item.id}_{int(time.time())}_{i}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
-                    img = Image.open(file).convert("RGBA")
-                    bg = Image.new("RGB", img.size, (255, 255, 255))
-                    bg.paste(img, (0, 0), img)
-                    bg.save(save_path, "JPEG", quality=80)
-                    
-                    # If no cover photo exists, set first new photo as cover
-                    if not item.photo_url:
-                        item.photo_url = filename
-                    
-                    db.session.add(ItemPhoto(item_id=item.id, photo_url=filename))
+                    try:
+                        img = Image.open(file).convert("RGBA")
+                        bg = Image.new("RGB", img.size, (255, 255, 255))
+                        bg.paste(img, (0, 0), img)
+                        
+                        # Resize if image is too large (max 2000px on longest side)
+                        max_dimension = 2000
+                        if bg.width > max_dimension or bg.height > max_dimension:
+                            if bg.width > bg.height:
+                                new_width = max_dimension
+                                new_height = int(bg.height * (max_dimension / bg.width))
+                            else:
+                                new_height = max_dimension
+                                new_width = int(bg.width * (max_dimension / bg.height))
+                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                        
+                        # If no cover photo exists, set first new photo as cover
+                        if not item.photo_url:
+                            item.photo_url = filename
+                        
+                        db.session.add(ItemPhoto(item_id=item.id, photo_url=filename))
+                    except Exception as img_error:
+                        logger.error(f"Error processing image: {img_error}", exc_info=True)
+                        flash("Error processing image. Please try again.", "error")
+                        return redirect(url_for('edit_item', item_id=item_id))
         
         db.session.commit()
+        logger.info(f"Item {item.id} updated by user {current_user.id}")
         flash("Item updated successfully!", "success")
         
         if current_user.is_admin:
@@ -908,7 +1425,7 @@ def delete_photo(photo_id):
         if os.path.exists(file_path):
             os.remove(file_path)
     except Exception as e:
-        print(f"Error deleting file: {e}")
+        logger.error(f"Error deleting file: {e}", exc_info=True)
 
     # If deleting the cover photo, promote another one
     if item.photo_url == photo.photo_url:
@@ -941,7 +1458,7 @@ def set_password():
             db.session.commit()
         except Exception as db_error:
             db.session.rollback()
-            print(f"Database error in set_password: {db_error}")
+            logger.error(f"Database error in set_password: {db_error}", exc_info=True)
             import traceback
             traceback.print_exc()
             flash("Error saving password. Please try again.", "error")
@@ -953,14 +1470,14 @@ def set_password():
             try:
                 dashboard_url = url_for('dashboard', _external=True)
             except Exception as url_error:
-                print(f"Error building dashboard URL: {url_error}")
+                logger.warning(f"Error building dashboard URL: {url_error}")
                 # Fallback to relative URL
                 dashboard_url = url_for('dashboard')
             
             # No email sent - user already sees confirmation on site
         except Exception as email_error:
             # Email failure is non-critical - log but don't crash
-            print(f"Email sending failed in set_password (non-critical): {email_error}")
+            logger.warning(f"Email sending failed in set_password (non-critical): {email_error}")
             import traceback
             traceback.print_exc()
         
@@ -970,7 +1487,7 @@ def set_password():
         try:
             return redirect(get_user_dashboard())
         except Exception as redirect_error:
-            print(f"Redirect error in set_password: {redirect_error}")
+            logger.warning(f"Redirect error in set_password: {redirect_error}")
             # Fallback redirect
             try:
                 if current_user.is_admin:
@@ -981,7 +1498,7 @@ def set_password():
                 
     except Exception as e:
         # Catch-all for any unexpected errors
-        print(f"Unexpected error in set_password route: {e}")
+        logger.error(f"Unexpected error in set_password route: {e}", exc_info=True)
         import traceback
         traceback.print_exc()
         flash("An error occurred. Your password may have been saved. Please try logging in.", "error")
@@ -1039,37 +1556,78 @@ def update_account_info():
     full_name = request.form.get('full_name', '').strip()
     
     if full_name:
-        current_user.full_name = full_name
-        db.session.commit()
-        flash("Account information updated successfully!", "success")
+        if len(full_name) > MAX_NAME_LENGTH:
+            flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
+        else:
+            current_user.full_name = full_name
+            db.session.commit()
+            logger.info(f"User {current_user.id} updated account info")
+            flash("Account information updated successfully!", "success")
     else:
         flash("Full name cannot be empty.", "error")
     
     return redirect(url_for('account_settings'))
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("3 per hour") if limiter else lambda f: f
 def register():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
 
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        full_name = request.form.get('full_name')
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        full_name = request.form.get('full_name', '').strip()
+        
+        # Validate inputs
+        if not email or not validate_email(email):
+            flash("Please provide a valid email address.", "error")
+            return render_template('register.html')
+        
+        if len(email) > MAX_EMAIL_LENGTH:
+            flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
+            return render_template('register.html')
+        
+        if not password or len(password) < 6:
+            flash("Password must be at least 6 characters long.", "error")
+            return render_template('register.html')
+        
+        if full_name and len(full_name) > MAX_NAME_LENGTH:
+            flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
+            return render_template('register.html')
         
         user = User.query.filter_by(email=email).first()
         
         if user:
             # User exists - check if they have a password
             if user.password_hash is None:
-                # Waitlist user - create account
+                # Guest account - set password to complete account creation
                 user.password_hash = generate_password_hash(password)
                 if full_name:
                     user.full_name = full_name
                 db.session.commit()
                 login_user(user)
-                dashboard_url = url_for('dashboard', _external=True)
-                # No email sent - user already logged in and sees dashboard
+                logger.info(f"Guest account converted to full account: {email}")
+                
+                # Send welcome email
+                try:
+                    welcome_content = f"""
+                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                        <h2 style="color: #166534;">Welcome to Campus Swap!</h2>
+                        <p>Hi {full_name or 'there'},</p>
+                        <p>Thanks for creating your account! You're all set to start selling.</p>
+                        <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                        <p>Happy swapping!</p>
+                    </div>
+                    """
+                    send_email(
+                        email,
+                        "Welcome to Campus Swap!",
+                        welcome_content
+                    )
+                except Exception as email_error:
+                    logger.warning(f"Failed to send welcome email: {email_error}")
+                
                 return redirect(get_user_dashboard())
             else:
                 # Account already exists with password - redirect to login with message
@@ -1080,28 +1638,95 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
-        dashboard_url = url_for('dashboard', _external=True)
-        # No email sent - user already logged in and sees dashboard
+        logger.info(f"New user registered: {email}")
+        
+        # Send welcome email
+        try:
+            welcome_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Welcome to Campus Swap!</h2>
+                <p>Hi {full_name or 'there'},</p>
+                <p>Thanks for joining Campus Swap! Your account has been created successfully.</p>
+                <p>You can now:</p>
+                <ul>
+                    <li>Browse our inventory</li>
+                    <li>List items to sell</li>
+                    <li>Track your sales and payouts</li>
+                </ul>
+                <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                <p>Happy swapping!</p>
+                <p>The Campus Swap Team</p>
+            </div>
+            """
+            send_email(
+                email,
+                "Welcome to Campus Swap!",
+                welcome_content
+            )
+        except Exception as email_error:
+            logger.warning(f"Failed to send welcome email: {email_error}")
+            # Don't fail registration if email fails
+        
         return redirect(get_user_dashboard())
 
     return render_template('register.html')
 
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    try:
+        # Check database connectivity
+        db.session.execute(db.text('SELECT 1'))
+        
+        # Check external services (basic checks)
+        health_status = {
+            'status': 'healthy',
+            'database': 'connected',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Optionally check Stripe and Resend (but don't fail if they're not critical)
+        if stripe.api_key:
+            health_status['stripe'] = 'configured'
+        if resend.api_key:
+            health_status['resend'] = 'configured'
+        
+        return jsonify(health_status), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}", exc_info=True)
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 503
+
+
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute") if limiter else lambda f: f
 def login():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
     
-    # Pre-fill email if passed as query param (from waitlist redirect)
+    # Pre-fill email if passed as query param (from account creation redirect)
     prefill_email = request.args.get('email', '')
         
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
         form_type = request.form.get('form_type', 'login')
+        
+        # Validate email
+        if not email or not validate_email(email):
+            flash("Please provide a valid email address.", "error")
+            return render_template('login.html', prefill_email=email, show_signup=(form_type != 'login'))
         
         # If it's a login attempt
         if form_type == 'login':
+            if not password:
+                flash("Please enter your password.", "error")
+                return render_template('login.html', prefill_email=email, show_signup=False)
+            
             user = User.query.filter_by(email=email).first()
             
             if not user:
@@ -1109,7 +1734,7 @@ def login():
                 flash("No account found with this email. Create an account below.", "error")
                 return render_template('login.html', prefill_email=email, show_signup=True)
             elif not user.password_hash:
-                # User exists but has no password (waitlist user) - redirect to signup
+                # User exists but has no password (guest account) - redirect to signup
                 flash("Please create an account with this email.", "error")
                 return render_template('login.html', prefill_email=email, show_signup=True)
             elif not check_password_hash(user.password_hash, password):
@@ -1136,17 +1761,20 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    """Seller dashboard with optimized queries"""
     # Admins should use admin panel, not seller dashboard
     if current_user.is_admin:
         return redirect(url_for('admin_panel'))
     
     # Refresh user object to ensure we have latest data (especially has_paid status)
-    # This is important after payment webhook updates
-    # Expire the cached user object and reload from database
     db.session.expire(current_user)
     db.session.refresh(current_user)
     
-    my_items = InventoryItem.query.filter_by(seller_id=current_user.id).all()
+    # Optimize query with eager loading
+    my_items = InventoryItem.query.options(
+        joinedload(InventoryItem.category)
+    ).filter_by(seller_id=current_user.id).all()
+    
     # Check if user has any online items (which require payment)
     has_online_items = any(item.collection_method == 'online' for item in my_items)
     
@@ -1154,14 +1782,14 @@ def dashboard():
     live_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
     
-    # Estimated payout (40% of live items)
-    estimated_payout = sum(item.price for item in live_items if item.price) * 0.40
+    # Estimated payout (using constant)
+    estimated_payout = sum(item.price for item in live_items if item.price) * PAYOUT_PERCENTAGE
     
-    # Paid out (40% of sold items where payout_sent=True)
-    paid_out = sum(item.price for item in sold_items if item.price and item.payout_sent) * 0.40
+    # Paid out (using constant)
+    paid_out = sum(item.price for item in sold_items if item.price and item.payout_sent) * PAYOUT_PERCENTAGE
     
-    # Pending payouts (40% of sold items where payout_sent=False)
-    pending_payouts = sum(item.price for item in sold_items if item.price and not item.payout_sent) * 0.40
+    # Pending payouts (using constant)
+    pending_payouts = sum(item.price for item in sold_items if item.price and not item.payout_sent) * PAYOUT_PERCENTAGE
     
     # Total potential (estimated + pending + paid)
     total_potential = estimated_payout + pending_payouts + paid_out
@@ -1216,7 +1844,7 @@ def create_checkout_session():
                 'price_data': {
                     'currency': 'usd',
                     'product_data': {'name': 'Campus Swap Seller Registration'},
-                    'unit_amount': 1500,
+                    'unit_amount': SELLER_ACTIVATION_FEE_CENTS,
                 },
                 'quantity': 1,
             }],
@@ -1257,7 +1885,7 @@ def payment_success():
                     
                     flash("Payment successful! You can now list items.", "success")
         except Exception as e:
-            print(f"Error verifying payment: {e}")
+            logger.error(f"Error verifying payment: {e}", exc_info=True)
             # Still show success message - webhook will handle it
             flash("Payment received! Processing...", "info")
     else:
@@ -1274,6 +1902,12 @@ def add_item():
         return redirect(get_user_dashboard())
     
     categories = InventoryCategory.query.all()
+    
+    # Check if categories exist - if not, show error
+    if not categories:
+        flash("No categories available. Please contact an administrator.", "error")
+        logger.error("No categories found in database - item submission blocked")
+        return redirect(get_user_dashboard())
 
     if request.method == 'POST':
         cat_id = request.form.get('category_id')
@@ -1282,10 +1916,42 @@ def add_item():
         quality = request.form.get('quality')
         files = request.files.getlist('photos')
         
+        # Validate category_id
+        if not cat_id:
+            flash("Please select a category.", "error")
+            return render_template('add_item.html', categories=categories)
+        
+        try:
+            cat_id = int(cat_id)
+        except (ValueError, TypeError):
+            flash("Invalid category selected.", "error")
+            return render_template('add_item.html', categories=categories)
+        
+        # Verify category exists
+        category = InventoryCategory.query.get(cat_id)
+        if not category:
+            flash("Selected category does not exist. Please select a valid category.", "error")
+            logger.error(f"Invalid category_id {cat_id} submitted - category not found")
+            return render_template('add_item.html', categories=categories)
+        
         if files and files[0].filename != '':
+            # Validate inputs
+            quality_valid, quality_value = validate_quality(quality)
+            if not quality_valid:
+                flash(f"Invalid quality: {quality_value}", "error")
+                return render_template('add_item.html', categories=categories)
+            
+            if len(desc) > MAX_DESCRIPTION_LENGTH:
+                flash(f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)", "error")
+                return render_template('add_item.html', categories=categories)
+            
+            if long_desc and len(long_desc) > MAX_LONG_DESCRIPTION_LENGTH:
+                flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
+                return render_template('add_item.html', categories=categories)
+            
             new_item = InventoryItem(
                 seller_id=current_user.id, category_id=cat_id, description=desc,
-                long_description=long_desc, quality=int(quality), status="pending_valuation", photo_url="",
+                long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
                 collection_method='online'  # User-uploaded items are always 'online'
             )
             db.session.add(new_item)
@@ -1294,20 +1960,76 @@ def add_item():
             cover_set = False
             for i, file in enumerate(files):
                 if file.filename:
+                    # Validate file upload
+                    is_valid, error_msg = validate_file_upload(file)
+                    if not is_valid:
+                        db.session.rollback()
+                        flash(f"File upload error: {error_msg}", "error")
+                        return render_template('add_item.html', categories=categories)
+                    
                     filename = f"item_{new_item.id}_{int(time.time())}_{i}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
-                    img = Image.open(file).convert("RGBA")
-                    bg = Image.new("RGB", img.size, (255, 255, 255))
-                    bg.paste(img, (0, 0), img)
-                    bg.save(save_path, "JPEG", quality=80)
-                    
-                    if not cover_set:
-                        new_item.photo_url = filename
-                        cover_set = True
-                    db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                    try:
+                        img = Image.open(file).convert("RGBA")
+                        bg = Image.new("RGB", img.size, (255, 255, 255))
+                        bg.paste(img, (0, 0), img)
+                        
+                        # Resize if image is too large (max 2000px on longest side)
+                        max_dimension = 2000
+                        if bg.width > max_dimension or bg.height > max_dimension:
+                            if bg.width > bg.height:
+                                new_width = max_dimension
+                                new_height = int(bg.height * (max_dimension / bg.width))
+                            else:
+                                new_height = max_dimension
+                                new_width = int(bg.width * (max_dimension / bg.height))
+                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                        
+                        if not cover_set:
+                            new_item.photo_url = filename
+                            cover_set = True
+                        db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                    except Exception as img_error:
+                        db.session.rollback()
+                        logger.error(f"Error processing image: {img_error}", exc_info=True)
+                        flash("Error processing image. Please try again.", "error")
+                        return render_template('add_item.html', categories=categories)
             
             db.session.commit()
+            
+            # Send item submission confirmation email
+            try:
+                submission_content = f"""
+                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                    <h2 style="color: #166534;">Item Submitted for Review</h2>
+                    <p>Hi {current_user.full_name or 'there'},</p>
+                    <p>We've received your item submission: <strong>{desc}</strong></p>
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                        <p style="margin: 0 0 8px;"><strong>Status:</strong> Pending Review</p>
+                        <p style="margin: 0;">Our team will review your item and set a price.</p>
+                    </div>
+                    <p>What happens next:</p>
+                    <ul>
+                        <li>Our team reviews your item and photos</li>
+                        <li>We set a fair market price</li>
+                        <li>You'll receive an email when your item goes live</li>
+                        <li>Once live, buyers can purchase your item</li>
+                    </ul>
+                    <p>You can track your item's status in your <a href="{url_for('dashboard', _external=True)}">dashboard</a>.</p>
+                    <p>Thanks for selling with Campus Swap!</p>
+                </div>
+                """
+                send_email(
+                    current_user.email,
+                    "Item Submitted for Review - Campus Swap",
+                    submission_content
+                )
+            except Exception as email_error:
+                logger.error(f"Failed to send item submission email: {email_error}")
+            
             flash("Item drafted! Complete your activation to list it.", "success")
             return redirect(get_user_dashboard())
             
@@ -1505,7 +2227,7 @@ def admin_preview_users():
             'email': user.email,
             'full_name': user.full_name or '',
             'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
-            'has_account': 'Yes' if user.password_hash else 'No (Waitlist)',
+            'has_account': 'Yes' if user.password_hash else 'No (Guest Account)',
             'is_seller': 'Yes' if user.is_seller else 'No',
             'has_paid': 'Yes' if user.has_paid else 'No',
             'is_admin': 'Yes' if user.is_admin else 'No',
@@ -1542,7 +2264,7 @@ def admin_export_users():
             user.email,
             user.full_name or '',
             user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
-            'Yes' if user.password_hash else 'No (Waitlist)',
+            'Yes' if user.password_hash else 'No (Guest Account)',
             'Yes' if user.is_seller else 'No',
             'Yes' if user.has_paid else 'No',
             'Yes' if user.is_admin else 'No',
@@ -1650,11 +2372,11 @@ def admin_preview_sales():
     sold_items = InventoryItem.query.filter_by(status='sold').order_by(InventoryItem.sold_at.desc()).all()
     
     # Prepare data for template
-    headers = ['Item ID', 'Description', 'Sale Price', 'Payout Amount (40%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
+    headers = ['Item ID', 'Description', 'Sale Price', f'Payout Amount ({int(PAYOUT_PERCENTAGE * 100)}%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
     rows = []
     total_payout = 0
     for item in sold_items:
-        payout_amount = item.price * 0.40 if item.price else 0
+        payout_amount = item.price * PAYOUT_PERCENTAGE if item.price else 0
         total_payout += payout_amount
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
@@ -1696,11 +2418,11 @@ def admin_export_sales():
     writer = csv.writer(output)
     
     # Header row
-    writer.writerow(['Item ID', 'Description', 'Sale Price', 'Payout Amount (40%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
+    writer.writerow(['Item ID', 'Description', 'Sale Price', f'Payout Amount ({int(PAYOUT_PERCENTAGE * 100)}%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
     
     # Data rows
     for item in sold_items:
-        payout_amount = item.price * 0.40 if item.price else 0
+        payout_amount = item.price * PAYOUT_PERCENTAGE if item.price else 0
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
         payout_method = item.seller.payout_method if item.seller else ''
@@ -1794,12 +2516,15 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_panel') + '#mass-email')
     
-    # Get all users with email addresses
-    users = User.query.filter(User.email.isnot(None)).all()
+    # Get all users with email addresses, excluding unsubscribed users
+    users = User.query.filter(
+        User.email.isnot(None),
+        User.unsubscribed != True  # Filter out unsubscribed users
+    ).all()
     total_users = len(users)
     
     if total_users == 0:
-        error_msg = "No users found in database."
+        error_msg = "No users found in database (or all users have unsubscribed)."
         if is_ajax:
             return jsonify({'success': False, 'message': error_msg}), 400
         flash(error_msg, "error")
@@ -1808,116 +2533,68 @@ def admin_mass_email():
     # Check if Resend API key is configured
     if not resend.api_key:
         error_msg = "RESEND_API_KEY is not configured. Cannot send emails."
-        print(f"ERROR: {error_msg}")
+        logger.error(f"Mass email error: {error_msg}")
         if is_ajax:
             return jsonify({'success': False, 'message': error_msg}), 500
         flash(error_msg, "error")
         return redirect(url_for('admin_panel') + '#mass-email')
     
-    # Send emails using batch API to respect rate limits (2 req/s)
-    # Batch API allows up to 100 emails per request
+    logger.info(f"Starting mass email send to {total_users} users (excluding unsubscribed)")
+    logger.info(f"Subject: {subject}")
+    
+    # Send emails using send_email function (handles unsubscribe links, headers, and filtering automatically)
     sent_count = 0
     failed_count = 0
     failed_emails = []
-    error_details = []
     
-    # Get sender email
-    sender = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <onboarding@resend.dev>')
-    
-    print(f"Starting mass email send to {total_users} users")
-    print(f"Using sender: {sender}")
-    print(f"Subject: {subject}")
-    
-    # Split users into batches of 100
-    batch_size = 100
-    user_batches = [users[i:i + batch_size] for i in range(0, len(users), batch_size)]
-    
-    for batch_idx, user_batch in enumerate(user_batches):
+    # Send emails one by one (send_email handles rate limiting internally via Resend)
+    # Note: Resend has rate limits, so we add a small delay between sends
+    for idx, user in enumerate(users):
         try:
-            # Prepare batch email data
-            batch_data = []
-            for user in user_batch:
-                if not user.email:
-                    print(f"WARNING: User {user.id} has no email, skipping")
-                    continue
-                batch_data.append({
-                    "from": sender,
-                    "to": user.email,
-                    "subject": subject,
-                    "html": html_content
-                })
+            # send_email automatically:
+            # - Checks if user is unsubscribed (double-check)
+            # - Generates unsubscribe token if needed
+            # - Wraps content in email template
+            # - Adds unsubscribe link and headers
+            # - Includes plain text version
+            success = send_email(
+                to_email=user.email,
+                subject=subject,
+                html_content=html_content,
+                is_marketing=True,
+                user=user
+            )
             
-            if not batch_data:
-                print(f"Batch {batch_idx + 1}: No valid emails in batch, skipping")
-                continue
-            
-            print(f"Batch {batch_idx + 1}/{len(user_batches)}: Attempting to send {len(batch_data)} emails...")
-            
-            # Send batch
-            response = resend.Batch.send(batch_data)            
-            print(f"Batch {batch_idx + 1} response: {json.dumps(response, default=str)}")
-            
-            # Count successful sends
-            if response and isinstance(response, dict):
-                if 'data' in response:
-                    # Batch API returns data with email IDs
-                    batch_sent = len(response.get('data', []))
-                    sent_count += batch_sent
-                    print(f"Batch {batch_idx + 1}/{len(user_batches)}: Successfully sent {batch_sent} emails")
-                elif 'error' in response:
-                    # API returned an error
-                    error_info = response.get('error', {})
-                    error_msg = f"Resend API error: {error_info}"
-                    print(f"ERROR - Batch {batch_idx + 1}: {error_msg}")
-                    error_details.append(error_msg)
-                    failed_count += len(batch_data)
-                    failed_emails.extend([d['to'] for d in batch_data])
-                else:
-                    # Unexpected response format
-                    print(f"WARNING - Batch {batch_idx + 1}: Unexpected response format: {response}")
-                    error_details.append(f"Unexpected response format: {response}")
-                    failed_count += len(batch_data)
-                    failed_emails.extend([d['to'] for d in batch_data])
+            if success:
+                sent_count += 1
             else:
-                # Response is None or not a dict
-                print(f"ERROR - Batch {batch_idx + 1}: No response or invalid response type: {type(response)}")
-                error_details.append(f"No response from Resend API")
-                failed_count += len(batch_data)
-                failed_emails.extend([d['to'] for d in batch_data])
+                failed_count += 1
+                failed_emails.append(user.email)
+            
+            # Rate limiting: Resend allows 2 req/s, so wait 0.5s between emails
+            # Add small buffer to be safe
+            if idx < len(users) - 1:  # Don't wait after last email
+                time.sleep(0.55)
                 
         except Exception as e:
-            # If batch fails, mark all emails in batch as failed
-            error_msg = f"Exception in batch {batch_idx + 1}: {str(e)}"
             error_type = type(e).__name__
-            print(f"ERROR - Batch {batch_idx + 1} exception ({error_type}): {error_msg}")
-            import traceback
-            traceback.print_exc()  # Print full traceback for debugging
-            error_details.append(f"{error_type}: {error_msg}")
-            failed_count += len(user_batch)
-            failed_emails.extend([u.email for u in user_batch if u.email])
-        
-        # Rate limit: 2 req/s = wait 0.5 seconds between batches
-        # Add extra buffer to be safe
-        if batch_idx < len(user_batches) - 1:  # Don't wait after last batch
-            time.sleep(0.6)  # Wait 600ms between batches
+            logger.error(f"Error sending email to {user.email} ({error_type}): {str(e)}", exc_info=True)
+            failed_count += 1
+            failed_emails.append(user.email)
     
-    print(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
+    logger.info(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
     
     # Prepare response message
     if sent_count == total_users:
         message = f"Successfully sent email to all {sent_count} users!"
     elif sent_count > 0:
         message = f"Sent to {sent_count} users. {failed_count} failed."
-        if error_details:
-            message += f" Errors: {'; '.join(error_details[:3])}"
         if failed_emails:
             message += f" Failed emails: {', '.join(failed_emails[:5])}"
             if len(failed_emails) > 5:
                 message += f" and {len(failed_emails) - 5} more."
     else:
         message = f"Failed to send emails. Check server logs for details."
-        if error_details:
-            message += f" Errors: {'; '.join(error_details[:5])}"
 
     if is_ajax:
         return jsonify({

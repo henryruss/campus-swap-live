@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="card" style="text-align: center; max-width: 600px; margin: 50px auto;">
+        <div style="font-size: 5rem; color: var(--primary); margin-bottom: 20px;">
+            {% if error_code == 404 %}
+                <i class="fas fa-search"></i>
+            {% else %}
+                <i class="fas fa-exclamation-triangle"></i>
+            {% endif %}
+        </div>
+        <h1 style="color: var(--text-main); margin-bottom: 15px;">Error {{ error_code }}</h1>
+        <p style="color: var(--text-muted); font-size: 1.1rem; margin-bottom: 30px;">
+            {{ error_message }}
+        </p>
+        <div style="display: flex; gap: 15px; justify-content: center;">
+            <a href="/" class="btn btn-primary">
+                <i class="fas fa-home"></i> Go Home
+            </a>
+            <a href="/inventory" class="btn btn-outline">
+                <i class="fas fa-shopping-bag"></i> Browse Items
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

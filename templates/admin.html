@@ -270,7 +270,7 @@
                             <button type="button" class="btn btn-outline" onclick="previewEmail()">
                                 <i class="fas fa-eye"></i> Preview Email
                             </button>
-                            <button type="submit" class="btn btn-primary" data-confirm="Send this email to ALL users in the database?">
+                            <button type="submit" class="btn btn-primary" data-confirm="Send this email to ALL users in the database?" id="mass-email-btn">
                                 <i class="fas fa-paper-plane"></i> Send Mass Email
                             </button>
                         </div>
@@ -356,7 +356,7 @@
                 <div style="margin-bottom: 20px;">
                     <label>Photo</label>
                     <div style="position: relative;">
-                        <input type="file" name="photos" id="admin-file-input" accept="image/*" multiple required 
+                        <input type="file" name="photos" id="admin-file-input" accept="image/jpeg,image/png,image/webp" multiple required 
                                style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
                         <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; background: #f8fafc; transition: all 0.2s;">
                             <i class="fas fa-camera" style="color: var(--primary); margin-right: 8px;"></i>
@@ -380,7 +380,7 @@
                     <i class="fas fa-info-circle"></i> If email exists, links to that user. If new email + name provided, creates user. Leave blank for admin-uploaded items.
                 </p>
                 
-                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                <button type="submit" class="btn btn-primary" style="width: 100%;" id="add-item-btn">
                     <i class="fas fa-plus"></i> Add to Pending Items
                 </button>
             </form>
@@ -415,7 +415,7 @@
                         <small style="color: var(--text-muted); font-size: 0.8rem;">e.g., fa-couch, fa-bed</small>
                     </div>
                     <div>
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary" id="edit-category-btn">
                             <i class="fas fa-plus"></i> Add
                         </button>
                     </div>
@@ -442,7 +442,7 @@
                     {% endfor %}
                 </div>
                 <div style="text-align: right; margin-top: 20px;">
-                    <button type="submit" class="btn btn-primary">Update Counts</button>
+                    <button type="submit" class="btn btn-primary" id="update-counts-btn">Update Counts</button>
                 </div>
             </form>
         </div>
@@ -604,7 +604,7 @@
                 </div>
 
                 <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
-                    <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary">
+                    <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary" id="bulk-update-btn">
                         <i class="fas fa-save"></i> Save Changes
                     </button>
                 </div>
@@ -733,7 +733,7 @@
             </div>
 
             <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
-                <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary">
+                <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary" id="bulk-update-gallery-btn">
                     <i class="fas fa-save"></i> Save Changes
                 </button>
             </div>
@@ -837,6 +837,24 @@
                     return;
                 }
             
+            // Add loading states to forms
+            document.querySelectorAll('form').forEach(function(form) {
+                form.addEventListener('submit', function(e) {
+                    const submitBtn = e.submitter || form.querySelector('button[type="submit"]:not([disabled])');
+                    if (submitBtn && !submitBtn.dataset.noLoading) {
+                        submitBtn.disabled = true;
+                        const originalText = submitBtn.innerHTML;
+                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                        
+                        // Re-enable after 10 seconds as fallback
+                        setTimeout(function() {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = originalText;
+                        }, 10000);
+                    }
+                });
+            });
+            
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 
@@ -849,11 +867,26 @@
                     }
                 }
                 
-                const formData = new FormData(form);
+                // Include the clicked submit button so server receives e.g. bulk_update_items, update_all_counts
+                const formData = new FormData(form, e.submitter || null);
+                if (e.submitter && e.submitter.name && !formData.has(e.submitter.name)) {
+                    formData.append(e.submitter.name, e.submitter.value || '');
+                }
                 formData.append('X-Requested-With', 'XMLHttpRequest');
                 
                 // Show loading state
                 const allSubmitBtns = form.querySelectorAll('button[type="submit"]');
+                // Re-enable buttons if form submission fails
+                setTimeout(function() {
+                    allSubmitBtns.forEach(function(btn) {
+                        if (btn.innerHTML.includes('fa-spinner')) {
+                            btn.disabled = false;
+                            // Restore original text if possible
+                            const originalText = btn.dataset.originalText || 'Submit';
+                            btn.innerHTML = originalText;
+                        }
+                    });
+                }, 5000);
                 const originalTexts = {};
                 allSubmitBtns.forEach(btn => {
                     originalTexts[btn] = btn.innerHTML;

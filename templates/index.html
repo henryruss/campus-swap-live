@@ -122,7 +122,7 @@
                     </div>
             </div>
             
-            <span>selling your junk.</span>
+            <span>selling your stuff.</span>
         </div>
 
         <div class="reveal fade-up" style="animation-delay: 0.4s;">
@@ -138,7 +138,7 @@
     <div class="grid-split">
         <div class="reveal slide-left">
             <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">Snap & Forget</h2>
+            <h2 style="font-size: 2.5rem;">Snap & Relax</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
                 Let’s face it- you’re not going to sell your mini-fridge before move-out. Don’t waste time on Facebook Marketplace. Snap a photo of your appliances, and we’ll handle the rest.            </p>
         </div>
@@ -229,11 +229,11 @@
         <div style="text-align: center; margin-bottom: 60px;">
             <h2>How It Works</h2>
         </div>
-        <div style="position: relative; max-width: 800px; margin: 0 auto;">
+        <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
             <div class="timeline-line"></div>
             
-            <div style="display: flex; align-items: center; margin-bottom: 50px;">
-                <div style="flex: 1; text-align: right; padding-right: 30px;">
+            <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
+                <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                     <h3>1. List It Whenever</h3>
                     <p>Upload your appliances for approval in under a minute.</p>
                 </div>
@@ -241,18 +241,18 @@
                 <div style="flex: 1;"></div>
             </div>
 
-            <div style="display: flex; align-items: center; margin-bottom: 50px;">
+            <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
                 <div style="flex: 1;"></div>
                 <div class="step-icon"><i class="fas fa-warehouse"></i></div>
-                <div style="flex: 1; padding-left: 30px;">
+                <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
                     <h3>2. Hand It Off In May</h3>
                     <p>Approved items are picked up and brought to a Campus Swap store by our team.</p>
                 </div>
             </div>
 
-            <div style="display: flex; align-items: center;">
-                <div style="flex: 1; text-align: right; padding-right: 30px;">
-                    <h3>3. Sit Back, Relax, Get Paid</h3>
+            <div class="timeline-step" style="display: flex; align-items: center;">
+                <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
+                    <h3>3. Go Home, Get Paid</h3>
                     <p>We sell your appliances to the general public and returning students. When your appliance sells, we split the profits.</p>
                 </div>
                 <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
@@ -285,7 +285,7 @@
             
             <p style="margin-bottom: 30px; font-size: 1.1rem; color: var(--text-muted);">
                 {% if pickup_period_active %}
-                Retail space is limited. Join the waitlist now to secure your spot—and never drag a couch to the curb again!
+                Create your account now. Seller spots are limited—complete your profile and pay the activation fee to secure yours.
                 {% else %}
                 We'll notify you when signups open for next year's pickup period.
                 {% endif %}
@@ -297,7 +297,7 @@
             <input type="email" name="email" placeholder="student@college.edu" required 
                    style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
             <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">
-                {% if pickup_period_active %}Join Waitlist{% else %}Get Notified{% endif %}
+                {% if pickup_period_active %}Create Account{% else %}Get Notified{% endif %}
             </button>
         </form>
     </div>

@@ -261,15 +261,45 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
         margin: 8px 0;
     }
     
-    /* Timeline */
+    /* Timeline: stack steps on mobile so "Go Home, Get Paid" etc. aren't squished */
     .timeline-section {
         padding: 40px 20px;
     }
     .timeline-line {
         left: 30px;
     }
-    .timeline-section > div {
-        padding-left: 60px !important;
+    .timeline-section > div,
+    .timeline-inner {
+        padding-left: 0 !important;
+    }
+    .timeline-step {
+        flex-direction: column !important;
+        text-align: center;
+        padding: 0 10px;
+        margin-bottom: 40px !important;
+    }
+    .timeline-step:last-child {
+        margin-bottom: 0 !important;
+    }
+    .timeline-step .step-icon {
+        margin: 12px auto;
+        order: -1;
+    }
+    .timeline-step-text {
+        text-align: center !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    .timeline-step .timeline-step-text h3 {
+        margin-bottom: 8px;
+    }
+    .timeline-step .timeline-step-text p {
+        max-width: 320px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .timeline-step > div:not(.step-icon):not(.timeline-step-text) {
+        display: none;
     }
     
     /* Admin table */
