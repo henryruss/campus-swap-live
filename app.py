@@ -1854,7 +1854,7 @@ def admin_mass_email():
             print(f"Batch {batch_idx + 1}/{len(user_batches)}: Attempting to send {len(batch_data)} emails...")
             
             # Send batch
-            response = resend.Emails.send_batch(batch_data)
+            response = resend.Emails.batch.send(batch_data)
             
             print(f"Batch {batch_idx + 1} response: {json.dumps(response, default=str)}")
             
