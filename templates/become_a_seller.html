@@ -1,0 +1,494 @@
+{% extends "layout.html" %}
+
+{% block body_class %}seller-page{% endblock %}
+
+{% block content %}
+<style>
+    /* --- SELLER PAGE: FULL DARK MODE - EXCITING DEAL ZONE --- */
+    .seller-page {
+        background: linear-gradient(180deg, #0f172a 0%, #0a0f1a 50%, #020617 100%);
+        min-height: 100vh;
+        color: #e2e8f0;
+    }
+    .seller-page .container {
+        color: #e2e8f0;
+    }
+    .become-hero {
+        text-align: center;
+        padding: 80px 20px 70px;
+        max-width: 720px;
+        margin: 0 auto;
+    }
+    .become-hero .badge {
+        display: inline-block;
+        background: linear-gradient(135deg, var(--accent) 0%, #fbbf24 100%);
+        color: #0f172a;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        padding: 8px 16px;
+        border-radius: 50px;
+        margin-bottom: 24px;
+        text-transform: uppercase;
+        box-shadow: 0 0 24px rgba(245, 158, 11, 0.4);
+    }
+    .become-hero h1 {
+        font-size: 2.75rem;
+        margin-bottom: 16px;
+        color: white;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+    .become-hero .subhead {
+        font-size: 1.2rem;
+        color: #94a3b8;
+        line-height: 1.6;
+    }
+    .become-hero .subhead strong {
+        color: var(--accent);
+    }
+    
+    /* Flowing sections - dark mode */
+    .seller-section {
+        max-width: 800px;
+        margin: 0 auto 64px;
+        padding: 0 20px;
+    }
+    .seller-section h2 {
+        font-size: 1.6rem;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: white;
+    }
+    .seller-section h2 i {
+        color: var(--accent);
+    }
+    .seller-section p {
+        color: #94a3b8;
+    }
+    
+    /* Timeline - elevated card for contrast */
+    .seller-page .timeline-section {
+        background: #1e293b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 20px;
+    }
+    
+    /* Pricing section - accent strip, elevated */
+    .payment-structure-section {
+        background: #334155;
+        border-top: 1px solid rgba(245, 158, 11, 0.3);
+        border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+        color: white;
+        padding: 64px 32px;
+        margin: 64px 0;
+    }
+    .payment-structure-section h2 {
+        color: white;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    .payment-structure-section .subhead {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 1.05rem;
+        max-width: 560px;
+        margin-left: auto;
+        margin-right: auto;
+        line-height: 1.6;
+    }
+    
+    .timeline-seller .timeline-step { margin-bottom: 40px; }
+    .why-fee-link {
+        display: inline-block;
+        font-size: 0.85rem;
+        color: var(--accent);
+        margin-top: 8px;
+        text-decoration: none;
+        opacity: 0.9;
+    }
+    .why-fee-link:hover { opacity: 1; text-decoration: underline; }
+    
+    /* CTA card - elevated */
+    .seller-page #join.card {
+        background: #1e293b;
+        border: 1px solid rgba(255,255,255,0.12);
+        color: #e2e8f0;
+    }
+    .seller-page #join h2,
+    .seller-page #join .fa-handshake {
+        color: white;
+    }
+    .seller-page #join .fa-handshake {
+        color: var(--accent) !important;
+    }
+    .seller-page #join p {
+        color: #94a3b8;
+    }
+    .seller-page #join input {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(255,255,255,0.15);
+        color: white;
+    }
+    .seller-page #join input::placeholder {
+        color: #64748b;
+    }
+    .seller-page #join a {
+        color: var(--accent);
+    }
+    
+    /* FAQ accordion */
+    .faq-accordion {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+    .faq-item {
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .faq-item:first-child {
+        border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .faq-item summary {
+        padding: 18px 0;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: white;
+        cursor: pointer;
+        list-style: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::after {
+        content: '+';
+        font-size: 1.2rem;
+        color: var(--accent);
+        font-weight: 400;
+    }
+    .faq-item[open] summary::after {
+        content: '−';
+    }
+    .faq-item p {
+        padding: 0 0 18px;
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: #94a3b8;
+    }
+    
+    /* --- EARNINGS CALCULATOR --- */
+    .earnings-calc {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 24px;
+        padding: 40px;
+        margin: 48px 0;
+        box-shadow: 0 0 40px rgba(245, 158, 11, 0.08);
+    }
+    .earnings-calc-headline {
+        text-align: center;
+        font-size: 2rem;
+        font-weight: 800;
+        color: white;
+        margin-bottom: 8px;
+        line-height: 1.3;
+    }
+    .earnings-calc-headline #calc-amount {
+        color: var(--accent);
+        text-shadow: 0 0 24px rgba(245, 158, 11, 0.5);
+    }
+    .earnings-calc .tagline {
+        text-align: center;
+        color: #94a3b8;
+        margin-bottom: 36px;
+        font-size: 1rem;
+    }
+    .calc-icons-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 32px;
+        min-height: 80px;
+    }
+    .calc-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: rgba(148, 163, 184, 0.15);
+        border: 2px solid rgba(148, 163, 184, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.35;
+        transform: scale(0.9);
+        transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+    }
+    .calc-icon.active {
+        opacity: 1;
+        transform: scale(1);
+        background: rgba(245, 158, 11, 0.2);
+        border-color: rgba(245, 158, 11, 0.5);
+        box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+    }
+    .calc-icon i {
+        font-size: 1.5rem;
+        color: var(--accent);
+    }
+    .calc-icon:not(.active) i {
+        color: #94a3b8;
+    }
+    .calc-slider-wrap {
+        max-width: 360px;
+        margin: 0 auto;
+    }
+    .calc-slider-wrap input[type="range"] {
+        width: 100%;
+        height: 8px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(148, 163, 184, 0.2);
+        border-radius: 8px;
+        outline: none;
+    }
+    .calc-slider-wrap input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--accent);
+        cursor: pointer;
+        box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
+        transition: transform 0.2s;
+    }
+    .calc-slider-wrap input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.1);
+    }
+    .calc-slider-wrap input[type="range"]::-moz-range-thumb {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--accent);
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
+    }
+    .calc-slider-labels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: #94a3b8;
+    }
+    
+    @media (max-width: 768px) {
+        .become-hero h1 { font-size: 2.2rem; }
+        .earnings-calc-headline { font-size: 1.6rem; }
+        .calc-icons-row { gap: 12px; }
+        .calc-icon { width: 48px; height: 48px; }
+        .calc-icon i { font-size: 1.25rem; }
+    }
+</style>
+
+<div class="seller-page">
+    <div class="become-hero">
+        <span class="badge">Sellers</span>
+        <h1>You&rsquo;re in. Join the team.</h1>
+        <p class="subhead">Turn your move-out furniture into cash. We handle pickup, storage, and sale&mdash;you get <strong>50%</strong>.</p>
+    </div>
+
+    <div class="container">
+        <!-- How It Works - Timeline First -->
+        <div class="timeline-section timeline-seller reveal fade-up">
+            <div style="text-align: center; margin-bottom: 50px;">
+                <h2>How It Works</h2>
+                <p style="color: #94a3b8; max-width: 480px; margin: 12px auto 0;">From signup to payout&mdash;we&rsquo;ve got you.</p>
+            </div>
+            <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
+                <div class="timeline-line"></div>
+                <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
+                    <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
+                        <div class="step-date">Step 1</div>
+                        <h3>Sign Up</h3>
+                        <p>Create your account and add your pickup address. No charge yet.</p>
+                    </div>
+                    <div class="step-icon"><i class="fas fa-user-plus"></i></div>
+                    <div style="flex: 1;"></div>
+                </div>
+                <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
+                    <div style="flex: 1;"></div>
+                    <div class="step-icon"><i class="fas fa-camera"></i></div>
+                    <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
+                        <div class="step-date">Within 1 day</div>
+                        <h3>Items Approved</h3>
+                        <p>Upload photos and details. We review and approve items that meet our criteria.</p>
+                    </div>
+                </div>
+                <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
+                    <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
+                        <div class="step-date">May 1st</div>
+                        <h3>Pay to Secure</h3>
+                        <p>We charge only for approved items. $15 first item, $10 second, $5 each after that.</p>
+                        <a href="#why-fee" class="why-fee-link">Why do we charge a fee?</a>
+                    </div>
+                    <div class="step-icon"><i class="fas fa-credit-card"></i></div>
+                    <div style="flex: 1;"></div>
+                </div>
+                <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
+                    <div style="flex: 1;"></div>
+                    <div class="step-icon"><i class="fas fa-truck"></i></div>
+                    <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
+                        <div class="step-date">May</div>
+                        <h3>Pickup</h3>
+                        <p>We schedule by area. You get a window; someone must be home. We text before we arrive.</p>
+                    </div>
+                </div>
+                <div class="timeline-step" style="display: flex; align-items: center;">
+                    <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
+                        <div class="step-date">Summer</div>
+                        <h3>Get Paid</h3>
+                        <p>Your items are stored and sold at our <strong>retail store near campus</strong> June 1&ndash;Aug 31. Buyers browse in person. {{ store_info.address }}. You receive <strong style="color: var(--accent);">50%</strong> of the sale price via Venmo or Zelle when yours sells. Add your payout info in your dashboard; we process within a few days.</p>
+                    </div>
+                    <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
+                    <div style="flex: 1;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- What We Take -->
+        <div class="seller-section reveal fade-up">
+            <h2><i class="fas fa-check-circle"></i> What We Take</h2>
+            <p style="line-height: 1.7; margin-bottom: 12px;">
+                <strong>Types:</strong> Couches, mini fridges, mattresses, futons, AC units, TVs. <strong>Quality:</strong> Sellable condition or better. <strong>Value:</strong> Items that typically sell for $50+.
+            </p>
+            <p style="line-height: 1.7; margin: 0;">
+                We don&rsquo;t take small or low-value items like lamps, décor, or small furniture.
+            </p>
+        </div>
+
+        <!-- Earnings Calculator - Airbnb-style slider -->
+        <div class="seller-section reveal fade-up">
+            <div class="earnings-calc">
+                <h2 class="earnings-calc-headline">Your room could make <span id="calc-amount">$25</span> with Campus Swap</h2>
+                <p class="tagline">Slide to see what your space is worth.</p>
+                <div class="calc-icons-row" id="calc-icons">
+                    <div class="calc-icon" data-n="1"><i class="fas fa-snowflake"></i></div>
+                    <div class="calc-icon" data-n="2"><i class="fas fa-bed"></i></div>
+                    <div class="calc-icon" data-n="3"><i class="fas fa-couch"></i></div>
+                    <div class="calc-icon" data-n="4"><i class="fas fa-tv"></i></div>
+                    <div class="calc-icon" data-n="5"><i class="fas fa-fan"></i></div>
+                </div>
+                <div class="calc-slider-wrap">
+                    <input type="range" id="calc-slider" min="1" max="5" value="1" step="1">
+                    <div class="calc-slider-labels">
+                        <span>1 item</span>
+                        <span>5 items</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+        <!-- Why We Charge a Fee - Dark Section (full width) -->
+        <div id="why-fee" class="payment-structure-section reveal fade-up">
+            <h2><i class="fas fa-info-circle"></i> Why Do We Charge a Fee?</h2>
+            <p class="subhead"><strong>Spots in our store are limited.</strong> We can only take a certain number of items each season. The fee helps us manage capacity and cover pickup, storage, and sale costs. We only charge for approved items we actually pick up.</p>
+        </div>
+
+    <div class="container">
+        <!-- FAQ -->
+        <div class="seller-section reveal fade-up" id="faq">
+            <h2><i class="fas fa-question-circle"></i> Seller FAQ</h2>
+            <div class="faq-accordion">
+                <details class="faq-item">
+                    <summary>What items can I sell?</summary>
+                    <p>Larger items that typically sell for ~$50+: couches, mini fridges, mattresses, futons, AC units, TVs. No small or low-value items.</p>
+                </details>
+                <details class="faq-item">
+                    <summary>When will you pick up my items?</summary>
+                    <p>We organize pickups by area during move-out. You&rsquo;ll get an email 1&ndash;2 days before with your window. We&rsquo;ll text or call 30&ndash;60 minutes before we arrive.</p>
+                </details>
+                <details class="faq-item">
+                    <summary>Do I need to be home for pickup?</summary>
+                    <p>Yes. Someone must be home to let our team in. We&rsquo;ll contact you before we arrive.</p>
+                </details>
+                <details class="faq-item">
+                    <summary>What if I&rsquo;m not home when you arrive?</summary>
+                    <p>We&rsquo;ll call you. If you can&rsquo;t get home quickly, we&rsquo;ll try to reschedule once within the pickup period.</p>
+                </details>
+            </div>
+        </div>
+
+        <!-- CTA -->
+        <div id="join" class="card no-hover reveal fade-up" style="text-align: center; padding: 60px; max-width: 640px; margin: 0 auto 80px;">
+            <div style="margin-bottom: 30px;">
+                <i class="fas fa-handshake" style="font-size: 2.5rem; color: var(--primary); margin-bottom: 16px;"></i>
+                <h2 style="font-size: 2rem; margin-bottom: 12px;">Ready to join?</h2>
+                <p style="font-size: 1.05rem;">
+                    Seller spots are limited. Create your account and get started.
+                </p>
+            </div>
+            {% if pickup_period_active %}
+            <div style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 12px 20px; margin: 0 auto 20px; max-width: 480px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <i class="fas fa-clock" style="color: var(--accent); font-size: 1rem;"></i>
+                <span style="color: var(--accent); font-weight: 600; font-size: 0.95rem;">Pickup Period Open</span>
+            </div>
+            <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="email" name="email" placeholder="student@college.edu" required
+                       style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+                <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Create Account</button>
+            </form>
+            <p style="margin-top: 20px; font-size: 0.9rem;">Already have an account? <a href="/login" style="color: var(--accent); font-weight: bold;">Log In</a></p>
+            {% else %}
+            <div style="background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 480px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
+                    <i class="fas fa-calendar-check" style="color: #94a3b8; font-size: 1.2rem;"></i>
+                    <strong style="color: #94a3b8; font-size: 0.95rem;">Pickup Period Closed</strong>
+                </div>
+                <p style="color: #94a3b8; font-size: 0.85rem; margin: 0;">
+                    Enter your email to be notified when signups open next year!
+                </p>
+            </div>
+            <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="email" name="email" placeholder="student@college.edu" required
+                       style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+                <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Get Notified</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => { if(entry.isIntersecting) entry.target.classList.add('active'); });
+    });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // Earnings Calculator - Slider (Airbnb-style)
+    const SLIDER_AMOUNTS = [25, 60, 105, 150, 180];
+    const slider = document.getElementById('calc-slider');
+    const amountEl = document.getElementById('calc-amount');
+    const icons = document.querySelectorAll('.calc-icon');
+
+    function updateCalc() {
+        const n = parseInt(slider.value, 10);
+        amountEl.textContent = '$' + SLIDER_AMOUNTS[n - 1];
+        icons.forEach(icon => {
+            const need = parseInt(icon.dataset.n, 10);
+            icon.classList.toggle('active', need <= n);
+        });
+    }
+
+    slider.addEventListener('input', updateCalc);
+    updateCalc();
+</script>
+{% endblock %}

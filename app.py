@@ -500,6 +500,72 @@ def index():
 def about():
     return render_template('about.html')
 
+@app.route('/privacy-policy')
+def privacy_policy():
+    return render_template('privacy_policy.html')
+
+@app.route('/terms-and-conditions')
+def terms_conditions():
+    return render_template('terms_conditions.html')
+
+@app.route('/refund-policy')
+def refund_policy():
+    return render_template('refund_policy.html')
+
+@app.route('/become-a-seller', methods=['GET', 'POST'])
+def become_a_seller():
+    """Become a Seller page - comprehensive seller guide with timeline, earnings, FAQ, and CTA."""
+    if request.args.get('source'):
+        session['source'] = request.args.get('source')
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+
+        if not email:
+            flash("Please provide your email address.", "error")
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+
+        if not validate_email(email):
+            flash("Please provide a valid email address.", "error")
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+
+        if len(email) > MAX_EMAIL_LENGTH:
+            flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+
+        pickup_period_active = get_pickup_period_active()
+        if not pickup_period_active:
+            existing_user = User.query.filter_by(email=email).first()
+            if not existing_user:
+                guest_user = User(email=email, referral_source=session.get('source', 'direct'))
+                db.session.add(guest_user)
+                db.session.commit()
+                logger.info(f"Guest account created (become-a-seller, pickup closed): {email}")
+
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            return redirect(url_for('become_a_seller'))
+
+        user = User.query.filter_by(email=email).first()
+        if user:
+            if user.password_hash:
+                flash("You already have an account. Please log in.", "info")
+                return redirect(url_for('login', email=email))
+            else:
+                login_user(user)
+                return redirect(get_user_dashboard())
+        else:
+            source = session.get('source', 'direct')
+            new_user = User(email=email, referral_source=source)
+            db.session.add(new_user)
+            db.session.commit()
+            login_user(new_user)
+            flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
+            return redirect(get_user_dashboard())
+
+    pickup_period_active = get_pickup_period_active()
+    store_info = get_store_info(get_current_store())
+    return render_template('become_a_seller.html', pickup_period_active=pickup_period_active, store_info=store_info)
+
 @app.route('/sitemap.xml')
 def sitemap():
     """Generate dynamic sitemap.xml for Google Search Console"""
@@ -519,7 +585,11 @@ def sitemap():
     static_pages = [
         {'url': '/', 'priority': '1.0', 'changefreq': 'weekly'},
         {'url': '/inventory', 'priority': '0.9', 'changefreq': 'daily'},
+        {'url': '/become-a-seller', 'priority': '0.9', 'changefreq': 'weekly'},
         {'url': '/about', 'priority': '0.8', 'changefreq': 'monthly'},
+        {'url': '/privacy-policy', 'priority': '0.5', 'changefreq': 'monthly'},
+        {'url': '/terms-and-conditions', 'priority': '0.5', 'changefreq': 'monthly'},
+        {'url': '/refund-policy', 'priority': '0.5', 'changefreq': 'monthly'},
         {'url': '/register', 'priority': '0.7', 'changefreq': 'monthly'},
         {'url': '/login', 'priority': '0.6', 'changefreq': 'monthly'},
     ]
@@ -1839,10 +1909,14 @@ def dashboard():
 @login_required
 def update_profile():
     address = request.form.get('address')
+    phone = request.form.get('phone', '').strip()
     if address:
         current_user.pickup_address = address
+    if phone:
+        current_user.phone = phone
+    if address or phone:
         db.session.commit()
-        flash("Address updated.", "success")
+        flash("Profile updated.", "success")
     # Remove scroll parameter - form is already visible
     return redirect(get_user_dashboard())
 

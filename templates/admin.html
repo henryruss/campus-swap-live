@@ -544,6 +544,8 @@
         </summary>
         <form method="POST" id="admin-gallery-form" action="{{ url_for('admin_panel') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <!-- Fallback: clicked button's name/value injected here so server always receives it (layout may disable button before submit) -->
+            <input type="hidden" id="admin-action" name="" value="">
             {% if pending_items %}
             <div id="pending-items" class="card no-hover" style="border: 2px solid #fca5a5; margin-top: 20px; margin-bottom: 30px;">
                 <h3 style="margin-bottom: 10px; color: #b91c1c;">
@@ -729,7 +731,7 @@
                                         <span class="badge" style="background: #f59e0b; color: white;">Pending</span>
                                         {% if item.price %}
                                             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 3px;">
-                                                ${{ "%.2f"|format(item.price * 0.40) }} to pay
+                                                ${{ "%.2f"|format(item.price * 0.50) }} to pay
                                             </div>
                                         {% endif %}
                                     {% endif %}
@@ -824,6 +826,20 @@
                 previewBtn.href = `/admin/preview/${type}`;
                 downloadBtn.href = `/admin/export/${type}`;
             });
+        }
+        
+        // CRITICAL: Gallery form - preserve submit button name/value before any handler can disable it.
+        // Disabled elements are excluded from form data; layout disables buttons on submit.
+        const galleryForm = document.getElementById('admin-gallery-form');
+        if (galleryForm) {
+            galleryForm.addEventListener('submit', function(e) {
+                const btn = e.submitter;
+                const actionInput = document.getElementById('admin-action');
+                if (btn && btn.name && actionInput) {
+                    actionInput.name = btn.name;
+                    actionInput.value = btn.value || '';
+                }
+            }, true);  // capture phase - runs before layout's handler
         }
         
         // AJAX form handler - intercept all form submissions

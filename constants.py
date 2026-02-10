@@ -3,7 +3,7 @@ Application-wide constants for Campus Swap
 """
 
 # Payout Configuration
-PAYOUT_PERCENTAGE = 0.40  # Sellers receive 40% of sale price
+PAYOUT_PERCENTAGE = 0.50  # Sellers receive 50% of sale price
 
 # Payment Configuration
 SELLER_ACTIVATION_FEE_CENTS = 1500  # $15.00 in cents

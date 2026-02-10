@@ -20,7 +20,7 @@ class TestConstants:
     def test_payout_percentage(self):
         """Test payout percentage is reasonable"""
         assert 0 < PAYOUT_PERCENTAGE < 1  # Should be between 0 and 1
-        assert PAYOUT_PERCENTAGE == 0.40  # Should be 40%
+        assert PAYOUT_PERCENTAGE == 0.50  # Should be 50%
     
     def test_seller_activation_fee(self):
         """Test seller activation fee"""

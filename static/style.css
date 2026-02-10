@@ -146,6 +146,118 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     z-index: 2; position: relative;
 }
 
+/* Become a Seller timeline - step dates */
+.timeline-seller .step-date {
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 4px;
+    letter-spacing: 0.02em;
+}
+
+/* --- SELLER PAGE: DARK HEADER --- */
+body.seller-page header {
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+body.seller-page header .logo span {
+    color: white !important;
+}
+body.seller-page header .logo img {
+    mix-blend-mode: normal;
+    filter: brightness(1.1);
+}
+body.seller-page header .nav-item {
+    color: #94a3b8 !important;
+}
+body.seller-page header .nav-item:hover {
+    color: white !important;
+}
+body.seller-page header .nav-item i {
+    color: inherit;
+}
+body.seller-page header #store-selector-container {
+    background: rgba(255,255,255,0.08) !important;
+    border-color: rgba(255,255,255,0.15) !important;
+}
+body.seller-page header #store-selector-container span {
+    color: #94a3b8 !important;
+}
+body.seller-page header #store-display {
+    color: white !important;
+}
+body.seller-page header #store-selector-container .fa-map-marker-alt {
+    color: var(--accent) !important;
+}
+body.seller-page header #store-selector-container .fa-chevron-down {
+    color: #94a3b8 !important;
+}
+body.seller-page header #store-selector-container:hover {
+    background: rgba(255,255,255,0.12) !important;
+    border-color: rgba(255,255,255,0.2) !important;
+}
+body.seller-page header #store-dropdown {
+    background: #1e293b !important;
+    border-color: rgba(255,255,255,0.1) !important;
+}
+body.seller-page header #store-dropdown > div:first-child {
+    color: #94a3b8 !important;
+    border-color: rgba(255,255,255,0.1) !important;
+}
+body.seller-page header .store-option {
+    color: white !important;
+}
+body.seller-page header .store-option:hover {
+    background: rgba(255,255,255,0.08) !important;
+}
+body.seller-page header .store-option .fa-store {
+    color: var(--accent) !important;
+}
+body.seller-page header .nav-icon,
+body.seller-page header .nav-icon-btn .fa-user-circle {
+    color: #94a3b8 !important;
+}
+body.seller-page header .nav-icon:hover,
+body.seller-page header .nav-icon-btn:hover .fa-user-circle {
+    color: white !important;
+}
+body.seller-page header .user-dropdown {
+    background: #1e293b !important;
+    border-color: rgba(255,255,255,0.1) !important;
+}
+body.seller-page header .dropdown-item {
+    color: #e2e8f0 !important;
+}
+body.seller-page header .dropdown-item:hover {
+    background: rgba(255,255,255,0.08) !important;
+}
+body.seller-page header .user-dropdown hr {
+    border-color: rgba(255,255,255,0.1) !important;
+}
+
+/* --- SELLER PAGE: DARK FOOTER --- */
+body.seller-page footer {
+    background: #0f172a;
+    color: #94a3b8;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+body.seller-page footer h3 {
+    color: white !important;
+}
+body.seller-page footer a {
+    color: var(--accent) !important;
+}
+body.seller-page footer a:hover {
+    color: #fbbf24 !important;
+}
+body.seller-page footer .fa-map-marker-alt {
+    color: var(--accent) !important;
+}
+body.seller-page footer p {
+    color: #94a3b8 !important;
+}
+
 /* --- ANIMATIONS --- */
 .reveal { opacity: 0; }
 .fade-up.active { animation: fadeInUp 0.8s forwards; }

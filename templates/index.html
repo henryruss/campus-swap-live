@@ -109,10 +109,12 @@
 
     <div style="max-width: 900px; padding: 20px;">
         
+        <p class="reveal fade-up" style="font-size: 1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 12px;">Campus Swap</p>
         <h1 class="hero-title reveal fade-up">
             Move Out.<br>
             <span style="color: var(--primary);">Cash In.</span>
         </h1>
+        <p class="reveal fade-up" style="font-size: 1.1rem; color: var(--text-muted); margin-bottom: 30px;">Turn move-out into cash.</p>
         
         <div class="hero-sentence reveal fade-up" style="animation-delay: 0.2s;">
             <span>You could make</span>
@@ -126,7 +128,7 @@
         </div>
 
         <div class="reveal fade-up" style="animation-delay: 0.4s;">
-            <a href="#join" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
+            <a href="/become-a-seller" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
                 Start Selling <i class="fas fa-arrow-right"></i>
             </a>
         </div>
@@ -220,22 +222,31 @@
             <i class="fas fa-box-open" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
             <h2 style="font-size: 2.5rem;">We Bridge the Summer Gap</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                You leave in May. Buyers are here all summer, and more arrive next semester. We transport, store, and sell your items on your behalf so you don't have to dump them.
+                You leave in May. Buyers are here all summer, and more arrive next semester. We pick up your items, transport them to our <strong>retail store near campus</strong>, and display them for sale for <strong>three months over the summer (June 1&ndash;August 31)</strong>. You don&rsquo;t have to dump them&mdash;we handle everything.
             </p>
+        </div>
+    </div>
+
+    <div class="reveal fade-up" style="max-width: 700px; margin: 0 auto 50px; padding: 24px 30px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+        <i class="fas fa-map-marker-alt" style="font-size: 1.5rem; color: var(--primary);"></i>
+        <div>
+            <strong style="color: var(--text-main);">Your items are stored and sold at our retail store near campus.</strong>
+            <p style="margin: 4px 0 0; font-size: 0.95rem; color: var(--text-muted);">We pick up during move-out, transport to our store, and sell over the summer (June 1&ndash;Aug 31).</p>
         </div>
     </div>
 
     <div class="timeline-section reveal fade-up">
         <div style="text-align: center; margin-bottom: 60px;">
             <h2>How It Works</h2>
+            <p style="color: #94a3b8; max-width: 500px; margin: 12px auto 0;">List &rarr; Hand off in May &rarr; Get paid when it sells.</p>
         </div>
         <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
             <div class="timeline-line"></div>
             
             <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
                 <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
-                    <h3>1. List It Whenever</h3>
-                    <p>Upload your appliances for approval in under a minute.</p>
+                    <h3>1. List It</h3>
+                    <p>Upload your items for approval.</p>
                 </div>
                 <div class="step-icon"><i class="fas fa-camera"></i></div>
                 <div style="flex: 1;"></div>
@@ -246,60 +257,46 @@
                 <div class="step-icon"><i class="fas fa-warehouse"></i></div>
                 <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
                     <h3>2. Hand It Off In May</h3>
-                    <p>Approved items are picked up and brought to a Campus Swap store by our team.</p>
+                    <p>We pick up and bring items to our retail store near campus.</p>
                 </div>
             </div>
 
             <div class="timeline-step" style="display: flex; align-items: center;">
                 <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                     <h3>3. Go Home, Get Paid</h3>
-                    <p>We sell your appliances to the general public and returning students. When your appliance sells, we split the profits.</p>
+                    <p>Items sell over the summer. You receive 50% when yours sells.</p>
                 </div>
                 <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
                 <div style="flex: 1;"></div>
             </div>
         </div>
+        <p style="text-align: center; margin-top: 30px;"><a href="/become-a-seller" style="color: var(--accent); font-weight: 600;">Learn more on our Become a Seller page &rarr;</a></p>
     </div>
 
-    <div id="join" class="card reveal fade-up" style="text-align: center; padding: 60px; max-width: 700px; margin: 0 auto 100px;">
-        <div style="margin-bottom: 30px;">
-            <i class="fas fa-ticket-alt" style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem; margin-bottom: 15px;">Secure Your Seller Spot</h2>
-            
-            {% if pickup_period_active %}
-            <div style="background: #fffbeb; border: 2px solid #fcd34d; border-radius: 12px; padding: 12px 20px; margin: 0 auto 20px; max-width: 500px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                <i class="fas fa-clock" style="color: #92400e; font-size: 1rem;"></i>
-                <span style="color: #92400e; font-weight: 600; font-size: 0.95rem;">Limited Time: Pickup Period Open</span>
-            </div>
-            {% else %}
-            <div style="background: #f0f9ff; border: 2px solid #93c5fd; border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 500px;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
-                    <i class="fas fa-calendar-check" style="color: #1e40af; font-size: 1.2rem;"></i>
-                    <strong style="color: #1e40af; font-size: 0.95rem;">Pickup Period Closed</strong>
-                </div>
-                <p style="color: #1e40af; font-size: 0.85rem; margin: 0;">
-                    Enter your email to be notified when signups open next year!
-                </p>
-            </div>
-            {% endif %}
-            
-            <p style="margin-bottom: 30px; font-size: 1.1rem; color: var(--text-muted);">
-                {% if pickup_period_active %}
-                Create your account now. Seller spots are limited—complete your profile and pay the activation fee to secure yours.
-                {% else %}
-                We'll notify you when signups open for next year's pickup period.
-                {% endif %}
-            </p>
-        </div>
-        
-        <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+    <div id="join" class="card reveal fade-up" style="text-align: center; padding: 50px; max-width: 700px; margin: 0 auto 80px;">
+        <h2 style="font-size: 2rem; margin-bottom: 10px;">Ready to sell?</h2>
+        <a href="/become-a-seller" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; margin: 20px 10px 20px 0;">
+            Start Selling <i class="fas fa-arrow-right"></i>
+        </a>
+        {% if pickup_period_active %}
+        <span style="color: var(--text-muted); margin: 0 8px;">or</span>
+        <form method="POST" style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="email" name="email" placeholder="student@college.edu" required 
-                   style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
-            <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">
-                {% if pickup_period_active %}Create Account{% else %}Get Notified{% endif %}
-            </button>
+                   style="width: 220px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+            <button type="submit" class="btn btn-primary" style="padding: 14px 24px; font-size: 1rem;">Create Account</button>
         </form>
+        <p style="margin-top: 16px; font-size: 0.9rem; color: var(--text-muted);">Seller spots are limited. <a href="/become-a-seller" style="color: var(--primary);">Learn more</a></p>
+        {% else %}
+        <span style="color: var(--text-muted); margin: 0 8px;">or</span>
+        <form method="POST" style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="email" name="email" placeholder="student@college.edu" required 
+                   style="width: 220px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+            <button type="submit" class="btn btn-primary" style="padding: 14px 24px; font-size: 1rem;">Get Notified</button>
+        </form>
+        <p style="margin-top: 16px; font-size: 0.9rem; color: var(--text-muted);">We&rsquo;ll email you when signups open next year.</p>
+        {% endif %}
     </div>
 </div>
 
@@ -312,11 +309,10 @@
 
     // 2. TICKER ANIMATION LOGIC
     const items = [
-        { icon: 'fa-couch', price: '$50' },
-        { icon: 'fa-desktop', price: '$35' },
-        { icon: 'fa-bed', price: '$60' },
-        { icon: 'fa-tv', price: '$40' }
-        
+        { icon: 'fa-couch', price: '$80' },
+        { icon: 'fa-snowflake', price: '$75' },
+        { icon: 'fa-bed', price: '$90' },
+        { icon: 'fa-tv', price: '$85' }
     ];
 
     const wrapper = document.getElementById('ticker');
