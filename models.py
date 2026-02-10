@@ -45,6 +45,7 @@ class InventoryItem(db.Model):
     description = db.Column(db.String(200), nullable=False)
     long_description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Float, nullable=True)
+    suggested_price = db.Column(db.Float, nullable=True)
     quality = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(20), default='pending_valuation')
     date_added = db.Column(db.DateTime, default=datetime.utcnow)

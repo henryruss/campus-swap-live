@@ -958,6 +958,13 @@ def admin_panel():
          flash("Access denied.", "error")
          return redirect(url_for('index'))
     
+    # Debug: capture form data for troubleshooting (always on for admin)
+    admin_debug = session.pop('admin_debug', None) if request.method == 'GET' else None
+    if request.method == 'POST':
+        form_keys = list(request.form.keys())
+        admin_debug = {'form_keys': form_keys, 'action': None, 'result': None, 'has_bulk': 'bulk_update_items' in request.form, 'has_delete': 'delete_item' in request.form}
+        logger.info(f"ADMIN_POST form_keys={form_keys}")
+    
     # Admin can toggle pickup period
     if request.method == 'POST' and 'toggle_pickup_period' in request.form:
         current_status = get_pickup_period_active()
@@ -1079,6 +1086,9 @@ def admin_panel():
 
     # 3. Bulk Update Items
     if request.method == 'POST' and 'bulk_update_items' in request.form:
+        if admin_debug:
+            admin_debug['action'] = 'bulk_update_items'
+        logger.info("ADMIN: Entering bulk_update_items handler")
         updated_count = 0
         for key, value in request.form.items():
             if key.startswith('price_'):
@@ -1172,16 +1182,22 @@ def admin_panel():
         try:
             is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             db.session.commit()
+            result_msg = f"Updated {updated_count} item(s)." if updated_count > 0 else "Changes saved."
+            if admin_debug:
+                admin_debug['result'] = result_msg
+                admin_debug['updated_count'] = updated_count
+            logger.info(f"ADMIN: bulk_update committed, updated_count={updated_count}")
             if is_ajax:
-                msg = f"Updated {updated_count} item(s)." if updated_count > 0 else "Changes saved."
-                return jsonify({'success': True, 'message': msg, 'reload': True})
+                return jsonify({'success': True, 'message': result_msg, 'reload': True})
             if updated_count > 0:
                 flash(f"Updated {updated_count} item(s).", "success")
             else:
                 flash("Changes saved.", "success")
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error committing changes: {e}", exc_info=True)
+            logger.error(f"Error committing bulk_update: {e}", exc_info=True)
+            if admin_debug:
+                admin_debug['result'] = f"ERROR: {str(e)}"
             import traceback
             traceback.print_exc()
             if is_ajax:
@@ -1193,7 +1209,12 @@ def admin_panel():
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
         
         if 'delete_item' in request.form:
-            item = InventoryItem.query.get(request.form.get('delete_item'))
+            delete_val = request.form.get('delete_item')
+            if admin_debug:
+                admin_debug['action'] = 'delete_item'
+                admin_debug['delete_item_value'] = delete_val
+            logger.info(f"ADMIN: delete_item in form, value={delete_val}")
+            item = InventoryItem.query.get(delete_val)
             if item:
                 item_desc = item.description
                 item_id = item.id
@@ -1202,9 +1223,16 @@ def admin_panel():
                     if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
                 db.session.delete(item)
                 db.session.commit()
+                if admin_debug:
+                    admin_debug['result'] = f"Deleted item {item_id} ({item_desc})"
+                logger.info(f"ADMIN: Deleted item {item_id}")
                 if is_ajax:
                     return jsonify({'success': True, 'message': f"Item '{item_desc}' deleted.", 'remove_row': True, 'item_id': item_id})
                 flash(f"Item '{item_desc}' deleted.", "success")
+            else:
+                if admin_debug:
+                    admin_debug['result'] = f"Item not found for id={delete_val}"
+                logger.warning(f"ADMIN: delete_item - item not found for id={delete_val}")
         
         elif 'mark_sold' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_sold'))
@@ -1251,6 +1279,15 @@ def admin_panel():
                     return jsonify({'success': True, 'message': f"Item '{item.description}' marked as available.", 'reload': True})
                 flash(f"Item '{item.description}' marked as available.", "success")
 
+    # If we had a POST but no gallery action ran, record for debugging
+    if admin_debug and admin_debug.get('action') is None:
+        admin_debug['action'] = 'none'
+        admin_debug['result'] = f"No action matched. bulk_update_items in form? {admin_debug.get('has_bulk')}. delete_item in form? {admin_debug.get('has_delete')}."
+
+    # Persist admin_debug to session so it survives redirects (e.g. mark_payout_sent)
+    if admin_debug:
+        session['admin_debug'] = admin_debug
+
     # Data Loading with optimized queries
     commodities = InventoryCategory.query.all()
     all_cats = InventoryCategory.query.all()
@@ -1290,7 +1327,8 @@ def admin_panel():
                            pickup_period_active=pickup_period_active,
                            total_users=total_users, total_items=total_items,
                            sold_items=sold_items, pending_items_count=pending_items_count,
-                           available_items=available_items)
+                           available_items=available_items,
+                           admin_debug=admin_debug)
 
 
 @app.route('/edit_item/<int:item_id>', methods=['GET', 'POST'])
@@ -1908,6 +1946,7 @@ def add_item():
         desc = request.form.get('description')
         long_desc = request.form.get('long_description')
         quality = request.form.get('quality')
+        suggested_price_raw = request.form.get('suggested_price', '').strip()
         files = request.files.getlist('photos')
         
         # Validate category_id
@@ -1943,10 +1982,20 @@ def add_item():
                 flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
                 return render_template('add_item.html', categories=categories)
             
+            suggested_price = None
+            if suggested_price_raw:
+                try:
+                    sp = float(suggested_price_raw)
+                    if sp >= 0:
+                        suggested_price = sp
+                except ValueError:
+                    pass
+
             new_item = InventoryItem(
                 seller_id=current_user.id, category_id=cat_id, description=desc,
                 long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
-                collection_method='online'  # User-uploaded items are always 'online'
+                collection_method='online',  # User-uploaded items are always 'online'
+                suggested_price=suggested_price
             )
             db.session.add(new_item)
             db.session.flush()

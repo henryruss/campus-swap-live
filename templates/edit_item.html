@@ -32,6 +32,9 @@
                 <input type="number" name="price" step="0.01" 
                        value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
                        placeholder="Pending" style="width: 100%;">
+                {% if item.suggested_price %}
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">Seller suggested: ${{ '%.2f'|format(item.suggested_price) }}</p>
+                {% endif %}
             </div>
 
             <label style="margin-top: 15px;">Long Description</label>

@@ -179,6 +179,32 @@
         </div>
     </div>
 
+    {% if admin_debug %}
+    <!-- Troubleshooting: last POST request debug info -->
+    <details class="admin-section" style="margin-bottom: 20px; border-color: #f59e0b;">
+        <summary class="section-summary" style="background: #fffbeb; border-color: #f59e0b;">
+            <h3 style="display: inline-block; margin: 0; color: #b45309;">
+                <i class="fas fa-bug"></i> Last POST Debug (troubleshooting)
+            </h3>
+            <i class="fas fa-chevron-down summary-chevron"></i>
+        </summary>
+        <div class="card no-hover" style="margin-top: 10px; font-family: monospace; font-size: 0.85rem; background: #fffbeb;">
+            <p><strong>Form keys received:</strong> {{ admin_debug.form_keys|join(', ') }}</p>
+            <p><strong>bulk_update_items in form?</strong> {{ admin_debug.has_bulk }}</p>
+            <p><strong>delete_item in form?</strong> {{ admin_debug.has_delete }}</p>
+            <p><strong>Action taken:</strong> {{ admin_debug.action or '—' }}</p>
+            <p><strong>Result:</strong> {{ admin_debug.result or '—' }}</p>
+            {% if admin_debug.updated_count is defined %}
+            <p><strong>Items updated:</strong> {{ admin_debug.updated_count }}</p>
+            {% endif %}
+            {% if admin_debug.delete_item_value is defined %}
+            <p><strong>delete_item value:</strong> {{ admin_debug.delete_item_value }}</p>
+            {% endif %}
+            <p style="margin-top: 15px; color: var(--text-muted); font-size: 0.8rem;">If bulk_update_items or delete_item show False but you clicked Save/Reject, the submit button may not be reaching the server. Check form action URL and browser network tab.</p>
+        </div>
+    </details>
+    {% endif %}
+
     <!-- Database Overview -->
     <details class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
@@ -533,6 +559,7 @@
                                 <th>Seller</th>
                                 <th>Type</th>
                                 <th>Cat/Qual</th>
+                                <th>Suggested</th>
                                 <th>Set Price ($)</th>
                                 <th>Action</th>
                             </tr>
@@ -585,6 +612,13 @@
                                         <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
                                         {% endfor %}
                                     </select>
+                                </td>
+                                <td>
+                                    {% if item.suggested_price %}
+                                        <span style="font-size: 0.9rem; color: var(--text-muted);">${{ '%.2f'|format(item.suggested_price) }}</span>
+                                    {% else %}
+                                        <span style="font-size: 0.85rem; color: #cbd5e1;">—</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
