@@ -1284,25 +1284,37 @@ def admin_panel():
                 admin_debug['action'] = 'delete_item'
                 admin_debug['delete_item_value'] = delete_val
             logger.info(f"ADMIN: delete_item in form, value={delete_val}")
-            item = InventoryItem.query.get(delete_val)
-            if item:
-                item_desc = item.description
-                item_id = item.id
-                if item.status == 'available':
-                    cat = InventoryCategory.query.get(item.category_id)
-                    if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
-                db.session.delete(item)
-                db.session.commit()
+            try:
+                item = InventoryItem.query.get(delete_val)
+                if item:
+                    item_desc = item.description
+                    item_id = item.id
+                    if item.status == 'available':
+                        cat = InventoryCategory.query.get(item.category_id)
+                        if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
+                    # Delete related ItemPhotos first (cascade handles it, but explicit delete is safer)
+                    for photo in item.gallery_photos[:]:
+                        db.session.delete(photo)
+                    db.session.delete(item)
+                    db.session.commit()
+                    if admin_debug:
+                        admin_debug['result'] = f"Deleted item {item_id} ({item_desc})"
+                    logger.info(f"ADMIN: Deleted item {item_id}")
+                    if is_ajax:
+                        return jsonify({'success': True, 'message': f"Item '{item_desc}' deleted.", 'remove_row': True, 'item_id': item_id})
+                    flash(f"Item '{item_desc}' deleted.", "success")
+                else:
+                    if admin_debug:
+                        admin_debug['result'] = f"Item not found for id={delete_val}"
+                    logger.warning(f"ADMIN: delete_item - item not found for id={delete_val}")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"ADMIN: Error deleting item {delete_val}: {e}", exc_info=True)
                 if admin_debug:
-                    admin_debug['result'] = f"Deleted item {item_id} ({item_desc})"
-                logger.info(f"ADMIN: Deleted item {item_id}")
+                    admin_debug['result'] = f"ERROR: {str(e)}"
                 if is_ajax:
-                    return jsonify({'success': True, 'message': f"Item '{item_desc}' deleted.", 'remove_row': True, 'item_id': item_id})
-                flash(f"Item '{item_desc}' deleted.", "success")
-            else:
-                if admin_debug:
-                    admin_debug['result'] = f"Item not found for id={delete_val}"
-                logger.warning(f"ADMIN: delete_item - item not found for id={delete_val}")
+                    return jsonify({'success': False, 'message': f"Could not delete item: {str(e)}"}), 500
+                flash(f"Could not delete item: {str(e)}", "error")
         
         elif 'mark_sold' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_sold'))

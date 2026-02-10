@@ -61,7 +61,7 @@ class InventoryItem(db.Model):
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
     photo_url = db.Column(db.String(200), nullable=True)
-    gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True)
+    gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True, cascade='all, delete-orphan')
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
