@@ -16,6 +16,12 @@ class User(UserMixin, db.Model):
     # SELLER INFO
     phone = db.Column(db.String(20), nullable=True)
     pickup_address = db.Column(db.String(200), nullable=True)
+    pickup_location_type = db.Column(db.String(20), nullable=True)  # 'on_campus' or 'off_campus'
+    pickup_dorm = db.Column(db.String(80), nullable=True)  # Dorm name for on_campus
+    pickup_room = db.Column(db.String(20), nullable=True)  # Room number for on_campus
+    pickup_note = db.Column(db.String(200), nullable=True)  # Optional directions (e.g. "third floor")
+    pickup_lat = db.Column(db.Float, nullable=True)  # Latitude for map preview (off_campus)
+    pickup_lng = db.Column(db.Float, nullable=True)  # Longitude for map preview (off_campus)
     
     # PAYOUT INFO
     payout_method = db.Column(db.String(20), nullable=True)
@@ -37,6 +43,25 @@ class User(UserMixin, db.Model):
     
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
+
+    @property
+    def has_pickup_location(self):
+        """True if user has a valid pickup location set."""
+        if self.pickup_location_type == 'on_campus':
+            return bool(self.pickup_dorm and self.pickup_room)
+        if self.pickup_location_type == 'off_campus' or self.pickup_address:
+            return bool(self.pickup_address)
+        return False
+
+    @property
+    def pickup_display(self):
+        """Formatted display string for pickup location."""
+        if self.pickup_location_type == 'on_campus' and self.pickup_dorm:
+            base = f"{self.pickup_dorm}, Room {self.pickup_room}" if self.pickup_room else self.pickup_dorm
+            return base
+        if self.pickup_address:
+            return self.pickup_address
+        return ''
 
 class InventoryCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)

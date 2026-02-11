@@ -40,3 +40,61 @@ RATE_LIMIT_LOGIN = "5 per minute"
 RATE_LIMIT_REGISTER = "3 per hour"
 RATE_LIMIT_ADMIN = "100 per minute"
 RATE_LIMIT_EMAIL = "10 per hour"
+
+# Residence halls by store (for on-campus pickup selection)
+RESIDENCE_HALLS_BY_STORE = {
+    'UNC Chapel Hill': {
+        'North Campus': [
+            'Alderman Residence Hall',
+            'Alexander Residence Hall',
+            'Cobb Residence Hall',
+            'Connor Residence Hall',
+            'Everett Residence Hall',
+            'Graham Residence Hall',
+            'Grimes Residence Hall',
+            'Joyner Residence Hall',
+            'Kenan Residence Hall',
+            'Lewis Residence Hall',
+            'Mangum Residence Hall',
+            'Manly Residence Hall',
+            'McClinton Residence Hall',
+            'McIver Residence Hall',
+            'Old East Residence Hall',
+            'Old West Residence Hall',
+            'Ruffin Jr Residence Hall',
+            'Spencer Residence Hall',
+            'Stacy Residence Hall',
+            'Winston Residence Hall',
+        ],
+        'Mid-Campus': [
+            'Avery Residence Hall',
+            'Carmichael Residence Hall',
+            'Parker Residence Hall',
+            'Teague Residence Hall',
+        ],
+        'South Campus': [
+            'Baity Hill 1101 Mason Farm Road',
+            'Baity Hill 1351 Mason Farm Road',
+            'Baity Hill 1401 Mason Farm Road',
+            'Baity Hill 1501 Mason Farm Road',
+            'Baity Hill 1600 Student Fam. Housing',
+            'Baity Hill 1700 Student Fam. Housing',
+            'Baity Hill 1800 Student Fam. Housing',
+            'Baity Hill 1900 Student Fam. Housing',
+            'Baity Hill 2000 Student Fam. Housing',
+            'Craige Residence Hall',
+            'Craige North Residence Hall',
+            'Ehringhaus Residence Hall',
+            'Hardin Residence Hall',
+            'Hinton James Residence Hall',
+            'Horton Residence Hall',
+            'Koury Residence Hall',
+            'Morrison Residence Hall',
+            'Ram Village 1',
+            'Ram Village 2',
+            'Ram Village 3',
+            'Ram Village 5',
+            'Taylor Hall',
+        ],
+    },
+}

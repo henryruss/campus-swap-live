@@ -1,0 +1,168 @@
+<form id="pickup-form" action="/update_profile" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <input type="hidden" name="pickup_location_type" id="pickup_location_type" value="{{ current_user.pickup_location_type or 'off_campus' }}">
+    <input type="hidden" name="pickup_lat" id="pickup_lat" value="{{ current_user.pickup_lat or '' }}">
+    <input type="hidden" name="pickup_lng" id="pickup_lng" value="{{ current_user.pickup_lng or '' }}">
+
+    <div style="margin-bottom: 15px;">
+        <label style="font-size: 0.9rem; margin-bottom: 8px; display: block;">Where do you live?</label>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <label class="pickup-type-btn">
+                <input type="radio" name="location_type_radio" value="on_campus" {% if current_user.pickup_location_type == 'on_campus' %}checked{% endif %}>
+                <i class="fas fa-building"></i>
+                <span>On campus (dorm)</span>
+            </label>
+            <label class="pickup-type-btn">
+                <input type="radio" name="location_type_radio" value="off_campus" {% if current_user.pickup_location_type != 'on_campus' or not current_user.pickup_location_type %}checked{% endif %}>
+                <i class="fas fa-home"></i>
+                <span>Off campus (house/apartment)</span>
+            </label>
+        </div>
+    </div>
+
+    <div id="on-campus-fields" style="display: {% if current_user.pickup_location_type == 'on_campus' %}block{% else %}none{% endif %}; margin-bottom: 15px;">
+        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Dorm</label>
+        <select name="pickup_dorm" id="pickup_dorm" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px;">
+            <option value="">Select your dorm...</option>
+            {% for area, halls in dorms.items() %}
+            <optgroup label="{{ area }}">
+                {% for hall in halls %}
+                <option value="{{ hall }}" {% if current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+                {% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Room number</label>
+        <input type="text" name="pickup_room" id="pickup_room" value="{{ current_user.pickup_room or '' }}" placeholder="e.g. 204, 3B" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px;">
+    </div>
+
+    <div id="off-campus-fields" style="display: {% if current_user.pickup_location_type != 'on_campus' or not current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 15px;">
+        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Address</label>
+        <input type="text" name="pickup_address" id="pickup_address" value="{{ current_user.pickup_address or '' }}" placeholder="{% if google_maps_key %}Start typing your address...{% else %}Enter your full address (street, city, state, zip){% endif %}" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px;">
+        <div id="pickup-map-container" style="display: none; margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; height: 180px;">
+            <iframe id="pickup-map-iframe" style="width: 100%; height: 100%; border: 0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin: 8px 0 0;">This is where we'll come. We'll text or call when we're on our way.</p>
+        {% if not google_maps_key %}
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 6px 0 0; font-style: italic;">Address autocomplete and map preview require a Google Maps API key—they will work when the site is deployed with <code>GOOGLE_MAPS_API_KEY</code> set.</p>
+        {% endif %}
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Additional directions <span style="color: var(--text-muted); font-weight: normal;">(optional)</span></label>
+        <input type="text" name="pickup_note" id="pickup_note" value="{{ current_user.pickup_note or '' }}" placeholder="e.g. Third floor, Unit B (with the hello doormat)" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+    </div>
+
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button type="submit" class="btn btn-primary" id="pickup-submit-btn">Save Location</button>
+        {% if current_user.has_pickup_location %}
+        <button type="button" onclick="toggleEdit('address')" class="btn btn-outline">Cancel</button>
+        {% endif %}
+    </div>
+</form>
+
+<style>
+.pickup-type-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 20px; border: 2px solid #e2e8f0; border-radius: 10px;
+    cursor: pointer; transition: all 0.2s; flex: 1; min-width: 160px;
+    font-weight: 500;
+}
+.pickup-type-btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+.pickup-type-btn input { position: absolute; opacity: 0; pointer-events: none; }
+.pickup-type-btn i { color: var(--primary); }
+.pickup-type-btn:has(input:checked) {
+    border-color: var(--primary); background: #f0fdf4; color: var(--primary);
+}
+</style>
+
+{% if google_maps_key %}
+<script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places" async defer></script>
+{% endif %}
+<script>
+(function() {
+    const form = document.getElementById('pickup-form');
+    const typeInput = document.getElementById('pickup_location_type');
+    const onCampusFields = document.getElementById('on-campus-fields');
+    const offCampusFields = document.getElementById('off-campus-fields');
+    const addressInput = document.getElementById('pickup_address');
+    const mapContainer = document.getElementById('pickup-map-container');
+    const mapIframe = document.getElementById('pickup-map-iframe');
+    const latInput = document.getElementById('pickup_lat');
+    const lngInput = document.getElementById('pickup_lng');
+    const dormSelect = document.getElementById('pickup_dorm');
+    const roomInput = document.getElementById('pickup_room');
+    const submitBtn = document.getElementById('pickup-submit-btn');
+
+    function setLocationType(type) {
+        typeInput.value = type;
+        onCampusFields.style.display = type === 'on_campus' ? 'block' : 'none';
+        offCampusFields.style.display = type === 'off_campus' ? 'block' : 'none';
+        document.querySelectorAll('.pickup-type-btn').forEach(function(opt) {
+            opt.style.borderColor = opt.querySelector('input').value === type ? 'var(--primary)' : '#e2e8f0';
+            opt.style.background = opt.querySelector('input').value === type ? '#f0fdf4' : 'transparent';
+        });
+    }
+
+    document.querySelectorAll('input[name="location_type_radio"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            setLocationType(this.value);
+        });
+    });
+
+    form.addEventListener('submit', function(e) {
+        if (typeInput.value === 'on_campus') {
+            if (!dormSelect.value || !roomInput.value.trim()) {
+                e.preventDefault();
+                alert('Please select a dorm and enter your room number.');
+                return false;
+            }
+        } else {
+            if (!addressInput.value.trim()) {
+                e.preventDefault();
+                alert('Please enter your address.');
+                return false;
+            }
+        }
+        if (submitBtn) submitBtn.disabled = true;
+    });
+
+    function updateMap(url) {
+        if (mapIframe && url) {
+            mapIframe.src = url;
+            mapContainer.style.display = 'block';
+        } else {
+            mapContainer.style.display = 'none';
+        }
+    }
+
+    var googleMapsKey = '{{ google_maps_key or "" }}';
+    if (googleMapsKey && addressInput) {
+        function initPlaces() {
+            if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+            var autocomplete = new google.maps.places.Autocomplete(addressInput, { types: ['address'] });
+            autocomplete.addListener('place_changed', function() {
+                var place = autocomplete.getPlace();
+                if (place.geometry && place.geometry.location) {
+                    latInput.value = place.geometry.location.lat();
+                    lngInput.value = place.geometry.location.lng();
+                }
+                var addr = place.formatted_address || addressInput.value;
+                if (addr) {
+                    var embedUrl = 'https://www.google.com/maps/embed/v1/place?key=' + encodeURIComponent(googleMapsKey) + '&q=' + encodeURIComponent(addr);
+                    updateMap(embedUrl);
+                }
+            });
+            if (addressInput.value && googleMapsKey) {
+                var q = encodeURIComponent(addressInput.value);
+                updateMap('https://www.google.com/maps/embed/v1/place?key=' + encodeURIComponent(googleMapsKey) + '&q=' + q);
+            }
+        }
+        if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+            initPlaces();
+        } else {
+            window.addEventListener('load', function() { setTimeout(initPlaces, 500); });
+        }
+    }
+})();
+</script>

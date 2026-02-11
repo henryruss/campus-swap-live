@@ -36,7 +36,7 @@ from constants import (
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
-    ITEMS_PER_PAGE
+    ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE
 )
 
 # Configure Logging
@@ -2121,16 +2121,58 @@ def dashboard():
                           approved_online_count=len(approved_online),
                           approved_large_count=approved_large_count,
                           projected_fee_cents=projected_fee_cents,
-                          has_payment_method=bool(current_user.stripe_payment_method_id))
+                          has_payment_method=bool(current_user.stripe_payment_method_id),
+                          dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
+                          google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
 def update_profile():
-    address = request.form.get('address')
-    if address:
-        current_user.pickup_address = address
-        db.session.commit()
-        flash("Profile updated.", "success")
+    location_type = request.form.get('pickup_location_type')
+    if location_type == 'on_campus':
+        dorm = (request.form.get('pickup_dorm') or '').strip()
+        room = (request.form.get('pickup_room') or '').strip()
+        if dorm and room:
+            current_user.pickup_location_type = 'on_campus'
+            current_user.pickup_dorm = dorm[:80]
+            current_user.pickup_room = room[:20]
+            current_user.pickup_address = None
+            current_user.pickup_lat = None
+            current_user.pickup_lng = None
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            db.session.commit()
+            flash("Pickup location saved.", "success")
+        else:
+            flash("Please select a dorm and enter your room number.", "error")
+    elif location_type == 'off_campus':
+        address = (request.form.get('pickup_address') or '').strip()
+        if address:
+            current_user.pickup_location_type = 'off_campus'
+            current_user.pickup_address = address[:200]
+            current_user.pickup_dorm = None
+            current_user.pickup_room = None
+            lat = request.form.get('pickup_lat')
+            lng = request.form.get('pickup_lng')
+            current_user.pickup_lat = float(lat) if lat and lat.strip() else None
+            current_user.pickup_lng = float(lng) if lng and lng.strip() else None
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            db.session.commit()
+            flash("Pickup location saved.", "success")
+        else:
+            flash("Please enter your address.", "error")
+    else:
+        # Legacy: plain address field (backward compat)
+        address = request.form.get('address')
+        if address:
+            current_user.pickup_location_type = 'off_campus'
+            current_user.pickup_address = address[:200]
+            current_user.pickup_dorm = None
+            current_user.pickup_room = None
+            current_user.pickup_note = None
+            current_user.pickup_lat = None
+            current_user.pickup_lng = None
+            db.session.commit()
+            flash("Profile updated.", "success")
     return redirect(get_user_dashboard())
 
 @app.route('/update_payout', methods=['POST'])
