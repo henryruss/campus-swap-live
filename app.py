@@ -9,7 +9,7 @@ import html as html_module
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 
-from PIL import Image
+from PIL import Image, ImageOps
 import stripe
 import resend
 from datetime import datetime, timedelta
@@ -862,7 +862,9 @@ def upload_from_phone_post():
     filename = f"temp_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     try:
-        img = Image.open(file).convert("RGBA")
+        img = Image.open(file)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
         bg = Image.new("RGB", img.size, (255, 255, 255))
         bg.paste(img, (0, 0), img)
         max_dimension = 2000
@@ -1297,7 +1299,9 @@ def admin_panel():
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
                     try:
-                        img = Image.open(file).convert("RGBA")
+                        img = Image.open(file)
+                        img = ImageOps.exif_transpose(img)
+                        img = img.convert("RGBA")
                         bg = Image.new("RGB", img.size, (255, 255, 255))
                         bg.paste(img, (0, 0), img)
                         
@@ -1641,7 +1645,9 @@ def edit_item(item_id):
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
                     try:
-                        img = Image.open(file).convert("RGBA")
+                        img = Image.open(file)
+                        img = ImageOps.exif_transpose(img)
+                        img = img.convert("RGBA")
                         bg = Image.new("RGB", img.size, (255, 255, 255))
                         bg.paste(img, (0, 0), img)
                         
@@ -2326,7 +2332,9 @@ def add_item():
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
                     try:
-                        img = Image.open(file).convert("RGBA")
+                        img = Image.open(file)
+                        img = ImageOps.exif_transpose(img)
+                        img = img.convert("RGBA")
                         bg = Image.new("RGB", img.size, (255, 255, 255))
                         bg.paste(img, (0, 0), img)
                         

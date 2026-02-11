@@ -2,9 +2,10 @@
 
 {% block content %}
 <style>
-    .upload-zone-wrapper.has-files {
-        display: none;
-    }
+    .upload-from-computer.hidden { display: none; }
+    .preview-column { display: none; }
+    .preview-column.visible { display: block; }
+    .upload-split-left .upload-from-phone { display: none !important; }
     
     .preview-container {
         display: none;
@@ -15,10 +16,9 @@
     .preview-container.active {
         display: block;
     }
-    /* When previews are active, disable file input overlay */
-    .preview-container.active ~ #file-input {
-        pointer-events: none !important;
-        z-index: 0 !important;
+    .preview-column .file-input-overlay {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        opacity: 0; cursor: pointer; z-index: 2;
     }
     
     .preview-carousel {
@@ -143,6 +143,12 @@
         gap: 20px;
         align-items: stretch;
     }
+    .upload-split-left {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 100%;
+    }
     @media (max-width: 600px) {
         .upload-split { grid-template-columns: 1fr; }
     }
@@ -158,7 +164,8 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        min-height: 240px;
+        flex: 1;
+        min-height: 280px;
     }
     .upload-from-computer:hover {
         border-color: var(--primary);
@@ -174,7 +181,7 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        min-height: 240px;
+        min-height: 280px;
     }
     .upload-from-phone-title {
         font-weight: 600;
@@ -228,8 +235,8 @@
             <label style="margin-bottom: 10px; display: block;">Item Photos</label>
             
             <div style="position: relative; margin-bottom: 25px;">
-                <div class="upload-zone-wrapper" id="upload-zone-wrapper">
-                    <div class="upload-split">
+                <div class="upload-split" id="upload-split">
+                    <div class="upload-split-left">
                         <div class="upload-from-computer" id="upload-from-computer">
                             <input type="file" name="photos" id="file-input" accept="image/jpeg,image/png,image/webp" multiple required 
                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
@@ -250,11 +257,7 @@
                                 <img id="qr-code-img" src="" alt="QR Code" style="display: none;">
                             </div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Preview Container -->
-                <div class="preview-container" id="preview-container" style="position: relative; z-index: 10;">
+                        <div class="preview-column preview-container" id="preview-container">
                     <div class="preview-carousel">
                         <button type="button" class="carousel-nav" id="prev-btn" onclick="changeImage(-1)">
                             <i class="fas fa-chevron-left"></i>
@@ -280,15 +283,25 @@
                         <span id="file-count-text">0 photos selected</span>
                     </div>
                     
-                    <!-- Add More Photos Button (shown when previews are active) -->
-                    <div id="add-more-container" style="display: none; margin-top: 15px;">
-                        <button type="button" id="add-more-photos-btn" 
-                                style="width: 100%; padding: 12px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; color: var(--primary); cursor: pointer; font-weight: 600; transition: all 0.2s;">
-                            <i class="fas fa-plus"></i> Add More Photos
-                        </button>
-                        <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); text-align: center;">
-                            or <button type="button" id="add-from-phone-btn-2" class="qr-link-btn">Add from phone</button>
-                        </p>
+                            <div id="add-more-container" style="margin-top: 12px;">
+                                <button type="button" id="add-more-photos-btn" 
+                                        style="width: 100%; padding: 10px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; color: var(--primary); cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                    <i class="fas fa-plus"></i> Add More from Computer
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="upload-from-phone">
+                        <div class="upload-from-phone-title">
+                            <i class="fas fa-qrcode"></i> Or upload with your phone
+                        </div>
+                        <div class="upload-from-phone-desc">
+                            Scan with your phone to add more photos.
+                        </div>
+                        <div class="qr-code-box" id="qr-code-box">
+                            <div id="qr-initial-loading" style="color: var(--text-muted);">Loading...</div>
+                            <img id="qr-code-img" src="" alt="QR Code" style="display: none;">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -356,7 +369,7 @@
     let uploadSessionPollInterval = null;
 
     const fileInput = document.getElementById('file-input');
-    const uploadZoneWrapper = document.getElementById('upload-zone-wrapper');
+    const uploadFromComputer = document.getElementById('upload-from-computer');
     const previewContainer = document.getElementById('preview-container');
     const mainPreview = document.getElementById('main-preview');
     const noPreview = document.getElementById('no-preview');
@@ -384,8 +397,8 @@
         if (newFiles.length > 0) {
             document.getElementById('temp-photo-ids').value = tempPhotoFilenames.join(',');
             updatePreviews();
-            uploadZoneWrapper.classList.add('has-files');
-            previewContainer.classList.add('active');
+            uploadFromComputer.classList.add('hidden');
+            previewContainer.classList.add('visible');
         }
     }
 
@@ -394,8 +407,8 @@
         delete tempPhotoUrls[filename];
         document.getElementById('temp-photo-ids').value = tempPhotoFilenames.join(',');
         if (getTotalPhotoCount() === 0) {
-            previewContainer.classList.remove('active');
-            uploadZoneWrapper.classList.remove('has-files');
+            previewContainer.classList.remove('visible');
+            uploadFromComputer.classList.remove('hidden');
             fileInput.required = true;
         } else {
             updatePreviews();
@@ -455,8 +468,9 @@
     }
 
     async function loadQrOnPageLoad() {
-        const loadingEl = document.getElementById('qr-initial-loading');
-        const imgEl = document.getElementById('qr-code-img');
+        const qrBox = document.querySelector('.upload-split > .upload-from-phone .qr-code-box');
+        const loadingEl = qrBox?.querySelector('#qr-initial-loading') || document.getElementById('qr-initial-loading');
+        const imgEl = qrBox?.querySelector('#qr-code-img') || document.getElementById('qr-code-img');
         try {
             const fd = new FormData();
             fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
@@ -502,7 +516,7 @@
             fileInput.files = dataTransfer.files;
             
             updatePreviews();
-            uploadZoneWrapper.classList.add('has-files');
+            uploadFromComputer.classList.add('hidden');
             previewContainer.classList.add('active');
         }
     });
@@ -533,8 +547,8 @@
     function updatePreviews() {
         const total = getTotalPhotoCount();
         if (total === 0) {
-            previewContainer.classList.remove('active');
-            uploadZoneWrapper.classList.remove('has-files');
+            previewContainer.classList.remove('visible');
+            uploadFromComputer.classList.remove('hidden');
             fileInput.value = '';
             fileInput.required = true;
             fileInput.style.pointerEvents = 'auto';
@@ -664,7 +678,7 @@
         }
         if (getTotalPhotoCount() === 0) {
             previewContainer.classList.remove('active');
-            uploadZoneWrapper.classList.remove('has-files');
+            uploadFromComputer.classList.remove('hidden');
             fileInput.required = true;
         } else {
             updatePreviews();
@@ -672,7 +686,6 @@
     }
     
     // Drag and drop support
-    const uploadFromComputer = document.getElementById('upload-from-computer');
     uploadFromComputer.addEventListener('dragover', function(e) {
         e.preventDefault();
         uploadFromComputer.style.borderColor = 'var(--primary)';
