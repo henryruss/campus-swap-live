@@ -28,7 +28,8 @@ from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSet
 
 # Import Constants
 from constants import (
-    PAYOUT_PERCENTAGE, SELLER_ACTIVATION_FEE_CENTS,
+    PAYOUT_PERCENTAGE, PAYOUT_PERCENTAGE_ONLINE, PAYOUT_PERCENTAGE_IN_PERSON,
+    SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     IMAGE_QUALITY, THUMBNAIL_SIZE,
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
@@ -310,22 +311,27 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         return False
 
 
+def _get_payout_percentage(item):
+    """Return payout percentage based on collection method."""
+    return PAYOUT_PERCENTAGE_ONLINE if item.collection_method == 'online' else PAYOUT_PERCENTAGE_IN_PERSON
+
 def _item_sold_email_html(item, seller):
     """Build HTML for item sold notification with payout details."""
     sale_price = item.price or 0
-    payout_amount = round(sale_price * PAYOUT_PERCENTAGE, 2)
+    payout_pct = _get_payout_percentage(item)
+    payout_amount = round(sale_price * payout_pct, 2)
     payout_method = seller.payout_method or "Venmo"
-    payout_handle = seller.payout_handle or "—"
+    payout_handle = seller.payout_handle or "-"
     return f"""
     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
         <h2 style="color: #166534;">Cha-Ching!</h2>
         <p>Good news! Your item <strong>{item.description}</strong> has just been purchased.</p>
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>
-            <p style="margin: 0 0 8px;"><strong>Your payout ({int(PAYOUT_PERCENTAGE * 100)}%):</strong> ${payout_amount:.2f}</p>
+            <p style="margin: 0 0 8px;"><strong>Your payout ({int(payout_pct * 100)}%):</strong> ${payout_amount:.2f}</p>
             <p style="margin: 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>
         </div>
-        <p>We'll process your payout shortly. Our team handles the handover to the buyer—you don't need to do anything!</p>
+        <p>We'll process your payout shortly. Our team handles the handover to the buyer. You don't need to do anything!</p>
         <p>Thanks for selling with Campus Swap!</p>
     </div>
     """
@@ -1014,6 +1020,19 @@ def webhook():
             else:
                 logger.error(f"WEBHOOK: User {user_id} not found in database")
 
+    elif event['type'] == 'setup_intent.succeeded':
+        setup_intent = event['data']['object']
+        user_id = setup_intent.get('metadata', {}).get('user_id')
+        if user_id:
+            user = User.query.get(int(user_id))
+            if user:
+                pm_id = setup_intent.get('payment_method')
+                if pm_id:
+                    user.stripe_payment_method_id = pm_id
+                    user.payment_declined = False
+                    db.session.commit()
+                    logger.info(f"WEBHOOK: User {user_id} payment method saved")
+
     return 'Success', 200
 
 
@@ -1041,6 +1060,58 @@ def admin_panel():
         new_status = not current_status
         AppSetting.set('pickup_period_active', str(new_status))
         flash(f"Pickup period {'activated' if new_status else 'closed'}.", "success")
+
+    # Admin: Run pickup charges ($15 + $10 per large item for users with approved online items)
+    if request.method == 'POST' and 'run_pickup_charges' in request.form:
+        charged, declined, skipped = 0, 0, 0
+        users_with_online = db.session.query(User).join(InventoryItem).filter(
+            InventoryItem.seller_id == User.id,
+            InventoryItem.status == 'available',
+            InventoryItem.collection_method == 'online'
+        ).distinct().all()
+        for user in users_with_online:
+            approved_online = [i for i in user.items if i.status == 'available' and i.collection_method == 'online']
+            if not approved_online:
+                continue
+            large_count = sum(1 for i in approved_online if i.is_large)
+            fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
+            if user.has_paid:
+                skipped += 1
+                continue
+            if not user.stripe_payment_method_id:
+                skipped += 1
+                continue
+            try:
+                stripe.PaymentIntent.create(
+                    amount=fee_cents,
+                    currency='usd',
+                    customer=user.stripe_customer_id,
+                    payment_method=user.stripe_payment_method_id,
+                    confirm=True,
+                    off_session=True,
+                    metadata={'type': 'pickup_fee', 'user_id': user.id}
+                )
+                user.has_paid = True
+                user.payment_declined = False
+                charged += 1
+            except stripe.error.CardError as e:
+                user.payment_declined = True
+                declined += 1
+                try:
+                    send_email(user.email, "Update Your Payment Method - Campus Swap", f"""
+                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                        <h2 style="color: #b91c1c;">Payment Declined</h2>
+                        <p>We tried to charge your card for the Campus Swap listing fee but it was declined.</p>
+                        <p>Please <a href="{url_for('add_payment_method', _external=True)}">add a valid payment method</a> to continue. You won't be able to add items until this is resolved.</p>
+                        <p>Thanks,<br>Campus Swap</p>
+                    </div>
+                    """)
+                except Exception as email_err:
+                    logger.error(f"Failed to send payment declined email: {email_err}")
+            except Exception as e:
+                logger.error(f"Charge failed for user {user.id}: {e}", exc_info=True)
+        db.session.commit()
+        flash(f"Pickup charges: {charged} charged, {declined} declined, {skipped} skipped.", "success")
 
     # 1. Update Category Counts
     if request.method == 'POST' and 'update_all_counts' in request.form:
@@ -1177,16 +1248,9 @@ def admin_panel():
                             new_price = None
                         
                         # Auto-Activate if pending item gets a price
-                        # In-person items can go live without user paying; online items require payment
+                        # All items can go live; payment is charged at pickup (online items)
                         if item.status == 'pending_valuation' and new_price is not None:
-                            # Check if item can go live (in-person items bypass payment requirement)
-                            can_go_live = False
-                            if item.collection_method == 'in_person':
-                                can_go_live = True  # In-person items don't require payment
-                            elif item.seller and item.seller.has_paid:
-                                can_go_live = True  # Online items require user to have paid
-                            elif not item.seller:
-                                can_go_live = True  # Admin-uploaded items (no seller) can go live
+                            can_go_live = True  # No payment gate; charge at pickup
                             
                             if can_go_live:
                                 item.status = 'available'
@@ -1215,8 +1279,6 @@ def admin_panel():
                                         )
                                     except Exception as email_error:
                                         logger.error(f"Failed to send item approved email: {email_error}")
-                            else:
-                                flash(f"{item.description} cannot go live yet - seller needs to complete payment.", "warning")
                         
                         old_price = item.price
                         item.price = new_price
@@ -1240,6 +1302,9 @@ def admin_panel():
                                 item.category_id = new_cat_id
                             except ValueError:
                                 pass
+                        # is_large: admin marks during approval; $10 fee for online items
+                        if f"is_large_{item_id}" in request.form:
+                            item.is_large = request.form[f"is_large_{item_id}"].lower() in ('1', 'true', 'on', 'yes')
                 except (ValueError, TypeError) as e:
                     logger.error(f"Error updating item {key}: {e}", exc_info=True)
                     continue
@@ -1374,21 +1439,11 @@ def admin_panel():
     commodities = InventoryCategory.query.all()
     all_cats = InventoryCategory.query.all()
     
-    # Filter: Show pending items with eager loading
-    # - In-person items can always be approved (no payment needed)
-    # - Online items from paid users can be approved
-    # - Admin-uploaded items (no seller) can be approved
+    # Filter: Show all pending items (no payment gate; charge at pickup)
     pending_items = InventoryItem.query.options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
-    ).outerjoin(User).filter(
-        InventoryItem.status == 'pending_valuation',
-        or_(
-            InventoryItem.collection_method == 'in_person',  # In-person items (no payment needed)
-            User.has_paid == True,  # Items from users who paid
-            InventoryItem.seller_id.is_(None)  # Admin-uploaded items (no seller)
-        )
-    ).order_by(InventoryItem.date_added.asc()).all()
+    ).filter(InventoryItem.status == 'pending_valuation').order_by(InventoryItem.date_added.asc()).all()
     
     gallery_items = InventoryItem.query.options(
         joinedload(InventoryItem.category),
@@ -1892,21 +1947,23 @@ def dashboard():
     # Check if user has any online items (which require payment)
     has_online_items = any(item.collection_method == 'online' for item in my_items)
     
-    # Calculate payout statistics
+    # Calculate payout statistics (per-item percentage: online 50%, in-person 35%)
     live_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
     
-    # Estimated payout (using constant)
-    estimated_payout = sum(item.price for item in live_items if item.price) * PAYOUT_PERCENTAGE
+    def _payout_for_item(it):
+        pct = _get_payout_percentage(it)
+        return (it.price or 0) * pct
     
-    # Paid out (using constant)
-    paid_out = sum(item.price for item in sold_items if item.price and item.payout_sent) * PAYOUT_PERCENTAGE
-    
-    # Pending payouts (using constant)
-    pending_payouts = sum(item.price for item in sold_items if item.price and not item.payout_sent) * PAYOUT_PERCENTAGE
-    
-    # Total potential (estimated + pending + paid)
+    estimated_payout = sum(_payout_for_item(i) for i in live_items)
+    paid_out = sum(_payout_for_item(i) for i in sold_items if i.payout_sent)
+    pending_payouts = sum(_payout_for_item(i) for i in sold_items if not i.payout_sent)
     total_potential = estimated_payout + pending_payouts + paid_out
+    
+    # Fee calculation for pickup: $15 + $10 per large online item
+    approved_online = [i for i in live_items if i.collection_method == 'online']
+    approved_large_count = sum(1 for i in approved_online if i.is_large)
+    projected_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * approved_large_count) if approved_online else 0
     
     return render_template('dashboard.html', 
                           my_items=my_items, 
@@ -1915,7 +1972,11 @@ def dashboard():
                           paid_out=paid_out,
                           pending_payouts=pending_payouts,
                           total_potential=total_potential,
-                          sold_items=sold_items)
+                          sold_items=sold_items,
+                          approved_online_count=len(approved_online),
+                          approved_large_count=approved_large_count,
+                          projected_fee_cents=projected_fee_cents,
+                          has_payment_method=bool(current_user.stripe_payment_method_id))
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -1952,9 +2013,54 @@ def update_payout():
     # Remove scroll parameter - form is already visible, no need to scroll
     return redirect(get_user_dashboard())
 
+@app.route('/add_payment_method')
+@login_required
+def add_payment_method():
+    """Page to add payment method (Setup Intent - no charge until pickup)."""
+    return render_template('add_payment_method.html', stripe_publishable_key=os.environ.get('STRIPE_PUBLISHABLE_KEY', ''))
+
+@app.route('/create_setup_intent', methods=['POST'])
+@login_required
+def create_setup_intent():
+    """Create Stripe SetupIntent to save card without charging."""
+    if not stripe.api_key:
+        return jsonify({'error': 'Stripe not configured'}), 500
+    try:
+        customer_id = current_user.stripe_customer_id
+        if not customer_id:
+            customer = stripe.Customer.create(
+                email=current_user.email,
+                name=current_user.full_name or current_user.email,
+                metadata={'user_id': current_user.id}
+            )
+            customer_id = customer.id
+            current_user.stripe_customer_id = customer_id
+            db.session.commit()
+        
+        setup_intent = stripe.SetupIntent.create(
+            customer=customer_id,
+            payment_method_types=['card'],
+            usage='off_session',
+            metadata={'user_id': str(current_user.id)}
+        )
+        return jsonify({'client_secret': setup_intent.client_secret})
+    except Exception as e:
+        logger.error(f"create_setup_intent: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/payment_method_success')
+@login_required
+def payment_method_success():
+    """After SetupIntent completes; payment_declined cleared."""
+    current_user.payment_declined = False
+    db.session.commit()
+    flash("Payment method saved. You won't be charged until pickup week.", "success")
+    return redirect(url_for('dashboard'))
+
 @app.route('/create_checkout_session', methods=['POST'])
 @login_required
 def create_checkout_session():
+    """Legacy: instant $15 payment. New flow uses Setup Intent + charge at pickup."""
     try:
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -2001,13 +2107,13 @@ def payment_success():
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     
-                    flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week—more details on exact pickup logistics will follow.", "success")
+                    flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week. More details on exact pickup logistics will follow.", "success")
         except Exception as e:
             logger.error(f"Error verifying payment: {e}", exc_info=True)
             # Still show success message - webhook will handle it
             flash("Payment received! Processing...", "info")
     else:
-        flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week—more details on exact pickup logistics will follow.", "success")
+        flash("Your item is submitted and you've secured your spot for the summer. We'll pick up from your listed address during move-out week. More details on exact pickup logistics will follow.", "success")
     
     return redirect(get_user_dashboard())
 
@@ -2018,6 +2124,11 @@ def add_item():
     if not get_pickup_period_active():
         flash("Pickup period has ended. Items can no longer be added. Check back next year!", "error")
         return redirect(get_user_dashboard())
+    
+    # Block users whose card was declined until they add a valid card
+    if current_user.payment_declined:
+        flash("Your payment was declined. Please add a valid payment method to continue.", "error")
+        return redirect(url_for('add_payment_method'))
     
     categories = InventoryCategory.query.all()
     
@@ -2500,12 +2611,13 @@ def admin_preview_sales():
     
     sold_items = InventoryItem.query.filter_by(status='sold').order_by(InventoryItem.sold_at.desc()).all()
     
-    # Prepare data for template
-    headers = ['Item ID', 'Description', 'Sale Price', f'Payout Amount ({int(PAYOUT_PERCENTAGE * 100)}%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
+    # Prepare data for template (payout % varies: online 50%, in-person 35%)
+    headers = ['Item ID', 'Description', 'Sale Price', 'Payout Amount', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
     rows = []
     total_payout = 0
     for item in sold_items:
-        payout_amount = item.price * PAYOUT_PERCENTAGE if item.price else 0
+        pct = _get_payout_percentage(item)
+        payout_amount = (item.price or 0) * pct
         total_payout += payout_amount
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
@@ -2546,12 +2658,13 @@ def admin_export_sales():
     output = StringIO()
     writer = csv.writer(output)
     
-    # Header row
-    writer.writerow(['Item ID', 'Description', 'Sale Price', f'Payout Amount ({int(PAYOUT_PERCENTAGE * 100)}%)', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
+    # Header row (payout % varies: online 50%, in-person 35%)
+    writer.writerow(['Item ID', 'Description', 'Sale Price', 'Payout Amount', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
     
     # Data rows
     for item in sold_items:
-        payout_amount = item.price * PAYOUT_PERCENTAGE if item.price else 0
+        pct = _get_payout_percentage(item)
+        payout_amount = (item.price or 0) * pct
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
         payout_method = item.seller.payout_method if item.seller else ''

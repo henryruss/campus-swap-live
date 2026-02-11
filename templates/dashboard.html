@@ -311,7 +311,7 @@
                                 </div>
                                 <div style="padding: 8px;">
                                     <div style="font-weight: 700; font-size: 0.9rem; color: var(--primary); margin-bottom: 2px;">
-                                        ${{ "%.0f"|format(item.price) if item.price else "—" }}
+                                        ${{ "%.0f"|format(item.price) if item.price else "-" }}
                                     </div>
                                     <div style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                         {{ item.description }}
@@ -352,113 +352,84 @@
                 {% endif %}
             </div>
 
-            {% if not current_user.has_paid and has_online_items %}
+            {% if has_online_items and not has_payment_method and current_user.payout_handle %}
             <div id="step-3" class="step-card {% if my_items %}active{% else %}locked{% endif %}">
                 <span class="step-number">3</span>
 
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout & Launch</h3>
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-credit-card" style="color: var(--primary);"></i> Add Payment Method</h3>
                 
-                {% if current_user.payout_handle %}
-                    
-                    <div id="view-payout" class="locked-box" style="background: #f0fdf4; border-color: #bbf7d0;">
-                        <div>
-                            <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
-                            <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
-                        </div>
-                        <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Change</button>
-                    </div>
-
-                    <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                        <form action="/update_payout" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                                <div>
-                                    <label>Method</label>
-                                    <select name="payout_method">
-                                        <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
-                                        <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
-                                        <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Handle</label>
-                                    <div class="input-group">
-                                        <div class="input-prefix">@</div>
-                                        <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
-                                    </div>
-                                    <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">This is where we&rsquo;ll send your earnings when your items sell.</p>
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 10px;">
-                                <button type="submit" class="btn btn-primary">Save Changes</button>
-                                <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-                        <div style="background: #fffbeb; border: 1px solid #fcd34d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                            <strong style="color: #92400e; font-size: 0.9rem;">What does the $15 cover?</strong>
-                            <ul style="color: #92400e; font-size: 0.85rem; margin: 5px 0 0 20px; padding: 0;">
-                                <li>Professional Movers during pickup week.</li>
-                                <li>Climate-Controlled Storage for the summer.</li>
-                                <li>Listing fees and payment processing.</li>
-                            </ul>
-                        </div>
-
-                        <form action="/create_checkout_session" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <label class="terms-label">
-                                <input type="checkbox" required>
-                                <span class="custom-check"></span>
-                                <span style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
-                                    I understand that items are inspected upon pickup. Rejected items (dirty, broken) will not be accepted, and the fee is non-refundable.
-                                </span>
-                            </label>
-
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                <span>Activation Fee</span>
-                                <strong style="font-size: 1.2rem;">$15.00</strong>
-                            </div>
-                            
-                            <button type="submit" class="btn btn-accent btn-pay" style="width: 100%; padding: 18px; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);">
-                                Pay & Go Live <i class="fas fa-bolt"></i>
-                            </button>
-                        </form>
-                    </div>
-
-                {% else %}
-                    <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive payments.</p>
-                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
-                        <form action="/update_payout" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                                <div>
-                                    <label style="margin-top: 0;">Method</label>
-                                    <select name="payout_method" required>
-                                        <option value="Venmo">Venmo</option>
-                                        <option value="Zelle">Zelle</option>
-                                        <option value="PayPal">PayPal</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style="margin-top: 0;">Username</label>
-                                    <div class="input-group">
-                                        <div class="input-prefix">@</div>
-                                        <input type="text" name="payout_handle" placeholder="username" required>
-                                    </div>
-                                    <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">This is where we&rsquo;ll send your earnings when your items sell.</p>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Secure Payout Info</button>
-                        </form>
-                    </div>
+                {% if current_user.payment_declined %}
+                <div style="background: #fef2f2; border: 2px solid #fecaca; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong style="color: #991b1b;"><i class="fas fa-exclamation-triangle"></i> Your payment was declined.</strong>
+                    <p style="color: #991b1b; font-size: 0.9rem; margin: 8px 0 0;">Add a valid card to continue listing items.</p>
+                </div>
                 {% endif %}
+
+                <p style="color: var(--text-muted); margin-bottom: 15px;">Add your card now. You won&rsquo;t be charged until pickup week.</p>
+                
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong style="color: #166534; font-size: 0.95rem;">Fee at pickup:</strong>
+                    <ul style="color: #166534; font-size: 0.9rem; margin: 8px 0 0 20px; padding: 0;">
+                        <li>$15 service fee (guarantees space + move-out pickup)</li>
+                        <li>$10 per large item (admin marks during approval)</li>
+                    </ul>
+                </div>
+
+                {% if approved_online_count and approved_online_count > 0 %}
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>Approved for pickup:</strong> {{ approved_online_count }} item(s) {% if approved_large_count %}({{ approved_large_count }} large){% endif %}
+                    <div style="font-size: 1.1rem; font-weight: 700; color: var(--primary); margin-top: 6px;">${{ "%.2f"|format(projected_fee_cents / 100) }} at pickup</div>
+                </div>
+                {% endif %}
+
+                <a href="{{ url_for('add_payment_method') }}" class="btn btn-primary" style="width: 100%; padding: 16px;">
+                    <i class="fas fa-credit-card"></i> Add Card
+                </a>
+
+                <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px solid #bbf7d0; border-radius: 12px;">
+                    <strong style="color: #166534; font-size: 0.95rem;"><i class="fas fa-chart-line"></i> Submit Through the Site = More Money</strong>
+                    <p style="color: #166534; font-size: 0.9rem; margin: 10px 0 0; line-height: 1.5;">
+                        When you submit items through Campus Swap and pay the service fee, you earn <strong>50%</strong> when your items sell. 
+                        In-person drop-offs earn only <strong>35%</strong>. That&rsquo;s 15% more in your pocket per sale.
+                    </p>
+                </div>
             </div>
             {% endif %}
 
-            <!-- Payout Settings (Always visible after payment) -->
-            {% if current_user.has_paid %}
+            {% if has_online_items and not current_user.payout_handle %}
+            <div id="step-3" class="step-card {% if my_items %}active{% else %}locked{% endif %}">
+                <span class="step-number">3</span>
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Info</h3>
+                <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive earnings when your items sell.</p>
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
+                    <form action="/update_payout" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label style="margin-top: 0;">Method</label>
+                                <select name="payout_method" required>
+                                    <option value="Venmo">Venmo</option>
+                                    <option value="Zelle">Zelle</option>
+                                    <option value="PayPal">PayPal</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="margin-top: 0;">Username</label>
+                                <div class="input-group">
+                                    <div class="input-prefix">@</div>
+                                    <input type="text" name="payout_handle" placeholder="username" required>
+                                </div>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">This is where we&rsquo;ll send your earnings when your items sell.</p>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Secure Payout Info</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Payout Settings (visible when user has set payout info) -->
+            {% if current_user.payout_handle %}
             <div class="step-card" style="border-color: #bbf7d0; background: #f0fdf4;">
                 <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Settings</h3>
                 
@@ -508,13 +479,13 @@
                 
                 <div style="text-align: center; margin-bottom: 30px;">
                     {% set has_in_person_items = my_items|selectattr('collection_method', 'equalto', 'in_person')|list|length > 0 %}
-                    {% set needs_payment = has_online_items and not current_user.has_paid %}
+                    {% set needs_payment = approved_online_count > 0 and not has_payment_method %}
                     {% if needs_payment or not current_user.pickup_address or not current_user.phone or not my_items %}
                         <div style="font-size: 3rem; margin-bottom: 10px; color: var(--accent);">
                             <i class="fas fa-hard-hat"></i>
                         </div>
                         <div style="font-weight: 800; font-size: 1.2rem;">Setup In Progress</div>
-                    {% elif (current_user.has_paid or has_in_person_items) and current_user.pickup_address and current_user.phone and my_items %}
+                    {% elif (has_payment_method or has_in_person_items or not needs_payment) and current_user.pickup_address and current_user.phone and my_items %}
                         {# Count active/pending items using a namespace for scoping #}
                         {% set ns = namespace(active=0, pending=0) %}
                         {% for item in my_items %}
@@ -539,6 +510,13 @@
                             <div style="font-weight: 800; font-size: 1.2rem;">Active Seller</div>
                         {% endif %}
                     {% endif %}
+                </div>
+
+                <div style="background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px solid #bbf7d0; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                    <strong style="color: #166534; font-size: 0.9rem;"><i class="fas fa-chart-line"></i> 50% vs 35% Payout</strong>
+                    <p style="color: #166534; font-size: 0.85rem; margin: 8px 0 0; line-height: 1.5;">
+                        Submit through the site = <strong>50%</strong> when items sell. In-person drop-off = <strong>35%</strong>. Pay the service fee to earn more.
+                    </p>
                 </div>
 
                 <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">

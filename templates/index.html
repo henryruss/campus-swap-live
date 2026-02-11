@@ -91,10 +91,67 @@
     .grid-split { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; margin: 100px 0; }
     .visual-block { height: 400px; background: #e2e8f0; border-radius: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #94a3b8; }
 
+    /* Ready to sell card */
+    .ready-to-sell-card {
+        text-align: center;
+        padding: 50px 30px;
+        max-width: 560px;
+        margin: 0 auto 80px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    .ready-to-sell-card h2 {
+        font-size: 2rem;
+        margin-bottom: 24px;
+    }
+    .ready-to-sell-cta {
+        display: flex;
+        justify-content: center;
+    }
+    .ready-to-sell-cta .btn {
+        padding: 14px 28px;
+        font-size: 1rem;
+    }
+    .ready-to-sell-or {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        margin: 20px 0 16px;
+    }
+    .ready-to-sell-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+    .ready-to-sell-form input {
+        width: 200px;
+        padding: 14px 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+    .ready-to-sell-form button {
+        padding: 14px 24px;
+        font-size: 1rem;
+    }
+    .ready-to-sell-subtext {
+        margin-top: 20px;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+    }
+    .ready-to-sell-subtext a {
+        color: var(--primary);
+    }
+
     @media (max-width: 768px) { 
         .grid-split { grid-template-columns: 1fr; } 
         .hero-title { font-size: 3rem; } 
         .hero-sentence { font-size: 1.4rem; }
+        .ready-to-sell-form { width: 100%; max-width: 300px; }
+        .ready-to-sell-form input { flex: 1; min-width: 0; }
         /* Store section responsive */
         .store-info-grid {
             grid-template-columns: 1fr !important;
@@ -222,23 +279,15 @@
             <i class="fas fa-box-open" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
             <h2 style="font-size: 2.5rem;">We Bridge the Summer Gap</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                You leave in May. Buyers are here all summer, and more arrive next semester. We pick up your items, transport them to our <strong>retail store near campus</strong>, and display them for sale for <strong>three months over the summer (June 1&ndash;August 31)</strong>. You don&rsquo;t have to dump them&mdash;we handle everything.
+                You leave in May. Buyers are here all summer, and more arrive next semester. We pick up your items, transport them to our <strong>retail store near campus</strong>, and display them for sale for <strong>three months over the summer (June 1-August 31)</strong>. You don&rsquo;t have to dump them. We handle everything.
             </p>
-        </div>
-    </div>
-
-    <div class="reveal fade-up" style="max-width: 700px; margin: 0 auto 50px; padding: 24px 30px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
-        <i class="fas fa-map-marker-alt" style="font-size: 1.5rem; color: var(--primary);"></i>
-        <div>
-            <strong style="color: var(--text-main);">Your items are stored and sold at our retail store near campus.</strong>
-            <p style="margin: 4px 0 0; font-size: 0.95rem; color: var(--text-muted);">We pick up during move-out, transport to our store, and sell over the summer (June 1&ndash;Aug 31).</p>
         </div>
     </div>
 
     <div class="timeline-section reveal fade-up">
         <div style="text-align: center; margin-bottom: 60px;">
             <h2>How It Works</h2>
-            <p style="color: #94a3b8; max-width: 500px; margin: 12px auto 0;">List &rarr; Hand off in May &rarr; Get paid when it sells.</p>
+            <p style="color: #94a3b8; max-width: 500px; margin: 12px auto 0;">List &rarr; Hand off in May &rarr; Get paid 50% when it sells.</p>
         </div>
         <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
             <div class="timeline-line"></div>
@@ -264,39 +313,31 @@
             <div class="timeline-step" style="display: flex; align-items: center;">
                 <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                     <h3>3. Go Home, Get Paid</h3>
-                    <p>Items sell over the summer. You receive 50% when yours sells.</p>
+                    <p>Items sell over the summer. Submit through the site and earn 50% when yours sells (vs. 35% for in-person drop-offs).</p>
                 </div>
                 <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
                 <div style="flex: 1;"></div>
             </div>
         </div>
+        <div style="margin-top: 40px; padding: 24px; background: #f0fdf4; border: 2px solid #bbf7d0; border-radius: 16px; max-width: 500px; margin-left: auto; margin-right: auto;">
+            <strong style="color: #166534;"><i class="fas fa-chart-line"></i> 50% vs 35%</strong>
+            <p style="color: #166534; font-size: 0.95rem; margin: 8px 0 0;">Submit through the site = 50% when items sell. In-person drop-off = 35%.</p>
+        </div>
         <p style="text-align: center; margin-top: 30px;"><a href="/become-a-seller" style="color: var(--accent); font-weight: 600;">Learn more on our Become a Seller page &rarr;</a></p>
     </div>
 
-    <div id="join" class="card reveal fade-up" style="text-align: center; padding: 50px; max-width: 700px; margin: 0 auto 80px;">
-        <h2 style="font-size: 2rem; margin-bottom: 10px;">Ready to sell?</h2>
-        <a href="/become-a-seller" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; margin: 20px 10px 20px 0;">
-            Start Selling <i class="fas fa-arrow-right"></i>
-        </a>
-        {% if pickup_period_active %}
-        <span style="color: var(--text-muted); margin: 0 8px;">or</span>
-        <form method="POST" style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center;">
+    <div id="join" class="card reveal fade-up ready-to-sell-card">
+        <h2>Ready to sell?</h2>
+        <div class="ready-to-sell-cta">
+            <a href="/become-a-seller" class="btn btn-primary">Learn more <i class="fas fa-arrow-right"></i></a>
+        </div>
+        <span class="ready-to-sell-or">or</span>
+        <form method="POST" class="ready-to-sell-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="email" name="email" placeholder="student@college.edu" required 
-                   style="width: 220px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
-            <button type="submit" class="btn btn-primary" style="padding: 14px 24px; font-size: 1rem;">Create Account</button>
+            <input type="email" name="email" placeholder="student@college.edu" required>
+            <button type="submit" class="btn btn-primary">{% if pickup_period_active %}Create Account{% else %}Get Notified{% endif %}</button>
         </form>
-        <p style="margin-top: 16px; font-size: 0.9rem; color: var(--text-muted);">Seller spots are limited. <a href="/become-a-seller" style="color: var(--primary);">Learn more</a></p>
-        {% else %}
-        <span style="color: var(--text-muted); margin: 0 8px;">or</span>
-        <form method="POST" style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="email" name="email" placeholder="student@college.edu" required 
-                   style="width: 220px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
-            <button type="submit" class="btn btn-primary" style="padding: 14px 24px; font-size: 1rem;">Get Notified</button>
-        </form>
-        <p style="margin-top: 16px; font-size: 0.9rem; color: var(--text-muted);">We&rsquo;ll email you when signups open next year.</p>
-        {% endif %}
+        <p class="ready-to-sell-subtext">{% if pickup_period_active %}Seller spots are limited. <a href="/become-a-seller">Learn more</a>{% else %}We&rsquo;ll email you when signups open next year.{% endif %}</p>
     </div>
 </div>
 

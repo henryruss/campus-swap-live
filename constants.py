@@ -2,11 +2,15 @@
 Application-wide constants for Campus Swap
 """
 
-# Payout Configuration
-PAYOUT_PERCENTAGE = 0.50  # Sellers receive 50% of sale price
+# Payout Configuration (by collection method)
+PAYOUT_PERCENTAGE_ONLINE = 0.50   # Sellers receive 50% when submitting through site
+PAYOUT_PERCENTAGE_IN_PERSON = 0.35  # Sellers receive 35% for in-person drop-offs (Campus Swap takes 65%)
+PAYOUT_PERCENTAGE = 0.50  # Legacy alias; use PAYOUT_PERCENTAGE_ONLINE
 
 # Payment Configuration
-SELLER_ACTIVATION_FEE_CENTS = 1500  # $15.00 in cents
+SERVICE_FEE_CENTS = 1500  # $15 service fee (guarantees space + move-out pickup)
+LARGE_ITEM_FEE_CENTS = 1000  # $10 per large item (admin marks during approval)
+SELLER_ACTIVATION_FEE_CENTS = 1500  # Legacy alias
 
 # File Upload Configuration
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB

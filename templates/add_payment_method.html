@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 500px; margin: 60px auto;">
+    <div class="card no-hover" style="padding: 40px;">
+        <h2 style="margin-bottom: 10px;"><i class="fas fa-credit-card" style="color: var(--primary);"></i> Add Payment Method</h2>
+        <p style="color: var(--text-muted); margin-bottom: 25px;">
+            Add your card now. You won't be charged until pickup week. Fee: $15 service + $10 per large item (admin marks during approval).
+        </p>
+        
+        {% if not stripe_publishable_key %}
+        <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 8px; color: #991b1b;">
+            <i class="fas fa-exclamation-triangle"></i> Stripe is not configured. Set STRIPE_PUBLISHABLE_KEY in your environment.
+        </div>
+        {% else %}
+        <form id="payment-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div id="payment-element" style="margin-bottom: 20px;"></div>
+            <div id="payment-message" style="color: #dc2626; font-size: 0.9rem; margin-bottom: 15px; display: none;"></div>
+            <button type="submit" id="submit-btn" class="btn btn-primary" style="width: 100%; padding: 16px;">
+                <span id="btn-text">Save Card</span>
+                <span id="btn-spinner" style="display: none;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+            </button>
+        </form>
+        {% endif %}
+        
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 25px;">
+            <i class="fas fa-lock"></i> Secure payment via Stripe. Your card is stored but not charged until pickup.
+        </p>
+    </div>
+</div>
+
+{% if stripe_publishable_key %}
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    const stripe = Stripe('{{ stripe_publishable_key }}');
+    
+    const form = document.getElementById('payment-form');
+    const formData = new FormData(form);
+    const res = await fetch('/create_setup_intent', {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: formData
+    });
+    
+    let clientSecret;
+    if (res.ok) {
+        const data = await res.json();
+        clientSecret = data.client_secret;
+    } else {
+        document.getElementById('payment-message').textContent = 'Could not create setup. Please refresh.';
+        document.getElementById('payment-message').style.display = 'block';
+        return;
+    }
+    
+    const elements = stripe.elements({ clientSecret });
+    const paymentElement = elements.create('payment');
+    paymentElement.mount('#payment-element');
+    
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('submit-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnSpinner = document.getElementById('btn-spinner');
+        const messageEl = document.getElementById('payment-message');
+        
+        btn.disabled = true;
+        btnText.style.display = 'none';
+        btnSpinner.style.display = 'inline';
+        messageEl.style.display = 'none';
+        
+        const { error } = await stripe.confirmSetup({
+            elements,
+            confirmParams: {
+                return_url: '{{ url_for("payment_method_success", _external=True) }}'
+            }
+        });
+        
+        if (error) {
+            messageEl.textContent = error.message || 'Something went wrong.';
+            messageEl.style.display = 'block';
+            btn.disabled = false;
+            btnText.style.display = 'inline';
+            btnSpinner.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

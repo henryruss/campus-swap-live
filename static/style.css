@@ -78,7 +78,7 @@ header {
     display: flex;
     align-items: center;
     gap: 20px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 .nav-links a { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .nav-links a:hover { color: var(--primary); }
@@ -86,6 +86,10 @@ header {
     display: flex;
     align-items: center;
     gap: 6px;
+}
+.nav-icon {
+    display: flex;
+    align-items: center;
 }
 /* Store selector hover effect */
 #store-selector-container:hover {
@@ -270,27 +274,42 @@ body.seller-page footer p {
 
 /* --- RESPONSIVE DESIGN --- */
 @media (max-width: 768px) {
-    /* Header */
+    /* Header - use flex for better vertical centering when stacked */
     header {
-        padding: 12px 20px;
+        padding: 14px 20px;
+        display: flex !important;
         flex-wrap: wrap;
-        gap: 15px;
+        align-items: center;
+        justify-content: center;
+        gap: 12px 0;
+        min-height: auto;
     }
     header > div:first-child {
         width: 100%;
+        display: flex;
+        align-items: center;
         justify-content: space-between;
+        order: 1;
     }
     header > div:nth-child(2) {
         order: 3;
         width: 100%;
+        display: flex;
+        align-items: center;
         justify-content: center;
+    }
+    header > nav {
+        order: 2;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end !important;
     }
     .nav-links {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 12px;
         align-items: center;
-        width: 100%;
         justify-content: flex-end;
     }
     .nav-links a {
@@ -299,23 +318,6 @@ body.seller-page footer p {
     }
     .nav-item {
         white-space: nowrap;
-    }
-    /* Header grid on tablet/mobile */
-    header {
-        grid-template-columns: 1fr !important;
-        gap: 15px !important;
-    }
-    header > div:first-child {
-        justify-content: flex-start;
-    }
-    header > div:nth-child(2) {
-        order: 3;
-        width: 100%;
-        justify-content: center;
-    }
-    header > nav {
-        order: 2;
-        justify-content: flex-end !important;
     }
     /* Store selector on tablet/mobile */
     #store-selector-container {

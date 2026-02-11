@@ -175,6 +175,13 @@
                     Pickup Period: {% if pickup_period_active %}OPEN{% else %}CLOSED{% endif %}
                 </button>
             </form>
+            <form method="POST" style="margin: 0;" onsubmit="return confirm('Run pickup charges ($15 + $10 per large item) for all users with approved online items?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="run_pickup_charges" value="true"/>
+                <button type="submit" class="btn btn-primary" data-no-loading>
+                    <i class="fas fa-credit-card"></i> Run Pickup Charges
+                </button>
+            </form>
             <a href="/" class="btn btn-outline">View Live Site &rarr;</a>
         </div>
     </div>
@@ -192,8 +199,8 @@
             <p><strong>Form keys received:</strong> {{ admin_debug.form_keys|join(', ') }}</p>
             <p><strong>bulk_update_items in form?</strong> {{ admin_debug.has_bulk }}</p>
             <p><strong>delete_item in form?</strong> {{ admin_debug.has_delete }}</p>
-            <p><strong>Action taken:</strong> {{ admin_debug.action or '—' }}</p>
-            <p><strong>Result:</strong> {{ admin_debug.result or '—' }}</p>
+            <p><strong>Action taken:</strong> {{ admin_debug.action or '-' }}</p>
+            <p><strong>Result:</strong> {{ admin_debug.result or '-' }}</p>
             {% if admin_debug.updated_count is defined %}
             <p><strong>Items updated:</strong> {{ admin_debug.updated_count }}</p>
             {% endif %}
@@ -563,6 +570,7 @@
                                 <th>Cat/Qual</th>
                                 <th>Suggested</th>
                                 <th>Set Price ($)</th>
+                                <th>Large ($10)</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -583,11 +591,6 @@
                                     {% if item.seller %}
                                         <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
                                         <a href="mailto:{{ item.seller.email }}" style="font-size: 0.8rem; color: var(--primary);">{{ item.seller.email }}</a>
-                                        {% if not item.seller.has_paid and item.collection_method == 'online' %}
-                                            <span style="font-size: 0.7rem; color: #dc2626; display: block; margin-top: 2px;">
-                                                <i class="fas fa-exclamation-circle"></i> Payment Required
-                                            </span>
-                                        {% endif %}
                                     {% else %}
                                         <span style="color: #999;">Admin</span>
                                     {% endif %}
@@ -619,12 +622,22 @@
                                     {% if item.suggested_price %}
                                         <span style="font-size: 0.9rem; color: var(--text-muted);">${{ '%.2f'|format(item.suggested_price) }}</span>
                                     {% else %}
-                                        <span style="font-size: 0.85rem; color: #cbd5e1;">—</span>
+                                        <span style="font-size: 0.85rem; color: #cbd5e1;">-</span>
                                     {% endif %}
                                 </td>
                                 <td>
                                     <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
                                            class="table-input" style="border: 2px solid #fca5a5;">
+                                </td>
+                                <td>
+                                    {% if item.collection_method == 'online' %}
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem;">
+                                        <input type="checkbox" name="is_large_{{ item.id }}" value="1" {% if item.is_large %}checked{% endif %}>
+                                        Large
+                                    </label>
+                                    {% else %}
+                                    <span style="color: #cbd5e1; font-size: 0.8rem;">-</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <div style="display: flex; gap: 5px;">
@@ -657,6 +670,7 @@
                             <th>Category</th> 
                             <th>Quality</th>
                             <th>Price ($)</th>
+                            <th>Large</th>
                             <th>Status</th>
                             <th>Payout</th>
                             <th style="text-align: right;">Actions</th>
@@ -709,7 +723,15 @@
                                        value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
                                        class="table-input">
                             </td>
-
+                            <td>
+                                {% if item.collection_method == 'online' %}
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem;">
+                                    <input type="checkbox" name="is_large_{{ item.id }}" value="1" {% if item.is_large %}checked{% endif %}>
+                                </label>
+                                {% else %}
+                                <span style="color: #cbd5e1;">-</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if item.status == 'sold' %}
                                     <span class="badge bg-red">SOLD</span>
@@ -730,13 +752,14 @@
                                     {% else %}
                                         <span class="badge" style="background: #f59e0b; color: white;">Pending</span>
                                         {% if item.price %}
+                                            {% set pct = 0.50 if item.collection_method == 'online' else 0.35 %}
                                             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 3px;">
-                                                ${{ "%.2f"|format(item.price * 0.50) }} to pay
+                                                ${{ "%.2f"|format(item.price * pct) }} to pay
                                             </div>
                                         {% endif %}
                                     {% endif %}
                                 {% else %}
-                                    <span style="color: #999; font-size: 0.85rem;">—</span>
+                                    <span style="color: #999; font-size: 0.85rem;">-</span>
                                 {% endif %}
                             </td>
                             
@@ -884,6 +907,7 @@
                     form.action.includes('database/reset') ||
                     form.action.includes('mass-email') ||
                     form.querySelector('input[name="toggle_pickup_period"]') ||
+                    form.querySelector('input[name="run_pickup_charges"]') ||
                     form.id === 'admin-gallery-form') {
                     return;
                 }

@@ -24,6 +24,11 @@ class User(UserMixin, db.Model):
     # STATUS
     is_seller = db.Column(db.Boolean, default=False) 
     has_paid = db.Column(db.Boolean, default=False)
+    payment_declined = db.Column(db.Boolean, default=False)  # Block until valid card added
+    
+    # STRIPE (for deferred charge at pickup)
+    stripe_customer_id = db.Column(db.String(120), nullable=True)
+    stripe_payment_method_id = db.Column(db.String(120), nullable=True)
     
     # MARKETING
     referral_source = db.Column(db.String(50), default='direct')
@@ -52,6 +57,9 @@ class InventoryItem(db.Model):
     
     # COLLECTION METHOD: 'online' (default) or 'in_person'
     collection_method = db.Column(db.String(20), default='online')
+    
+    # LARGE ITEM: Admin marks during approval; $10 fee for online items
+    is_large = db.Column(db.Boolean, default=False)
     
     # PAYOUT TRACKING
     sold_at = db.Column(db.DateTime, nullable=True)  # When item was marked sold
