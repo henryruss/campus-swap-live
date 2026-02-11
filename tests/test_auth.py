@@ -27,7 +27,8 @@ class TestRegistration:
         response = client.post('/register', data={
             'email': 'newuser@example.com',
             'password': 'password123',
-            'full_name': 'New User'
+            'full_name': 'New User',
+            'phone': '555-123-4567'
         }, follow_redirects=True)
         
         assert response.status_code == 200
@@ -49,7 +50,8 @@ class TestRegistration:
         response = client.post('/register', data={
             'email': test_user.email,  # Use existing user's email
             'password': 'password123',
-            'full_name': 'Duplicate User'
+            'full_name': 'Duplicate User',
+            'phone': '555-123-4567'
         }, follow_redirects=True)
         
         assert response.status_code == 200
@@ -61,7 +63,8 @@ class TestRegistration:
         response = client.post('/register', data={
             'email': 'invalid-email-format',
             'password': 'password123',
-            'full_name': 'Test User'
+            'full_name': 'Test User',
+            'phone': '555-123-4567'
         })
         
         assert response.status_code == 200
@@ -72,7 +75,8 @@ class TestRegistration:
         response = client.post('/register', data={
             'email': 'test@example.com',
             'password': '12345',  # Only 5 characters
-            'full_name': 'Test User'
+            'full_name': 'Test User',
+            'phone': '555-123-4567'
         })
         
         assert response.status_code == 200

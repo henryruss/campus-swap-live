@@ -67,7 +67,9 @@
             <input type="email" name="email" required placeholder="john@college.edu">
 
             <label>Phone Number</label>
-            <input type="tel" name="phone" required placeholder="555-123-4567">
+            <input type="tel" name="phone" required placeholder="555-123-4567"
+                   pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}"
+                   title="Please enter a valid 10-digit US phone number (e.g. 555-123-4567)">
 
             <label>Pickup Address</label>
             <input type="text" name="address" required placeholder="Dorm/Apt Number">

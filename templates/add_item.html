@@ -4,8 +4,7 @@
 <style>
     .upload-from-computer.hidden { display: none; }
     .preview-column { display: none; }
-    .preview-column.visible { display: block; }
-    .upload-split-left .upload-from-phone { display: none !important; }
+    .upload-split-left > .upload-from-phone { display: none !important; }
     
     .preview-container {
         display: none;
@@ -13,8 +12,9 @@
         position: relative;
         z-index: 10;
     }
-    .preview-container.active {
-        display: block;
+    .preview-container.active,
+    .preview-column.visible {
+        display: block !important;
     }
     .preview-column .file-input-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -298,9 +298,9 @@
                         <div class="upload-from-phone-desc">
                             Scan with your phone to add more photos.
                         </div>
-                        <div class="qr-code-box" id="qr-code-box">
-                            <div id="qr-initial-loading" style="color: var(--text-muted);">Loading...</div>
-                            <img id="qr-code-img" src="" alt="QR Code" style="display: none;">
+                        <div class="qr-code-box" id="qr-code-box-main">
+                            <div id="qr-initial-loading-main" style="color: var(--text-muted);">Loading...</div>
+                            <img id="qr-code-img-main" src="" alt="QR Code" style="display: none;">
                         </div>
                     </div>
                 </div>
@@ -468,9 +468,8 @@
     }
 
     async function loadQrOnPageLoad() {
-        const qrBox = document.querySelector('.upload-split > .upload-from-phone .qr-code-box');
-        const loadingEl = qrBox?.querySelector('#qr-initial-loading') || document.getElementById('qr-initial-loading');
-        const imgEl = qrBox?.querySelector('#qr-code-img') || document.getElementById('qr-code-img');
+        const loadingEl = document.getElementById('qr-initial-loading-main');
+        const imgEl = document.getElementById('qr-code-img-main');
         try {
             const fd = new FormData();
             fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
@@ -478,15 +477,17 @@
             const data = await r.json();
             if (data.token) {
                 uploadSessionToken = data.token;
-                imgEl.src = 'data:image/png;base64,' + data.qr_code_base64;
-                imgEl.style.display = 'block';
-                loadingEl.style.display = 'none';
                 startPolling();
-            } else {
+                if (imgEl) {
+                    imgEl.src = 'data:image/png;base64,' + data.qr_code_base64;
+                    imgEl.style.display = 'block';
+                }
+                if (loadingEl) loadingEl.style.display = 'none';
+            } else if (loadingEl) {
                 loadingEl.textContent = 'Could not load. Refresh to try again.';
             }
         } catch (e) {
-            loadingEl.textContent = 'Could not load. Refresh to try again.';
+            if (loadingEl) loadingEl.textContent = 'Could not load. Refresh to try again.';
         }
     }
     loadQrOnPageLoad();
@@ -517,7 +518,7 @@
             
             updatePreviews();
             uploadFromComputer.classList.add('hidden');
-            previewContainer.classList.add('active');
+            previewContainer.classList.add('visible');
         }
     });
     
@@ -677,7 +678,7 @@
             currentImageIndex = Math.max(0, selectedFiles.length + tempPhotoFilenames.length - 1);
         }
         if (getTotalPhotoCount() === 0) {
-            previewContainer.classList.remove('active');
+            previewContainer.classList.remove('visible');
             uploadFromComputer.classList.remove('hidden');
             fileInput.required = true;
         } else {

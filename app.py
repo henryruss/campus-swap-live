@@ -348,6 +348,22 @@ def validate_email(email):
     return bool(re.match(pattern, email))
 
 
+def validate_phone(phone):
+    """
+    Validate US phone number: exactly 10 digits.
+    Accepts common formats: 555-123-4567, (555) 123-4567, 555.123.4567, +1 555 123 4567.
+    Returns (True, normalized_digits) or (False, error_message).
+    """
+    if not phone or not phone.strip():
+        return False, "Please provide a phone number."
+    digits = re.sub(r'\D', '', phone.strip())
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]  # Strip US country code
+    if len(digits) != 10:
+        return False, "Please enter a valid 10-digit US phone number."
+    return True, digits
+
+
 def validate_file_upload(file):
     """Validate uploaded file: size, extension, and MIME type"""
     if not file or not file.filename:
@@ -1832,17 +1848,28 @@ def change_password():
 @login_required
 def update_account_info():
     full_name = request.form.get('full_name', '').strip()
+    phone = request.form.get('phone', '').strip()
     
-    if full_name:
-        if len(full_name) > MAX_NAME_LENGTH:
-            flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
+    if not full_name:
+        flash("Full name cannot be empty.", "error")
+    elif len(full_name) > MAX_NAME_LENGTH:
+        flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
+    elif phone:
+        phone_valid, phone_result = validate_phone(phone)
+        if not phone_valid:
+            flash(phone_result, "error")
         else:
             current_user.full_name = full_name
+            current_user.phone = phone_result
             db.session.commit()
             logger.info(f"User {current_user.id} updated account info")
             flash("Account information updated successfully!", "success")
     else:
-        flash("Full name cannot be empty.", "error")
+        current_user.full_name = full_name
+        current_user.phone = phone  # Allow clearing phone
+        db.session.commit()
+        logger.info(f"User {current_user.id} updated account info")
+        flash("Account information updated successfully!", "success")
     
     return redirect(url_for('account_settings'))
 
@@ -1856,6 +1883,7 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
+        phone = request.form.get('phone', '').strip()
         
         # Validate inputs
         if not email or not validate_email(email):
@@ -1870,6 +1898,12 @@ def register():
             flash("Password must be at least 6 characters long.", "error")
             return render_template('register.html')
         
+        phone_valid, phone_result = validate_phone(phone)
+        if not phone_valid:
+            flash(phone_result, "error")
+            return render_template('register.html')
+        phone = phone_result  # Use normalized 10-digit form
+        
         if full_name and len(full_name) > MAX_NAME_LENGTH:
             flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
             return render_template('register.html')
@@ -1883,6 +1917,8 @@ def register():
                 user.password_hash = generate_password_hash(password)
                 if full_name:
                     user.full_name = full_name
+                if phone:
+                    user.phone = phone
                 db.session.commit()
                 login_user(user)
                 logger.info(f"Guest account converted to full account: {email}")
@@ -1912,7 +1948,7 @@ def register():
                 flash("An account with this email already exists. Please log in.", "error")
                 return redirect(url_for('login', email=email))
         
-        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
+        new_user = User(email=email, full_name=full_name, phone=phone, password_hash=generate_password_hash(password))
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
@@ -2091,15 +2127,10 @@ def dashboard():
 @login_required
 def update_profile():
     address = request.form.get('address')
-    phone = request.form.get('phone', '').strip()
     if address:
         current_user.pickup_address = address
-    if phone:
-        current_user.phone = phone
-    if address or phone:
         db.session.commit()
         flash("Profile updated.", "success")
-    # Remove scroll parameter - form is already visible
     return redirect(get_user_dashboard())
 
 @app.route('/update_payout', methods=['POST'])

@@ -210,9 +210,9 @@
             </div>
             {% endif %}
 
-            <div id="step-1" class="step-card {% if current_user.pickup_address and current_user.phone %}done{% else %}active{% endif %}">
+            <div id="step-1" class="step-card {% if current_user.pickup_address %}done{% else %}active{% endif %}">
                 <span class="step-number">1</span>
-                {% if current_user.pickup_address and current_user.phone %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
+                {% if current_user.pickup_address %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
 
                 <h3 style="margin-bottom: 10px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup Location</h3>
                 
@@ -235,9 +235,6 @@
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                             <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Pickup Address</label>
                             <input type="text" name="address" value="{{ current_user.pickup_address }}" required style="margin-bottom: 12px;">
-                            <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Phone Number</label>
-                            <input type="tel" name="phone" value="{{ current_user.phone or '' }}" placeholder="555-123-4567" required style="margin-bottom: 12px;">
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: -8px 0 10px;">We'll text or call when we're on our way so you can be home to let us in.</p>
                             <div style="display: flex; gap: 10px;">
                                 <button type="submit" class="btn btn-primary">Update</button>
                                 <button type="button" onclick="toggleEdit('address')" class="btn btn-outline">Cancel</button>
@@ -245,20 +242,18 @@
                         </form>
                     </div>
                 {% else %}
-                    <p style="color: var(--text-muted);">Where should we pick up items, and how can we reach you?</p>
+                    <p style="color: var(--text-muted);">Where should we pick up your items?</p>
                     <form action="/update_profile" method="POST" style="margin-top: 15px;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Pickup Address</label>
                         <input type="text" name="address" placeholder="e.g. Belk Hall, Room 204" required style="margin-bottom: 12px;">
-                        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Phone Number</label>
-                        <input type="tel" name="phone" placeholder="555-123-4567" required style="margin-bottom: 12px;">
                         <p style="font-size: 0.8rem; color: var(--text-muted); margin: -8px 0 15px;">We'll text or call when we're on our way so you can be home to let us in.</p>
                         <button type="submit" class="btn btn-primary">Save Location</button>
                     </form>
                 {% endif %}
             </div>
 
-            <div id="step-2" class="step-card {% if my_items %}done{% elif current_user.pickup_address and current_user.phone %}active{% else %}locked{% endif %}">
+            <div id="step-2" class="step-card {% if my_items %}done{% elif current_user.pickup_address %}active{% else %}locked{% endif %}">
                 <span class="step-number">2</span>
                 {% if my_items %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
 
@@ -480,12 +475,12 @@
                 <div style="text-align: center; margin-bottom: 30px;">
                     {% set has_in_person_items = my_items|selectattr('collection_method', 'equalto', 'in_person')|list|length > 0 %}
                     {% set needs_payment = approved_online_count > 0 and not has_payment_method %}
-                    {% if needs_payment or not current_user.pickup_address or not current_user.phone or not my_items %}
+                    {% if needs_payment or not current_user.pickup_address or not my_items %}
                         <div style="font-size: 3rem; margin-bottom: 10px; color: var(--accent);">
                             <i class="fas fa-hard-hat"></i>
                         </div>
                         <div style="font-weight: 800; font-size: 1.2rem;">Setup In Progress</div>
-                    {% elif (has_payment_method or has_in_person_items or not needs_payment) and current_user.pickup_address and current_user.phone and my_items %}
+                    {% elif (has_payment_method or has_in_person_items or not needs_payment) and current_user.pickup_address and my_items %}
                         {# Count active/pending items using a namespace for scoping #}
                         {% set ns = namespace(active=0, pending=0) %}
                         {% for item in my_items %}
@@ -606,8 +601,8 @@
                 <div style="font-size: 0.9rem; color: var(--text-muted);">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                         <span>Step 1: Address</span> 
-                        <strong style="color: {% if current_user.pickup_address and current_user.phone %}var(--primary){% else %}inherit{% endif %}">
-                            {% if current_user.pickup_address and current_user.phone %}Done{% else %}To Do{% endif %}
+                        <strong style="color: {% if current_user.pickup_address %}var(--primary){% else %}inherit{% endif %}">
+                            {% if current_user.pickup_address %}Done{% else %}To Do{% endif %}
                         </strong>
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">

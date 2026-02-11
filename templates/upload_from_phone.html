@@ -30,17 +30,22 @@
         p { color: #64748b; margin: 0 0 16px; line-height: 1.5; font-size: 0.95rem; }
         .error { color: #dc2626; background: #fef2f2; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
         .file-input-wrap {
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 32px 20px;
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            border-left: 4px solid #e2e8f0;
+            border-right: 4px solid #e2e8f0;
+            border-radius: 0;
+            padding: 24px 24px;
+            text-align: left;
             background: #f8fafc;
             margin: 16px 0;
             cursor: pointer;
         }
         .file-input-wrap:active { background: #f1f5f9; }
         input[type="file"] { display: none; }
-        .camera-icon { font-size: 3rem; color: #64748b; margin-bottom: 12px; }
+        .camera-icon { font-size: 2.5rem; color: #64748b; flex-shrink: 0; }
         .success-msg { color: #16a34a; font-weight: 600; margin-top: 12px; }
         .success-msg::before { content: "✓ "; }
         .thumb { max-width: 100%; border-radius: 8px; margin-top: 12px; max-height: 200px; object-fit: contain; }
@@ -57,8 +62,8 @@
         <form id="upload-form">
             <input type="hidden" name="token" value="{{ token }}">
             <label class="file-input-wrap" for="photo-input">
-                <div class="camera-icon"><i class="fas fa-camera"></i></div>
-                <div>Tap to take photo or choose image</div>
+                <span class="camera-icon"><i class="fas fa-camera"></i></span>
+                <span>Tap to take photo or choose image</span>
                 <input id="photo-input" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
             </label>
             <div id="status"></div>

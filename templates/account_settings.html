@@ -45,11 +45,20 @@
                 <small style="color: var(--text-muted); font-size: 0.85rem;">Email cannot be changed</small>
             </div>
             
-            <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 15px;">
                 <label>Full Name</label>
                 <input type="text" name="full_name" value="{{ current_user.full_name or '' }}" 
                        placeholder="Enter your full name">
                 <small style="color: var(--text-muted); font-size: 0.85rem;">This name will be used for payouts and communications</small>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label>Phone Number</label>
+                <input type="tel" name="phone" value="{{ current_user.phone or '' }}" 
+                       placeholder="555-123-4567"
+                       pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}|^$"
+                       title="Please enter a valid 10-digit US phone number (e.g. 555-123-4567), or leave blank to clear">
+                <small style="color: var(--text-muted); font-size: 0.85rem;">We'll text or call when we're on our way for pickup</small>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%;">
