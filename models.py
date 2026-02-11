@@ -76,6 +76,22 @@ class ItemPhoto(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     photo_url = db.Column(db.String(200), nullable=False)
 
+class UploadSession(db.Model):
+    """Temporary session for QR code mobile-to-desktop photo uploads"""
+    id = db.Column(db.Integer, primary_key=True)
+    session_token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class TempUpload(db.Model):
+    """Temporary photo upload from phone, linked to an UploadSession by session_token"""
+    id = db.Column(db.Integer, primary_key=True)
+    session_token = db.Column(db.String(64), nullable=False, index=True)
+    filename = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class AppSetting(db.Model):
     """Simple key-value store for app-wide settings"""
     id = db.Column(db.Integer, primary_key=True)

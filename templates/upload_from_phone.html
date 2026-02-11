@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Upload Photo - Campus Swap</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0fdf4;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        h1 { font-size: 1.5rem; margin: 0 0 8px; color: #166534; }
+        p { color: #64748b; margin: 0 0 16px; line-height: 1.5; font-size: 0.95rem; }
+        .error { color: #dc2626; background: #fef2f2; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+        .file-input-wrap {
+            border: 2px dashed #22c55e;
+            border-radius: 12px;
+            padding: 32px 20px;
+            text-align: center;
+            background: #f0fdf4;
+            margin: 16px 0;
+            cursor: pointer;
+        }
+        .file-input-wrap:active { background: #dcfce7; }
+        input[type="file"] { display: none; }
+        .camera-icon { font-size: 3rem; color: #22c55e; margin-bottom: 12px; }
+        .success-msg { color: #16a34a; font-weight: 600; margin-top: 12px; }
+        .success-msg::before { content: "✓ "; }
+        .thumb { max-width: 100%; border-radius: 8px; margin-top: 12px; max-height: 200px; object-fit: contain; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Add Photo from Phone</h1>
+        <p>Take a photo or choose from your gallery. It will appear on your computer.</p>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% else %}
+        <form id="upload-form">
+            <input type="hidden" name="token" value="{{ token }}">
+            <label class="file-input-wrap" for="photo-input">
+                <div class="camera-icon">📷</div>
+                <div>Tap to take photo or choose image</div>
+                <input id="photo-input" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
+            </label>
+            <div id="status"></div>
+            <img id="preview" class="thumb" style="display: none;" alt="Preview">
+        </form>
+        {% endif %}
+    </div>
+
+    {% if not error %}
+    <script>
+        const form = document.getElementById('upload-form');
+        const input = document.getElementById('photo-input');
+        const status = document.getElementById('status');
+        const preview = document.getElementById('preview');
+        const token = '{{ token }}';
+
+        input.addEventListener('change', async function() {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            status.textContent = 'Uploading...';
+            status.className = '';
+
+            const fd = new FormData();
+            fd.append('photo', file);
+            fd.append('token', token);
+
+            try {
+                const r = await fetch('/upload_from_phone?token=' + encodeURIComponent(token), {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                const data = await r.json();
+
+                if (data.success) {
+                    status.textContent = 'Photo uploaded! Check your computer.';
+                    status.className = 'success-msg';
+                    preview.src = data.url;
+                    preview.style.display = 'block';
+                    input.value = '';
+                } else {
+                    status.textContent = data.error || 'Upload failed';
+                    status.className = 'error';
+                }
+            } catch (e) {
+                status.textContent = 'Upload failed. Please try again.';
+                status.className = 'error';
+            }
+        });
+    </script>
+    {% endif %}
+</body>
+</html>

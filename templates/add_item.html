@@ -2,22 +2,8 @@
 
 {% block content %}
 <style>
-    .upload-zone {
-        border: 2px dashed #cbd5e1;
-        border-radius: 16px;
-        padding: 40px;
-        text-align: center;
-        background: rgba(255,255,255,0.5);
-        transition: all 0.2s;
-        cursor: pointer;
-    }
-    .upload-zone:hover {
-        border-color: var(--primary);
-        background: rgba(6, 78, 59, 0.05);
-    }
-    .upload-zone.has-files {
-        padding: 20px;
-        display: none; /* Hide upload zone when files are selected */
+    .upload-zone-wrapper.has-files {
+        display: none;
     }
     
     .preview-container {
@@ -28,9 +14,6 @@
     }
     .preview-container.active {
         display: block;
-    }
-    .preview-container.active ~ .upload-zone {
-        display: none; /* Hide upload zone when previews are active */
     }
     /* When previews are active, disable file input overlay */
     .preview-container.active ~ #file-input {
@@ -149,9 +132,85 @@
         justify-content: center;
         gap: 5px;
     }
+    .qr-link-btn {
+        background: none; border: none; color: var(--primary); cursor: pointer;
+        font-size: 0.9rem; text-decoration: underline; padding: 4px 0;
+    }
+    .qr-link-btn:hover { opacity: 0.8; }
+    .upload-split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        align-items: stretch;
+    }
+    @media (max-width: 600px) {
+        .upload-split { grid-template-columns: 1fr; }
+    }
+    .upload-from-computer {
+        border: 2px dashed #cbd5e1;
+        border-radius: 16px;
+        padding: 30px 20px;
+        text-align: center;
+        background: rgba(255,255,255,0.5);
+        transition: all 0.2s;
+        cursor: pointer;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: 240px;
+    }
+    .upload-from-computer:hover {
+        border-color: var(--primary);
+        background: rgba(6, 78, 59, 0.05);
+    }
+    .upload-from-phone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 16px;
+        padding: 30px 20px;
+        text-align: center;
+        background: rgba(240, 253, 244, 0.5);
+        transition: all 0.2s;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: 240px;
+    }
+    .upload-from-phone-title {
+        font-weight: 600;
+        color: var(--primary);
+        margin-bottom: 8px;
+        font-size: 1rem;
+    }
+    .upload-from-phone-desc {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+        line-height: 1.4;
+    }
+    .qr-code-box {
+        min-height: 140px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: white;
+        border-radius: 12px;
+        padding: 16px;
+    }
+    .qr-code-box img { max-width: 100%; max-height: 160px; }
+    .qr-modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;
+    }
+    .qr-modal-overlay.active { display: flex; }
+    .qr-modal {
+        background: white; border-radius: 16px; padding: 24px; max-width: 320px; text-align: center;
+    }
+    .qr-modal img { max-width: 100%; border-radius: 8px; margin: 16px 0; }
+    .qr-modal-close { position: absolute; top: 12px; right: 12px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; }
 </style>
 
-<div class="container" style="max-width: 600px; margin-top: 40px; position: relative;">
+<div class="container" style="max-width: 700px; margin-top: 40px; position: relative;">
     
     <a href="/dashboard" style="position: absolute; top: 0; left: 0; color: var(--text-muted); font-size: 1.5rem; text-decoration: none;">
         <i class="fas fa-times"></i>
@@ -169,15 +228,29 @@
             <label style="margin-bottom: 10px; display: block;">Item Photos</label>
             
             <div style="position: relative; margin-bottom: 25px;">
-                <!-- File input - only active when no files selected -->
-                <input type="file" name="photos" id="file-input" accept="image/jpeg,image/png,image/webp" multiple required 
-                       style="position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
-                
-                <div class="upload-zone" id="upload-zone">
-                    <i class="fas fa-camera" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px;"></i>
-                    <h4 style="margin-bottom: 5px;">Click to Upload Photos</h4>
-                    <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">or drag and drop them here</p>
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 8px 0 0;">JPG, PNG, or WebP. Phone photos work too.</p>
+                <div class="upload-zone-wrapper" id="upload-zone-wrapper">
+                    <div class="upload-split">
+                        <div class="upload-from-computer" id="upload-from-computer">
+                            <input type="file" name="photos" id="file-input" accept="image/jpeg,image/png,image/webp" multiple required 
+                                   style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
+                            <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--primary); margin-bottom: 12px;"></i>
+                            <h4 style="margin-bottom: 5px;">Click to Upload Photos</h4>
+                            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">or drag and drop them here</p>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 8px 0 0;">JPG, PNG, or WebP</p>
+                        </div>
+                        <div class="upload-from-phone">
+                            <div class="upload-from-phone-title">
+                                <i class="fas fa-qrcode"></i> Or upload with your phone
+                            </div>
+                            <div class="upload-from-phone-desc">
+                                Scan the QR code with your phone’s camera. Take a photo and it appears here.
+                            </div>
+                            <div class="qr-code-box" id="qr-code-box">
+                                <div id="qr-initial-loading" style="color: var(--text-muted);">Loading...</div>
+                                <img id="qr-code-img" src="" alt="QR Code" style="display: none;">
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Preview Container -->
@@ -213,9 +286,13 @@
                                 style="width: 100%; padding: 12px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; color: var(--primary); cursor: pointer; font-weight: 600; transition: all 0.2s;">
                             <i class="fas fa-plus"></i> Add More Photos
                         </button>
+                        <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); text-align: center;">
+                            or <button type="button" id="add-from-phone-btn-2" class="qr-link-btn">Add from phone</button>
+                        </p>
                     </div>
                 </div>
             </div>
+            <input type="hidden" name="temp_photo_ids" id="temp-photo-ids" value="">
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                 <div>
@@ -257,14 +334,29 @@
             </button>
         </form>
     </div>
+
+    <!-- QR Code Modal for add-more-from-phone -->
+    <div id="qr-modal-overlay" class="qr-modal-overlay">
+        <div class="qr-modal" style="position: relative;">
+            <button type="button" class="qr-modal-close" id="qr-modal-close">&times;</button>
+            <h4 style="margin: 0 0 8px;">Scan with your phone</h4>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">Take a photo and it will appear here</p>
+            <div id="qr-code-container"></div>
+            <p id="qr-modal-loading" style="display: none;">Loading...</p>
+        </div>
+    </div>
 </div>
 
 <script>
     let selectedFiles = [];
+    let tempPhotoFilenames = [];
+    let tempPhotoUrls = {};
     let currentImageIndex = 0;
-    
+    let uploadSessionToken = null;
+    let uploadSessionPollInterval = null;
+
     const fileInput = document.getElementById('file-input');
-    const uploadZone = document.getElementById('upload-zone');
+    const uploadZoneWrapper = document.getElementById('upload-zone-wrapper');
     const previewContainer = document.getElementById('preview-container');
     const mainPreview = document.getElementById('main-preview');
     const noPreview = document.getElementById('no-preview');
@@ -273,6 +365,128 @@
     const prevBtn = document.getElementById('prev-btn');
     const nextBtn = document.getElementById('next-btn');
     
+    function getTotalPhotoCount() {
+        return selectedFiles.length + tempPhotoFilenames.length;
+    }
+
+    function getAllDisplayItems() {
+        const fileItems = selectedFiles.map(f => ({ type: 'file', file: f }));
+        const tempItems = tempPhotoFilenames.map(fn => ({ type: 'temp', filename: fn, url: tempPhotoUrls[fn] }));
+        return fileItems.concat(tempItems);
+    }
+
+    function addTempPhotos(filenames, urls) {
+        const newFiles = filenames.filter(fn => !tempPhotoFilenames.includes(fn));
+        newFiles.forEach(fn => {
+            tempPhotoFilenames.push(fn);
+            tempPhotoUrls[fn] = urls[filenames.indexOf(fn)] || '';
+        });
+        if (newFiles.length > 0) {
+            document.getElementById('temp-photo-ids').value = tempPhotoFilenames.join(',');
+            updatePreviews();
+            uploadZoneWrapper.classList.add('has-files');
+            previewContainer.classList.add('active');
+        }
+    }
+
+    function removeTempPhoto(filename) {
+        tempPhotoFilenames = tempPhotoFilenames.filter(f => f !== filename);
+        delete tempPhotoUrls[filename];
+        document.getElementById('temp-photo-ids').value = tempPhotoFilenames.join(',');
+        if (getTotalPhotoCount() === 0) {
+            previewContainer.classList.remove('active');
+            uploadZoneWrapper.classList.remove('has-files');
+            fileInput.required = true;
+        } else {
+            updatePreviews();
+        }
+    }
+
+    function removeImageOrTemp(index) {
+        const items = getAllDisplayItems();
+        const item = items[index];
+        if (item.type === 'file') {
+            const fileIndex = selectedFiles.findIndex(f => f === item.file);
+            removeImage(fileIndex);
+        } else {
+            removeTempPhoto(item.filename);
+        }
+    }
+
+    async function openQrModal() {
+        const overlay = document.getElementById('qr-modal-overlay');
+        const container = document.getElementById('qr-code-container');
+        const loading = document.getElementById('qr-modal-loading');
+        overlay.classList.add('active');
+        container.innerHTML = '';
+        if (loading) loading.style.display = 'block';
+        try {
+            const fd = new FormData();
+            fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+            const r = await fetch('/api/upload_session/create', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await r.json();
+            if (data.token) {
+                uploadSessionToken = data.token;
+                container.innerHTML = '<img src="data:image/png;base64,' + data.qr_code_base64 + '" alt="QR Code" style="max-width: 256px;">';
+                startPolling();
+            } else {
+                container.innerHTML = '<p style="color: #dc2626;">Could not create session. Please try again.</p>';
+            }
+        } catch (e) {
+            container.innerHTML = '<p style="color: #dc2626;">Error. Please try again.</p>';
+        }
+        if (loading) loading.style.display = 'none';
+    }
+
+    function startPolling() {
+        if (uploadSessionPollInterval) clearInterval(uploadSessionPollInterval);
+        uploadSessionPollInterval = setInterval(async () => {
+            if (!uploadSessionToken) return;
+            try {
+                const r = await fetch('/api/upload_session/status?token=' + encodeURIComponent(uploadSessionToken));
+                const data = await r.json();
+                if (data.images && data.images.length > 0) {
+                    const filenames = data.images.map(i => i.filename);
+                    const urls = data.images.map(i => i.url);
+                    addTempPhotos(filenames, urls);
+                }
+            } catch (e) {}
+        }, 2500);
+    }
+
+    async function loadQrOnPageLoad() {
+        const loadingEl = document.getElementById('qr-initial-loading');
+        const imgEl = document.getElementById('qr-code-img');
+        try {
+            const fd = new FormData();
+            fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+            const r = await fetch('/api/upload_session/create', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await r.json();
+            if (data.token) {
+                uploadSessionToken = data.token;
+                imgEl.src = 'data:image/png;base64,' + data.qr_code_base64;
+                imgEl.style.display = 'block';
+                loadingEl.style.display = 'none';
+                startPolling();
+            } else {
+                loadingEl.textContent = 'Could not load. Refresh to try again.';
+            }
+        } catch (e) {
+            loadingEl.textContent = 'Could not load. Refresh to try again.';
+        }
+    }
+    loadQrOnPageLoad();
+
+    document.getElementById('add-from-phone-btn-2')?.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openQrModal();
+    });
+    document.getElementById('qr-modal-close').addEventListener('click', function() {
+        document.getElementById('qr-modal-overlay').classList.remove('active');
+        if (uploadSessionPollInterval) { clearInterval(uploadSessionPollInterval); uploadSessionPollInterval = null; }
+    });
+
     // Handle file selection - ADD to existing files instead of replacing
     fileInput.addEventListener('change', function(e) {
         const newFiles = Array.from(e.target.files);
@@ -288,7 +502,7 @@
             fileInput.files = dataTransfer.files;
             
             updatePreviews();
-            uploadZone.classList.add('has-files');
+            uploadZoneWrapper.classList.add('has-files');
             previewContainer.classList.add('active');
         }
     });
@@ -315,107 +529,122 @@
         }
     }
     
-    // Update previews when files change
+    // Update previews when files or temp photos change
     function updatePreviews() {
-        if (selectedFiles.length === 0) {
+        const total = getTotalPhotoCount();
+        if (total === 0) {
             previewContainer.classList.remove('active');
-            uploadZone.classList.remove('has-files');
+            uploadZoneWrapper.classList.remove('has-files');
             fileInput.value = '';
+            fileInput.required = true;
             fileInput.style.pointerEvents = 'auto';
             fileInput.style.zIndex = '2';
-            // Hide "add more" button
             toggleAddMoreButton(false);
             return;
         }
-        
+
+        fileInput.required = false;
         // When previews are shown, disable file input overlay
         fileInput.style.pointerEvents = 'none';
         fileInput.style.zIndex = '0';
-        
-        // Show "add more photos" button
         toggleAddMoreButton(true);
-        
-        // Update file count
-        fileCountText.textContent = selectedFiles.length + (selectedFiles.length === 1 ? ' photo selected' : ' photos selected');
-        
-        // Clear thumbnails
+
+        fileCountText.textContent = total + (total === 1 ? ' photo selected' : ' photos selected');
         thumbnailsContainer.innerHTML = '';
-        
-        // Create thumbnails and previews
-        selectedFiles.forEach((file, index) => {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                // Create thumbnail
-                const thumb = document.createElement('div');
-                thumb.className = 'preview-thumb' + (index === currentImageIndex ? ' active' : '');
-                thumb.onclick = () => showImage(index);
-                
-                const thumbImg = document.createElement('img');
-                thumbImg.src = e.target.result;
-                thumb.appendChild(thumbImg);
-                
-                const removeBtn = document.createElement('div');
-                removeBtn.className = 'preview-thumb-remove';
-                removeBtn.innerHTML = '<i class="fas fa-times"></i>';
-                removeBtn.onclick = (event) => {
-                    event.stopPropagation();
-                    removeImage(index);
+
+        const items = getAllDisplayItems();
+        items.forEach((item, index) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'preview-thumb' + (index === currentImageIndex ? ' active' : '');
+            thumb.onclick = () => showImage(index);
+
+            const thumbImg = document.createElement('img');
+            if (item.type === 'file') {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    thumbImg.src = e.target.result;
                 };
-                thumb.appendChild(removeBtn);
-                
-                thumbnailsContainer.appendChild(thumb);
-                
-                // Update main preview if this is the current image
-                if (index === currentImageIndex) {
-                    mainPreview.src = e.target.result;
+                reader.readAsDataURL(item.file);
+            } else {
+                thumbImg.src = item.url;
+            }
+            thumb.appendChild(thumbImg);
+
+            const removeBtn = document.createElement('div');
+            removeBtn.className = 'preview-thumb-remove';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.onclick = (event) => {
+                event.stopPropagation();
+                removeImageOrTemp(index);
+            };
+            thumb.appendChild(removeBtn);
+            thumbnailsContainer.appendChild(thumb);
+
+            if (index === currentImageIndex) {
+                if (item.type === 'file') {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        mainPreview.src = e.target.result;
+                        mainPreview.style.display = 'block';
+                        noPreview.style.display = 'none';
+                    };
+                    reader.readAsDataURL(item.file);
+                } else {
+                    mainPreview.src = item.url;
                     mainPreview.style.display = 'block';
                     noPreview.style.display = 'none';
                 }
-            };
-            reader.readAsDataURL(file);
+            }
         });
-        
+
         updateCarouselButtons();
     }
     
     // Show specific image
     function showImage(index) {
-        if (index < 0 || index >= selectedFiles.length) return;
-        
+        const items = getAllDisplayItems();
+        if (index < 0 || index >= items.length) return;
+
         currentImageIndex = index;
-        const file = selectedFiles[index];
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            mainPreview.src = e.target.result;
+        const item = items[index];
+        if (item.type === 'file') {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                mainPreview.src = e.target.result;
+                mainPreview.style.display = 'block';
+                noPreview.style.display = 'none';
+                document.querySelectorAll('.preview-thumb').forEach((thumb, i) => {
+                    thumb.classList.toggle('active', i === index);
+                });
+                updateCarouselButtons();
+            };
+            reader.readAsDataURL(item.file);
+        } else {
+            mainPreview.src = item.url;
             mainPreview.style.display = 'block';
             noPreview.style.display = 'none';
-            
-            // Update active thumbnail
             document.querySelectorAll('.preview-thumb').forEach((thumb, i) => {
                 thumb.classList.toggle('active', i === index);
             });
-            
             updateCarouselButtons();
-        };
-        reader.readAsDataURL(file);
+        }
     }
     
     // Change image (carousel navigation)
     function changeImage(direction) {
+        const items = getAllDisplayItems();
         const newIndex = currentImageIndex + direction;
-        if (newIndex >= 0 && newIndex < selectedFiles.length) {
+        if (newIndex >= 0 && newIndex < items.length) {
             showImage(newIndex);
         }
     }
     
     // Update carousel navigation buttons
     function updateCarouselButtons() {
+        const total = getTotalPhotoCount();
         prevBtn.disabled = currentImageIndex === 0;
-        nextBtn.disabled = currentImageIndex === selectedFiles.length - 1;
-        
-        // Hide carousel nav if only one image
-        if (selectedFiles.length <= 1) {
+        nextBtn.disabled = currentImageIndex === total - 1;
+        if (total <= 1) {
             prevBtn.style.display = 'none';
             nextBtn.style.display = 'none';
         } else {
@@ -424,23 +653,18 @@
         }
     }
     
-    // Remove image
+    // Remove image (file only; for temp use removeImageOrTemp)
     function removeImage(index) {
         selectedFiles.splice(index, 1);
-        
-        // Update file input (create new FileList)
         const dataTransfer = new DataTransfer();
         selectedFiles.forEach(file => dataTransfer.items.add(file));
         fileInput.files = dataTransfer.files;
-        
-        // Adjust current index if needed
-        if (currentImageIndex >= selectedFiles.length) {
-            currentImageIndex = Math.max(0, selectedFiles.length - 1);
+        if (currentImageIndex >= selectedFiles.length + tempPhotoFilenames.length) {
+            currentImageIndex = Math.max(0, selectedFiles.length + tempPhotoFilenames.length - 1);
         }
-        
-        if (selectedFiles.length === 0) {
+        if (getTotalPhotoCount() === 0) {
             previewContainer.classList.remove('active');
-            uploadZone.classList.remove('has-files');
+            uploadZoneWrapper.classList.remove('has-files');
             fileInput.required = true;
         } else {
             updatePreviews();
@@ -448,36 +672,42 @@
     }
     
     // Drag and drop support
-    uploadZone.addEventListener('dragover', function(e) {
+    const uploadFromComputer = document.getElementById('upload-from-computer');
+    uploadFromComputer.addEventListener('dragover', function(e) {
         e.preventDefault();
-        uploadZone.style.borderColor = 'var(--primary)';
-        uploadZone.style.background = 'rgba(6, 78, 59, 0.1)';
+        uploadFromComputer.style.borderColor = 'var(--primary)';
+        uploadFromComputer.style.background = 'rgba(6, 78, 59, 0.1)';
     });
     
-    uploadZone.addEventListener('dragleave', function(e) {
+    uploadFromComputer.addEventListener('dragleave', function(e) {
         e.preventDefault();
-        uploadZone.style.borderColor = '#cbd5e1';
-        uploadZone.style.background = 'rgba(255,255,255,0.5)';
+        uploadFromComputer.style.borderColor = '';
+        uploadFromComputer.style.background = '';
     });
     
-    uploadZone.addEventListener('drop', function(e) {
+    uploadFromComputer.addEventListener('drop', function(e) {
         e.preventDefault();
-        uploadZone.style.borderColor = '#cbd5e1';
-        uploadZone.style.background = 'rgba(255,255,255,0.5)';
+        uploadFromComputer.style.borderColor = '';
+        uploadFromComputer.style.background = '';
         
         const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
         if (files.length > 0) {
-            // Add to existing files
             selectedFiles = selectedFiles.concat(files);
-            
-            // Update file input
             const dataTransfer = new DataTransfer();
             selectedFiles.forEach(file => dataTransfer.items.add(file));
             fileInput.files = dataTransfer.files;
-            
             updatePreviews();
-            uploadZone.classList.add('has-files');
+            document.getElementById('upload-zone-wrapper').classList.add('has-files');
             previewContainer.classList.add('active');
+        }
+    });
+
+    // Form submit: ensure at least one photo
+    document.getElementById('item-form').addEventListener('submit', function(e) {
+        if (getTotalPhotoCount() === 0) {
+            e.preventDefault();
+            alert('Please add at least one photo.');
+            return;
         }
     });
 </script>

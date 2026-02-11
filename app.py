@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 import json
 import logging
@@ -11,7 +12,7 @@ load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 from PIL import Image
 import stripe
 import resend
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
 import csv
 from io import StringIO, BytesIO
@@ -24,7 +25,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import or_, and_
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload
 
 # Import Constants
 from constants import (
@@ -641,53 +642,18 @@ def robots_txt():
 
 @app.route('/favicon.ico')
 @app.route('/favicon.png')
-def favicon(size=None):
-    """Serve favicon - use original logo for small sizes, resize for larger"""
+def favicon():
+    """Serve favicon.png for Google search results and browser tabs."""
     try:
-        # Get size from query parameter or use default
-        requested_size = request.args.get('size', type=int)
-        
-        logo_path = os.path.join('static', 'logo.jpg')
-        
-        if not os.path.exists(logo_path):
-            return Response('', mimetype='image/x-icon'), 404
-        
-        # For small favicon sizes (16, 32), just serve the original
-        # Browsers will handle scaling and it preserves the original appearance
-        if requested_size and requested_size <= 32:
-            return send_from_directory('static', 'logo.jpg')
-        
-        # For larger sizes, resize if needed
-        if requested_size:
-            img = Image.open(logo_path)
-            # Maintain aspect ratio
-            width, height = img.size
-            aspect_ratio = width / height
-            
-            if aspect_ratio > 1:
-                new_width = requested_size
-                new_height = int(requested_size / aspect_ratio)
-            else:
-                new_height = requested_size
-                new_width = int(requested_size * aspect_ratio)
-            
-            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            from io import BytesIO
-            img_io = BytesIO()
-            img.save(img_io, 'JPEG', quality=95)
-            img_io.seek(0)
-            
-            response = Response(img_io.read(), mimetype='image/jpeg')
-            response.headers['Cache-Control'] = 'public, max-age=31536000'
-            return response
-        
-        # Default: serve original
-        return send_from_directory('static', 'logo.jpg')
-        
+        favicon_path = os.path.join('static', 'favicon.png')
+        if not os.path.exists(favicon_path):
+            return Response('', mimetype='image/png'), 404
+        response = send_from_directory('static', 'favicon.png', mimetype='image/png')
+        response.headers['Cache-Control'] = 'public, max-age=31536000'
+        return response
     except Exception as e:
         logger.error(f"Error serving favicon: {e}", exc_info=True)
-        return Response('', mimetype='image/x-icon'), 404
+        return Response('', mimetype='image/png'), 404
 
 
 # =========================================================
@@ -808,6 +774,143 @@ def product_detail(item_id):
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+# --- QR CODE MOBILE PHOTO UPLOAD ---
+UPLOAD_SESSION_EXPIRY_MINUTES = 30
+
+def _cleanup_expired_upload_sessions():
+    """Delete upload sessions and temp uploads older than expiry"""
+    cutoff = datetime.utcnow() - timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES)
+    expired = UploadSession.query.filter(UploadSession.created_at < cutoff).all()
+    for s in expired:
+        for t in TempUpload.query.filter_by(session_token=s.session_token).all():
+            fp = os.path.join(app.config['UPLOAD_FOLDER'], t.filename)
+            if os.path.exists(fp):
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
+        db.session.delete(s)
+    TempUpload.query.filter(TempUpload.created_at < cutoff).delete(synchronize_session=False)
+    db.session.commit()
+
+
+@app.route('/api/upload_session/create', methods=['POST'])
+@login_required
+def create_upload_session():
+    """Create a session for QR code mobile photo upload. Returns token and QR code image."""
+    import base64
+    import qrcode
+
+    _cleanup_expired_upload_sessions()
+
+    token = secrets.token_urlsafe(16)
+    upload_url = url_for('upload_from_phone', token=token, _external=True)
+
+    session_obj = UploadSession(session_token=token, user_id=current_user.id)
+    db.session.add(session_obj)
+    db.session.commit()
+
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=8, border=2)
+    qr.add_data(upload_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#000", back_color="#fff")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    qr_base64 = base64.b64encode(buf.getvalue()).decode()
+
+    return jsonify({
+        'token': token,
+        'upload_url': upload_url,
+        'qr_code_base64': qr_base64,
+    })
+
+
+@app.route('/upload_from_phone')
+def upload_from_phone():
+    """Mobile page: scan QR to open this page, then take/select photo to upload."""
+    token = request.args.get('token', '')
+    session_obj = UploadSession.query.filter_by(session_token=token).first()
+    if not session_obj:
+        return render_template('upload_from_phone.html', error='Invalid or expired link. Please scan the QR code again.'), 400
+    if datetime.utcnow() - session_obj.created_at > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
+        return render_template('upload_from_phone.html', error='This link has expired. Please scan the QR code again.'), 400
+    return render_template('upload_from_phone.html', token=token)
+
+
+@app.route('/upload_from_phone', methods=['POST'])
+@csrf.exempt  # Phone has no session; token in URL authenticates
+def upload_from_phone_post():
+    """Accept photo upload from phone."""
+    token = request.form.get('token') or request.args.get('token', '')
+    session_obj = UploadSession.query.filter_by(session_token=token).first()
+    if not session_obj:
+        return jsonify({'success': False, 'error': 'Invalid or expired session'}), 400
+    if datetime.utcnow() - session_obj.created_at > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
+        return jsonify({'success': False, 'error': 'Session expired'}), 400
+
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+
+    is_valid, error_msg = validate_file_upload(file)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
+
+    safe_token = token.replace('/', '_').replace('+', '-')[:32]
+    filename = f"temp_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    try:
+        img = Image.open(file).convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        max_dimension = 2000
+        if bg.width > max_dimension or bg.height > max_dimension:
+            if bg.width > bg.height:
+                new_width = max_dimension
+                new_height = int(bg.height * (max_dimension / bg.width))
+            else:
+                new_height = max_dimension
+                new_width = int(bg.width * (max_dimension / bg.height))
+            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+    except Exception as e:
+        logger.error(f"Error processing mobile upload: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error processing image'}), 500
+
+    temp = TempUpload(session_token=token, filename=filename)
+    db.session.add(temp)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'filename': filename,
+        'url': url_for('uploaded_file', filename=filename, _external=True),
+    })
+
+
+@app.route('/api/upload_session/status')
+@login_required
+def upload_session_status():
+    """Return list of temp uploads for the given token (for desktop polling)."""
+    token = request.args.get('token', '')
+    session_obj = UploadSession.query.filter_by(session_token=token).first()
+    if not session_obj:
+        return jsonify({'images': [], 'error': 'Session not found'}), 404
+    if session_obj.user_id != current_user.id:
+        return jsonify({'images': [], 'error': 'Unauthorized'}), 403
+    if datetime.utcnow() - session_obj.created_at > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
+        return jsonify({'images': [], 'error': 'Session expired'}), 400
+
+    uploads = TempUpload.query.filter_by(session_token=token).order_by(TempUpload.created_at).all()
+    base_url = request.url_root.rstrip('/')
+    images = [
+        {'filename': u.filename, 'url': url_for('uploaded_file', filename=u.filename, _external=True)}
+        for u in uploads
+    ]
+    return jsonify({'images': images})
+
 
 @app.route('/buy_item/<int:item_id>')
 def buy_item(item_id):
@@ -2145,6 +2248,15 @@ def add_item():
         quality = request.form.get('quality')
         suggested_price_raw = request.form.get('suggested_price', '').strip()
         files = request.files.getlist('photos')
+        temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
+        temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
+        
+        has_files = files and files[0].filename and files[0].filename != ''
+        has_temp_photos = len(temp_photo_ids) > 0
+        
+        if not has_files and not has_temp_photos:
+            flash("Please add at least one photo.", "error")
+            return render_template('add_item.html', categories=categories)
         
         # Validate category_id
         if not cat_id:
@@ -2164,41 +2276,44 @@ def add_item():
             logger.error(f"Invalid category_id {cat_id} submitted - category not found")
             return render_template('add_item.html', categories=categories)
         
-        if files and files[0].filename != '':
-            # Validate inputs
-            quality_valid, quality_value = validate_quality(quality)
-            if not quality_valid:
-                flash(f"Invalid quality: {quality_value}", "error")
-                return render_template('add_item.html', categories=categories)
-            
-            if len(desc) > MAX_DESCRIPTION_LENGTH:
-                flash(f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)", "error")
-                return render_template('add_item.html', categories=categories)
-            
-            if long_desc and len(long_desc) > MAX_LONG_DESCRIPTION_LENGTH:
-                flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
-                return render_template('add_item.html', categories=categories)
-            
-            suggested_price = None
-            if suggested_price_raw:
-                try:
-                    sp = float(suggested_price_raw)
-                    if sp >= 0:
-                        suggested_price = sp
-                except ValueError:
-                    pass
+        # Validate inputs
+        quality_valid, quality_value = validate_quality(quality)
+        if not quality_valid:
+            flash(f"Invalid quality: {quality_value}", "error")
+            return render_template('add_item.html', categories=categories)
+        
+        if len(desc) > MAX_DESCRIPTION_LENGTH:
+            flash(f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)", "error")
+            return render_template('add_item.html', categories=categories)
+        
+        if long_desc and len(long_desc) > MAX_LONG_DESCRIPTION_LENGTH:
+            flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
+            return render_template('add_item.html', categories=categories)
+        
+        suggested_price = None
+        if suggested_price_raw:
+            try:
+                sp = float(suggested_price_raw)
+                if sp >= 0:
+                    suggested_price = sp
+            except ValueError:
+                pass
 
-            new_item = InventoryItem(
-                seller_id=current_user.id, category_id=cat_id, description=desc,
-                long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
-                collection_method='online',  # User-uploaded items are always 'online'
-                suggested_price=suggested_price
-            )
-            db.session.add(new_item)
-            db.session.flush()
-            
-            cover_set = False
-            for i, file in enumerate(files):
+        new_item = InventoryItem(
+            seller_id=current_user.id, category_id=cat_id, description=desc,
+            long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
+            collection_method='online',  # User-uploaded items are always 'online'
+            suggested_price=suggested_price
+        )
+        db.session.add(new_item)
+        db.session.flush()
+        
+        cover_set = False
+        photo_index = 0
+        
+        # Process files from desktop
+        if has_files:
+            for file in files:
                 if file.filename:
                     # Validate file upload
                     is_valid, error_msg = validate_file_upload(file)
@@ -2207,7 +2322,7 @@ def add_item():
                         flash(f"File upload error: {error_msg}", "error")
                         return render_template('add_item.html', categories=categories)
                     
-                    filename = f"item_{new_item.id}_{int(time.time())}_{i}.jpg"
+                    filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     
                     try:
@@ -2232,46 +2347,78 @@ def add_item():
                             new_item.photo_url = filename
                             cover_set = True
                         db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                        photo_index += 1
                     except Exception as img_error:
                         db.session.rollback()
                         logger.error(f"Error processing image: {img_error}", exc_info=True)
                         flash("Error processing image. Please try again.", "error")
                         return render_template('add_item.html', categories=categories)
-            
-            db.session.commit()
-            
-            # Send item submission confirmation email
-            try:
-                submission_content = f"""
-                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                    <h2 style="color: #166534;">Item Submitted for Review</h2>
-                    <p>Hi {current_user.full_name or 'there'},</p>
-                    <p>We've received your item submission: <strong>{desc}</strong></p>
-                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                        <p style="margin: 0 0 8px;"><strong>Status:</strong> Pending Review</p>
-                        <p style="margin: 0;">Our team will review your item and set a price.</p>
-                    </div>
-                    <p>What happens next:</p>
-                    <ul>
-                        <li>Our team reviews your item and photos</li>
-                        <li>We set a fair market price</li>
-                        <li>You'll receive an email when your item goes live</li>
-                        <li>Once live, buyers can purchase your item</li>
-                    </ul>
-                    <p>You can track your item's status in your <a href="{url_for('dashboard', _external=True)}">dashboard</a>.</p>
-                    <p>Thanks for selling with Campus Swap!</p>
+        
+        # Process temp photos from phone (QR upload)
+        if has_temp_photos:
+            for temp_fn in temp_photo_ids:
+                temp_rec = TempUpload.query.filter(
+                    TempUpload.filename == temp_fn,
+                    TempUpload.session_token.in_(
+                        db.session.query(UploadSession.session_token).filter(UploadSession.user_id == current_user.id)
+                    )
+                ).first()
+                if not temp_rec:
+                    db.session.rollback()
+                    flash("Invalid or expired photo from phone. Please try again.", "error")
+                    return render_template('add_item.html', categories=categories)
+                old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+                if not os.path.exists(old_path):
+                    db.session.rollback()
+                    flash("Photo from phone no longer available. Please re-upload.", "error")
+                    return render_template('add_item.html', categories=categories)
+                new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
+                try:
+                    os.rename(old_path, new_path)
+                except OSError:
+                    shutil.move(old_path, new_path)
+                if not cover_set:
+                    new_item.photo_url = new_filename
+                    cover_set = True
+                db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
+                db.session.delete(temp_rec)
+                photo_index += 1
+        
+        db.session.commit()
+
+        # Send item submission confirmation email
+        try:
+            submission_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Item Submitted for Review</h2>
+                <p>Hi {current_user.full_name or 'there'},</p>
+                <p>We've received your item submission: <strong>{desc}</strong></p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Status:</strong> Pending Review</p>
+                    <p style="margin: 0;">Our team will review your item and set a price.</p>
                 </div>
-                """
-                send_email(
-                    current_user.email,
-                    "Item Submitted for Review - Campus Swap",
-                    submission_content
-                )
-            except Exception as email_error:
-                logger.error(f"Failed to send item submission email: {email_error}")
-            
-            flash("Item drafted! Complete your activation to list it.", "success")
-            return redirect(get_user_dashboard())
+                <p>What happens next:</p>
+                <ul>
+                    <li>Our team reviews your item and photos</li>
+                    <li>We set a fair market price</li>
+                    <li>You'll receive an email when your item goes live</li>
+                    <li>Once live, buyers can purchase your item</li>
+                </ul>
+                <p>You can track your item's status in your <a href="{url_for('dashboard', _external=True)}">dashboard</a>.</p>
+                <p>Thanks for selling with Campus Swap!</p>
+            </div>
+            """
+            send_email(
+                current_user.email,
+                "Item Submitted for Review - Campus Swap",
+                submission_content
+            )
+        except Exception as email_error:
+            logger.error(f"Failed to send item submission email: {email_error}")
+
+        flash("Item drafted! Complete your activation to list it.", "success")
+        return redirect(get_user_dashboard())
             
     return render_template('add_item.html', categories=categories)
 

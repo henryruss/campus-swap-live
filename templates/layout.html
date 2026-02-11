@@ -24,10 +24,11 @@
     <meta property="twitter:description" content="Visit our physical store to buy and sell college furniture. We're students helping students turn move-out items into cash.">
     <meta property="twitter:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
     
-    <!-- Favicon - Use original logo for best appearance -->
-    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='logo.jpg') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.jpg') }}">
-    <link rel="shortcut icon" href="{{ url_for('static', filename='logo.jpg') }}">
+    <!-- Favicon - Square PNG for Google search results (min 48x48 required) -->
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
+    <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
     
     <!-- Stylesheets -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
