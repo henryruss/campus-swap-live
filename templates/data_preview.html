@@ -47,6 +47,14 @@
                                     <i class="fas fa-check-circle"></i> Mark Paid
                                 </button>
                             </form>
+                        {% elif key == 'actions' and title == 'Users Preview' %}
+                            <form method="POST" action="/admin/user/delete/{{ row['id'] }}" style="display: inline;" 
+                                  onsubmit="return confirm('Permanently delete account for {{ row['email'] }}? This will remove all their items and cannot be undone.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button type="submit" class="text-btn btn-delete" style="padding: 4px 8px; font-size: 0.85rem;">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </form>
                         {% else %}
                             {{ row[key] }}
                         {% endif %}
@@ -94,6 +102,12 @@
     }
     .text-btn:hover {
         opacity: 0.8;
+    }
+    .btn-delete {
+        color: #dc2626;
+    }
+    .btn-delete:hover {
+        color: #b91c1c;
     }
 </style>
 {% endblock %}

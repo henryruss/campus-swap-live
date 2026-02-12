@@ -134,23 +134,22 @@
 </head>
 <body class="{% block body_class %}{% endblock %}">
 
-    <header style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px;">
-        <div style="display: flex; align-items: center; gap: 25px;">
+    <header class="site-header">
+        <div class="header-left">
             <a href="/" class="logo" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit;">
                 <img src="{{ url_for('static', filename='logo.jpg') }}" 
                      alt="Campus Swap" 
                      style="height: 45px; width: auto; display: block; mix-blend-mode: multiply;">
                 <span style="font-size: 1.25rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em;">Campus Swap</span>
             </a>
-            
-            <a href="/about" class="nav-item" aria-label="About Campus Swap">About Us</a>
+            <a href="/about" class="nav-item nav-desktop" aria-label="About Campus Swap">About Us</a>
         </div>
         
-        <div style="display: flex; justify-content: center; position: relative;">
-            <div id="store-selector-container" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(255,255,255,0.9); border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; transition: all 0.2s; white-space: nowrap;" onclick="toggleStoreDropdown()">
+        <div class="header-center header-store-section">
+            <div id="store-selector-container" class="store-selector-desktop" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(255,255,255,0.9); border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; transition: all 0.2s; white-space: nowrap;" onclick="toggleStoreDropdown()">
                 <i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 0.9rem;"></i>
                 <span style="font-size: 0.9rem; color: var(--text-muted);">Your store:</span>
-                <span id="store-display" style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">UNC Chapel Hill</span>
+                <span class="store-display" style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">UNC Chapel Hill</span>
                 <i class="fas fa-chevron-down" style="color: var(--text-muted); font-size: 0.75rem; margin-left: 4px;"></i>
             </div>
             <div id="store-dropdown" style="display: none; position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%); background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000; overflow: hidden;">
@@ -162,7 +161,7 @@
             </div>
         </div>
         
-        <nav class="nav-links" role="navigation" aria-label="Main navigation" style="display: flex; align-items: center; gap: 20px; justify-content: flex-end;">
+        <nav class="nav-links nav-desktop" role="navigation" aria-label="Main navigation">
             <a href="/become-a-seller" class="nav-item" aria-label="Become a Seller">Become a Seller</a>
             <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
             
@@ -199,7 +198,38 @@
                 </a>
             {% endif %}
         </nav>
+
+        <button id="mobile-menu-btn" class="mobile-menu-btn" aria-label="Open menu" aria-expanded="false">
+            <i class="fas fa-bars"></i>
+        </button>
     </header>
+
+    <div id="mobile-menu" class="mobile-menu" aria-hidden="true">
+        <a href="/about" class="mobile-menu-link"><i class="fas fa-info-circle"></i> About Us</a>
+        <a href="/become-a-seller" class="mobile-menu-link"><i class="fas fa-store"></i> Become a Seller</a>
+        <a href="/inventory" class="mobile-menu-link"><i class="fas fa-shopping-bag"></i> Shop The Drop</a>
+        <div id="mobile-store-selector" class="mobile-menu-store" onclick="toggleMobileStoreDropdown();">
+            <i class="fas fa-map-marker-alt"></i>
+            <span class="store-display">UNC Chapel Hill</span>
+            <i class="fas fa-chevron-down"></i>
+        </div>
+        <div id="mobile-store-dropdown" class="mobile-store-dropdown" style="display: none;">
+            <div class="store-option" onclick="selectStore('UNC Chapel Hill'); closeMobileMenu();">
+                <i class="fas fa-store"></i>
+                <span>UNC Chapel Hill</span>
+            </div>
+        </div>
+        {% if current_user.is_authenticated %}
+            <a href="/dashboard" class="mobile-menu-link"><i class="fas fa-columns"></i> Dashboard</a>
+            <a href="/account_settings" class="mobile-menu-link"><i class="fas fa-user-cog"></i> Account Settings</a>
+            {% if current_user.is_admin %}
+            <a href="/admin" class="mobile-menu-link"><i class="fas fa-cog"></i> Admin Panel</a>
+            {% endif %}
+            <a href="/logout" class="mobile-menu-link mobile-menu-logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        {% else %}
+            <a href="/login" class="mobile-menu-link"><i class="far fa-user-circle"></i> Sign In</a>
+        {% endif %}
+    </div>
 
     <main>
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -360,27 +390,60 @@
             }
         });
         
-        // Store selector dropdown toggle
+        // Store selector dropdown toggle (desktop)
         function toggleStoreDropdown() {
             const dropdown = document.getElementById('store-dropdown');
             if (dropdown) {
                 dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
             }
         }
+
+        // Mobile store dropdown toggle
+        function toggleMobileStoreDropdown() {
+            const dropdown = document.getElementById('mobile-store-dropdown');
+            if (dropdown) {
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        // Mobile menu toggle
+        function toggleMobileMenu() {
+            const btn = document.getElementById('mobile-menu-btn');
+            const menu = document.getElementById('mobile-menu');
+            if (!btn || !menu) return;
+            const isOpen = menu.classList.contains('open');
+            menu.classList.toggle('open');
+            btn.classList.toggle('open');
+            btn.setAttribute('aria-expanded', !isOpen);
+            menu.setAttribute('aria-hidden', isOpen);
+            btn.querySelector('i').className = isOpen ? 'fas fa-bars' : 'fas fa-times';
+        }
+        function closeMobileMenu() {
+            const btn = document.getElementById('mobile-menu-btn');
+            const menu = document.getElementById('mobile-menu');
+            if (menu && menu.classList.contains('open')) {
+                menu.classList.remove('open');
+                if (btn) {
+                    btn.classList.remove('open');
+                    btn.setAttribute('aria-expanded', 'false');
+                    btn.querySelector('i').className = 'fas fa-bars';
+                }
+                menu.setAttribute('aria-hidden', 'true');
+            }
+        }
         
         // Store selector function - defined globally so it can be called from inventory page
         window.selectStore = function(storeName) {
-            // Update display
-            const storeDisplay = document.getElementById('store-display');
-            if (storeDisplay) {
-                storeDisplay.textContent = storeName;
-            }
+            // Update all store displays (desktop + mobile)
+            document.querySelectorAll('.store-display').forEach(function(el) {
+                el.textContent = storeName;
+            });
             
             // Close dropdown
             const dropdown = document.getElementById('store-dropdown');
-            if (dropdown) {
-                dropdown.style.display = 'none';
-            }
+            const mobileDropdown = document.getElementById('mobile-store-dropdown');
+            if (dropdown) dropdown.style.display = 'none';
+            if (mobileDropdown) mobileDropdown.style.display = 'none';
             
             // Store selection in sessionStorage
             sessionStorage.setItem('selectedStore', storeName);
@@ -403,20 +466,43 @@
             const savedStore = sessionStorage.getItem('selectedStore') || 'UNC Chapel Hill';
             const storeToUse = storeParam || savedStore;
             
-            const storeDisplay = document.getElementById('store-display');
-            if (storeDisplay) {
-                storeDisplay.textContent = storeToUse;
-            }
+            document.querySelectorAll('.store-display').forEach(function(el) {
+                el.textContent = storeToUse;
+            });
             
             sessionStorage.setItem('selectedStore', storeToUse);
             
+            // Mobile menu button click
+            const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+            if (mobileMenuBtn) {
+                mobileMenuBtn.addEventListener('click', toggleMobileMenu);
+            }
+            // Close mobile menu when clicking a link
+            document.querySelectorAll('.mobile-menu-link').forEach(function(link) {
+                link.addEventListener('click', closeMobileMenu);
+            });
+            // Close mobile menu when clicking outside
+            document.addEventListener('click', function(e) {
+                const menu = document.getElementById('mobile-menu');
+                const btn = document.getElementById('mobile-menu-btn');
+                if (menu && menu.classList.contains('open') && 
+                    !menu.contains(e.target) && !(btn && btn.contains(e.target))) {
+                    closeMobileMenu();
+                }
+            });
+            
             // Close dropdown when clicking outside
             document.addEventListener('click', function(e) {
-                const container = document.getElementById('store-selector-container');
-                const dropdown = document.getElementById('store-dropdown');
-                if (container && dropdown && !container.contains(e.target) && !dropdown.contains(e.target)) {
-                    dropdown.style.display = 'none';
-                }
+            const container = document.getElementById('store-selector-container');
+            const dropdown = document.getElementById('store-dropdown');
+            const mobileSelector = document.getElementById('mobile-store-selector');
+            const mobileDropdown = document.getElementById('mobile-store-dropdown');
+            if (container && dropdown && !container.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+            if (mobileSelector && mobileDropdown && !mobileSelector.contains(e.target) && !mobileDropdown.contains(e.target)) {
+                mobileDropdown.style.display = 'none';
+            }
             });
         });
     </script>

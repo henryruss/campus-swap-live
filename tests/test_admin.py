@@ -5,6 +5,7 @@ These test admin panel functionality and access control.
 Run: pytest tests/test_admin.py -v
 """
 import pytest
+from models import db, User, InventoryItem, InventoryCategory
 
 
 @pytest.mark.integration
@@ -63,7 +64,6 @@ class TestAdminCategoryManagement:
         assert response.status_code == 200
         
         # Check category was created in database
-        from app import InventoryCategory
         with admin_client.application.app_context():
             category = InventoryCategory.query.filter_by(name='New Test Category').first()
             assert category is not None
@@ -91,7 +91,6 @@ class TestAdminCategoryManagement:
         assert response.status_code == 200
         
         # Check category was deleted (if no items were using it)
-        from app import InventoryCategory
         with admin_client.application.app_context():
             category = InventoryCategory.query.get(test_category.id)
             # Category should be deleted if it had no items
@@ -121,7 +120,6 @@ class TestAdminItemManagement:
         assert response.status_code == 200
         
         # Check item status changed in database
-        from app import InventoryItem
         with admin_client.application.app_context():
             item = InventoryItem.query.get(test_item.id)
             assert item.status == 'sold'
@@ -129,7 +127,6 @@ class TestAdminItemManagement:
     
     def test_admin_mark_item_available(self, admin_client, test_item):
         """Test that admin can mark a sold item as available again"""
-        from app import db, InventoryItem
         with admin_client.application.app_context():
             # First mark as sold
             test_item.status = 'sold'
@@ -159,7 +156,6 @@ class TestAdminItemManagement:
         assert response.status_code == 200
         
         # Check price was updated
-        from app import InventoryItem
         with admin_client.application.app_context():
             item = InventoryItem.query.get(test_item.id)
             assert item.price == 75.00
@@ -175,10 +171,129 @@ class TestAdminItemManagement:
         assert response.status_code == 200
         
         # Check item was deleted
-        from app import InventoryItem
         with admin_client.application.app_context():
             item = InventoryItem.query.get(item_id)
             assert item is None
+
+
+@pytest.mark.integration
+class TestAdminUserDeletion:
+    """Test admin user deletion functionality"""
+
+    def test_admin_can_delete_user(self, admin_client, test_user):
+        """Test that admin can delete a user account"""
+        user_id = test_user.id
+        user_email = test_user.email
+
+        response = admin_client.post(f'/admin/user/delete/{user_id}', follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'deleted' in response.data.lower()
+        assert user_email.encode() in response.data
+
+        with admin_client.application.app_context():
+            user = User.query.get(user_id)
+            assert user is None
+
+    def test_admin_cannot_delete_self(self, admin_client, test_admin_user):
+        """Test that admin cannot delete their own account"""
+        response = admin_client.post(
+            f'/admin/user/delete/{test_admin_user.id}',
+            follow_redirects=True
+        )
+
+        assert response.status_code == 200
+        assert b'cannot delete your own' in response.data.lower()
+
+        with admin_client.application.app_context():
+            user = User.query.get(test_admin_user.id)
+            assert user is not None
+            assert user.email == test_admin_user.email
+
+    def test_admin_can_delete_other_admin_when_multiple_exist(self, admin_client, test_admin_user):
+        """Test that when multiple admins exist, one admin can delete another"""
+        with admin_client.application.app_context():
+            second_admin = User(
+                email='admin2@example.com',
+                password_hash='hash',
+                full_name='Second Admin',
+                is_admin=True,
+            )
+            db.session.add(second_admin)
+            db.session.commit()
+            second_admin_id = second_admin.id
+
+        response = admin_client.post(
+            f'/admin/user/delete/{second_admin_id}',
+            follow_redirects=True
+        )
+
+        assert response.status_code == 200
+        assert b'deleted' in response.data.lower()
+
+        with admin_client.application.app_context():
+            assert User.query.get(second_admin_id) is None
+            assert User.query.get(test_admin_user.id) is not None
+
+    def test_non_admin_cannot_delete_user(self, authenticated_client, test_user):
+        """Test that regular users cannot access the delete user route"""
+        response = authenticated_client.post(
+            f'/admin/user/delete/{test_user.id}',
+            follow_redirects=True
+        )
+
+        assert response.status_code == 200
+        assert b'access denied' in response.data.lower()
+
+        with authenticated_client.application.app_context():
+            user = User.query.get(test_user.id)
+            assert user is not None
+
+    def test_unauthenticated_cannot_delete_user(self, client, test_user):
+        """Test that unauthenticated users cannot access the delete user route"""
+        response = client.post(
+            f'/admin/user/delete/{test_user.id}',
+            follow_redirects=True
+        )
+
+        assert response.status_code == 200
+        assert b'login' in response.data.lower() or b'access denied' in response.data.lower()
+
+        with client.application.app_context():
+            user = User.query.get(test_user.id)
+            assert user is not None
+
+    def test_admin_delete_user_removes_items(self, admin_client, test_user, test_item, test_category):
+        """Test that deleting a user also removes their items"""
+        user_id = test_user.id
+        item_id = test_item.id
+
+        response = admin_client.post(f'/admin/user/delete/{user_id}', follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'deleted' in response.data.lower()
+
+        with admin_client.application.app_context():
+            user = User.query.get(user_id)
+            assert user is None
+            item = InventoryItem.query.get(item_id)
+            assert item is None
+
+    def test_admin_delete_nonexistent_user(self, admin_client):
+        """Test that deleting a non-existent user shows appropriate error"""
+        response = admin_client.post('/admin/user/delete/99999', follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'not found' in response.data.lower() or b'error' in response.data.lower()
+
+    def test_admin_preview_users_shows_delete_button(self, admin_client, test_user):
+        """Test that Users Preview page shows Delete button for users"""
+        response = admin_client.get('/admin/preview/users')
+
+        assert response.status_code == 200
+        assert test_user.email.encode() in response.data
+        assert b'delete' in response.data.lower()
+        assert f'/admin/user/delete/{test_user.id}'.encode() in response.data
 
 
 @pytest.mark.integration

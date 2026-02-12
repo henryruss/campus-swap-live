@@ -4,15 +4,7 @@
 
 {% block content %}
 <style>
-    /* --- SELLER PAGE: FULL DARK MODE - EXCITING DEAL ZONE --- */
-    .seller-page {
-        background: linear-gradient(180deg, #0f172a 0%, #0a0f1a 50%, #020617 100%);
-        min-height: 100vh;
-        color: #e2e8f0;
-    }
-    .seller-page .container {
-        color: #e2e8f0;
-    }
+    /* --- SELLER PAGE: Light theme - matches rest of site --- */
     .become-hero {
         text-align: center;
         padding: 80px 20px 70px;
@@ -22,7 +14,7 @@
     .become-hero .badge {
         display: inline-block;
         background: linear-gradient(135deg, var(--accent) 0%, #fbbf24 100%);
-        color: #0f172a;
+        color: var(--text-main);
         font-size: 0.75rem;
         font-weight: 800;
         letter-spacing: 0.12em;
@@ -30,25 +22,23 @@
         border-radius: 50px;
         margin-bottom: 24px;
         text-transform: uppercase;
-        box-shadow: 0 0 24px rgba(245, 158, 11, 0.4);
     }
     .become-hero h1 {
         font-size: 2.75rem;
         margin-bottom: 16px;
-        color: white;
+        color: var(--text-main);
         font-weight: 800;
         line-height: 1.2;
     }
     .become-hero .subhead {
         font-size: 1.2rem;
-        color: #94a3b8;
+        color: var(--text-muted);
         line-height: 1.6;
     }
     .become-hero .subhead strong {
         color: var(--accent);
     }
     
-    /* Flowing sections - dark mode */
     .seller-section {
         max-width: 800px;
         margin: 0 auto 64px;
@@ -60,39 +50,32 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        color: white;
+        color: var(--text-main);
     }
     .seller-section h2 i {
         color: var(--accent);
     }
     .seller-section p {
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     
-    /* Timeline - elevated card for contrast */
-    .seller-page .timeline-section {
-        background: #1e293b;
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 20px;
-    }
     
-    /* Pricing section - accent strip, elevated */
+    /* Pricing section - light accent strip */
     .payment-structure-section {
-        background: #334155;
-        border-top: 1px solid rgba(245, 158, 11, 0.3);
-        border-bottom: 1px solid rgba(245, 158, 11, 0.3);
-        color: white;
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(251, 191, 36, 0.05) 100%);
+        border: 1px solid rgba(245, 158, 11, 0.25);
+        color: var(--text-main);
         padding: 64px 32px;
         margin: 64px 0;
     }
     .payment-structure-section h2 {
-        color: white;
+        color: var(--text-main);
         text-align: center;
         margin-bottom: 12px;
     }
     .payment-structure-section .subhead {
         text-align: center;
-        color: #94a3b8;
+        color: var(--text-muted);
         font-size: 1.05rem;
         max-width: 560px;
         margin-left: auto;
@@ -107,33 +90,32 @@
         color: var(--accent);
         margin-top: 8px;
         text-decoration: none;
-        opacity: 0.9;
+        font-weight: 600;
     }
-    .why-fee-link:hover { opacity: 1; text-decoration: underline; }
+    .why-fee-link:hover { text-decoration: underline; }
     
-    /* CTA card - elevated */
     .seller-page #join.card {
-        background: #1e293b;
-        border: 1px solid rgba(255,255,255,0.12);
-        color: #e2e8f0;
+        background: var(--card-bg);
+        border: var(--card-border);
+        color: var(--text-main);
     }
     .seller-page #join h2,
     .seller-page #join .fa-handshake {
-        color: white;
+        color: var(--text-main);
     }
     .seller-page #join .fa-handshake {
         color: var(--accent) !important;
     }
     .seller-page #join p {
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     .seller-page #join input {
-        background: rgba(15, 23, 42, 0.8);
-        border: 1px solid rgba(255,255,255,0.15);
-        color: white;
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid #cbd5e1;
+        color: var(--text-main);
     }
     .seller-page #join input::placeholder {
-        color: #64748b;
+        color: var(--text-muted);
     }
     .seller-page #join a {
         color: var(--accent);
@@ -146,16 +128,16 @@
         gap: 0;
     }
     .faq-item {
-        border-bottom: 1px solid rgba(255,255,255,0.1);
+        border-bottom: 1px solid #e2e8f0;
     }
     .faq-item:first-child {
-        border-top: 1px solid rgba(255,255,255,0.1);
+        border-top: 1px solid #e2e8f0;
     }
     .faq-item summary {
         padding: 18px 0;
         font-size: 1.05rem;
         font-weight: 600;
-        color: white;
+        color: var(--text-main);
         cursor: pointer;
         list-style: none;
         display: flex;
@@ -177,33 +159,32 @@
         margin: 0;
         font-size: 0.95rem;
         line-height: 1.6;
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     
-    /* --- EARNINGS CALCULATOR --- */
+    /* Earnings Calculator - card style */
     .earnings-calc {
-        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: var(--card-bg);
+        border: var(--card-border);
         border-radius: 24px;
         padding: 40px;
         margin: 48px 0;
-        box-shadow: 0 0 40px rgba(245, 158, 11, 0.08);
+        box-shadow: var(--glass-shadow);
     }
     .earnings-calc-headline {
         text-align: center;
         font-size: 2rem;
         font-weight: 800;
-        color: white;
+        color: var(--text-main);
         margin-bottom: 8px;
         line-height: 1.3;
     }
     .earnings-calc-headline #calc-amount {
         color: var(--accent);
-        text-shadow: 0 0 24px rgba(245, 158, 11, 0.5);
     }
     .earnings-calc .tagline {
         text-align: center;
-        color: #94a3b8;
+        color: var(--text-muted);
         margin-bottom: 36px;
         font-size: 1rem;
     }
@@ -219,8 +200,8 @@
         width: 56px;
         height: 56px;
         border-radius: 14px;
-        background: rgba(148, 163, 184, 0.15);
-        border: 2px solid rgba(148, 163, 184, 0.25);
+        background: rgba(203, 213, 225, 0.3);
+        border: 2px solid #e2e8f0;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -231,16 +212,15 @@
     .calc-icon.active {
         opacity: 1;
         transform: scale(1);
-        background: rgba(245, 158, 11, 0.2);
-        border-color: rgba(245, 158, 11, 0.5);
-        box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+        background: rgba(245, 158, 11, 0.15);
+        border-color: rgba(245, 158, 11, 0.4);
     }
     .calc-icon i {
         font-size: 1.5rem;
         color: var(--accent);
     }
     .calc-icon:not(.active) i {
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     .calc-slider-wrap {
         max-width: 360px;
@@ -251,7 +231,7 @@
         height: 8px;
         -webkit-appearance: none;
         appearance: none;
-        background: rgba(148, 163, 184, 0.2);
+        background: #e2e8f0;
         border-radius: 8px;
         outline: none;
     }
@@ -263,7 +243,7 @@
         border-radius: 50%;
         background: var(--accent);
         cursor: pointer;
-        box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
         transition: transform 0.2s;
     }
     .calc-slider-wrap input[type="range"]::-webkit-slider-thumb:hover {
@@ -276,14 +256,14 @@
         background: var(--accent);
         cursor: pointer;
         border: none;
-        box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
     }
     .calc-slider-labels {
         display: flex;
         justify-content: space-between;
         margin-top: 8px;
         font-size: 0.8rem;
-        color: #94a3b8;
+        color: var(--text-muted);
     }
     
     @media (max-width: 768px) {
@@ -307,7 +287,7 @@
         <div class="timeline-section timeline-seller reveal fade-up">
             <div style="text-align: center; margin-bottom: 50px;">
                 <h2>How It Works</h2>
-                <p style="color: #94a3b8; max-width: 480px; margin: 12px auto 0;">From signup to payout, we&rsquo;ve got you.</p>
+                <p style="color: rgba(255, 255, 255, 0.9); max-width: 480px; margin: 12px auto 0;">From signup to payout, we&rsquo;ve got you.</p>
             </div>
             <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
                 <div class="timeline-line"></div>
@@ -368,7 +348,7 @@
                     When you submit items through Campus Swap and add your card for the service fee, you earn <strong style="color: var(--accent);">50%</strong> when your items sell. 
                     In-person drop-offs at our store earn only <strong>35%</strong>. Campus Swap takes 65% for handling.
                 </p>
-                <p style="font-size: 1rem; color: #94a3b8; margin: 0;">
+                <p style="font-size: 1rem; color: var(--text-muted); margin: 0;">
                     That&rsquo;s 15% more in your pocket per sale. Pay the fee, submit online, earn more.
                 </p>
             </div>
@@ -409,7 +389,7 @@
 
     </div>
 
-        <!-- Why We Charge a Fee - Dark Section (full width) -->
+        <!-- Why We Charge a Fee (full width) -->
         <div id="why-fee" class="payment-structure-section reveal fade-up">
             <h2><i class="fas fa-info-circle"></i> Pricing &amp; Why We Charge</h2>
             <p class="subhead"><strong>$15 service fee</strong> guarantees your space in our store and our move-out pickup service. <strong>$10 per large item</strong> (we mark during approval). You add your card now. We charge only at pickup for approved items. In-person drop-offs have no fee but earn 35% vs. 50%.</p>
@@ -453,6 +433,13 @@
                 <i class="fas fa-clock" style="color: var(--accent); font-size: 1rem;"></i>
                 <span style="color: var(--accent); font-weight: 600; font-size: 0.95rem;">Pickup Period Open</span>
             </div>
+            {% if google_oauth_enabled %}
+            <a href="/auth/google" class="btn-google" style="margin: 0 auto 20px; max-width: 320px; display: flex;">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Sign in with Google
+            </a>
+            <p style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 20px;">or</p>
+            {% endif %}
             <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="email" name="email" placeholder="student@college.edu" required
@@ -461,15 +448,22 @@
             </form>
             <p style="margin-top: 20px; font-size: 0.9rem;">Already have an account? <a href="/login" style="color: var(--accent); font-weight: bold;">Log In</a></p>
             {% else %}
-            <div style="background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 480px;">
+            <div style="background: rgba(203, 213, 225, 0.2); border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 480px;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
-                    <i class="fas fa-calendar-check" style="color: #94a3b8; font-size: 1.2rem;"></i>
-                    <strong style="color: #94a3b8; font-size: 0.95rem;">Pickup Period Closed</strong>
+                    <i class="fas fa-calendar-check" style="color: var(--text-muted); font-size: 1.2rem;"></i>
+                    <strong style="color: var(--text-muted); font-size: 0.95rem;">Pickup Period Closed</strong>
                 </div>
-                <p style="color: #94a3b8; font-size: 0.85rem; margin: 0;">
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
                     Enter your email to be notified when signups open next year!
                 </p>
             </div>
+            {% if google_oauth_enabled %}
+            <a href="/auth/google" class="btn-google" style="margin: 0 auto 20px; max-width: 320px; display: flex;">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Sign in with Google
+            </a>
+            <p style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 20px;">or</p>
+            {% endif %}
             <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="email" name="email" placeholder="student@college.edu" required

@@ -41,6 +41,10 @@ class User(UserMixin, db.Model):
     unsubscribed = db.Column(db.Boolean, default=False)
     unsubscribe_token = db.Column(db.String(64), unique=True, nullable=True)
     
+    # OAUTH (Google, etc.)
+    oauth_provider = db.Column(db.String(20), nullable=True)
+    oauth_id = db.Column(db.String(120), nullable=True)
+    
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 

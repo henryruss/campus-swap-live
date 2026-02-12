@@ -84,7 +84,8 @@ def inject_store_functions():
     """Make store functions available to all templates"""
     return dict(
         get_current_store=get_current_store,
-        get_store_info=get_store_info
+        get_store_info=get_store_info,
+        google_oauth_enabled=bool(oauth)
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -145,6 +146,24 @@ endpoint_secret = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
 # RESEND (EMAIL)
 resend.api_key = os.environ.get('RESEND_API_KEY')  # Also loaded from .env via load_dotenv()
+
+# GOOGLE OAUTH (optional - Sign in with Google)
+oauth = None
+_google_client_id = os.environ.get('GOOGLE_CLIENT_ID')
+_google_client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+if _google_client_id and _google_client_secret:
+    app.config['GOOGLE_CLIENT_ID'] = _google_client_id
+    app.config['GOOGLE_CLIENT_SECRET'] = _google_client_secret
+    from authlib.integrations.flask_client import OAuth
+    oauth = OAuth(app)
+    oauth.register(
+        name='google',
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid email profile'}
+    )
+    logger.info("Google OAuth enabled")
+else:
+    logger.info("Google OAuth disabled (set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable)")
 
 # LOGIN MANAGER
 login_manager = LoginManager()
@@ -2016,6 +2035,78 @@ def health_check():
         }), 503
 
 
+# --- GOOGLE OAUTH ROUTES ---
+
+@app.route('/auth/google')
+def auth_google():
+    """Initiate Google OAuth flow."""
+    if not oauth:
+        flash("Sign in with Google is not configured. Please use email to create an account.", "error")
+        return redirect(url_for('register'))
+    redirect_uri = url_for('auth_google_callback', _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.route('/auth/google/callback')
+def auth_google_callback():
+    """Handle Google OAuth callback - create or log in user."""
+    if not oauth:
+        flash("Sign in with Google is not configured.", "error")
+        return redirect(url_for('login'))
+    try:
+        token = oauth.google.authorize_access_token()
+    except Exception as e:
+        logger.warning(f"Google OAuth error: {e}", exc_info=True)
+        flash("Sign in with Google failed. Please try again or use email.", "error")
+        return redirect(url_for('login'))
+    userinfo = token.get('userinfo')
+    if not userinfo:
+        flash("Could not get your Google profile. Please try again.", "error")
+        return redirect(url_for('login'))
+    email = (userinfo.get('email') or '').strip()
+    name = (userinfo.get('name') or '').strip()
+    oauth_id = userinfo.get('sub')
+    if not email:
+        flash("Google did not provide an email. Please use email signup instead.", "error")
+        return redirect(url_for('register'))
+    if len(email) > MAX_EMAIL_LENGTH:
+        flash("Your email address is too long.", "error")
+        return redirect(url_for('register'))
+    if name and len(name) > MAX_NAME_LENGTH:
+        name = name[:MAX_NAME_LENGTH]
+    source = session.get('source', 'direct')
+    pickup_period_active = get_pickup_period_active()
+    user = User.query.filter_by(email=email).first()
+    if user:
+        if not user.oauth_provider or not user.oauth_id:
+            user.oauth_provider = 'google'
+            user.oauth_id = oauth_id
+            if name and not user.full_name:
+                user.full_name = name
+            db.session.commit()
+        login_user(user)
+        if not pickup_period_active:
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            return redirect(url_for('index'))
+        flash("Welcome back!", "success")
+        return redirect(get_user_dashboard())
+    if not pickup_period_active:
+        new_user = User(email=email, full_name=name or None, referral_source=source,
+                        oauth_provider='google', oauth_id=oauth_id)
+        db.session.add(new_user)
+        db.session.commit()
+        login_user(new_user)
+        flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+        return redirect(url_for('index'))
+    new_user = User(email=email, full_name=name or None, referral_source=source,
+                    oauth_provider='google', oauth_id=oauth_id)
+    db.session.add(new_user)
+    db.session.commit()
+    login_user(new_user)
+    flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
+    return redirect(get_user_dashboard())
+
+
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute") if limiter else lambda f: f
 def login():
@@ -2677,6 +2768,74 @@ def admin_delete_category(cat_id):
     flash(f"Category '{cat_name}' deleted successfully!", "success")
     return redirect(url_for('admin_panel') + '#categories')
 
+
+@app.route('/admin/user/delete/<int:user_id>', methods=['POST'])
+@login_required
+def admin_delete_user(user_id):
+    """Delete a user account and all related data. Admin only."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+
+    user = User.query.get(user_id)
+    if not user:
+        flash("User not found.", "error")
+        return redirect(url_for('admin_preview_users'))
+
+    if user_id == current_user.id:
+        flash("You cannot delete your own account.", "error")
+        return redirect(url_for('admin_preview_users'))
+
+    if user.is_admin and User.query.filter_by(is_admin=True).count() == 1:
+        flash("Cannot delete the last admin account.", "error")
+        return redirect(url_for('admin_preview_users'))
+
+    try:
+        upload_folder = app.config['UPLOAD_FOLDER']
+
+        # 1. Delete user's items (and their photo files)
+        for item in list(user.items):
+            if item.status == 'available':
+                cat = InventoryCategory.query.get(item.category_id)
+                if cat and cat.count_in_stock > 0:
+                    cat.count_in_stock -= 1
+            photo_filenames = []
+            if item.photo_url:
+                photo_filenames.append(item.photo_url)
+            for p in item.gallery_photos:
+                if p.photo_url:
+                    photo_filenames.append(p.photo_url)
+            for fn in photo_filenames:
+                try:
+                    path = os.path.join(upload_folder, fn)
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception as e:
+                    logger.error(f"Error deleting photo file {fn}: {e}", exc_info=True)
+            db.session.delete(item)
+
+        # 2. Delete UploadSessions and related TempUploads
+        sessions = UploadSession.query.filter_by(user_id=user_id).all()
+        session_tokens = [s.session_token for s in sessions]
+        for token in session_tokens:
+            TempUpload.query.filter_by(session_token=token).delete(synchronize_session=False)
+        for s in sessions:
+            db.session.delete(s)
+
+        # 3. Delete the user
+        user_email = user.email
+        db.session.delete(user)
+        db.session.commit()
+
+        flash(f"Account for {user_email} has been permanently deleted.", "success")
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting user {user_id}: {e}", exc_info=True)
+        flash(f"Could not delete account: {str(e)}", "error")
+
+    return redirect(url_for('admin_preview_users'))
+
+
 @app.route('/admin/preview/users')
 @login_required
 def admin_preview_users():
@@ -2688,10 +2847,11 @@ def admin_preview_users():
     users = User.query.order_by(User.date_joined.desc()).all()
     
     # Prepare data for template
-    headers = ['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle']
+    headers = ['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle', 'Actions']
     rows = []
     for user in users:
         rows.append({
+            'id': user.id,
             'email': user.email,
             'full_name': user.full_name or '',
             'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
@@ -2700,7 +2860,8 @@ def admin_preview_users():
             'has_paid': 'Yes' if user.has_paid else 'No',
             'is_admin': 'Yes' if user.is_admin else 'No',
             'payout_method': user.payout_method or '',
-            'payout_handle': user.payout_handle or ''
+            'payout_handle': user.payout_handle or '',
+            'actions': ''  # Rendered by template for Users Preview
         })
     
     return render_template('data_preview.html', 
@@ -2708,7 +2869,7 @@ def admin_preview_users():
                          export_url='/admin/export/users',
                          headers=headers,
                          rows=rows,
-                         row_keys=['email', 'full_name', 'date_joined', 'has_account', 'is_seller', 'has_paid', 'is_admin', 'payout_method', 'payout_handle'])
+                         row_keys=['email', 'full_name', 'date_joined', 'has_account', 'is_seller', 'has_paid', 'is_admin', 'payout_method', 'payout_handle', 'actions'])
 
 @app.route('/admin/export/users')
 @login_required
