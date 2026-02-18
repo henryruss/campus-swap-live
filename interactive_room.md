@@ -1,5 +1,5 @@
 # Project Context
-We are building a feature for "Campus Swap," a college student marketplace. We have a black-and-white sketch of a dorm room (image.png) featuring various items (mini-fridge, bed, microwave, etc.). 
+We are building a feature for "Campus Swap," a college student marketplace. We have a black-and-white sketch of a dorm room (dormRoom.png) featuring various items (mini-fridge, bed, microwave, etc.). 
 
 # Goal
 Create an interactive HTML/CSS/JS component where the user can hover over items in the static image to see their potential resale value, and click them to add them to a dynamic "receipt" below the image.
@@ -12,7 +12,7 @@ Create an interactive HTML/CSS/JS component where the user can hover over items 
 - Overlay an inline `<svg>` element perfectly scaled to match the image dimensions.
 - Inside the SVG, create placeholder `<polygon>` elements for the following items: Minifridge, Bed, Headboard, Rug, Microwave, Couch, TV, AC Unit. *(Note: Generate dummy coordinate points for these polygons; I will map the exact coordinates later).*
 - Default state for polygons: `fill: transparent`.
-- Hover state for polygons: Fill with "Campus Swap Green" (use hex `#00FF00` as a placeholder, I will adjust to our brand color) with a slight opacity (e.g., `0.4`) so the sketch beneath remains visible.
+- Hover state for polygons: Fill with "Campus Swap Green" (the same green we have been using throughout the whole site) with a slight opacity (e.g., `0.4`) so the sketch beneath remains visible.
 
 ## 2. The Hover Tooltip
 - Create a floating `div` for a tooltip positioned near the top of the image container.
