@@ -5,40 +5,6 @@
 {% block content %}
 <style>
     /* --- SELLER PAGE: Light theme - matches rest of site --- */
-    .become-hero {
-        text-align: center;
-        padding: 80px 20px 70px;
-        max-width: 720px;
-        margin: 0 auto;
-    }
-    .become-hero .badge {
-        display: inline-block;
-        background: linear-gradient(135deg, var(--accent) 0%, #fbbf24 100%);
-        color: var(--text-main);
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        padding: 8px 16px;
-        border-radius: 50px;
-        margin-bottom: 24px;
-        text-transform: uppercase;
-    }
-    .become-hero h1 {
-        font-size: 2.75rem;
-        margin-bottom: 16px;
-        color: var(--text-main);
-        font-weight: 800;
-        line-height: 1.2;
-    }
-    .become-hero .subhead {
-        font-size: 1.2rem;
-        color: var(--text-muted);
-        line-height: 1.6;
-    }
-    .become-hero .subhead strong {
-        color: var(--accent);
-    }
-    
     .seller-section {
         max-width: 800px;
         margin: 0 auto 64px;
@@ -162,128 +128,220 @@
         color: var(--text-muted);
     }
     
-    /* Earnings Calculator - card style */
-    .earnings-calc {
+    /* Interactive Room - hero (first, biggest section) */
+    .interactive-room-hero {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+    }
+    .interactive-room {
         background: var(--card-bg);
         border: var(--card-border);
         border-radius: 24px;
         padding: 40px;
-        margin: 48px 0;
+        margin: 0 0 48px;
         box-shadow: var(--glass-shadow);
     }
-    .earnings-calc-headline {
+    .interactive-room-headline {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 12px;
         text-align: center;
-        font-size: 2rem;
+    }
+    .interactive-room-headline .headline-text {
+        font-size: 1.5rem;
         font-weight: 800;
         color: var(--text-main);
-        margin-bottom: 8px;
-        line-height: 1.3;
+        line-height: 1.35;
+        max-width: 100%;
+        word-wrap: break-word;
     }
-    .earnings-calc-headline #calc-amount {
-        color: var(--accent);
+    .interactive-room-headline .profit-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
     }
-    .earnings-calc .tagline {
+    .interactive-room-headline .profit-label {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-muted);
+    }
+    .interactive-room-headline .total-amount {
+        font-size: 4.5rem;
+        font-weight: 900;
+        color: var(--primary);
+        letter-spacing: -0.02em;
+        line-height: 1;
+        transition: transform 0.2s ease;
+    }
+    .interactive-room-headline .total-amount.pop {
+        animation: amountPop 0.4s ease;
+    }
+    @keyframes amountPop {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.15); }
+        100% { transform: scale(1); }
+    }
+    .interactive-room .tagline {
         text-align: center;
         color: var(--text-muted);
-        margin-bottom: 36px;
+        margin-bottom: 24px;
         font-size: 1rem;
     }
-    .calc-icons-row {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 32px;
-        min-height: 80px;
+    .room-image-container {
+        position: relative;
+        max-width: 100%;
+        margin: 0 auto 24px;
+        border-radius: 16px;
+        overflow: hidden;
     }
-    .calc-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 14px;
-        background: rgba(203, 213, 225, 0.3);
-        border: 2px solid #e2e8f0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0.35;
-        transform: scale(0.9);
-        transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
-    }
-    .calc-icon.active {
-        opacity: 1;
-        transform: scale(1);
-        background: rgba(245, 158, 11, 0.15);
-        border-color: rgba(245, 158, 11, 0.4);
-    }
-    .calc-icon i {
-        font-size: 1.5rem;
-        color: var(--accent);
-    }
-    .calc-icon:not(.active) i {
-        color: var(--text-muted);
-    }
-    .calc-slider-wrap {
-        max-width: 360px;
-        margin: 0 auto;
-    }
-    .calc-slider-wrap input[type="range"] {
+    .room-image-container img {
+        display: block;
         width: 100%;
-        height: 8px;
-        -webkit-appearance: none;
-        appearance: none;
-        background: #e2e8f0;
-        border-radius: 8px;
-        outline: none;
+        height: auto;
     }
-    .calc-slider-wrap input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: var(--accent);
+    .room-svg-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+    .room-svg-overlay polygon {
+        pointer-events: auto;
+        fill: transparent;
         cursor: pointer;
-        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-        transition: transform 0.2s;
+        transition: fill 0.2s ease;
     }
-    .calc-slider-wrap input[type="range"]::-webkit-slider-thumb:hover {
-        transform: scale(1.1);
+    .room-svg-overlay polygon:hover {
+        fill: rgba(6, 78, 59, 0.4);
     }
-    .calc-slider-wrap input[type="range"]::-moz-range-thumb {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: var(--accent);
-        cursor: pointer;
-        border: none;
-        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    .room-svg-overlay polygon.receipt-active {
+        fill: rgba(6, 78, 59, 0.25);
     }
-    .calc-slider-labels {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 8px;
-        font-size: 0.8rem;
+    .room-tooltip {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.9);
+        color: white;
+        padding: 10px 16px;
+        border-radius: 10px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        white-space: nowrap;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s, visibility 0.2s;
+        z-index: 10;
+        pointer-events: none;
+    }
+    .room-tooltip.visible {
+        opacity: 1;
+        visibility: visible;
+    }
+    .room-receipt {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 24px;
+    }
+    .room-receipt h3 {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-main);
+        margin: 0 0 16px;
+    }
+    .room-receipt-list {
+        list-style: none;
+        margin: 0 0 16px;
+        padding: 0;
+    }
+    .room-receipt-list li {
+        display: grid;
+        grid-template-columns: 1fr 90px 90px;
+        gap: 16px;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 0.95rem;
+        color: var(--text-main);
+    }
+    .room-receipt-list li > span:nth-child(2),
+    .room-receipt-list li > span:nth-child(3) {
+        text-align: right;
+    }
+    .room-receipt-list li:last-child {
+        border-bottom: none;
+    }
+    .room-receipt-list li.room-receipt-header {
+        font-weight: 700;
         color: var(--text-muted);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding-bottom: 12px;
+        margin-bottom: 4px;
+        border-bottom: 2px solid #e2e8f0;
+    }
+    .room-receipt-total {
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: var(--primary);
+        padding-top: 12px;
+        border-top: 2px solid var(--primary);
+    }
+    .room-receipt-empty {
+        color: var(--text-muted);
+        font-size: 0.95rem;
+        padding: 12px 0;
+        grid-column: 1 / -1;
     }
     
     @media (max-width: 768px) {
-        .become-hero h1 { font-size: 2.2rem; }
-        .earnings-calc-headline { font-size: 1.6rem; }
-        .calc-icons-row { gap: 12px; }
-        .calc-icon { width: 48px; height: 48px; }
-        .calc-icon i { font-size: 1.25rem; }
+        .interactive-room-headline .headline-text { font-size: 1.25rem; }
+        .interactive-room-headline .profit-label { font-size: 1.1rem; }
+        .interactive-room-headline .total-amount { font-size: 3rem; }
     }
 </style>
 
 <div class="seller-page">
-    <div class="become-hero">
-        <span class="badge">Sellers</span>
-        <h1>You&rsquo;re in. Join the team.</h1>
-        <p class="subhead">Turn your move-out furniture into cash. We handle pickup, storage, and sale. Submit through the site and earn <strong>50%</strong>, vs. only 35% for in-person drop-offs.</p>
-    </div>
-
     <div class="container">
-        <!-- How It Works - Timeline First -->
+        <!-- Interactive Room - Hero (first and biggest) -->
+        <div class="interactive-room-hero reveal fade-up">
+            <div class="interactive-room">
+                <h2 class="interactive-room-headline"><span class="headline-text">See how much your room could make with Campus Swap</span><span class="profit-row"><span class="profit-label">Your profit:</span><span class="total-amount" id="room-total">$0</span></span></h2>
+                <p class="tagline">Hover over items to see value. Click to add or remove from your potential earnings.</p>
+                <div class="room-image-container" id="room-container">
+                    <div class="room-tooltip" id="room-tooltip"></div>
+                    <img src="{{ url_for('static', filename='dormRoom.png') }}" alt="Dorm room sketch" id="room-image">
+                    <svg class="room-svg-overlay" id="room-svg" viewBox="0 0 2816 1536" preserveAspectRatio="xMidYMid meet">
+                        <polygon data-item="minifridge" data-value="55" data-label="Mini-fridge" points="2162,698 2032,761 2032,997 2169,1057 2291,990 2291,756"></polygon>
+                        <polygon data-item="rug" data-value="40" data-label="Rug" points="1306,1141 1410,1194 1662,1064 1662,965 1674,950 1244,753 1045,850 1281,965 1291,985 1291,1002 1291,1022 1296,1037 1306,1047"></polygon>
+                        <polygon data-item="rug" data-value="40" data-label="Rug" points="1269,1124 1269,1087 1236,1107"></polygon>
+                        <polygon data-item="microwave" data-value="25" data-label="Microwave" points="1291,422 1289,509 1371,546 1490,489 1490,402 1408,365 1353,395"></polygon>
+                        <polygon data-item="headboard" data-value="40" data-label="Headboard" points="547,936 562,926 562,864 624,831 612,809 702,759 764,739 796,754 826,749 823,607 806,597 527,722 527,924"></polygon>
+                        <polygon data-item="mattress" data-value="80" data-label="Mattress" points="567,931 1022,1163 1042,1165 1057,1158 1085,1145 1281,1043 1291,1016 1284,981 1276,963 965,812 908,779 893,779 823,749 796,754 823,782 828,797 816,807 764,831 716,854 689,864 662,854 637,839 622,831 567,859 562,871"></polygon>
+                        <polygon data-item="couch" data-value="70" data-label="Couch" points="1689,846 1694,886 1707,889 1709,854 1726,861 1836,807 1838,819 1851,817 1853,794 1881,779 1878,687 1861,677 1868,615 1846,600 1809,583 1774,568 1739,553 1719,550 1704,538 1667,523 1619,503 1595,495 1572,495 1560,505 1547,553 1413,617 1410,627 1408,717 1438,727 1445,772 1455,769 1460,734 1445,772 1460,737"></polygon>
+                        <polygon data-item="acunit" data-value="50" data-label="AC Unit" points="1938,592 2065,645 2087,637 2090,535 1963,483 1948,490 1935,525"></polygon>
+                        <polygon data-item="tv" data-value="40" data-label="TV" points="1664,963 1662,1133 1672,1138 1794,1080 1796,1090 1744,1120 1779,1138 1883,1080 1846,1061 1831,1070 1826,1061 1930,1003 1930,834 1920,829"></polygon>
+                    </svg>
+                </div>
+                <div class="room-receipt">
+                    <h3>Potential Earnings Receipt</h3>
+                    <ul class="room-receipt-list" id="room-receipt-list"></ul>
+                    <div class="room-receipt-total" id="room-receipt-total">Total: $0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- How It Works -->
         <div class="timeline-section timeline-seller reveal fade-up">
             <div style="text-align: center; margin-bottom: 50px;">
                 <h2>How It Works</h2>
@@ -340,59 +398,12 @@
             </div>
         </div>
 
-        <!-- 50% vs 35% Incentive - Highlight -->
-        <div class="seller-section reveal fade-up">
-            <div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(251, 191, 36, 0.1) 100%); border: 2px solid rgba(245, 158, 11, 0.5); border-radius: 20px; padding: 32px; margin-bottom: 48px;">
-                <h2 style="margin-bottom: 16px;"><i class="fas fa-chart-line"></i> Submit Through the Site = More Money</h2>
-                <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 16px;">
-                    When you submit items through Campus Swap and add your card for the service fee, you earn <strong style="color: var(--accent);">50%</strong> when your items sell. 
-                    In-person drop-offs at our store earn only <strong>35%</strong>. Campus Swap takes 65% for handling.
-                </p>
-                <p style="font-size: 1rem; color: var(--text-muted); margin: 0;">
-                    That&rsquo;s 15% more in your pocket per sale. Pay the fee, submit online, earn more.
-                </p>
-            </div>
-        </div>
-
-        <!-- What We Take -->
-        <div class="seller-section reveal fade-up">
-            <h2><i class="fas fa-check-circle"></i> What We Take</h2>
-            <p style="line-height: 1.7; margin-bottom: 12px;">
-                <strong>Types:</strong> Couches, mini fridges, mattresses, futons, AC units, TVs. <strong>Quality:</strong> Sellable condition or better. <strong>Value:</strong> Items that typically sell for $50+.
-            </p>
-            <p style="line-height: 1.7; margin: 0;">
-                We don&rsquo;t take small or low-value items like lamps, décor, or small furniture.
-            </p>
-        </div>
-
-        <!-- Earnings Calculator - Airbnb-style slider -->
-        <div class="seller-section reveal fade-up">
-            <div class="earnings-calc">
-                <h2 class="earnings-calc-headline">Your room could make <span id="calc-amount">$25</span> with Campus Swap</h2>
-                <p class="tagline">Slide to see what your space is worth.</p>
-                <div class="calc-icons-row" id="calc-icons">
-                    <div class="calc-icon" data-n="1"><i class="fas fa-snowflake"></i></div>
-                    <div class="calc-icon" data-n="2"><i class="fas fa-bed"></i></div>
-                    <div class="calc-icon" data-n="3"><i class="fas fa-couch"></i></div>
-                    <div class="calc-icon" data-n="4"><i class="fas fa-tv"></i></div>
-                    <div class="calc-icon" data-n="5"><i class="fas fa-fan"></i></div>
-                </div>
-                <div class="calc-slider-wrap">
-                    <input type="range" id="calc-slider" min="1" max="5" value="1" step="1">
-                    <div class="calc-slider-labels">
-                        <span>1 item</span>
-                        <span>5 items</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
         <!-- Why We Charge a Fee (full width) -->
         <div id="why-fee" class="payment-structure-section reveal fade-up">
             <h2><i class="fas fa-info-circle"></i> Pricing &amp; Why We Charge</h2>
-            <p class="subhead"><strong>$15 service fee</strong> guarantees your space in our store and our move-out pickup service. <strong>$10 per large item</strong> (we mark during approval). You add your card now. We charge only at pickup for approved items. In-person drop-offs have no fee but earn 35% vs. 50%.</p>
+            <p class="subhead"><strong>$15 service fee</strong> guarantees your space in our store and our move-out pickup service. <strong>$10 per large item</strong> (we mark during approval). You add your card now. We charge only at pickup for approved items. In-person drop-offs have no fee but earn 33% vs. 50%.</p>
         </div>
 
     <div class="container">
@@ -423,54 +434,15 @@
         <div id="join" class="card no-hover reveal fade-up" style="text-align: center; padding: 60px; max-width: 640px; margin: 0 auto 80px;">
             <div style="margin-bottom: 30px;">
                 <i class="fas fa-handshake" style="font-size: 2.5rem; color: var(--primary); margin-bottom: 16px;"></i>
-                <h2 style="font-size: 2rem; margin-bottom: 12px;">Ready to join?</h2>
+                <h2 style="font-size: 2rem; margin-bottom: 12px;">Ready to start selling?</h2>
                 <p style="font-size: 1.05rem;">
-                    Seller spots are limited. Create your account and get started.
+                    Create your account and get started.
                 </p>
             </div>
-            {% if pickup_period_active %}
-            <div style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 12px 20px; margin: 0 auto 20px; max-width: 480px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                <i class="fas fa-clock" style="color: var(--accent); font-size: 1rem;"></i>
-                <span style="color: var(--accent); font-weight: 600; font-size: 0.95rem;">Pickup Period Open</span>
-            </div>
-            {% if google_oauth_enabled %}
-            <a href="/auth/google" class="btn-google" style="margin: 0 auto 20px; max-width: 320px; display: flex;">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                Sign in with Google
+            <a href="{{ url_for('login') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">
+                Start Selling
             </a>
-            <p style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 20px;">or</p>
-            {% endif %}
-            <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <input type="email" name="email" placeholder="student@college.edu" required
-                       style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
-                <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Create Account</button>
-            </form>
-            <p style="margin-top: 20px; font-size: 0.9rem;">Already have an account? <a href="/login" style="color: var(--accent); font-weight: bold;">Log In</a></p>
-            {% else %}
-            <div style="background: rgba(203, 213, 225, 0.2); border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px 20px; margin: 0 auto 20px; max-width: 480px;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
-                    <i class="fas fa-calendar-check" style="color: var(--text-muted); font-size: 1.2rem;"></i>
-                    <strong style="color: var(--text-muted); font-size: 0.95rem;">Pickup Period Closed</strong>
-                </div>
-                <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
-                    Enter your email to be notified when signups open next year!
-                </p>
-            </div>
-            {% if google_oauth_enabled %}
-            <a href="/auth/google" class="btn-google" style="margin: 0 auto 20px; max-width: 320px; display: flex;">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                Sign in with Google
-            </a>
-            <p style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 20px;">or</p>
-            {% endif %}
-            <form method="POST" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <input type="email" name="email" placeholder="student@college.edu" required
-                       style="width: 100%; max-width: 300px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
-                <button type="submit" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Get Notified</button>
-            </form>
-            {% endif %}
+            <p style="margin-top: 20px; font-size: 0.9rem;">New here? <a href="{{ url_for('register') }}" style="color: var(--accent); font-weight: bold;">Create Account</a></p>
         </div>
     </div>
 </div>
@@ -481,22 +453,82 @@
     });
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-    // Earnings Calculator - Slider (Airbnb-style)
-    const SLIDER_AMOUNTS = [25, 60, 105, 150, 180];
-    const slider = document.getElementById('calc-slider');
-    const amountEl = document.getElementById('calc-amount');
-    const icons = document.querySelectorAll('.calc-icon');
+    // Interactive Room - coordinate data (reference; polygons in SVG are source of truth)
+    const ROOM_ITEMS = {
+        minifridge: { points: "2162,698 2032,761 2032,997 2169,1057 2291,990 2291,756", value: 55, label: "Mini-fridge" },
+        rug:        { value: 40, label: "Rug" },
+        microwave:  { points: "1291,422 1289,509 1371,546 1490,489 1490,402 1408,365 1353,395", value: 25, label: "Microwave" },
+        headboard:  { points: "547,936 562,926 562,864 624,831 612,809 702,759 764,739 796,754 826,749 823,607 806,597 527,722 527,924", value: 40, label: "Headboard" },
+        mattress:   { points: "567,931 1022,1163 1042,1165 1057,1158 1085,1145 1281,1043 1291,1016 1284,981 1276,963 965,812 908,779 893,779 823,749 796,754 823,782 828,797 816,807 764,831 716,854 689,864 662,854 637,839 622,831 567,859 562,871", value: 80, label: "Mattress" },
+        couch:      { points: "1689,846 1694,886 1707,889 1709,854 1726,861 1836,807 1838,819 1851,817 1853,794 1881,779 1878,687 1861,677 1868,615 1846,600 1809,583 1774,568 1739,553 1719,550 1704,538 1667,523 1619,503 1595,495 1572,495 1560,505 1547,553 1413,617 1410,627 1408,717 1438,727 1445,772 1455,769 1460,734 1445,772 1460,737", value: 70, label: "Couch" },
+        acunit:     { points: "1938,592 2065,645 2087,637 2090,535 1963,483 1948,490 1935,525", value: 50, label: "AC Unit" },
+        tv:         { points: "1664,963 1662,1133 1672,1138 1794,1080 1796,1090 1744,1120 1779,1138 1883,1080 1846,1061 1831,1070 1826,1061 1930,1003 1930,834 1920,829", value: 40, label: "TV" }
+    };
 
-    function updateCalc() {
-        const n = parseInt(slider.value, 10);
-        amountEl.textContent = '$' + SLIDER_AMOUNTS[n - 1];
-        icons.forEach(icon => {
-            const need = parseInt(icon.dataset.n, 10);
-            icon.classList.toggle('active', need <= n);
+    const receiptItems = [];
+    let lastTotal = -1;
+    const tooltipEl = document.getElementById('room-tooltip');
+    const totalEl = document.getElementById('room-total');
+    const receiptListEl = document.getElementById('room-receipt-list');
+    const receiptTotalEl = document.getElementById('room-receipt-total');
+    const polygons = document.querySelectorAll('#room-svg polygon');
+
+    function formatLabel(label) {
+        return label === 'acunit' ? 'AC Unit' : label.charAt(0).toUpperCase() + label.slice(1);
+    }
+
+    function updateReceipt() {
+        const total = receiptItems.reduce((sum, it) => sum + it.value, 0);
+        totalEl.textContent = '$' + total;
+        if (total !== lastTotal && lastTotal >= 0) {
+            totalEl.classList.add('pop');
+            totalEl.addEventListener('animationend', () => totalEl.classList.remove('pop'), { once: true });
+        }
+        lastTotal = total;
+        receiptTotalEl.textContent = total > 0 ? 'Total Potential Earnings: $' + total : 'Total Potential Earnings:';
+
+        if (receiptItems.length === 0) {
+            receiptListEl.innerHTML = '<li class="room-receipt-empty">Click items above to add to your receipt</li>';
+        } else {
+            const header = '<li class="room-receipt-header"><span>Item</span><span>Sale Price</span><span>Your Profit</span></li>';
+            const rows = receiptItems.map(it => {
+                const salePrice = it.value * 2;
+                return '<li><span>' + it.label + '</span><span>$' + salePrice + '</span><span>$' + it.value + '</span></li>';
+            }).join('');
+            receiptListEl.innerHTML = header + rows;
+        }
+
+        polygons.forEach(p => {
+            const id = p.dataset.item;
+            const inReceipt = receiptItems.some(it => it.id === id);
+            p.classList.toggle('receipt-active', inReceipt);
         });
     }
 
-    slider.addEventListener('input', updateCalc);
-    updateCalc();
+    polygons.forEach(polygon => {
+        polygon.addEventListener('mouseenter', function() {
+            const label = this.dataset.label || formatLabel(this.dataset.item);
+            const value = parseInt(this.dataset.value, 10);
+            tooltipEl.textContent = label + ': $' + value;
+            tooltipEl.classList.add('visible');
+        });
+        polygon.addEventListener('mouseleave', function() {
+            tooltipEl.classList.remove('visible');
+        });
+        polygon.addEventListener('click', function() {
+            const id = this.dataset.item;
+            const label = this.dataset.label || formatLabel(id);
+            const value = parseInt(this.dataset.value, 10);
+            const idx = receiptItems.findIndex(it => it.id === id);
+            if (idx >= 0) {
+                receiptItems.splice(idx, 1);
+            } else {
+                receiptItems.push({ id, label, value });
+            }
+            updateReceipt();
+        });
+    });
+
+    updateReceipt();
 </script>
 {% endblock %}

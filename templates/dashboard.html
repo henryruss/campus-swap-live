@@ -188,7 +188,7 @@
     <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
         <div class="dashboard-header-text">
             <h1 style="margin-bottom: 5px;">Seller Studio</h1>
-            <p style="margin: 0; color: var(--text-muted);">Complete the 3-step setup to launch.</p>
+            <p style="margin: 0; color: var(--text-muted);">Manage your inventory and track your sales.</p>
         </div>
         <a href="/logout" class="btn btn-outline" style="padding: 8px 20px; font-size: 0.9rem;">Log Out</a>
     </div>
@@ -203,58 +203,61 @@
                 <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
                 
                 <form action="/set_password" method="POST" style="margin-top: 15px; display: flex; gap: 10px;">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <input type="password" name="password" placeholder="Create Password" required style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; flex-grow: 1;">
                     <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
                 </form>
             </div>
             {% endif %}
 
-            <div id="step-1" class="step-card {% if current_user.has_pickup_location %}done{% else %}active{% endif %}">
-                <span class="step-number">1</span>
-                {% if current_user.has_pickup_location %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
-
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup Location</h3>
-                
-                {% if current_user.has_pickup_location %}
-                    <p style="color: var(--text-muted); margin-bottom: 5px;">Collection Point:</p>
-                    
-                    <div id="view-address" class="locked-box" style="background: rgba(255,255,255,0.6);">
-                        <span class="locked-box-address" style="font-weight: 600;">{{ current_user.pickup_display }}</span>
-                        <button type="button" onclick="toggleEdit('address')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Change</button>
-                    </div>
-                    {% if current_user.pickup_note %}
-                    <p style="color: var(--text-muted); margin: 10px 0 5px;">Directions:</p>
-                    <div class="locked-box" style="background: rgba(255,255,255,0.6); margin-bottom: 0;">
-                        <span>{{ current_user.pickup_note }}</span>
-                    </div>
-                    {% endif %}
-                    {% if current_user.phone %}
-                    <p style="color: var(--text-muted); margin: 10px 0 5px;">Contact for pickup:</p>
-                    <div class="locked-box" style="background: rgba(255,255,255,0.6); margin-bottom: 0;">
-                        <span style="font-weight: 600;">{{ current_user.phone }}</span>
-                    </div>
-                    {% endif %}
-
-                    <div id="edit-address" style="display: none; margin-top: 15px;">
-                        {% include 'dashboard_pickup_form.html' %}
-                    </div>
-                {% else %}
-                    <p style="color: var(--text-muted);">Where should we pick up your items?</p>
-                    {% include 'dashboard_pickup_form.html' %}
-                {% endif %}
-            </div>
-
-            <div id="step-2" class="step-card {% if my_items %}done{% elif current_user.has_pickup_location %}active{% else %}locked{% endif %}">
-                <span class="step-number">2</span>
-                {% if my_items %}<div class="step-icon-status"><i class="fas fa-check"></i></div>{% endif %}
-
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-camera" style="color: var(--primary);"></i> Inventory</h3>
+            <div class="step-card">
+                <h3 style="margin-bottom: 10px;"><i class="fas fa-camera" style="color: var(--primary);"></i> My Inventory</h3>
                 
                 {% if my_items %}
                     {% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
+                    {% set pending_logistics = my_items|selectattr('status', 'equalto', 'pending_logistics')|list %}
                     {% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
                     {% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
+                    {% set pending_pickup = pending_logistics|selectattr('collection_method', 'equalto', 'online')|list %}
+                    {% set pending_pod = pending_logistics|selectattr('collection_method', 'equalto', 'in_person')|list %}
+                    
+                    {% if pending_logistics %}
+                    <div style="margin-bottom: 30px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
+                                <i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i> Action Required ({{ pending_logistics|length }})
+                            </h4>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Your item(s) were approved. Confirm pickup week or dropoff location to complete setup.</p>
+                        {% if pending_pickup %}
+                        <div style="margin-bottom: 16px;">
+                            <a href="{{ url_for('confirm_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <i class="fas fa-truck"></i> Confirm Pickup Week & Pay
+                            </a>
+                        </div>
+                        {% endif %}
+                        {% if pending_pod %}
+                        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                            {% for item in pending_pod %}
+                            <form method="POST" action="{{ url_for('confirm_dropoff') }}" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; flex: 1; min-width: 200px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="item_id" value="{{ item.id }}">
+                                <div style="flex: 1; min-width: 120px;">
+                                    <label style="font-size: 0.8rem; color: var(--text-muted);">{{ item.description[:30] }}{% if item.description|length > 30 %}...{% endif %}</label>
+                                    <select name="dropoff_pod" required style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                                        <option value="">Select pod...</option>
+                                        {% for value, label in pod_locations %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary" style="padding: 10px 16px;">Confirm</button>
+                            </form>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     
                     {% if pending_items %}
                     <div style="margin-bottom: 30px;">
@@ -339,279 +342,13 @@
                 {% endif %}
             </div>
 
-            {% if has_online_items and not has_payment_method and current_user.payout_handle %}
-            <div id="step-3" class="step-card {% if my_items %}active{% else %}locked{% endif %}">
-                <span class="step-number">3</span>
-
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-credit-card" style="color: var(--primary);"></i> Add Payment Method</h3>
-                
-                {% if current_user.payment_declined %}
-                <div style="background: #fef2f2; border: 2px solid #fecaca; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                    <strong style="color: #991b1b;"><i class="fas fa-exclamation-triangle"></i> Your payment was declined.</strong>
-                    <p style="color: #991b1b; font-size: 0.9rem; margin: 8px 0 0;">Add a valid card to continue listing items.</p>
-                </div>
-                {% endif %}
-
-                <p style="color: var(--text-muted); margin-bottom: 15px;">Add your card now. You won&rsquo;t be charged until pickup week.</p>
-                
-                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                    <strong style="color: #166534; font-size: 0.95rem;">Fee at pickup:</strong>
-                    <ul style="color: #166534; font-size: 0.9rem; margin: 8px 0 0 20px; padding: 0;">
-                        <li>$15 service fee (guarantees space + move-out pickup)</li>
-                        <li>$10 per large item (admin marks during approval)</li>
-                    </ul>
-                </div>
-
-                {% if approved_online_count and approved_online_count > 0 %}
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
-                    <strong>Approved for pickup:</strong> {{ approved_online_count }} item(s) {% if approved_large_count %}({{ approved_large_count }} large){% endif %}
-                    <div style="font-size: 1.1rem; font-weight: 700; color: var(--primary); margin-top: 6px;">${{ "%.2f"|format(projected_fee_cents / 100) }} at pickup</div>
-                </div>
-                {% endif %}
-
-                <a href="{{ url_for('add_payment_method') }}" class="btn btn-primary" style="width: 100%; padding: 16px;">
-                    <i class="fas fa-credit-card"></i> Add Card
-                </a>
-
-                <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px solid #bbf7d0; border-radius: 12px;">
-                    <strong style="color: #166534; font-size: 0.95rem;"><i class="fas fa-chart-line"></i> Submit Through the Site = More Money</strong>
-                    <p style="color: #166534; font-size: 0.9rem; margin: 10px 0 0; line-height: 1.5;">
-                        When you submit items through Campus Swap and pay the service fee, you earn <strong>50%</strong> when your items sell. 
-                        In-person drop-offs earn only <strong>35%</strong>. That&rsquo;s 15% more in your pocket per sale.
-                    </p>
-                </div>
-            </div>
-            {% endif %}
-
-            {% if has_online_items and not current_user.payout_handle %}
-            <div id="step-3" class="step-card {% if my_items %}active{% else %}locked{% endif %}">
-                <span class="step-number">3</span>
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Info</h3>
-                <p style="color: var(--text-muted); margin-bottom: 20px;">Link your account to receive earnings when your items sell.</p>
-                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 12px;">
-                    <form action="/update_payout" method="POST">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                            <div>
-                                <label style="margin-top: 0;">Method</label>
-                                <select name="payout_method" required>
-                                    <option value="Venmo">Venmo</option>
-                                    <option value="Zelle">Zelle</option>
-                                    <option value="PayPal">PayPal</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style="margin-top: 0;">Username</label>
-                                <div class="input-group">
-                                    <div class="input-prefix">@</div>
-                                    <input type="text" name="payout_handle" placeholder="username" required>
-                                </div>
-                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">This is where we&rsquo;ll send your earnings when your items sell.</p>
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Secure Payout Info</button>
-                    </form>
-                </div>
-            </div>
-            {% endif %}
-
-            <!-- Payout Settings (visible when user has set payout info) -->
-            {% if current_user.payout_handle %}
-            <div class="step-card" style="border-color: #bbf7d0; background: #f0fdf4;">
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Settings</h3>
-                
-                <div id="view-payout" class="locked-box" style="background: rgba(255,255,255,0.6);">
-                    <div>
-                        <strong style="color: #166534;"><i class="fas fa-check-circle"></i> {{ current_user.payout_method }}</strong>
-                        <span style="margin-left: 10px; color: #166534;">@{{ current_user.payout_handle }}</span>
-                    </div>
-                    <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline locked-box-btn" style="padding: 5px 10px; font-size: 0.8rem; flex-shrink: 0;">Edit</button>
-                </div>
-
-                <div id="edit-payout" style="display: none; margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                    <form action="/update_payout" method="POST">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                            <div>
-                                <label>Method</label>
-                                <select name="payout_method">
-                                    <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
-                                    <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
-                                    <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label>Handle</label>
-                                <div class="input-group">
-                                    <div class="input-prefix">@</div>
-                                    <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" required>
-                                </div>
-                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">This is where we&rsquo;ll send your earnings when your items sell.</p>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="submit" class="btn btn-primary">Save Changes</button>
-                            <button type="button" onclick="toggleEdit('payout')" class="btn btn-outline">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            {% endif %}
-
         </div>
 
         <div>
-            <div class="card no-hover" style="position: sticky; top: 100px;">
-                <h4 style="margin-bottom: 20px; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem;">Seller Status</h4>
-                
-                <div style="text-align: center; margin-bottom: 30px;">
-                    {% set has_in_person_items = my_items|selectattr('collection_method', 'equalto', 'in_person')|list|length > 0 %}
-                    {% set needs_payment = approved_online_count > 0 and not has_payment_method %}
-                    {% if needs_payment or not current_user.has_pickup_location or not my_items %}
-                        <div style="font-size: 3rem; margin-bottom: 10px; color: var(--accent);">
-                            <i class="fas fa-hard-hat"></i>
-                        </div>
-                        <div style="font-weight: 800; font-size: 1.2rem;">Setup In Progress</div>
-                    {% elif (has_payment_method or has_in_person_items or not needs_payment) and current_user.has_pickup_location and my_items %}
-                        {# Count active/pending items using a namespace for scoping #}
-                        {% set ns = namespace(active=0, pending=0) %}
-                        {% for item in my_items %}
-                            {% if item.status == 'available' %}{% set ns.active = ns.active + 1 %}{% endif %}
-                            {% if item.status == 'pending_valuation' %}{% set ns.pending = ns.pending + 1 %}{% endif %}
-                        {% endfor %}
-
-                        {% if ns.active > 0 %}
-                            <div style="font-size: 3rem; margin-bottom: 10px; color: var(--primary);">
-                                <i class="fas fa-store"></i>
-                            </div>
-                            <div style="font-weight: 800; font-size: 1.2rem;">Shop is Live!</div>
-                        {% elif ns.pending > 0 %}
-                            <div style="font-size: 3rem; margin-bottom: 10px; color: #3b82f6;">
-                                <i class="fas fa-hourglass-half"></i>
-                            </div>
-                            <div style="font-weight: 800; font-size: 1.2rem;">Pending Review</div>
-                        {% else %}
-                            <div style="font-size: 3rem; margin-bottom: 10px; color: var(--primary);">
-                                <i class="fas fa-check-circle"></i>
-                            </div>
-                            <div style="font-weight: 800; font-size: 1.2rem;">Active Seller</div>
-                        {% endif %}
-                    {% endif %}
-                </div>
-
-                <div style="background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px solid #bbf7d0; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
-                    <strong style="color: #166534; font-size: 0.9rem;"><i class="fas fa-chart-line"></i> 50% vs 35% Payout</strong>
-                    <p style="color: #166534; font-size: 0.85rem; margin: 8px 0 0; line-height: 1.5;">
-                        Submit through the site = <strong>50%</strong> when items sell. In-person drop-off = <strong>35%</strong>. Pay the service fee to earn more.
-                    </p>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
-                
-                {% if my_items %}
-                {% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
-                {% set ns = namespace(total_value=0) %}
-                {% for item in live_items %}
-                    {% if item.price %}{% set ns.total_value = ns.total_value + item.price %}{% endif %}
-                {% endfor %}
-                
-                {% if live_items|length > 0 or sold_items|length > 0 %}
-                <div style="background: #f0fdf4; border: 2px solid #bbf7d0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                        <i class="fas fa-dollar-sign" style="color: #166534; font-size: 1.5rem;"></i>
-                        <h4 style="margin: 0; color: #166534;">Payout Tracker</h4>
-                    </div>
-                    
-                    {% if total_potential > 0 %}
-                    <!-- Progress Bar -->
-                    <div style="margin-bottom: 15px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 0.9rem; color: var(--text-muted);">Paid Out</span>
-                            <span style="font-size: 0.9rem; font-weight: 600; color: #166534;">
-                                ${{ "%.2f"|format(paid_out) }} / ${{ "%.2f"|format(total_potential) }}
-                            </span>
-                        </div>
-                        {% set progress_percent = (paid_out / total_potential * 100) if total_potential > 0 else 0 %}
-                        <div style="background: #e2e8f0; border-radius: 8px; height: 24px; overflow: hidden; position: relative;">
-                            <div style="background: linear-gradient(90deg, #166534 0%, #059669 100%); height: 100%; width: {{ progress_percent|round(1) }}%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center;">
-                                {% if paid_out > 0 and progress_percent > 15 %}
-                                <span style="color: white; font-size: 0.75rem; font-weight: 600;">
-                                    ${{ "%.2f"|format(paid_out) }}
-                                </span>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    
-                    <!-- Payout Breakdown -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        {% if estimated_payout > 0 %}
-                        <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Estimated</div>
-                            <div style="font-size: 1.3rem; font-weight: 700; color: #166534;">
-                                ${{ "%.2f"|format(estimated_payout) }}
-                            </div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
-                                {{ live_items|length }} live item{{ 's' if live_items|length != 1 else '' }}
-                            </div>
-                        </div>
-                        {% endif %}
-                        
-                        {% if pending_payouts > 0 %}
-                        <div style="background: #fffbeb; padding: 12px; border-radius: 8px; border: 1px solid #fcd34d;">
-                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Pending</div>
-                            <div style="font-size: 1.3rem; font-weight: 700; color: #92400e;">
-                                ${{ "%.2f"|format(pending_payouts) }}
-                            </div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
-                                Awaiting payment
-                            </div>
-                        </div>
-                        {% endif %}
-                    </div>
-                    
-                    {% if paid_out > 0 %}
-                    <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 10px;">
-                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Paid Out</div>
-                        <div style="font-size: 1.3rem; font-weight: 700; color: #166534;">
-                            ${{ "%.2f"|format(paid_out) }}
-                        </div>
-                    </div>
-                    {% endif %}
-                    
-                    <div style="background: #e0f2fe; border: 1px solid #93c5fd; border-radius: 8px; padding: 10px; margin-top: 15px;">
-                        <p style="font-size: 0.8rem; color: #1e40af; margin: 0; display: flex; align-items: center; gap: 8px;">
-                            <i class="fas fa-info-circle"></i>
-                            <span>Payouts are processed weekly. You'll receive payment via {{ current_user.payout_method or 'your selected method' }}.</span>
-                        </p>
-                    </div>
-                </div>
-                {% endif %}
-                {% endif %}
-                
-                <div style="font-size: 0.9rem; color: var(--text-muted);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span>Step 1: Address</span> 
-                        <strong style="color: {% if current_user.has_pickup_location %}var(--primary){% else %}inherit{% endif %}">
-                            {% if current_user.has_pickup_location %}Done{% else %}To Do{% endif %}
-                        </strong>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span>Step 2: Inventory</span> 
-                        <strong style="color: {% if my_items %}var(--primary){% else %}inherit{% endif %}">
-                            {% if my_items %}Done{% else %}To Do{% endif %}
-                        </strong>
-                    </div>
-                    {% if has_online_items %}
-                    <div style="display: flex; justify-content: space-between;">
-                        <span>Step 3: Payment</span> 
-                        <strong style="color: {% if current_user.has_paid %}var(--primary){% else %}inherit{% endif %}">
-                            {% if current_user.has_paid %}Done{% else %}To Do{% endif %}
-                        </strong>
-                    </div>
-                    {% endif %}
-                </div>
+            <div>
+                <a href="{{ url_for('account_settings') }}" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-cog"></i> Account Settings
+                </a>
             </div>
         </div>
 

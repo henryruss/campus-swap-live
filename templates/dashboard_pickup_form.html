@@ -1,5 +1,6 @@
 <form id="pickup-form" action="/update_profile" method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    {% if standalone %}<input type="hidden" name="redirect_to" value="account_settings"/>{% endif %}
     <input type="hidden" name="pickup_location_type" id="pickup_location_type" value="{{ current_user.pickup_location_type or 'off_campus' }}">
     <input type="hidden" name="pickup_lat" id="pickup_lat" value="{{ current_user.pickup_lat or '' }}">
     <input type="hidden" name="pickup_lng" id="pickup_lng" value="{{ current_user.pickup_lng or '' }}">
@@ -44,10 +45,14 @@
         </div>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin: 8px 0 0;">This is where we'll come. We'll text or call when we're on our way.</p>
         {% if not google_maps_key %}
-        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 6px 0 0; font-style: italic;">Address autocomplete and map preview require a Google Maps API key—they will work when the site is deployed with <code>GOOGLE_MAPS_API_KEY</code> set.</p>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 6px 0 0; font-style: italic;">Address autocomplete and map preview require a Google Maps API key. They will work when the site is deployed with <code>GOOGLE_MAPS_API_KEY</code> set.</p>
         {% endif %}
     </div>
 
+    <div style="margin-bottom: 15px;">
+        <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Phone <span style="color: var(--text-muted); font-weight: normal;">(so we can text you upon arrival)</span></label>
+        <input type="tel" name="phone" id="pickup_phone" value="{{ current_user.phone or '' }}" placeholder="(555) 555-5555" maxlength="14" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+    </div>
     <div style="margin-bottom: 15px;">
         <label style="font-size: 0.9rem; margin-bottom: 4px; display: block;">Additional directions <span style="color: var(--text-muted); font-weight: normal;">(optional)</span></label>
         <input type="text" name="pickup_note" id="pickup_note" value="{{ current_user.pickup_note or '' }}" placeholder="e.g. Third floor, Unit B (with the hello doormat)" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
@@ -55,7 +60,7 @@
 
     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
         <button type="submit" class="btn btn-primary" id="pickup-submit-btn">Save Location</button>
-        {% if current_user.has_pickup_location %}
+        {% if current_user.has_pickup_location and not standalone %}
         <button type="button" onclick="toggleEdit('address')" class="btn btn-outline">Cancel</button>
         {% endif %}
     </div>
@@ -76,6 +81,19 @@
 }
 </style>
 
+<script>
+(function() {
+    const phoneInput = document.getElementById('pickup_phone');
+    if (phoneInput) {
+        phoneInput.addEventListener('input', function() {
+            let v = this.value.replace(/\D/g,'').slice(0,10);
+            if (v.length >= 6) this.value = '('+v.slice(0,3)+') '+v.slice(3,6)+'-'+v.slice(6);
+            else if (v.length >= 3) this.value = '('+v.slice(0,3)+') '+v.slice(3);
+            else this.value = v;
+        });
+    }
+})();
+</script>
 {% if google_maps_key %}
 <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places" async defer></script>
 {% endif %}

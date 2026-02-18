@@ -36,7 +36,8 @@ from constants import (
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
-    ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE
+    ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
+    PICKUP_WEEKS, POD_LOCATIONS
 )
 
 # Configure Logging
@@ -1123,7 +1124,27 @@ def webhook():
             else:
                 logger.error(f"WEBHOOK: Item {item_id} not found in database")
 
-        # --- CASE 2: SELLER ACTIVATION ---
+        # --- CASE 2: CONFIRM PICKUP (post-approval payment) ---
+        elif session.get('metadata', {}).get('type') == 'confirm_pickup':
+            item_ids_str = session.get('metadata', {}).get('item_ids', '')
+            pickup_week = session.get('metadata', {}).get('pickup_week', '')
+            user_id = session.get('metadata', {}).get('user_id')
+            if item_ids_str and pickup_week and user_id:
+                item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
+                for item_id in item_ids:
+                    item = InventoryItem.query.get(item_id)
+                    if item and item.seller_id == int(user_id) and item.status == 'pending_logistics' and item.collection_method == 'online':
+                        item.pickup_week = pickup_week
+                        item.status = 'available'
+                        if item.category:
+                            item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+                user = User.query.get(user_id)
+                if user:
+                    user.has_paid = True
+                db.session.commit()
+                logger.info(f"WEBHOOK: Confirm pickup - items {item_ids} set to available")
+
+        # --- CASE 3: SELLER ACTIVATION ---
         elif session.get('metadata', {}).get('type') == 'seller_activation':
             user_id = session.get('metadata').get('user_id')
             user = User.query.get(user_id)
@@ -1200,58 +1221,6 @@ def admin_panel():
         new_status = not current_status
         AppSetting.set('pickup_period_active', str(new_status))
         flash(f"Pickup period {'activated' if new_status else 'closed'}.", "success")
-
-    # Admin: Run pickup charges ($15 + $10 per large item for users with approved online items)
-    if request.method == 'POST' and 'run_pickup_charges' in request.form:
-        charged, declined, skipped = 0, 0, 0
-        users_with_online = db.session.query(User).join(InventoryItem).filter(
-            InventoryItem.seller_id == User.id,
-            InventoryItem.status == 'available',
-            InventoryItem.collection_method == 'online'
-        ).distinct().all()
-        for user in users_with_online:
-            approved_online = [i for i in user.items if i.status == 'available' and i.collection_method == 'online']
-            if not approved_online:
-                continue
-            large_count = sum(1 for i in approved_online if i.is_large)
-            fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
-            if user.has_paid:
-                skipped += 1
-                continue
-            if not user.stripe_payment_method_id:
-                skipped += 1
-                continue
-            try:
-                stripe.PaymentIntent.create(
-                    amount=fee_cents,
-                    currency='usd',
-                    customer=user.stripe_customer_id,
-                    payment_method=user.stripe_payment_method_id,
-                    confirm=True,
-                    off_session=True,
-                    metadata={'type': 'pickup_fee', 'user_id': user.id}
-                )
-                user.has_paid = True
-                user.payment_declined = False
-                charged += 1
-            except stripe.error.CardError as e:
-                user.payment_declined = True
-                declined += 1
-                try:
-                    send_email(user.email, "Update Your Payment Method - Campus Swap", f"""
-                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                        <h2 style="color: #b91c1c;">Payment Declined</h2>
-                        <p>We tried to charge your card for the Campus Swap listing fee but it was declined.</p>
-                        <p>Please <a href="{url_for('add_payment_method', _external=True)}">add a valid payment method</a> to continue. You won't be able to add items until this is resolved.</p>
-                        <p>Thanks,<br>Campus Swap</p>
-                    </div>
-                    """)
-                except Exception as email_err:
-                    logger.error(f"Failed to send payment declined email: {email_err}")
-            except Exception as e:
-                logger.error(f"Charge failed for user {user.id}: {e}", exc_info=True)
-        db.session.commit()
-        flash(f"Pickup charges: {charged} charged, {declined} declined, {skipped} skipped.", "success")
 
     # 1. Update Category Counts
     if request.method == 'POST' and 'update_all_counts' in request.form:
@@ -1389,38 +1358,43 @@ def admin_panel():
                         else:
                             new_price = None
                         
-                        # Auto-Activate if pending item gets a price
-                        # All items can go live; payment is charged at pickup (online items)
+                        # When admin approves (sets price): item goes to pending_logistics
+                        # Seller must confirm pickup week (and pay) or dropoff pod before item goes live
                         if item.status == 'pending_valuation' and new_price is not None:
-                            can_go_live = True  # No payment gate; charge at pickup
+                            item.status = 'pending_logistics'
+                            # Don't add to count_in_stock until seller confirms logistics
                             
-                            if can_go_live:
-                                item.status = 'available'
-                                cat = InventoryCategory.query.get(item.category_id)
-                                if cat: cat.count_in_stock += 1
-                                
-                                # Send email notification to seller
-                                if item.seller and item.seller.email:
-                                    try:
-                                        email_content = f"""
-                                        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-                                            <h2 style="color: #166534;">Your Item is Now Live!</h2>
-                                            <p>Great news! Your item <strong>{item.description}</strong> has been approved and is now available for purchase.</p>
-                                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                                                <p style="margin: 0 0 8px;"><strong>Price:</strong> ${new_price:.2f}</p>
-                                                <p style="margin: 0;"><strong>Status:</strong> Available for purchase</p>
-                                            </div>
-                                            <p>View your item and track its status in your <a href="{url_for('dashboard', _external=True)}">dashboard</a>.</p>
-                                            <p>Thanks for selling with Campus Swap!</p>
+                            # Send email: item approved, confirm pickup/dropoff
+                            if item.seller and item.seller.email:
+                                try:
+                                    is_pickup = item.collection_method == 'online'
+                                    fee_text = ""
+                                    if is_pickup:
+                                        fee = SERVICE_FEE_CENTS // 100
+                                        if item.is_large:
+                                            fee += LARGE_ITEM_FEE_CENTS // 100
+                                        fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
+                                    else:
+                                        fee_text = " Select your dropoff pod location—no payment required."
+                                    email_content = f"""
+                                    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                                        <h2 style="color: #166534;">Your Item Has Been Approved!</h2>
+                                        <p>Great news! Your item <strong>{item.description}</strong> has been approved.</p>
+                                        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                                            <p style="margin: 0 0 8px;"><strong>Price:</strong> ${new_price:.2f}</p>
+                                            <p style="margin: 0;">Next step:{fee_text}</p>
                                         </div>
-                                        """
-                                        send_email(
-                                            item.seller.email,
-                                            "Your Item is Now Live! - Campus Swap",
-                                            email_content
-                                        )
-                                    except Exception as email_error:
-                                        logger.error(f"Failed to send item approved email: {email_error}")
+                                        <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Confirm in Dashboard</a></p>
+                                        <p>Thanks for selling with Campus Swap!</p>
+                                    </div>
+                                    """
+                                    send_email(
+                                        item.seller.email,
+                                        "Your Item Has Been Approved - Campus Swap",
+                                        email_content
+                                    )
+                                except Exception as email_error:
+                                    logger.error(f"Failed to send item approved email: {email_error}")
                         
                         old_price = item.price
                         item.price = new_price
@@ -1828,7 +1802,10 @@ def set_password():
 @app.route('/account_settings')
 @login_required
 def account_settings():
-    return render_template('account_settings.html')
+    dorms = RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {})
+    return render_template('account_settings.html',
+                          dorms=dorms,
+                          google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
 
 @app.route('/change_password', methods=['POST'])
 @login_required
@@ -1902,30 +1879,23 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
-        phone = request.form.get('phone', '').strip()
         
-        # Validate inputs
+        # Validate inputs - redirect to login with signup view to keep same layout
         if not email or not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return render_template('register.html')
+            return redirect(url_for('login', signup='true', email=email or '', full_name=full_name or ''))
         
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return render_template('register.html')
+            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
         
         if not password or len(password) < 6:
             flash("Password must be at least 6 characters long.", "error")
-            return render_template('register.html')
-        
-        phone_valid, phone_result = validate_phone(phone)
-        if not phone_valid:
-            flash(phone_result, "error")
-            return render_template('register.html')
-        phone = phone_result  # Use normalized 10-digit form
+            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
         
         if full_name and len(full_name) > MAX_NAME_LENGTH:
             flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
-            return render_template('register.html')
+            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
         
         user = User.query.filter_by(email=email).first()
         
@@ -1936,8 +1906,6 @@ def register():
                 user.password_hash = generate_password_hash(password)
                 if full_name:
                     user.full_name = full_name
-                if phone:
-                    user.phone = phone
                 db.session.commit()
                 login_user(user)
                 logger.info(f"Guest account converted to full account: {email}")
@@ -1967,7 +1935,7 @@ def register():
                 flash("An account with this email already exists. Please log in.", "error")
                 return redirect(url_for('login', email=email))
         
-        new_user = User(email=email, full_name=full_name, phone=phone, password_hash=generate_password_hash(password))
+        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
@@ -2113,8 +2081,9 @@ def login():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
     
-    # Pre-fill email if passed as query param (from account creation redirect)
+    # Pre-fill form data if passed as query param (from account creation redirect)
     prefill_email = request.args.get('email', '')
+    prefill_full_name = request.args.get('full_name', '')
         
     if request.method == 'POST':
         email = request.form.get('email', '').strip()
@@ -2124,28 +2093,28 @@ def login():
         # Validate email
         if not email or not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return render_template('login.html', prefill_email=email, show_signup=(form_type != 'login'))
+            return render_template('login.html', prefill_email=email, prefill_full_name=request.form.get('full_name', ''), show_signup=(form_type != 'login'))
         
         # If it's a login attempt
         if form_type == 'login':
             if not password:
                 flash("Please enter your password.", "error")
-                return render_template('login.html', prefill_email=email, show_signup=False)
+                return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=False)
             
             user = User.query.filter_by(email=email).first()
             
             if not user:
                 # User doesn't exist - suggest creating account
                 flash("No account found with this email. Create an account below.", "error")
-                return render_template('login.html', prefill_email=email, show_signup=True)
+                return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=True)
             elif not user.password_hash:
                 # User exists but has no password (guest account) - redirect to signup
                 flash("Please create an account with this email.", "error")
-                return render_template('login.html', prefill_email=email, show_signup=True)
+                return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=True)
             elif not check_password_hash(user.password_hash, password):
                 # Wrong password
                 flash("Invalid password. Please try again.", "error")
-                return render_template('login.html', prefill_email=email, show_signup=False)
+                return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=False)
             else:
                 # Successful login
                 login_user(user)
@@ -2155,7 +2124,7 @@ def login():
             flash("Please use the Create Account form.", "error")
     
     show_signup = request.args.get('signup') == 'true' or request.args.get('show_signup') == 'true'
-    return render_template('login.html', prefill_email=prefill_email, show_signup=show_signup)
+    return render_template('login.html', prefill_email=prefill_email, prefill_full_name=prefill_full_name, show_signup=show_signup)
 
 @app.route('/logout')
 @login_required
@@ -2170,7 +2139,12 @@ def dashboard():
     # Admins should use admin panel, not seller dashboard
     if current_user.is_admin:
         return redirect(url_for('admin_panel'))
-    
+
+    # First-time sellers (0 items) go straight to onboarding - never see setup cards
+    my_items_pre = InventoryItem.query.filter_by(seller_id=current_user.id).all()
+    if len(my_items_pre) == 0:
+        return redirect(url_for('onboard'))
+
     # Refresh user object to ensure we have latest data (especially has_paid status)
     db.session.expire(current_user)
     db.session.refresh(current_user)
@@ -2183,7 +2157,7 @@ def dashboard():
     # Check if user has any online items (which require payment)
     has_online_items = any(item.collection_method == 'online' for item in my_items)
     
-    # Calculate payout statistics (per-item percentage: online 50%, in-person 35%)
+    # Calculate payout statistics (per-item percentage: online 50%, in-person 33%)
     live_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
     
@@ -2201,6 +2175,9 @@ def dashboard():
     approved_large_count = sum(1 for i in approved_online if i.is_large)
     projected_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * approved_large_count) if approved_online else 0
     
+    stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+    stripe_configured = bool(stripe.api_key and stripe_pk)
+    
     return render_template('dashboard.html', 
                           my_items=my_items, 
                           has_online_items=has_online_items,
@@ -2213,7 +2190,9 @@ def dashboard():
                           approved_large_count=approved_large_count,
                           projected_fee_cents=projected_fee_cents,
                           has_payment_method=bool(current_user.stripe_payment_method_id),
+                          stripe_configured=stripe_configured,
                           dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
+                          pod_locations=POD_LOCATIONS,
                           google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
 
 @app.route('/update_profile', methods=['POST'])
@@ -2231,6 +2210,9 @@ def update_profile():
             current_user.pickup_lat = None
             current_user.pickup_lng = None
             current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            phone = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+            if len(phone) >= 10:
+                current_user.phone = phone[:20]
             db.session.commit()
             flash("Pickup location saved.", "success")
         else:
@@ -2247,6 +2229,9 @@ def update_profile():
             current_user.pickup_lat = float(lat) if lat and lat.strip() else None
             current_user.pickup_lng = float(lng) if lng and lng.strip() else None
             current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            phone = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+            if len(phone) >= 10:
+                current_user.phone = phone[:20]
             db.session.commit()
             flash("Pickup location saved.", "success")
         else:
@@ -2264,6 +2249,9 @@ def update_profile():
             current_user.pickup_lng = None
             db.session.commit()
             flash("Profile updated.", "success")
+    dest = request.form.get('redirect_to')
+    if dest == 'account_settings':
+        return redirect(url_for('account_settings'))
     return redirect(get_user_dashboard())
 
 @app.route('/update_payout', methods=['POST'])
@@ -2273,7 +2261,7 @@ def update_payout():
     handle = request.form.get('payout_handle')
     
     if method and handle:
-        clean_handle = handle.replace('@', '').strip()
+        clean_handle = handle.lstrip('@').strip() if method == 'Venmo' else handle.strip()
         if clean_handle:
             current_user.payout_method = method
             current_user.payout_handle = clean_handle
@@ -2290,7 +2278,11 @@ def update_payout():
 @login_required
 def add_payment_method():
     """Page to add payment method (Setup Intent - no charge until pickup)."""
-    return render_template('add_payment_method.html', stripe_publishable_key=os.environ.get('STRIPE_PUBLISHABLE_KEY', ''))
+    stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+    stripe_configured = bool(stripe.api_key and stripe_pk)
+    return render_template('add_payment_method.html',
+        stripe_publishable_key=stripe_pk,
+        stripe_configured=stripe_configured)
 
 @app.route('/create_setup_intent', methods=['POST'])
 @login_required
@@ -2324,11 +2316,48 @@ def create_setup_intent():
 @app.route('/payment_method_success')
 @login_required
 def payment_method_success():
-    """After SetupIntent completes; payment_declined cleared."""
+    """After SetupIntent completes; payment_declined cleared. If upgrade flow, batch-update items to online."""
     current_user.payment_declined = False
+    # Batch-update all in_person items to online (Campus Swap Pickup upgrade)
+    upgraded = InventoryItem.query.filter_by(seller_id=current_user.id, collection_method='in_person').update(
+        {'collection_method': 'online'}, synchronize_session=False
+    )
+    if upgraded:
+        flash("Upgraded to Campus Swap Pickup! All your items are now on our pickup route.", "success")
+    else:
+        flash("Payment method saved. You won't be charged until pickup week.", "success")
     db.session.commit()
-    flash("Payment method saved. You won't be charged until pickup week.", "success")
     return redirect(url_for('dashboard'))
+
+@app.route('/upgrade_checkout', methods=['POST'])
+@login_required
+def upgrade_checkout():
+    """Create Stripe Checkout session for $15 upgrade to Campus Swap Pickup."""
+    if not stripe.api_key:
+        flash("Payment is not configured yet. Please contact support.", "error")
+        return redirect(url_for('dashboard'))
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': 'Campus Swap Pickup - Service Fee'},
+                    'unit_amount': SERVICE_FEE_CENTS,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            client_reference_id=str(current_user.id),
+            metadata={'type': 'upgrade', 'user_id': current_user.id},
+            success_url=url_for('payment_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
+            cancel_url=url_for('dashboard', _external=True),
+        )
+        return redirect(checkout_session.url, code=303)
+    except Exception as e:
+        logger.error(f"upgrade_checkout: {e}", exc_info=True)
+        flash("Could not start payment. Please try again.", "error")
+        return redirect(url_for('dashboard'))
 
 @app.route('/create_checkout_session', methods=['POST'])
 @login_required
@@ -2364,19 +2393,27 @@ def payment_success():
             # Verify payment status directly from Stripe (in case webhook hasn't fired yet)
             stripe_session = stripe.checkout.Session.retrieve(session_id)
             
-            # Check if this is a seller activation payment
-            if stripe_session.metadata and stripe_session.metadata.get('type') == 'seller_activation':
-                user_id = int(stripe_session.metadata.get('user_id'))
-                
-                # Verify it's the current user
-                if user_id == current_user.id and stripe_session.payment_status == 'paid':
-                    # Update user payment status if not already set
+            if stripe_session.metadata and stripe_session.payment_status == 'paid':
+                user_id = int(stripe_session.metadata.get('user_id', 0))
+                if user_id != current_user.id:
+                    pass  # Not for this user
+                elif stripe_session.metadata.get('type') == 'upgrade':
+                    # Upgrade: batch-update in_person items to online
+                    upgraded = InventoryItem.query.filter_by(seller_id=current_user.id, collection_method='in_person').update(
+                        {'collection_method': 'online'}, synchronize_session=False
+                    )
+                    current_user.payment_declined = False
+                    db.session.commit()
+                    db.session.expire(current_user)
+                    db.session.refresh(current_user)
+                    flash("Upgraded to Campus Swap Pickup! Paid $15. All your items are now on our pickup route.", "success")
+                elif stripe_session.metadata.get('type') == 'seller_activation':
+                    # Seller activation
                     if not current_user.has_paid:
                         current_user.has_paid = True
                         current_user.is_seller = True
                         db.session.commit()
                     
-                    # Refresh user object to ensure latest data
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     
@@ -2390,9 +2427,331 @@ def payment_success():
     
     return redirect(get_user_dashboard())
 
+@app.route('/onboard', methods=['GET', 'POST'])
+@login_required
+def onboard():
+    """6-step wizard for first-time sellers (0 items)."""
+    if not get_pickup_period_active():
+        flash("Pickup period has ended. Check back next year!", "error")
+        return redirect(get_user_dashboard())
+    if current_user.payment_declined:
+        flash("Please add a valid payment method to continue.", "error")
+        return redirect(url_for('add_payment_method'))
+
+    categories = InventoryCategory.query.all()
+    dorms = RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {})
+    google_maps_key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+
+    if not categories:
+        flash("No categories available. Please contact an administrator.", "error")
+        return redirect(get_user_dashboard())
+
+    if request.method == 'POST':
+        cat_id = request.form.get('category_id')
+        desc = request.form.get('description', '').strip()
+        long_desc = (request.form.get('long_description') or '').strip()
+        quality = request.form.get('quality')
+        suggested_price_raw = request.form.get('suggested_price', '').strip()
+        collection_method = request.form.get('collection_method', 'in_person')
+        files = request.files.getlist('photos')
+        temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
+        temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
+
+        has_files = files and files[0].filename and files[0].filename != ''
+        has_temp_photos = len(temp_photo_ids) > 0
+        if not has_files and not has_temp_photos:
+            flash("Please add at least one photo.", "error")
+            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+        if not cat_id:
+            flash("Please select a category.", "error")
+            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+
+        quality_valid, quality_value = validate_quality(quality)
+        if not quality_valid:
+            flash(f"Invalid condition.", "error")
+            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+
+        suggested_price = None
+        if suggested_price_raw:
+            try:
+                sp = float(suggested_price_raw)
+                if sp >= 0:
+                    suggested_price = sp
+            except ValueError:
+                pass
+
+        # Save user profile: location, phone, payout
+        location_type = request.form.get('pickup_location_type')
+        if location_type == 'on_campus':
+            dorm = (request.form.get('pickup_dorm') or '').strip()
+            room = (request.form.get('pickup_room') or '').strip()
+            if dorm and room:
+                current_user.pickup_location_type = 'on_campus'
+                current_user.pickup_dorm = dorm[:80]
+                current_user.pickup_room = room[:20]
+                current_user.pickup_address = None
+                current_user.pickup_lat = None
+                current_user.pickup_lng = None
+        elif location_type == 'off_campus':
+            address = (request.form.get('pickup_address') or '').strip()
+            if address:
+                current_user.pickup_location_type = 'off_campus'
+                current_user.pickup_address = address[:200]
+                current_user.pickup_dorm = None
+                current_user.pickup_room = None
+                lat = request.form.get('pickup_lat')
+                lng = request.form.get('pickup_lng')
+                current_user.pickup_lat = float(lat) if lat and str(lat).strip() else None
+                current_user.pickup_lng = float(lng) if lng and str(lng).strip() else None
+
+        current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+        phone_raw = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+        if len(phone_raw) >= 10:
+            current_user.phone = phone_raw[:20]
+
+        payout_raw = (request.form.get('payout_handle') or '').strip()
+        payout_method = (request.form.get('payout_method') or 'Venmo').strip()[:20]
+        payout_handle = payout_raw.lstrip('@') if payout_method == 'Venmo' else payout_raw
+        if payout_handle:
+            current_user.payout_method = payout_method if payout_method in ('Venmo', 'PayPal', 'Zelle') else 'Venmo'
+            current_user.payout_handle = payout_handle
+            current_user.is_seller = True
+
+        db.session.commit()
+
+        # Create the item (reuse add_item logic)
+        new_item = InventoryItem(
+            seller_id=current_user.id, category_id=int(cat_id), description=desc[:MAX_DESCRIPTION_LENGTH],
+            long_description=long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
+            quality=quality_value, status="pending_valuation", photo_url="",
+            collection_method=collection_method,
+            suggested_price=suggested_price
+        )
+        db.session.add(new_item)
+        db.session.flush()
+
+        cover_set = False
+        photo_index = 0
+        if has_files:
+            for file in files:
+                if file.filename:
+                    is_valid, error_msg = validate_file_upload(file)
+                    if not is_valid:
+                        db.session.rollback()
+                        flash(f"File upload error: {error_msg}", "error")
+                        return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                    filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    try:
+                        img = Image.open(file)
+                        img = ImageOps.exif_transpose(img)
+                        img = img.convert("RGBA")
+                        bg = Image.new("RGB", img.size, (255, 255, 255))
+                        bg.paste(img, (0, 0), img)
+                        max_dimension = 2000
+                        if bg.width > max_dimension or bg.height > max_dimension:
+                            ratio = max_dimension / max(bg.width, bg.height)
+                            new_w, new_h = int(bg.width * ratio), int(bg.height * ratio)
+                            bg = bg.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                        if not cover_set:
+                            new_item.photo_url = filename
+                            cover_set = True
+                        db.session.add(ItemPhoto(item_id=new_item.id, photo_url=filename))
+                        photo_index += 1
+                    except Exception as img_error:
+                        db.session.rollback()
+                        logger.error(f"Image error: {img_error}", exc_info=True)
+                        flash("Error processing image. Please try again.", "error")
+                        return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+
+        if has_temp_photos:
+            for temp_fn in temp_photo_ids:
+                temp_rec = TempUpload.query.filter(
+                    TempUpload.filename == temp_fn,
+                    TempUpload.session_token.in_(
+                        db.session.query(UploadSession.session_token).filter(UploadSession.user_id == current_user.id)
+                    )
+                ).first()
+                if not temp_rec:
+                    db.session.rollback()
+                    flash("Invalid or expired photo from phone. Please try again.", "error")
+                    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+                if not os.path.exists(old_path):
+                    db.session.rollback()
+                    flash("Photo from phone no longer available. Please re-upload.", "error")
+                    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
+                try:
+                    os.rename(old_path, new_path)
+                except OSError:
+                    shutil.move(old_path, new_path)
+                if not cover_set:
+                    new_item.photo_url = new_filename
+                    cover_set = True
+                db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
+                db.session.delete(temp_rec)
+                photo_index += 1
+
+        db.session.commit()
+
+        # No payment at onboarding - user pays after approval when confirming pickup
+        try:
+            submission_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Item Submitted for Review</h2>
+                <p>Hi {current_user.full_name or 'there'},</p>
+                <p>We've received your item submission: <strong>{desc}</strong></p>
+                <p>We'll review and price it soon. You'll get an email when it's approved—then you'll confirm pickup week or dropoff location.</p>
+                <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">View Dashboard</a></p>
+                <p>Thanks for selling with Campus Swap!</p>
+            </div>
+            """
+            send_email(current_user.email, "Item Submitted - Campus Swap", submission_content)
+        except Exception as email_error:
+            logger.error(f"Onboard email error: {email_error}")
+        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+
+        return redirect(get_user_dashboard())
+
+    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+
+@app.route('/onboard_complete')
+@login_required
+def onboard_complete():
+    """Legacy redirect - no payment at onboarding anymore."""
+    return redirect(get_user_dashboard())
+
+@app.route('/onboard_cancel')
+@login_required
+def onboard_cancel():
+    """Legacy redirect - no payment at onboarding anymore."""
+    return redirect(get_user_dashboard())
+
+
+@app.route('/confirm_pickup', methods=['GET', 'POST'])
+@login_required
+def confirm_pickup():
+    """Pickup users confirm week and pay ($15 + $10 per oversized item)."""
+    pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'online']
+    if not pending:
+        flash("No items awaiting pickup confirmation.", "info")
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        pickup_week = request.form.get('pickup_week')
+        if pickup_week not in ('week1', 'week2'):
+            flash("Please select a pickup week.", "error")
+            return redirect(url_for('confirm_pickup'))
+
+        large_count = sum(1 for i in pending if i.is_large)
+        fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
+
+        if not stripe.api_key:
+            flash("Payment is not configured. Please contact support.", "error")
+            return redirect(url_for('confirm_pickup'))
+
+        try:
+            item_ids = ','.join(str(i.id) for i in pending)
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': 'usd',
+                        'product_data': {
+                            'name': 'Campus Swap Pickup - Service Fee',
+                            'description': f"Pickup week: {dict(PICKUP_WEEKS).get(pickup_week, pickup_week)}" + (f" ({large_count} oversized)" if large_count else ''),
+                        },
+                        'unit_amount': fee_cents,
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                metadata={
+                    'type': 'confirm_pickup',
+                    'item_ids': item_ids,
+                    'pickup_week': pickup_week,
+                    'user_id': str(current_user.id),
+                },
+                success_url=url_for('confirm_pickup_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
+                cancel_url=url_for('confirm_pickup', _external=True),
+            )
+            return redirect(checkout_session.url, code=303)
+        except stripe.error.StripeError as e:
+            logger.error(f"Confirm pickup Stripe error: {e}", exc_info=True)
+            flash("Payment setup failed. Please try again.", "error")
+            return redirect(url_for('confirm_pickup'))
+
+    large_count = sum(1 for i in pending if i.is_large)
+    fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
+    fee_dollars = fee_cents / 100
+    return render_template('confirm_pickup.html', pending_items=pending, pickup_weeks=PICKUP_WEEKS, fee_dollars=fee_dollars)
+
+
+@app.route('/confirm_pickup_success')
+@login_required
+def confirm_pickup_success():
+    """After Stripe payment for pickup confirmation."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return redirect(get_user_dashboard())
+    try:
+        stripe_session = stripe.checkout.Session.retrieve(session_id)
+        if stripe_session.metadata.get('type') == 'confirm_pickup' and stripe_session.payment_status == 'paid':
+            item_ids_str = stripe_session.metadata.get('item_ids', '')
+            pickup_week = stripe_session.metadata.get('pickup_week', '')
+            if item_ids_str and pickup_week:
+                item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
+                for item_id in item_ids:
+                    item = InventoryItem.query.get(item_id)
+                    if item and item.seller_id == current_user.id and item.status == 'pending_logistics':
+                        item.pickup_week = pickup_week
+                        item.status = 'available'
+                        if item.category:
+                            item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+                current_user.has_paid = True
+                db.session.commit()
+    except Exception as e:
+        logger.error(f"confirm_pickup_success error: {e}", exc_info=True)
+    flash("Pickup confirmed! Your items are now live.", "success")
+    return redirect(get_user_dashboard())
+
+
+@app.route('/confirm_dropoff', methods=['POST'])
+@login_required
+def confirm_dropoff():
+    """Pod users confirm dropoff location—no payment."""
+    item_id = request.form.get('item_id')
+    dropoff_pod = request.form.get('dropoff_pod')
+
+    valid_pods = [p[0] for p in POD_LOCATIONS]
+    if dropoff_pod not in valid_pods:
+        flash("Please select a valid dropoff location.", "error")
+        return redirect(get_user_dashboard())
+
+    item = InventoryItem.query.get(item_id) if item_id else None
+    if not item or item.seller_id != current_user.id or item.status != 'pending_logistics' or item.collection_method != 'in_person':
+        flash("Invalid item or item not awaiting confirmation.", "error")
+        return redirect(get_user_dashboard())
+
+    item.dropoff_pod = dropoff_pod
+    item.status = 'available'
+    if item.category:
+        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+    db.session.commit()
+    flash("Dropoff location confirmed! Your item is now live.", "success")
+    return redirect(get_user_dashboard())
+
+
 @app.route('/add_item', methods=['GET', 'POST'])
 @login_required
 def add_item():
+    # First-time sellers (0 items) go to onboarding wizard
+    if len(current_user.items) == 0:
+        return redirect(url_for('onboard'))
+
     # Block item uploads when pickup period is closed
     if not get_pickup_period_active():
         flash("Pickup period has ended. Items can no longer be added. Check back next year!", "error")
@@ -2469,10 +2828,13 @@ def add_item():
             except ValueError:
                 pass
 
+        # Use same collection method as user's other items (from onboarding choice)
+        existing = [i.collection_method for i in current_user.items if i.collection_method]
+        collection_method = existing[-1] if existing else 'in_person'
         new_item = InventoryItem(
             seller_id=current_user.id, category_id=cat_id, description=desc,
             long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
-            collection_method='online',  # User-uploaded items are always 'online'
+            collection_method=collection_method,
             suggested_price=suggested_price
         )
         db.session.add(new_item)
@@ -3000,7 +3362,7 @@ def admin_preview_sales():
     
     sold_items = InventoryItem.query.filter_by(status='sold').order_by(InventoryItem.sold_at.desc()).all()
     
-    # Prepare data for template (payout % varies: online 50%, in-person 35%)
+    # Prepare data for template (payout % varies: online 50%, in-person 33%)
     headers = ['Item ID', 'Description', 'Sale Price', 'Payout Amount', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent']
     rows = []
     total_payout = 0
@@ -3047,7 +3409,7 @@ def admin_export_sales():
     output = StringIO()
     writer = csv.writer(output)
     
-    # Header row (payout % varies: online 50%, in-person 35%)
+    # Header row (payout % varies: online 50%, in-person 33%)
     writer.writerow(['Item ID', 'Description', 'Sale Price', 'Payout Amount', 'Seller Email', 'Seller Name', 'Payout Method', 'Payout Handle', 'Sold Date', 'Payout Sent'])
     
     # Data rows

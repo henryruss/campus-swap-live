@@ -1,0 +1,40 @@
+{# Shared category grid - expects: categories. Uses cat.image_url (FA class) when present. #}
+<div class="category-grid" id="category-grid">
+    {% for cat in categories %}
+    <button type="button" class="category-card" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}">
+        <span class="category-icon">
+            {% if cat.image_url and cat.image_url.startswith('fa-') %}
+            <i class="fas {{ cat.image_url }}"></i>
+            {% elif 'fridge' in cat.name|lower or 'mini' in cat.name|lower %}
+            <i class="fas fa-snowflake"></i>
+            {% elif 'microwave' in cat.name|lower %}
+            <i class="fas fa-bolt"></i>
+            {% elif 'rug' in cat.name|lower %}
+            <i class="fas fa-th-large"></i>
+            {% elif 'couch' in cat.name|lower or 'sofa' in cat.name|lower %}
+            <i class="fas fa-couch"></i>
+            {% elif 'headboard' in cat.name|lower or 'mattress' in cat.name|lower or 'bed' in cat.name|lower %}
+            <i class="fas fa-bed"></i>
+            {% elif 'tv' in cat.name|lower or 'electronic' in cat.name|lower %}
+            <i class="fas fa-tv"></i>
+            {% elif 'heater' in cat.name|lower or 'ac' in cat.name|lower or 'climate' in cat.name|lower %}
+            <i class="fas fa-wind"></i>
+            {% elif 'desk' in cat.name|lower %}
+            <i class="fas fa-cube"></i>
+            {% elif 'table' in cat.name|lower %}
+            <i class="fas fa-th-large"></i>
+            {% elif 'dresser' in cat.name|lower or 'drawer' in cat.name|lower %}
+            <i class="fas fa-archive"></i>
+            {% elif 'lamp' in cat.name|lower or 'light' in cat.name|lower %}
+            <i class="fas fa-lightbulb"></i>
+            {% elif 'bookshelf' in cat.name|lower or 'shelf' in cat.name|lower %}
+            <i class="fas fa-book"></i>
+            {% else %}
+            <i class="fas fa-box"></i>
+            {% endif %}
+        </span>
+        <span class="category-name">{{ cat.name }}</span>
+    </button>
+    {% endfor %}
+</div>
+<input type="hidden" name="category_id" id="category-id-input" value="" required>

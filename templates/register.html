@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="container" style="max-width: 400px; margin-top: 60px;">
-    <div class="card text-center">
+    <div class="card no-hover text-center">
         <h2 style="margin-bottom: 20px;">Create Account</h2>
         <p style="color: var(--text-muted); margin-bottom: 20px;">
             If you already reserved your spot, use the same email to claim your account.
@@ -18,9 +18,6 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="text" name="full_name" placeholder="Full Name" required>
             <input type="email" name="email" placeholder="Email Address" required>
-            <input type="tel" name="phone" placeholder="555-123-4567" required
-       pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}"
-       title="Please enter a valid 10-digit US phone number (e.g. 555-123-4567)">
             <input type="password" name="password" placeholder="Choose Password" required>
             <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
         </form>

@@ -65,15 +65,52 @@
                 Save Changes
             </button>
         </form>
-        
-        {% if current_user.is_admin %}
-        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; margin-top: 20px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <i class="fas fa-shield-alt" style="color: #166534;"></i>
-                <strong style="color: #166534;">Admin Account</strong>
-            </div>
-        </div>
-        {% endif %}
     </div>
+
+    <div class="card">
+        <h3 style="margin-bottom: 20px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup Location</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Where should we pick up your items? We'll text you when we're on our way.</p>
+        {% set standalone = true %}
+        {% include 'dashboard_pickup_form.html' %}
+    </div>
+
+    {% if current_user.payout_handle %}
+    <div class="card">
+        <h3 style="margin-bottom: 20px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Info</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">
+            <strong>{{ current_user.payout_method }}</strong> @{{ current_user.payout_handle }}
+        </p>
+        <form action="/update_payout" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
+                <div>
+                    <label style="margin-top: 0;">Method</label>
+                    <select name="payout_method">
+                        <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
+                        <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
+                        <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="margin-top: 0;">Handle</label>
+                    <div style="display: flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden;">
+                        <span style="background: #f1f5f9; padding: 12px 15px; font-weight: 700; color: var(--text-muted);">@</span>
+                        <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" style="border: none; flex: 1;" required>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Payout</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if current_user.is_admin %}
+    <div class="card" style="background: #f0fdf4; border-color: #bbf7d0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-shield-alt" style="color: #166534;"></i>
+            <strong style="color: #166534;">Admin Account</strong>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

@@ -87,8 +87,12 @@ class InventoryItem(db.Model):
     # COLLECTION METHOD: 'online' (default) or 'in_person'
     collection_method = db.Column(db.String(20), default='online')
     
-    # LARGE ITEM: Admin marks during approval; $10 fee for online items
+    # LARGE ITEM: Admin marks during approval; $10 fee for online items (pickup only)
     is_large = db.Column(db.Boolean, default=False)
+    
+    # LOGISTICS (set when seller confirms after approval)
+    pickup_week = db.Column(db.String(20), nullable=True)   # 'week1' (Apr 26-May 2) or 'week2' (May 3-May 9)
+    dropoff_pod = db.Column(db.String(40), nullable=True)  # 'greek_row' or 'apartment'
     
     # PAYOUT TRACKING
     sold_at = db.Column(db.DateTime, nullable=True)  # When item was marked sold

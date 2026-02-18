@@ -146,6 +146,11 @@
         color: var(--primary);
     }
 
+    .testimonial-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 24px -8px rgba(6, 78, 59, 0.12);
+    }
+
     @media (max-width: 768px) { 
         .grid-split { grid-template-columns: 1fr; } 
         .hero-title { font-size: 3rem; } 
@@ -161,6 +166,9 @@
             grid-template-columns: 1fr !important;
             gap: 30px !important;
         }
+        /* Testimonials responsive */
+        .testimonials-section { margin: 50px 0 70px; }
+        .testimonials-grid { grid-template-columns: 1fr !important; }
     }
 </style>
 
@@ -189,7 +197,7 @@
         </div>
 
         <div class="reveal fade-up" style="animation-delay: 0.4s;">
-            <a href="/register" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
+            <a href="/login" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
                 Start Selling <i class="fas fa-arrow-right"></i>
             </a>
         </div>
@@ -317,18 +325,45 @@
             <div class="timeline-step" style="display: flex; align-items: center;">
                 <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                     <h3>3. Go Home, Get Paid</h3>
-                    <p>Items sell over the summer. Submit through the site and earn 50% when yours sells (vs. 35% for in-person drop-offs).</p>
+                    <p>Items sell over the summer. Submit through the site and earn 50% when yours sells (vs. 33% for in-person drop-offs).</p>
                 </div>
                 <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
                 <div style="flex: 1;"></div>
             </div>
         </div>
         <div style="margin-top: 40px; padding: 24px; background: rgba(255, 255, 255, 0.95); border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 16px; max-width: 500px; margin-left: auto; margin-right: auto;">
-            <strong style="color: var(--primary);"><i class="fas fa-chart-line" style="color: var(--accent);"></i> 50% vs 35%</strong>
-            <p style="color: var(--text-main); font-size: 0.95rem; margin: 8px 0 0;">Submit through the site = 50% when items sell. In-person drop-off = 35%.</p>
+            <strong style="color: var(--primary);"><i class="fas fa-chart-line" style="color: var(--accent);"></i> 50% vs 33%</strong>
+            <p style="color: var(--text-main); font-size: 0.95rem; margin: 8px 0 0;">Submit through the site = 50% when items sell. In-person drop-off = 33%.</p>
         </div>
         <p style="text-align: center; margin-top: 30px;"><a href="/become-a-seller" style="color: var(--accent); font-weight: 600;">Learn more on our Become a Seller page &rarr;</a></p>
     </div>
+
+    <section class="testimonials-section reveal fade-up" style="margin: 80px 0 100px;">
+        <div style="text-align: center; margin-bottom: 50px;">
+            <h2 style="font-size: 2rem; color: var(--text-main); margin-bottom: 10px;">What Students Say</h2>
+            <p style="color: var(--text-muted); font-size: 1.05rem;">Real experiences from Campus Swap sellers</p>
+        </div>
+        <div class="testimonials-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
+            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
+                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
+                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">I was dreading trying to sell my mini fridge on Facebook. Campus Swap picked it up on move-out day and I got paid $65 when it sold. So easy.</p>
+                <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Sarah M.</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">UNC &rsquo;26</div>
+            </div>
+            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
+                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
+                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">Dropped off my futon and desk at their store. Zero hassle. Venmo hit a few weeks later. Way better than leaving stuff on the curb.</p>
+                <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Jake T.</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">UNC &rsquo;25</div>
+            </div>
+            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
+                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
+                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">The service fee was totally worth it. They came to my dorm, loaded everything, and I didn&rsquo;t have to deal with random Marketplace buyers. 10/10.</p>
+                <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Maya K.</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">UNC &rsquo;27</div>
+            </div>
+        </div>
+    </section>
 
     <div id="join" class="card reveal fade-up ready-to-sell-card">
         <h2>Ready to sell?</h2>

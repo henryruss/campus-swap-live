@@ -8,9 +8,11 @@
             Add your card now. You won't be charged until pickup week. Fee: $15 service + $10 per large item (admin marks during approval).
         </p>
         
-        {% if not stripe_publishable_key %}
-        <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 8px; color: #991b1b;">
-            <i class="fas fa-exclamation-triangle"></i> Stripe is not configured. Set STRIPE_PUBLISHABLE_KEY in your environment.
+        {% if not stripe_configured %}
+        <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; color: #991b1b;">
+            <i class="fas fa-exclamation-triangle"></i> <strong>Payment setup is not available yet.</strong>
+            <p style="margin: 12px 0 0; font-size: 0.95rem;">Add <code>STRIPE_SECRET_KEY</code> and <code>STRIPE_PUBLISHABLE_KEY</code> to your <code>.env</code> file. Get test keys from <a href="https://dashboard.stripe.com/test/apikeys" target="_blank" rel="noopener">Stripe Dashboard</a>.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline" style="margin-top: 16px;">Back to Dashboard</a>
         </div>
         {% else %}
         <form id="payment-form">
@@ -30,7 +32,7 @@
     </div>
 </div>
 
-{% if stripe_publishable_key %}
+{% if stripe_configured %}
 <script src="https://js.stripe.com/v3/"></script>
 <script>
 document.addEventListener('DOMContentLoaded', async () => {

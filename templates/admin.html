@@ -175,13 +175,6 @@
                     Pickup Period: {% if pickup_period_active %}OPEN{% else %}CLOSED{% endif %}
                 </button>
             </form>
-            <form method="POST" style="margin: 0;" onsubmit="return confirm('Run pickup charges ($15 + $10 per large item) for all users with approved online items?');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <input type="hidden" name="run_pickup_charges" value="true"/>
-                <button type="submit" class="btn btn-primary" data-no-loading>
-                    <i class="fas fa-credit-card"></i> Run Pickup Charges
-                </button>
-            </form>
             <a href="/" class="btn btn-outline">View Live Site &rarr;</a>
         </div>
     </div>
@@ -755,7 +748,7 @@
                                     {% else %}
                                         <span class="badge" style="background: #f59e0b; color: white;">Pending</span>
                                         {% if item.price %}
-                                            {% set pct = 0.50 if item.collection_method == 'online' else 0.35 %}
+                                            {% set pct = 0.50 if item.collection_method == 'online' else 0.33 %}
                                             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 3px;">
                                                 ${{ "%.2f"|format(item.price * pct) }} to pay
                                             </div>

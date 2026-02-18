@@ -4,7 +4,7 @@ Application-wide constants for Campus Swap
 
 # Payout Configuration (by collection method)
 PAYOUT_PERCENTAGE_ONLINE = 0.50   # Sellers receive 50% when submitting through site
-PAYOUT_PERCENTAGE_IN_PERSON = 0.35  # Sellers receive 35% for in-person drop-offs (Campus Swap takes 65%)
+PAYOUT_PERCENTAGE_IN_PERSON = 0.33  # Sellers receive 33% for in-person drop-offs (Campus Swap takes 67%)
 PAYOUT_PERCENTAGE = 0.50  # Legacy alias; use PAYOUT_PERCENTAGE_ONLINE
 
 # Payment Configuration
@@ -40,6 +40,18 @@ RATE_LIMIT_LOGIN = "5 per minute"
 RATE_LIMIT_REGISTER = "3 per hour"
 RATE_LIMIT_ADMIN = "100 per minute"
 RATE_LIMIT_EMAIL = "10 per hour"
+
+# Pickup weeks (pickup users select after approval - decision is final)
+PICKUP_WEEKS = [
+    ('week1', 'April 26 – May 2'),
+    ('week2', 'May 3 – May 9'),
+]
+
+# Pod locations (pod users select after approval)
+POD_LOCATIONS = [
+    ('greek_row', 'Greek row pod'),
+    ('apartment', 'Apartment pod'),
+]
 
 # Residence halls by store (for on-campus pickup selection)
 RESIDENCE_HALLS_BY_STORE = {

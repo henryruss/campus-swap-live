@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="container" style="max-width: 450px; margin-top: 60px;">
-    <div class="card">
+    <div class="card no-hover">
         <div id="login-section" {% if show_signup %}style="display: none;"{% endif %}>
             <h2 style="margin-bottom: 20px; text-align: center;">Log In</h2>
             {% if google_oauth_enabled %}
@@ -53,19 +53,12 @@
                 
                 <div style="margin-bottom: 15px;">
                     <label style="font-weight: 500; font-size: 0.9rem;">Full Name</label>
-                    <input type="text" name="full_name" placeholder="Your full name" required>
+                    <input type="text" name="full_name" id="signup-fullname-input" value="{{ prefill_full_name or '' }}" placeholder="Your full name" required>
                 </div>
                 
                 <div style="margin-bottom: 15px;">
                     <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
-                    <input type="email" name="email" id="signup-email-input" placeholder="your@email.com" required>
-                </div>
-                
-                <div style="margin-bottom: 15px;">
-                    <label style="font-weight: 500; font-size: 0.9rem;">Phone Number</label>
-                    <input type="tel" name="phone" placeholder="555-123-4567" required
-       pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}"
-       title="Please enter a valid 10-digit US phone number (e.g. 555-123-4567)">
+                    <input type="email" name="email" id="signup-email-input" value="{{ prefill_email or '' }}" placeholder="your@email.com" required>
                 </div>
                 
                 <div style="margin-bottom: 20px;">
