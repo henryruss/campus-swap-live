@@ -2174,26 +2174,40 @@ def dashboard():
     approved_online = [i for i in live_items if i.collection_method == 'online']
     approved_large_count = sum(1 for i in approved_online if i.is_large)
     projected_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * approved_large_count) if approved_online else 0
-    
+
+    # Pending pickup: items awaiting confirmation + fee breakdown for receipt modal
+    pending_pickup = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'online']
+    pending_pickup_large_count = sum(1 for i in pending_pickup if i.is_large)
+    pending_pickup_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * pending_pickup_large_count) if pending_pickup else 0
+
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     stripe_configured = bool(stripe.api_key and stripe_pk)
-    
-    return render_template('dashboard.html', 
-                          my_items=my_items, 
+
+    return render_template('dashboard.html',
+                          my_items=my_items,
                           has_online_items=has_online_items,
                           estimated_payout=estimated_payout,
                           paid_out=paid_out,
                           pending_payouts=pending_payouts,
                           total_potential=total_potential,
                           sold_items=sold_items,
+                          live_items=live_items,
                           approved_online_count=len(approved_online),
                           approved_large_count=approved_large_count,
                           projected_fee_cents=projected_fee_cents,
+                          pending_pickup=pending_pickup,
+                          pending_pickup_large_count=pending_pickup_large_count,
+                          pending_pickup_fee_cents=pending_pickup_fee_cents,
+                          pickup_weeks=PICKUP_WEEKS,
+                          service_fee_cents=SERVICE_FEE_CENTS,
+                          large_item_fee_cents=LARGE_ITEM_FEE_CENTS,
                           has_payment_method=bool(current_user.stripe_payment_method_id),
                           stripe_configured=stripe_configured,
                           dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
                           pod_locations=POD_LOCATIONS,
-                          google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
+                          google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''),
+                          has_pickup_location=current_user.has_pickup_location,
+                          has_payout_info=bool(current_user.payout_handle))
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -2687,7 +2701,13 @@ def confirm_pickup():
     large_count = sum(1 for i in pending if i.is_large)
     fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
     fee_dollars = fee_cents / 100
-    return render_template('confirm_pickup.html', pending_items=pending, pickup_weeks=PICKUP_WEEKS, fee_dollars=fee_dollars)
+    return render_template('confirm_pickup.html',
+                          pending_items=pending,
+                          pickup_weeks=PICKUP_WEEKS,
+                          fee_dollars=fee_dollars,
+                          large_count=large_count,
+                          service_fee_cents=SERVICE_FEE_CENTS,
+                          large_item_fee_cents=LARGE_ITEM_FEE_CENTS)
 
 
 @app.route('/confirm_pickup_success')

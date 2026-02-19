@@ -11,20 +11,42 @@
     <h1 style="margin-bottom: 10px;">Confirm Pickup & Pay</h1>
     <p style="color: var(--text-muted); margin-bottom: 30px;">Select your pickup week and pay to secure your spot. This decision is final.</p>
 
-    <div class="card" style="margin-bottom: 24px;">
+    <div class="card no-hover" style="margin-bottom: 24px;">
         <h3 style="margin-bottom: 16px;"><i class="fas fa-box" style="color: var(--primary);"></i> Items to be picked up</h3>
-        <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+        <div style="margin-bottom: 24px;">
             {% for item in pending_items %}
-            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: #f8fafc; border-radius: 10px; min-width: 0;">
-                {% if item.photo_url %}
-                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px;">
-                {% endif %}
-                <div style="min-width: 0;">
-                    <div style="font-weight: 600; font-size: 0.95rem;">{{ item.description }}</div>
-                    {% if item.is_large %}<span style="font-size: 0.8rem; color: var(--accent);">Oversized (+$10)</span>{% endif %}
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f8fafc; border-radius: 10px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                    {% if item.photo_url %}
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px;">
+                    {% endif %}
+                    <div style="min-width: 0;">
+                        <div style="font-weight: 600; font-size: 0.95rem;">{{ item.description }}</div>
+                        {% if item.is_large %}<span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">Oversized (+$10)</span>{% endif %}
+                    </div>
                 </div>
             </div>
             {% endfor %}
+        </div>
+
+        {# Itemized receipt #}
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 14px; text-transform: uppercase;">Fee breakdown</div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
+                <span>Service fee (guaranteed space)</span>
+                <span>${{ "%.2f"|format(service_fee_cents / 100) }}</span>
+            </div>
+            {% if large_count %}
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
+                <span>Oversized items ({{ large_count }} × $10)</span>
+                <span>${{ "%.2f"|format(large_count * (large_item_fee_cents / 100)) }}</span>
+            </div>
+            {% endif %}
+            <div style="height: 1px; background: #e2e8f0; margin: 12px 0;"></div>
+            <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: 800; color: var(--primary); padding-top: 8px;">
+                <span>Total</span>
+                <span>${{ "%.2f"|format(fee_dollars) }}</span>
+            </div>
         </div>
 
         <form method="POST" action="{{ url_for('confirm_pickup') }}">
@@ -33,18 +55,14 @@
             <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px;">
                 {% for value, label in pickup_weeks %}
                 <label class="pickup-week-option" style="display: flex; align-items: center; gap: 12px; padding: 16px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer; transition: all 0.2s;">
-                    <input type="radio" name="pickup_week" value="{{ value }}" required>
+                    <input type="radio" name="pickup_week" value="{{ value }}" required style="margin: 0;">
                     <span style="font-weight: 500;">{{ label }}</span>
                 </label>
                 {% endfor %}
             </div>
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;"><i class="fas fa-info-circle"></i> Your choice of pickup week cannot be changed after confirmation.</p>
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-                <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">${{ "%.2f"|format(fee_dollars) }}</div>
-                <div style="font-size: 0.9rem; color: var(--text-muted);">Service fee (includes guaranteed space)</div>
-            </div>
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px; font-size: 1.1rem;">
-                <i class="fas fa-credit-card"></i> Pay & Confirm Pickup
+                <i class="fas fa-credit-card"></i> Pay ${{ "%.2f"|format(fee_dollars) }} & Confirm Pickup
             </button>
         </form>
     </div>

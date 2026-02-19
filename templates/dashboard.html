@@ -1,397 +1,263 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<style>
-    /* WIZARD CARD STYLES */
-    .step-card {
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 30px;
-        margin-bottom: 25px;
-        transition: all 0.2s;
-        position: relative;
-        overflow: hidden;
-    }
-    .step-card.done { border-color: #bbf7d0; background: #f0fdf4; }
-    .step-card.active { border: 2px solid var(--primary); background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
-    .step-card.locked { opacity: 0.6; pointer-events: none; background: #f8fafc; }
-    
-    .step-number {
-        position: absolute; top: 20px; right: 25px;
-        font-size: 4rem; font-weight: 900; color: rgba(0,0,0,0.03); line-height: 1; pointer-events: none;
-        z-index: 0;
-    }
-    .step-icon-status {
-        position: absolute; top: 20px; right: 25px;
-        font-size: 1.2rem; color: #166534;
-        background: #dcfce7; width: 35px; height: 35px;
-        display: flex; align-items: center; justify-content: center; border-radius: 50%;
-        z-index: 1;
-        border: 2px solid white;
-    }
-    /* When checkmark is present, move number to left */
-    .step-card.done .step-number {
-        right: 70px;
-    }
-    
-    /* LOCKED DATA BOX */
-    .locked-box {
-        background: #f1f5f9; border: 1px solid #cbd5e1;
-        padding: 15px; border-radius: 8px; margin-top: 10px;
-        display: flex; justify-content: space-between; align-items: center;
-    }
-    .locked-box .locked-box-address { word-break: break-word; min-width: 0; flex: 1; }
+{% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
+{% set pending_logistics = my_items|selectattr('status', 'equalto', 'pending_logistics')|list %}
+{% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
+{% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
+{% set pending_pod = pending_logistics|selectattr('collection_method', 'equalto', 'in_person')|list %}
 
-    /* THE STATIC '@' INPUT */
-    .input-group {
-        display: flex; align-items: center;
-        border: 1px solid #cbd5e1; border-radius: 8px;
-        background: white; overflow: hidden;
-    }
-    .input-prefix {
-        background: #f1f5f9; color: var(--text-muted); padding: 12px 15px;
-        font-weight: bold; border-right: 1px solid #cbd5e1;
-    }
-    .input-group input {
-        border: none; border-radius: 0; padding: 12px; width: 100%;
-    }
-    .input-group input:focus { outline: none; box-shadow: none; }
-    .input-group:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(6, 78, 59, 0.1); }
-
-    /* SPECIAL HOVER FOR PAY BUTTON */
-    .btn-pay {
-        transition: all 0.3s ease;
-    }
-    .btn-pay:hover {
-        background-color: var(--primary) !important; /* Campus Green */
-        transform: translateY(-2px);
-        box-shadow: 0 10px 20px rgba(21, 128, 61, 0.3) !important;
-    }
-
-    /* --- MODERN CHECKBOX WIZARDRY --- */
-    .terms-label {
-        display: flex;
-        align-items: flex-start;
-        cursor: pointer;
-        padding: 15px;
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        margin-bottom: 20px;
-        transition: all 0.2s;
-        text-transform: none; /* Stops the ALL CAPS yelling */
-    }
-    .terms-label:hover {
-        border-color: #cbd5e1;
-        background: #f8fafc;
-    }
-    
-    /* Hide the real checkbox but keep it 'renderable' for validation bubbles */
-    .terms-label input {
-        position: absolute;
-        opacity: 0;
-        cursor: pointer;
-        height: 1px; /* Needs size to show error bubble */
-        width: 1px;
-        margin-left: 10px; /* Position error bubble near the box */
-    }
-    
-    /* Create a custom box */
-    .custom-check {
-        min-width: 24px;
-        height: 24px;
-        background-color: #fff;
-        border: 2px solid #cbd5e1;
-        border-radius: 6px;
-        margin-right: 15px;
-        margin-top: 2px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-    }
-    
-    /* When checked, turn green */
-    .terms-label input:checked ~ .custom-check {
-        background-color: var(--primary);
-        border-color: var(--primary);
-    }
-    
-    /* Create the checkmark */
-    .custom-check::after {
-        content: "";
-        display: none;
-        width: 6px;
-        height: 12px;
-        border: solid white;
-        border-width: 0 2.5px 2.5px 0;
-        transform: rotate(45deg);
-        margin-bottom: 2px;
-    }
-    
-    /* Show checkmark when checked */
-    .terms-label input:checked ~ .custom-check::after {
-        display: block;
-    }
-    
-    @media (max-width: 768px) {
-        .step-card {
-            padding: 20px;
-        }
-        .step-number {
-            font-size: 3rem;
-            top: 15px;
-            right: 15px;
-        }
-        .grid-split {
-            grid-template-columns: 1fr !important;
-        }
-        div[style*="grid-template-columns: 2fr 1fr"] {
-            grid-template-columns: 1fr !important;
-        }
-        div[style*="grid-template-columns: 1fr 2fr"] {
-            grid-template-columns: 1fr !important;
-        }
-        .grid-inventory {
-            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-        }
-        /* Seller Studio header: stack on mobile so title and Log Out don't squash */
-        .dashboard-header {
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-        .dashboard-header-text {
-            flex: 1;
-            min-width: 0;
-        }
-        .dashboard-header .btn-outline {
-            flex-shrink: 0;
-        }
-        /* Address/payout locked boxes: stack so Change button is below text, not on top */
-        .locked-box {
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .locked-box > *:first-child {
-            flex: 1 1 100%;
-            min-width: 0;
-        }
-        .locked-box-btn {
-            align-self: flex-end;
-        }
-    }
-</style>
-
-<div class="container" style="margin-top: 40px;">
-    
-    <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
-        <div class="dashboard-header-text">
-            <h1 style="margin-bottom: 5px;">Seller Studio</h1>
-            <p style="margin: 0; color: var(--text-muted);">Manage your inventory and track your sales.</p>
+<div class="container" style="margin-top: 32px;">
+    <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 28px;">
+        <div>
+            <h1 style="margin-bottom: 4px;">Seller Studio</h1>
+            <p style="margin: 0; color: var(--text-muted); font-size: 0.95rem;">Manage your inventory and track your sales.</p>
         </div>
-        <a href="/logout" class="btn btn-outline" style="padding: 8px 20px; font-size: 0.9rem;">Log Out</a>
+        <a href="/logout" class="btn btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">Log Out</a>
     </div>
 
-    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 40px;">
-        
+    {# Earnings stats bar #}
+    <div class="dashboard-stats-bar">
+        <div class="dashboard-stat">
+            <div class="dashboard-stat-label">Potential Earnings</div>
+            <div class="dashboard-stat-value">${{ "%.0f"|format(estimated_payout + pending_payouts) }}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Live + sold, not yet paid</div>
+        </div>
+        <div class="dashboard-stat">
+            <div class="dashboard-stat-label">Paid Out</div>
+            <div class="dashboard-stat-value">${{ "%.0f"|format(paid_out) }}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Sent to you</div>
+        </div>
+        <div class="dashboard-stat">
+            <div class="dashboard-stat-label">Items</div>
+            <div class="dashboard-stat-value">{{ live_items|length }} live · {{ sold_items|length }} sold</div>
+            {% if pending_items or pending_logistics %}
+            <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="dashboard-layout">
         <div>
-            
+            {# Guest mode card #}
             {% if not current_user.password_hash %}
-            <div class="step-card active" style="border-color: #f59e0b; background: #fffbeb; margin-bottom: 30px;">
-                <h3 style="color: #92400e; margin-bottom: 10px;"><i class="fas fa-lock"></i> Save Your Progress</h3>
+            <div class="dashboard-section guest-mode-card" style="margin-bottom: 24px;">
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-lock"></i> Save Your Progress</h3>
                 <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
-                
-                <form action="/set_password" method="POST" style="margin-top: 15px; display: flex; gap: 10px;">
+                <form action="/set_password" method="POST" style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                    <input type="password" name="password" placeholder="Create Password" required style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; flex-grow: 1;">
+                    <input type="password" name="password" placeholder="Create Password" required style="flex: 1; min-width: 180px;">
                     <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
                 </form>
             </div>
             {% endif %}
 
-            <div class="step-card">
-                <h3 style="margin-bottom: 10px;"><i class="fas fa-camera" style="color: var(--primary);"></i> My Inventory</h3>
-                
+            {# Claim Your Space - Pickup (payment required) #}
+            {% if pending_pickup %}
+            <div class="dashboard-section claim-space-card" style="margin-bottom: 24px;">
+                <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-truck" style="color: #d97706;"></i> Claim Your Space</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Your items were approved. Pay the service fee and pick your pickup week to secure your spot.</p>
+                <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="width: 100%; padding: 14px;">
+                    <i class="fas fa-credit-card"></i> View Receipt & Pay
+                </button>
+            </div>
+            {% endif %}
+
+            {# Choose Drop-off Pod (no payment) #}
+            {% if pending_pod %}
+            <div class="dashboard-section claim-space-card pod" style="margin-bottom: 24px;">
+                <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Choose Drop-off Pod</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">No payment required – just pick your drop-off location.</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+                    {% for item in pending_pod %}
+                    <form method="POST" action="{{ url_for('confirm_dropoff') }}" class="pod-selection-card" style="flex: 1; min-width: 200px;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" name="item_id" value="{{ item.id }}">
+                        <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; display: block;">{{ item.description[:40] }}{% if item.description|length > 40 %}...{% endif %}</label>
+                        <div style="display: flex; gap: 10px; align-items: flex-end;">
+                            <select name="dropoff_pod" required style="flex: 1; padding: 10px 12px;">
+                                <option value="">Select pod...</option>
+                                {% for value, label in pod_locations %}
+                                <option value="{{ value }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-primary" style="padding: 10px 18px;">Confirm</button>
+                        </div>
+                    </form>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {# My Inventory #}
+            <div class="dashboard-section no-hover">
+                <h3 class="dashboard-section-title"><i class="fas fa-box"></i> My Inventory</h3>
                 {% if my_items %}
-                    {% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
-                    {% set pending_logistics = my_items|selectattr('status', 'equalto', 'pending_logistics')|list %}
-                    {% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
-                    {% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
-                    {% set pending_pickup = pending_logistics|selectattr('collection_method', 'equalto', 'online')|list %}
-                    {% set pending_pod = pending_logistics|selectattr('collection_method', 'equalto', 'in_person')|list %}
-                    
-                    {% if pending_logistics %}
-                    <div style="margin-bottom: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
-                                <i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i> Action Required ({{ pending_logistics|length }})
-                            </h4>
-                        </div>
-                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Your item(s) were approved. Confirm pickup week or dropoff location to complete setup.</p>
-                        {% if pending_pickup %}
-                        <div style="margin-bottom: 16px;">
-                            <a href="{{ url_for('confirm_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                                <i class="fas fa-truck"></i> Confirm Pickup Week & Pay
-                            </a>
-                        </div>
-                        {% endif %}
-                        {% if pending_pod %}
-                        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
-                            {% for item in pending_pod %}
-                            <form method="POST" action="{{ url_for('confirm_dropoff') }}" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; flex: 1; min-width: 200px;">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <input type="hidden" name="item_id" value="{{ item.id }}">
-                                <div style="flex: 1; min-width: 120px;">
-                                    <label style="font-size: 0.8rem; color: var(--text-muted);">{{ item.description[:30] }}{% if item.description|length > 30 %}...{% endif %}</label>
-                                    <select name="dropoff_pod" required style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
-                                        <option value="">Select pod...</option>
-                                        {% for value, label in pod_locations %}
-                                        <option value="{{ value }}">{{ label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <button type="submit" class="btn btn-primary" style="padding: 10px 16px;">Confirm</button>
-                            </form>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
+
+                {% if pending_items %}
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-hourglass-half" style="color: #3b82f6;"></i> Pending Approval ({{ pending_items|length }})</h4>
+                    <p class="dashboard-section-desc" style="margin-bottom: 12px;">These items are awaiting pricing. You can still edit them.</p>
+                    <div class="dashboard-inventory-grid">
+                        {% for item in pending_items %}
+                        <a href="/edit_item/{{ item.id }}" class="dashboard-item-card pending" style="position: relative; text-decoration: none; color: inherit;">
+                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
+                            <span class="dashboard-item-badge edit"><i class="fas fa-edit"></i> Edit</span>
+                        </a>
+                        {% endfor %}
                     </div>
-                    {% endif %}
-                    
-                    {% if pending_items %}
-                    <div style="margin-bottom: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
-                                <i class="fas fa-hourglass-half" style="color: #3b82f6;"></i> Pending Approval ({{ pending_items|length }})
-                            </h4>
-                        </div>
-                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px;">These items are awaiting pricing. You can still edit them.</p>
-                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                            {% for item in pending_items %}
-                            <div style="position: relative; border-radius: 8px; overflow: hidden; height: 80px; border: 2px solid #3b82f6;">
-                                <a href="/edit_item/{{ item.id }}" style="display: block; width: 100%; height: 100%;">
-                                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
-                                </a>
-                                <a href="/edit_item/{{ item.id }}" 
-                                   style="position: absolute; top: 5px; right: 5px; background: rgba(59, 130, 246, 0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; text-decoration: none;">
-                                    <i class="fas fa-edit"></i> Edit
-                                </a>
+                </div>
+                {% endif %}
+
+                {% if live_items %}
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-store" style="color: var(--primary);"></i> Live in Store ({{ live_items|length }})</h4>
+                    <p class="dashboard-section-desc" style="margin-bottom: 12px;">These items are live. Prices are set and cannot be edited.</p>
+                    <div class="dashboard-inventory-grid">
+                        {% for item in live_items %}
+                        <a href="/item/{{ item.id }}" target="_blank" class="dashboard-item-card live" style="text-decoration: none; color: inherit;">
+                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
+                            <div class="dashboard-item-info">
+                                <div class="dashboard-item-price">${{ "%.0f"|format(item.price) if item.price else "-" }}</div>
+                                <div class="dashboard-item-desc">{{ item.description }}</div>
                             </div>
-                            {% endfor %}
-                        </div>
+                        </a>
+                        {% endfor %}
                     </div>
-                    {% endif %}
-                    
-                    {% if live_items %}
-                    <div style="margin-bottom: 30px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
-                                <i class="fas fa-store" style="color: var(--primary);"></i> Live Items ({{ live_items|length }})
-                            </h4>
+                </div>
+                {% endif %}
+
+                {% if sold_items %}
+                <div style="margin-bottom: 20px;">
+                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-check-circle" style="color: #15803d;"></i> Sold ({{ sold_items|length }})</h4>
+                    <div class="dashboard-inventory-grid">
+                        {% for item in sold_items %}
+                        <div class="dashboard-item-card sold" style="position: relative;">
+                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
+                            <span class="dashboard-item-badge sold">SOLD</span>
                         </div>
-                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px;">These items are live in the shop. Prices are set and cannot be edited.</p>
-                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;">
-                            {% for item in live_items %}
-                            <div style="position: relative; border-radius: 8px; overflow: hidden; border: 2px solid #bbf7d0; background: #f0fdf4;">
-                                <div style="height: 80px; overflow: hidden;">
-                                    <a href="/item/{{ item.id }}" target="_blank" style="display: block; width: 100%; height: 100%;">
-                                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover;">
-                                    </a>
-                                </div>
-                                <div style="padding: 8px;">
-                                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--primary); margin-bottom: 2px;">
-                                        ${{ "%.0f"|format(item.price) if item.price else "-" }}
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                        {{ item.description }}
-                                    </div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
+                        {% endfor %}
                     </div>
-                    {% endif %}
-                    
-                    {% if sold_items %}
-                    <div style="margin-bottom: 20px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0; font-size: 1rem; color: var(--text-muted);">
-                                <i class="fas fa-check-circle" style="color: #15803d;"></i> Sold Items ({{ sold_items|length }})
-                            </h4>
-                        </div>
-                        <div class="grid-inventory" style="grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">
-                            {% for item in sold_items %}
-                            <div style="position: relative; border-radius: 8px; overflow: hidden; height: 80px; opacity: 0.7;">
-                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 100%; height: 100%; object-fit: cover; filter: grayscale(50%);">
-                                <div style="position: absolute; top: 5px; right: 5px; background: #15803d; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">
-                                    SOLD
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-                    
-                    <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 20px;">
-                        <i class="fas fa-plus"></i> Add More Items
-                    </a>
+                </div>
+                {% endif %}
+
+                <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 8px;">
+                    <i class="fas fa-plus"></i> Add More Items
+                </a>
                 {% else %}
-                    <p style="color: var(--text-muted);">Upload photos of your items.</p>
-                    <a href="/add_item" class="btn btn-primary" style="margin-top: 15px;">Draft Items &rarr;</a>
+                <p style="color: var(--text-muted);">Upload photos of your items.</p>
+                <a href="/add_item" class="btn btn-primary" style="margin-top: 16px;">Draft Items &rarr;</a>
                 {% endif %}
             </div>
-
         </div>
 
-        <div>
-            <div>
-                <a href="{{ url_for('account_settings') }}" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 8px;">
-                    <i class="fas fa-cog"></i> Account Settings
+        {# Sidebar - Account Settings & Quick Info #}
+        <aside class="dashboard-sidebar">
+            <div class="card no-hover">
+                <h3 style="font-size: 1rem; margin-bottom: 16px;">Quick Access</h3>
+                <a href="{{ url_for('account_settings') }}" class="dashboard-quick-link">
+                    <i class="fas fa-cog" style="color: var(--primary);"></i>
+                    Account Settings
                 </a>
+                {% if has_pickup_location %}
+                <div class="dashboard-sidebar-status ready"><i class="fas fa-check-circle"></i> Pickup location set</div>
+                {% else %}
+                <div class="dashboard-sidebar-status warn"><i class="fas fa-exclamation-circle"></i> Set pickup in settings</div>
+                {% endif %}
+                {% if has_payout_info %}
+                <div class="dashboard-sidebar-status ready"><i class="fas fa-check-circle"></i> Payout info set</div>
+                {% else %}
+                <div class="dashboard-sidebar-status warn"><i class="fas fa-exclamation-circle"></i> Add payout for sales</div>
+                {% endif %}
             </div>
-        </div>
-
+        </aside>
     </div>
 </div>
 
+{# Claim Your Space Modal - Receipt Style #}
+{% if pending_pickup %}
+<div id="claimModal" class="dashboard-modal-overlay" style="display: none;">
+    <div class="dashboard-modal" onclick="event.stopPropagation()">
+        <div class="dashboard-receipt-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h3 style="margin: 0; font-size: 1.2rem;">Claim Your Space</h3>
+                <p style="margin: 8px 0 0; color: var(--text-muted); font-size: 0.9rem;">Pickup confirmation & payment</p>
+            </div>
+            <button type="button" onclick="closeClaimModal()" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 1.2rem;" aria-label="Close">&times;</button>
+        </div>
+        <div class="dashboard-receipt-body">
+            <div style="margin-bottom: 20px;">
+                <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase;">Items to be picked up</div>
+                {% for item in pending_pickup %}
+                <div class="dashboard-receipt-row">
+                    <span>{{ item.description[:35] }}{% if item.description|length > 35 %}...{% endif %}</span>
+                    {% if item.is_large %}<span style="color: var(--accent); font-weight: 600;">+$10</span>{% else %}<span>—</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="dashboard-receipt-divider"></div>
+            <div class="dashboard-receipt-row">
+                <span>Service fee (guaranteed space)</span>
+                <span>${{ "%.2f"|format(service_fee_cents / 100) }}</span>
+            </div>
+            {% if pending_pickup_large_count %}
+            <div class="dashboard-receipt-row">
+                <span>Oversized items ({{ pending_pickup_large_count }} × $10)</span>
+                <span>${{ "%.2f"|format(pending_pickup_large_count * (large_item_fee_cents / 100)) }}</span>
+            </div>
+            {% endif %}
+            <div class="dashboard-receipt-divider"></div>
+            <div class="dashboard-receipt-row dashboard-receipt-total">
+                <span>Total</span>
+                <span>${{ "%.2f"|format(pending_pickup_fee_cents / 100) }}</span>
+            </div>
+            <form method="POST" action="{{ url_for('confirm_pickup') }}" style="margin-top: 24px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <label style="font-size: 0.85rem; font-weight: 700; margin-bottom: 12px; display: block;">Pickup week</label>
+                <div style="margin-bottom: 20px;">
+                    {% for value, label in pickup_weeks %}
+                    <label class="pickup-week-option" style="cursor: pointer; display: flex;">
+                        <input type="radio" name="pickup_week" value="{{ value }}" required style="margin: 0;">
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;"><i class="fas fa-info-circle"></i> Your choice cannot be changed after confirmation.</p>
+                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px;">
+                    <i class="fas fa-credit-card"></i> Pay ${{ "%.2f"|format(pending_pickup_fee_cents / 100) }} & Confirm Pickup
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <script>
-    // Prevent scroll jump by scrolling immediately if needed, before page fully renders
+    // Claim modal
+    function openClaimModal() {
+        var m = document.getElementById('claimModal');
+        if (m) { m.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+    }
+    function closeClaimModal() {
+        var m = document.getElementById('claimModal');
+        if (m) { m.style.display = 'none'; document.body.style.overflow = ''; }
+    }
+    var claimModal = document.getElementById('claimModal');
+    if (claimModal) claimModal.addEventListener('click', function(e) {
+        if (e.target === this) closeClaimModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeClaimModal();
+    });
+
+    // Scroll to anchor
     const urlParams = new URLSearchParams(window.location.search);
     const scrollTarget = urlParams.get('scroll');
-
     if (scrollTarget) {
-        // Scroll immediately without delay to prevent jump to top
         window.addEventListener('DOMContentLoaded', function() {
-            const element = document.getElementById(scrollTarget);
-            if (element) {
-                // Use requestAnimationFrame to ensure DOM is ready
-                requestAnimationFrame(() => {
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                });
-            }
+            const el = document.getElementById(scrollTarget);
+            if (el) requestAnimationFrame(function() { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
         }, { once: true });
-        
-        // Also try immediately (in case DOMContentLoaded already fired)
-        const element = document.getElementById(scrollTarget);
-        if (element) {
-            requestAnimationFrame(() => {
-                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            });
-        }
-    }
-
-    function toggleEdit(section) {
-        var view = document.getElementById('view-' + section);
-        var form = document.getElementById('edit-' + section);
-        
-        if (form.style.display === 'none') {
-            form.style.display = 'block';
-            if(view) view.style.display = 'none';
-        } else {
-            form.style.display = 'none';
-            if(view) view.style.display = 'flex';
-        }
     }
 </script>
 {% endblock %}
