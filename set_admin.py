@@ -28,5 +28,6 @@ if __name__ == '__main__':
             sys.exit(1)
 
         user.is_admin = True
+        user.is_super_admin = True
         db.session.commit()
-        print(f"Done! {email} is now an admin.")
+        print(f"Done! {email} is now a super admin.")

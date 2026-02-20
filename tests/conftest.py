@@ -135,6 +135,7 @@ def test_admin_user(client):
             password_hash=generate_password_hash('adminpass123'),
             full_name='Admin User',
             is_admin=True,
+            is_super_admin=True,
             is_seller=True,
             has_paid=True
         )

@@ -1,0 +1,302 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    /* Admin sidebar layout - same as admin.html */
+    .admin-layout {
+        display: flex;
+        gap: 32px;
+        padding: 20px 0;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    .admin-sidebar {
+        flex-shrink: 0;
+        width: 220px;
+        background: white;
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid #e2e8f0;
+        height: fit-content;
+        position: sticky;
+        top: 100px;
+    }
+    .admin-sidebar nav {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .admin-sidebar a {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        color: var(--text-main);
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: background 0.2s;
+    }
+    .admin-sidebar a:hover {
+        background: #f1f5f9;
+    }
+    .admin-sidebar a.active {
+        background: var(--primary);
+        color: white;
+    }
+    .admin-main {
+        flex: 1;
+        min-width: 0;
+    }
+    @media (max-width: 768px) {
+        .admin-layout { flex-direction: column; }
+        .admin-sidebar {
+            width: 100%;
+            position: static;
+        }
+        .admin-sidebar nav { flex-direction: row; flex-wrap: wrap; }
+    }
+    .approve-container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 40px 20px;
+        min-height: 70vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .approve-progress {
+        font-size: 1rem;
+        color: var(--text-muted);
+        margin-bottom: 24px;
+        font-weight: 600;
+    }
+    .approve-card {
+        background: white;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);
+        width: 100%;
+        border: 1px solid #e2e8f0;
+    }
+    .approve-image-wrap {
+        background: #f8fafc;
+        aspect-ratio: 4/3;
+        max-height: 400px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    .approve-image-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    .approve-image-placeholder {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 3rem;
+    }
+    .approve-body {
+        padding: 24px;
+    }
+    .approve-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        margin: 0 0 8px;
+        color: var(--text-main);
+    }
+    .approve-meta {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        margin-bottom: 20px;
+    }
+    .approve-form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .approve-form-grid .full { grid-column: 1 / -1; }
+    .approve-actions {
+        display: flex;
+        gap: 16px;
+        justify-content: center;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+    }
+    .approve-btn {
+        flex: 1;
+        max-width: 200px;
+        padding: 14px 24px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s;
+        text-decoration: none;
+    }
+    .approve-btn-reject {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 2px solid #fecaca;
+    }
+    .approve-btn-reject:hover {
+        background: #fee2e2;
+        border-color: #dc2626;
+    }
+    .approve-btn-approve {
+        background: var(--primary);
+        color: white;
+        border: 2px solid var(--primary);
+    }
+    .approve-btn-approve:hover {
+        background: var(--primary-light);
+        transform: translateY(-2px);
+    }
+    .approve-done {
+        text-align: center;
+        padding: 60px 20px;
+    }
+    .approve-done h2 {
+        font-size: 1.75rem;
+        margin-bottom: 12px;
+        color: var(--primary);
+    }
+    .approve-done p {
+        color: var(--text-muted);
+        margin-bottom: 24px;
+    }
+</style>
+
+<div class="container">
+    <div style="margin-bottom: 24px;">
+        <h1 style="margin-bottom: 5px;">Manager Dashboard</h1>
+        <p style="margin: 0; color: var(--text-muted);">Approve pending items.</p>
+    </div>
+    <div class="admin-layout">
+        {% with active='approve', pending_count=total_pending %}{% include 'admin_sidebar.html' %}{% endwith %}
+        <main class="admin-main">
+<div class="approve-container">
+    {% if pending_item %}
+    <div class="approve-progress">
+        {{ total_pending }} item{{ 's' if total_pending != 1 else '' }} to approve
+    </div>
+    
+    <div class="approve-card">
+        <div class="approve-image-wrap">
+            {% if pending_item.photo_url %}
+            <img src="{{ url_for('uploaded_file', filename=pending_item.photo_url) }}" alt="{{ pending_item.description }}">
+            {% else %}
+            <div class="approve-image-placeholder">
+                <i class="fas fa-image"></i>
+            </div>
+            {% endif %}
+        </div>
+        <div class="approve-body">
+            <h2 class="approve-title">{{ pending_item.description }}</h2>
+            <div class="approve-meta">
+                {{ pending_item.category.name }} &middot; Quality {{ pending_item.quality }}/5
+                {% if pending_item.seller %}
+                &middot; {{ pending_item.seller.full_name }}
+                {% if pending_item.suggested_price %}
+                &middot; Suggested ${{ '%.2f'|format(pending_item.suggested_price) }}
+                {% endif %}
+                {% endif %}
+            </div>
+            
+            <form method="POST" action="{{ url_for('admin_approve') }}" id="approve-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="item_id" value="{{ pending_item.id }}">
+                
+                <div class="approve-form-grid">
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Price ($)</label>
+                        <input type="number" name="price" step="0.01" placeholder="0.00" required
+                               value="{{ '%.2f'|format(pending_item.suggested_price) if pending_item.suggested_price else '' }}"
+                               style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 1.1rem;">
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Category</label>
+                        <select name="category_id" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                            {% for cat in all_cats %}
+                            <option value="{{ cat.id }}" {% if pending_item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Quality</label>
+                        <select name="quality" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                            {% for i in range(5, 1, -1) %}
+                            <option value="{{ i }}" {% if pending_item.quality == i %}selected{% endif %}>{{ i }}/5</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: flex-end; padding-bottom: 4px;">
+                        {% if pending_item.collection_method == 'online' %}
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600;">
+                            <input type="checkbox" name="is_large" value="1" {% if pending_item.is_large %}checked{% endif %}
+                                   style="width: 20px; height: 20px;">
+                            Oversized (+$10)
+                        </label>
+                        {% else %}
+                        <span style="color: var(--text-muted);">In-person (no oversize fee)</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="approve-actions">
+                    <button type="submit" name="action" value="reject" class="approve-btn approve-btn-reject"
+                            onclick="return confirm('Reject this item?');">
+                        <i class="fas fa-times"></i> Reject
+                    </button>
+                    <button type="submit" name="action" value="approve" class="approve-btn approve-btn-approve">
+                        <i class="fas fa-check"></i> Approve
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <a href="{{ url_for('admin_panel') }}" style="margin-top: 24px; color: var(--text-muted); font-size: 0.9rem;">
+        <i class="fas fa-arrow-left"></i> Back to Dashboard
+    </a>
+    {% else %}
+    <div class="approve-card approve-done">
+        <h2><i class="fas fa-check-circle" style="color: #15803d;"></i> All caught up!</h2>
+        <p>No items waiting for approval.</p>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-primary">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+    {% endif %}
+</div>
+        </main>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('keydown', function(e) {
+        if (!document.getElementById('approve-form')) return;
+        if (e.key === 'r' || e.key === 'R') {
+            const rejectBtn = document.querySelector('button[value="reject"]');
+            if (rejectBtn && confirm('Reject this item?')) rejectBtn.click();
+        } else if (e.key === 'a' || e.key === 'A') {
+            const approveBtn = document.querySelector('button[value="approve"]');
+            if (approveBtn) approveBtn.click();
+        }
+    });
+</script>
+{% endblock %}

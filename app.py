@@ -64,6 +64,12 @@ def get_current_store():
     # Default store
     return 'UNC Chapel Hill'
 
+def is_super_admin():
+    """True if current user is a super admin (full access). Requires request context."""
+    if not current_user.is_authenticated:
+        return False
+    return getattr(current_user, 'is_super_admin', False)
+
 def get_store_info(store_name):
     """Get store information by name"""
     stores = {
@@ -86,7 +92,8 @@ def inject_store_functions():
     return dict(
         get_current_store=get_current_store,
         get_store_info=get_store_info,
-        google_oauth_enabled=bool(oauth)
+        google_oauth_enabled=bool(oauth),
+        is_super_admin=is_super_admin
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -180,6 +187,16 @@ def get_user_dashboard():
     if current_user.is_authenticated and current_user.is_admin:
         return url_for('admin_panel')
     return url_for('dashboard')
+
+def require_super_admin():
+    """Returns redirect response if current user is not a super admin. Call at start of super-admin-only routes."""
+    if not current_user.is_authenticated or not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    if not is_super_admin():
+        flash("This action requires super admin access.", "error")
+        return redirect(url_for('admin_panel'))
+    return None
 
 
 # --- EMAIL HELPERS ---
@@ -1208,12 +1225,8 @@ def admin_panel():
          flash("Access denied.", "error")
          return redirect(url_for('index'))
     
-    # Debug: capture form data for troubleshooting (always on for admin)
-    admin_debug = session.pop('admin_debug', None) if request.method == 'GET' else None
     if request.method == 'POST':
-        form_keys = list(request.form.keys())
-        admin_debug = {'form_keys': form_keys, 'action': None, 'result': None, 'has_bulk': 'bulk_update_items' in request.form, 'has_delete': 'delete_item' in request.form}
-        logger.info(f"ADMIN_POST form_keys={form_keys}")
+        logger.info(f"ADMIN_POST form_keys={list(request.form.keys())}")
     
     # Admin can toggle pickup period
     if request.method == 'POST' and 'toggle_pickup_period' in request.form:
@@ -1222,8 +1235,14 @@ def admin_panel():
         AppSetting.set('pickup_period_active', str(new_status))
         flash(f"Pickup period {'activated' if new_status else 'closed'}.", "success")
 
-    # 1. Update Category Counts
+    # 1. Update Category Counts (super admin only)
     if request.method == 'POST' and 'update_all_counts' in request.form:
+        if not is_super_admin():
+            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            if is_ajax:
+                return jsonify({'success': False, 'message': "Category counts require super admin access."}), 403
+            flash("Category counts require super admin access.", "error")
+            return redirect(url_for('admin_panel') + '#categories')
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
         updated = 0
         for key, value in request.form.items():
@@ -1338,8 +1357,6 @@ def admin_panel():
 
     # 3. Bulk Update Items
     if request.method == 'POST' and 'bulk_update_items' in request.form:
-        if admin_debug:
-            admin_debug['action'] = 'bulk_update_items'
         logger.info("ADMIN: Entering bulk_update_items handler")
         updated_count = 0
         for key, value in request.form.items():
@@ -1434,9 +1451,6 @@ def admin_panel():
             is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             db.session.commit()
             result_msg = f"Updated {updated_count} item(s)." if updated_count > 0 else "Changes saved."
-            if admin_debug:
-                admin_debug['result'] = result_msg
-                admin_debug['updated_count'] = updated_count
             logger.info(f"ADMIN: bulk_update committed, updated_count={updated_count}")
             if is_ajax:
                 return jsonify({'success': True, 'message': result_msg, 'reload': True})
@@ -1447,8 +1461,6 @@ def admin_panel():
         except Exception as e:
             db.session.rollback()
             logger.error(f"Error committing bulk_update: {e}", exc_info=True)
-            if admin_debug:
-                admin_debug['result'] = f"ERROR: {str(e)}"
             import traceback
             traceback.print_exc()
             if is_ajax:
@@ -1461,9 +1473,6 @@ def admin_panel():
         
         if 'delete_item' in request.form:
             delete_val = request.form.get('delete_item')
-            if admin_debug:
-                admin_debug['action'] = 'delete_item'
-                admin_debug['delete_item_value'] = delete_val
             logger.info(f"ADMIN: delete_item in form, value={delete_val}")
             try:
                 item = InventoryItem.query.get(delete_val)
@@ -1478,21 +1487,15 @@ def admin_panel():
                         db.session.delete(photo)
                     db.session.delete(item)
                     db.session.commit()
-                    if admin_debug:
-                        admin_debug['result'] = f"Deleted item {item_id} ({item_desc})"
                     logger.info(f"ADMIN: Deleted item {item_id}")
                     if is_ajax:
                         return jsonify({'success': True, 'message': f"Item '{item_desc}' deleted.", 'remove_row': True, 'item_id': item_id})
                     flash(f"Item '{item_desc}' deleted.", "success")
                 else:
-                    if admin_debug:
-                        admin_debug['result'] = f"Item not found for id={delete_val}"
                     logger.warning(f"ADMIN: delete_item - item not found for id={delete_val}")
             except Exception as e:
                 db.session.rollback()
                 logger.error(f"ADMIN: Error deleting item {delete_val}: {e}", exc_info=True)
-                if admin_debug:
-                    admin_debug['result'] = f"ERROR: {str(e)}"
                 if is_ajax:
                     return jsonify({'success': False, 'message': f"Could not delete item: {str(e)}"}), 500
                 flash(f"Could not delete item: {str(e)}", "error")
@@ -1542,14 +1545,42 @@ def admin_panel():
                     return jsonify({'success': True, 'message': f"Item '{item.description}' marked as available.", 'reload': True})
                 flash(f"Item '{item.description}' marked as available.", "success")
 
-    # If we had a POST but no gallery action ran, record for debugging
-    if admin_debug and admin_debug.get('action') is None:
-        admin_debug['action'] = 'none'
-        admin_debug['result'] = f"No action matched. bulk_update_items in form? {admin_debug.get('has_bulk')}. delete_item in form? {admin_debug.get('has_delete')}."
+        elif 'mark_picked_up' in request.form:
+            item = InventoryItem.query.get(request.form.get('mark_picked_up'))
+            if item:
+                item.picked_up_at = datetime.utcnow()
+                db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"'{item.description}' marked as picked up.", 'reload': False})
+                flash(f"'{item.description}' marked as picked up.", "success")
 
-    # Persist admin_debug to session so it survives redirects (e.g. mark_payout_sent)
-    if admin_debug:
-        session['admin_debug'] = admin_debug
+        elif 'mark_at_store' in request.form:
+            item = InventoryItem.query.get(request.form.get('mark_at_store'))
+            if item:
+                item.arrived_at_store_at = datetime.utcnow()
+                db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"'{item.description}' marked as arrived at store.", 'reload': False})
+                flash(f"'{item.description}' marked as arrived at store.", "success")
+
+        elif 'unmark_at_store' in request.form:
+            item = InventoryItem.query.get(request.form.get('unmark_at_store'))
+            if item:
+                item.arrived_at_store_at = None
+                db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"'{item.description}' unmarked from at store.", 'reload': False})
+                flash(f"'{item.description}' unmarked from at store.", "success")
+
+        elif 'unmark_picked_up' in request.form:
+            item = InventoryItem.query.get(request.form.get('unmark_picked_up'))
+            if item:
+                item.picked_up_at = None
+                item.arrived_at_store_at = None  # Can't be at store if not picked up
+                db.session.commit()
+                if is_ajax:
+                    return jsonify({'success': True, 'message': f"'{item.description}' unmarked from picked up.", 'reload': False})
+                flash(f"'{item.description}' unmarked from picked up.", "success")
 
     # Data Loading with optimized queries
     commodities = InventoryCategory.query.all()
@@ -1580,8 +1611,128 @@ def admin_panel():
                            pickup_period_active=pickup_period_active,
                            total_users=total_users, total_items=total_items,
                            sold_items=sold_items, pending_items_count=pending_items_count,
-                           available_items=available_items,
-                           admin_debug=admin_debug)
+                           available_items=available_items)
+
+
+@app.route('/admin/approve', methods=['GET', 'POST'])
+@login_required
+def admin_approve():
+    """Tinder-style approval flow for pending items. Super admin only."""
+    if not current_user.is_authenticated or not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    if not is_super_admin():
+        flash("Item approval requires super admin access.", "error")
+        return redirect(url_for('admin_panel'))
+    
+    all_cats = InventoryCategory.query.all()
+    
+    if request.method == 'POST':
+        action = request.form.get('action')  # 'approve' or 'reject'
+        item_id = request.form.get('item_id')
+        if not item_id or action not in ('approve', 'reject'):
+            flash("Invalid request.", "error")
+            return redirect(url_for('admin_approve'))
+        
+        item = InventoryItem.query.options(
+            joinedload(InventoryItem.category),
+            joinedload(InventoryItem.seller)
+        ).get(item_id)
+        
+        if not item or item.status != 'pending_valuation':
+            flash("Item not found or already processed.", "error")
+            return redirect(url_for('admin_approve'))
+        
+        if action == 'reject':
+            desc = item.description
+            for photo in item.gallery_photos[:]:
+                db.session.delete(photo)
+            db.session.delete(item)
+            db.session.commit()
+            flash(f"Rejected '{desc}'.", "success")
+            return redirect(url_for('admin_approve'))
+        
+        # Approve: set price, is_large, category, quality, status
+        price_str = request.form.get('price', '').strip()
+        if not price_str:
+            flash("Please set a price to approve.", "error")
+            return redirect(url_for('admin_approve') + f'?item={item_id}')
+        
+        price_valid, price_result = validate_price(price_str)
+        if not price_valid:
+            flash(f"Invalid price: {price_result}", "error")
+            return redirect(url_for('admin_approve') + f'?item={item_id}')
+        
+        item.price = price_result
+        item.is_large = request.form.get('is_large', '').lower() in ('1', 'true', 'on', 'yes')
+        if request.form.get('category_id'):
+            try:
+                item.category_id = int(request.form['category_id'])
+            except (ValueError, TypeError):
+                pass
+        if request.form.get('quality'):
+            qv, qr = validate_quality(request.form['quality'])
+            if qv:
+                item.quality = qr
+        item.status = 'pending_logistics'
+        
+        # Send approval email
+        if item.seller and item.seller.email:
+            try:
+                fee_text = ""
+                if item.collection_method == 'online':
+                    fee = SERVICE_FEE_CENTS // 100
+                    if item.is_large:
+                        fee += LARGE_ITEM_FEE_CENTS // 100
+                    fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
+                else:
+                    fee_text = " Select your dropoff pod location—no payment required."
+                email_content = f"""
+                <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                    <h2 style="color: #166534;">Your Item Has Been Approved!</h2>
+                    <p>Great news! Your item <strong>{item.description}</strong> has been approved.</p>
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                        <p style="margin: 0 0 8px;"><strong>Price:</strong> ${item.price:.2f}</p>
+                        <p style="margin: 0;">Next step:{fee_text}</p>
+                    </div>
+                    <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Confirm in Dashboard</a></p>
+                    <p>Thanks for selling with Campus Swap!</p>
+                </div>
+                """
+                send_email(item.seller.email, "Your Item Has Been Approved - Campus Swap", email_content)
+            except Exception as e:
+                logger.error(f"Failed to send approval email: {e}")
+        
+        db.session.commit()
+        flash(f"Approved '{item.description}' at ${item.price:.2f}.", "success")
+        return redirect(url_for('admin_approve'))
+    
+    # GET: fetch next pending item
+    item_id_param = request.args.get('item')
+    if item_id_param:
+        try:
+            pending_item = InventoryItem.query.options(
+                joinedload(InventoryItem.category),
+                joinedload(InventoryItem.seller)
+            ).filter(
+                InventoryItem.id == int(item_id_param),
+                InventoryItem.status == 'pending_valuation'
+            ).first()
+        except (ValueError, TypeError):
+            pending_item = None
+    else:
+        pending_item = InventoryItem.query.options(
+            joinedload(InventoryItem.category),
+            joinedload(InventoryItem.seller)
+        ).filter_by(status='pending_valuation').order_by(InventoryItem.date_added.asc()).first()
+    
+    total_pending = InventoryItem.query.filter_by(status='pending_valuation').count()
+    
+    return render_template('admin_approve.html',
+        pending_item=pending_item,
+        all_cats=all_cats,
+        total_pending=total_pending
+    )
 
 
 @app.route('/edit_item/<int:item_id>', methods=['GET', 'POST'])
@@ -2052,7 +2203,7 @@ def auth_google_callback():
             if name and not user.full_name:
                 user.full_name = name
             db.session.commit()
-        login_user(user)
+        login_user(user, remember=True)
         if not pickup_period_active:
             flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
             return redirect(url_for('index'))
@@ -2063,14 +2214,14 @@ def auth_google_callback():
                         oauth_provider='google', oauth_id=oauth_id)
         db.session.add(new_user)
         db.session.commit()
-        login_user(new_user)
+        login_user(new_user, remember=True)
         flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
         return redirect(url_for('index'))
     new_user = User(email=email, full_name=name or None, referral_source=source,
                     oauth_provider='google', oauth_id=oauth_id)
     db.session.add(new_user)
     db.session.commit()
-    login_user(new_user)
+    login_user(new_user, remember=True)
     flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
     return redirect(get_user_dashboard())
 
@@ -2108,9 +2259,14 @@ def login():
                 flash("No account found with this email. Create an account below.", "error")
                 return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=True)
             elif not user.password_hash:
-                # User exists but has no password (guest account) - redirect to signup
-                flash("Please create an account with this email.", "error")
-                return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=True)
+                if user.oauth_provider:
+                    # OAuth-only account - tell them to use Google
+                    flash("This account uses Sign in with Google. Use the button above to log in.", "error")
+                    return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=False)
+                else:
+                    # True guest - redirect to signup
+                    flash("Please create an account with this email.", "error")
+                    return render_template('login.html', prefill_email=email, prefill_full_name='', show_signup=True)
             elif not check_password_hash(user.password_hash, password):
                 # Wrong password
                 flash("Invalid password. Please try again.", "error")
@@ -2983,7 +3139,9 @@ def add_item():
 @app.route('/admin/category/add', methods=['POST'])
 @login_required
 def admin_add_category():
-    """Add a new category"""
+    """Add a new category (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'message': "Access denied."}), 403
@@ -3020,7 +3178,9 @@ def admin_add_category():
 @app.route('/admin/category/edit/<int:cat_id>', methods=['POST'])
 @login_required
 def admin_edit_category(cat_id):
-    """Edit an existing category"""
+    """Edit an existing category (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3053,7 +3213,9 @@ def admin_edit_category(cat_id):
 @app.route('/admin/category/bulk-update', methods=['POST'])
 @login_required
 def admin_bulk_update_categories():
-    """Bulk update multiple categories at once"""
+    """Bulk update multiple categories at once (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3122,7 +3284,9 @@ def admin_bulk_update_categories():
 @app.route('/admin/category/delete/<int:cat_id>', methods=['POST'])
 @login_required
 def admin_delete_category(cat_id):
-    """Delete a category (only if no items use it)"""
+    """Delete a category (only if no items use it) (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'message': "Access denied."}), 403
@@ -3154,7 +3318,9 @@ def admin_delete_category(cat_id):
 @app.route('/admin/user/delete/<int:user_id>', methods=['POST'])
 @login_required
 def admin_delete_user(user_id):
-    """Delete a user account and all related data. Admin only."""
+    """Delete a user account and all related data. Super admin only."""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3218,10 +3384,66 @@ def admin_delete_user(user_id):
     return redirect(url_for('admin_preview_users'))
 
 
+@app.route('/admin/user/make-admin', methods=['POST'])
+@login_required
+def admin_make_admin():
+    """Grant admin (helper) access to a user by email. Super admin only."""
+    if (r := require_super_admin()):
+        return r
+    email = request.form.get('email', '').strip()
+    if not email:
+        flash("Please enter an email address.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash(f"No user found with email '{email}'.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    if user.is_admin:
+        flash(f"{email} is already an admin.", "info")
+        return redirect(url_for('admin_panel') + '#database')
+    user.is_admin = True
+    user.is_super_admin = False
+    db.session.commit()
+    flash(f"Granted admin access to {email}.", "success")
+    return redirect(url_for('admin_panel') + '#database')
+
+
+@app.route('/admin/user/revoke-admin', methods=['POST'])
+@login_required
+def admin_revoke_admin():
+    """Revoke admin access from a user by email. Super admin only."""
+    if (r := require_super_admin()):
+        return r
+    email = request.form.get('email', '').strip()
+    if not email:
+        flash("Please enter an email address.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash(f"No user found with email '{email}'.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    if not user.is_admin:
+        flash(f"{email} is not an admin.", "info")
+        return redirect(url_for('admin_panel') + '#database')
+    if user.id == current_user.id:
+        flash("You cannot revoke your own admin access.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    if user.is_super_admin and User.query.filter_by(is_super_admin=True).count() <= 1:
+        flash("Cannot revoke the last super admin.", "error")
+        return redirect(url_for('admin_panel') + '#database')
+    user.is_admin = False
+    user.is_super_admin = False
+    db.session.commit()
+    flash(f"Revoked admin access from {email}.", "success")
+    return redirect(url_for('admin_panel') + '#database')
+
+
 @app.route('/admin/preview/users')
 @login_required
 def admin_preview_users():
-    """Preview all users in browser"""
+    """Preview all users in browser (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3256,7 +3478,9 @@ def admin_preview_users():
 @app.route('/admin/export/users')
 @login_required
 def admin_export_users():
-    """Export all users to CSV"""
+    """Export all users to CSV (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3292,7 +3516,9 @@ def admin_export_users():
 @app.route('/admin/preview/items')
 @login_required
 def admin_preview_items():
-    """Preview all items in browser"""
+    """Preview all items in browser (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3332,7 +3558,9 @@ def admin_preview_items():
 @app.route('/admin/export/items')
 @login_required
 def admin_export_items():
-    """Export all items to CSV"""
+    """Export all items to CSV (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3375,7 +3603,9 @@ def admin_export_items():
 @app.route('/admin/preview/sales')
 @login_required
 def admin_preview_sales():
-    """Preview sales data in browser"""
+    """Preview sales data in browser (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3419,7 +3649,9 @@ def admin_preview_sales():
 @app.route('/admin/export/sales')
 @login_required
 def admin_export_sales():
-    """Export sold items with payout information"""
+    """Export sold items with payout information (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3463,7 +3695,9 @@ def admin_export_sales():
 @app.route('/admin/database/reset', methods=['POST'])
 @login_required
 def admin_database_reset():
-    """Safely reset database - requires confirmation"""
+    """Safely reset database - requires confirmation (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
@@ -3510,7 +3744,9 @@ def admin_database_reset():
 @app.route('/admin/mass-email', methods=['POST'])
 @login_required
 def admin_mass_email():
-    """Send marketing email to all users in database"""
+    """Send marketing email to all users in database (super admin only)"""
+    if (r := require_super_admin()):
+        return r
     if not current_user.is_admin:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'message': "Access denied."}), 403

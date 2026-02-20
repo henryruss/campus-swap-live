@@ -38,6 +38,11 @@
     .btn-sold { color: var(--accent); } 
     .btn-undo { color: var(--text-muted); }
     .btn-delete { color: #dc2626; }
+    .lifecycle-undo {
+        border: none; background: none; cursor: pointer; padding: 2px 6px;
+        font-size: 0.75rem; color: var(--text-muted); margin-left: 6px;
+    }
+    .lifecycle-undo:hover { color: #64748b; text-decoration: underline; }
 
     .card.no-hover { transform: none !important; box-shadow: var(--glass-shadow) !important; }
     .card.no-hover:hover { transform: none !important; box-shadow: var(--glass-shadow) !important; }
@@ -157,10 +162,67 @@
             grid-template-columns: 1fr !important;
         }
     }
+    
+    /* Sidebar layout */
+    .admin-layout {
+        display: flex;
+        gap: 32px;
+        padding: 20px 0;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    .admin-sidebar {
+        flex-shrink: 0;
+        width: 220px;
+        background: white;
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid #e2e8f0;
+        height: fit-content;
+        position: sticky;
+        top: 100px;
+    }
+    .admin-sidebar nav {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .admin-sidebar a {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        color: var(--text-main);
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: background 0.2s;
+    }
+    .admin-sidebar a:hover {
+        background: #f1f5f9;
+    }
+    .admin-sidebar a.active {
+        background: var(--primary);
+        color: white;
+    }
+    .admin-main {
+        flex: 1;
+        min-width: 0;
+    }
+    @media (max-width: 768px) {
+        .admin-layout { flex-direction: column; }
+        .admin-sidebar {
+            width: 100%;
+            position: static;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .admin-sidebar nav { flex-direction: row; flex-wrap: wrap; }
+    }
 </style>
 
 <div class="container">
-    
     <div class="dashboard-header">
         <div>
             <h1 style="margin-bottom: 5px;">Manager Dashboard</h1>
@@ -179,37 +241,14 @@
         </div>
     </div>
 
-    {% if admin_debug %}
-    <!-- Troubleshooting: last POST request debug info -->
-    <details class="admin-section" style="margin-bottom: 20px; border-color: #f59e0b;">
-        <summary class="section-summary" style="background: #fffbeb; border-color: #f59e0b;">
-            <h3 style="display: inline-block; margin: 0; color: #b45309;">
-                <i class="fas fa-bug"></i> Last POST Debug (troubleshooting)
-            </h3>
-            <i class="fas fa-chevron-down summary-chevron"></i>
-        </summary>
-        <div class="card no-hover" style="margin-top: 10px; font-family: monospace; font-size: 0.85rem; background: #fffbeb;">
-            <p><strong>Form keys received:</strong> {{ admin_debug.form_keys|join(', ') }}</p>
-            <p><strong>bulk_update_items in form?</strong> {{ admin_debug.has_bulk }}</p>
-            <p><strong>delete_item in form?</strong> {{ admin_debug.has_delete }}</p>
-            <p><strong>Action taken:</strong> {{ admin_debug.action or '-' }}</p>
-            <p><strong>Result:</strong> {{ admin_debug.result or '-' }}</p>
-            {% if admin_debug.updated_count is defined %}
-            <p><strong>Items updated:</strong> {{ admin_debug.updated_count }}</p>
-            {% endif %}
-            {% if admin_debug.delete_item_value is defined %}
-            <p><strong>delete_item value:</strong> {{ admin_debug.delete_item_value }}</p>
-            {% endif %}
-            <p style="margin-top: 15px; color: var(--text-muted); font-size: 0.8rem;">If bulk_update_items or delete_item show False but you clicked Save/Reject, the submit button may not be reaching the server. Check form action URL and browser network tab.</p>
-        </div>
-    </details>
-    {% endif %}
-
-    <!-- Database Overview -->
-    <details class="admin-section" open style="margin-bottom: 40px;">
+    <div class="admin-layout">
+        {% with pending_count=pending_items_count %}{% include 'admin_sidebar.html' %}{% endwith %}
+        <main class="admin-main">
+    <!-- Overview -->
+    <details id="overview" class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
             <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
-                <i class="fas fa-database"></i> Database Overview
+                <i class="fas fa-chart-pie"></i> Overview
             </h3>
             <i class="fas fa-chevron-down summary-chevron"></i>
         </summary>
@@ -240,6 +279,44 @@
                 <div style="font-size: 2rem; font-weight: 800; color: var(--primary);">{{ available_items }}</div>
                 <div style="color: var(--text-muted); font-size: 0.9rem;">Available Items</div>
             </div>
+        </div>
+        
+        {% if is_super_admin() %}
+        <!-- Users & Database (super admin only) -->
+        <details id="database" class="admin-section" style="margin-top: 40px;">
+            <summary class="section-summary">
+                <h3 style="display: inline-block; margin: 0;"><i class="fas fa-database"></i> Users & Database</h3>
+                <i class="fas fa-chevron-down summary-chevron"></i>
+            </summary>
+            <div class="card no-hover" style="margin-top: 20px;">
+        
+        <!-- Manage Admin Access -->
+        <div style="margin-bottom: 30px; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <h4 style="margin-bottom: 16px; color: var(--text-main);">Manage Admin Access</h4>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;">
+                <form method="POST" action="/admin/user/make-admin" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Grant admin (by email)</label>
+                        <input type="email" name="email" placeholder="helper@college.edu" required
+                               style="width: 220px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Make Admin</button>
+                </form>
+                <form method="POST" action="/admin/user/revoke-admin" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Revoke admin (by email)</label>
+                        <input type="email" name="email" placeholder="helper@college.edu" required
+                               style="width: 220px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                    </div>
+                    <button type="submit" class="btn" style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;"
+                            onclick="return confirm('Revoke admin access from this user?');">
+                        <i class="fas fa-user-minus"></i> Revoke
+                    </button>
+                </form>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;">Grant helper access so they can add items and manage the item lifecycle. They cannot edit categories or access user/database tools.</p>
         </div>
         
         <!-- Data Export Section -->
@@ -335,11 +412,14 @@
                 </div>
             </details>
         </div>
+            </div>
+        </details>
+        {% endif %}
         </div>
     </details>
 
     <!-- Quick Add Item -->
-    <details class="admin-section" open style="margin-bottom: 40px;">
+    <details id="add-item" class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
             <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
                 <i class="fas fa-plus-circle"></i> Quick Add Item (In-Person Drop-off)
@@ -417,7 +497,7 @@
     </details>
 
     <!-- Category Management -->
-    <details class="admin-section" open style="margin-bottom: 40px;">
+    <details id="categories" class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
             <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
                 <i class="fas fa-tags"></i> Category Management
@@ -426,7 +506,8 @@
         </summary>
         <div id="categories" class="card no-hover" style="margin-top: 20px;">
         
-        <!-- Add New Category -->
+        {% if is_super_admin() %}
+        <!-- Add New Category (super admin only) -->
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 30px;">
             <h4 style="margin-bottom: 15px;">Add New Category</h4>
             <form method="POST" action="/admin/category/add">
@@ -452,7 +533,7 @@
             </form>
         </div>
         
-        <!-- Essentials Stock -->
+        <!-- Essentials Stock Counts -->
         <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
             <h4 style="margin-bottom: 15px; color: var(--text-main);">Essentials Stock Counts</h4>
             <form method="POST">
@@ -462,10 +543,7 @@
                     {% for cat in commodities %}
                     <div class="stock-card">
                         <i class="fas {{ cat.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; display: block; color: var(--primary);"></i>
-                        
-                        <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em;">
-                            {{ cat.name }}
-                        </div>
+                        <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase;">{{ cat.name }}</div>
                         <input type="number" name="counts_{{ cat.id }}" value="{{ cat.count_in_stock }}" class="stat-input">
                     </div>
                     {% endfor %}
@@ -475,10 +553,27 @@
                 </div>
             </form>
         </div>
+        {% else %}
+        <!-- Helpers: read-only stock counts -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
+            <h4 style="margin-bottom: 15px; color: var(--text-main);">Essentials Stock Counts</h4>
+            <div class="grid-3">
+                {% for cat in commodities %}
+                <div class="stock-card">
+                    <i class="fas {{ cat.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; display: block; color: var(--primary);"></i>
+                    <div style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px; text-transform: uppercase;">{{ cat.name }}</div>
+                    <div style="font-size: 2rem; font-weight: 800; color: var(--primary);">{{ cat.count_in_stock }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;"><i class="fas fa-info-circle"></i> Stock counts are read-only. Contact a super admin to update.</p>
+        </div>
+        {% endif %}
         
         <!-- Existing Categories -->
         <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
-            <h4 style="margin-bottom: 15px;">Existing Categories</h4>
+            <h4 style="margin-bottom: 15px; color: var(--text-main);">Existing Categories</h4>
+            {% if is_super_admin() %}
             <form method="POST" action="/admin/category/bulk-update">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div style="overflow-x: auto;">
@@ -533,15 +628,38 @@
                     </button>
                 </div>
             </form>
+            {% else %}
+            <div style="overflow-x: auto;">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 80px;">Icon</th>
+                            <th>Name</th>
+                            <th style="width: 100px;">Items</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cat in all_cats %}
+                        <tr>
+                            <td style="text-align: center;"><i class="fas {{ cat.image_url }}" style="font-size: 1.5rem; color: var(--primary);"></i></td>
+                            <td style="font-weight: 600;">{{ cat.name }}</td>
+                            <td style="text-align: center;">{{ cat.items|length }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;"><i class="fas fa-info-circle"></i> Categories are read-only. Contact a super admin to add or edit.</p>
+            {% endif %}
         </div>
         </div>
     </details>
 
-    <!-- Gallery Items -->
-    <details id="gallery-items" class="admin-section" open style="margin-bottom: 40px;">
+    <!-- Gallery Items / Item Lifecycle -->
+    <details id="items" class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
             <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
-                <i class="fas fa-images"></i> Gallery Items
+                <i class="fas fa-boxes"></i> Item Lifecycle
             </h3>
             <i class="fas fa-chevron-down summary-chevron"></i>
         </summary>
@@ -549,184 +667,100 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <!-- Fallback: clicked button's name/value injected here so server always receives it (layout may disable button before submit) -->
             <input type="hidden" id="admin-action" name="" value="">
-            {% if pending_items %}
-            <div id="pending-items" class="card no-hover" style="border: 2px solid #fca5a5; margin-top: 20px; margin-bottom: 30px;">
-                <h3 style="margin-bottom: 10px; color: #b91c1c;">
-                    <i class="fas fa-exclamation-triangle"></i> Action Required ({{ pending_items|length }})
+            {% if pending_items_count and is_super_admin() %}
+            <div class="card no-hover" style="border: 2px solid #fca5a5; margin-top: 20px; margin-bottom: 30px; background: #fffbeb;">
+                <h3 style="margin-bottom: 8px; color: #b91c1c;">
+                    <i class="fas fa-exclamation-triangle"></i> {{ pending_items_count }} item{{ 's' if pending_items_count != 1 else '' }} awaiting approval
                 </h3>
-                <p style="margin-bottom: 20px; font-size: 0.9rem;">Assign a price to approve these items.</p>
-                
-                <div style="overflow-x: auto;">
-                    <table class="admin-table">
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th>Seller</th>
-                                <th>Type</th>
-                                <th>Cat/Qual</th>
-                                <th>Suggested</th>
-                                <th>Set Price ($)</th>
-                                <th>Large ($10)</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in pending_items %}
-                            <tr style="background: rgba(255,255,255,0.5);">
-                                <td>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        {% if item.photo_url %}
-                                        <a href="/edit_item/{{ item.id }}" target="_blank">
-                                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 50px; height: 50px; border-radius: 8px; object-fit: cover;">
-                                        </a>
-                                        {% endif %}
-                                        <div style="font-weight: 600;">{{ item.description }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    {% if item.seller %}
-                                        <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
-                                        <a href="mailto:{{ item.seller.email }}" style="font-size: 0.8rem; color: var(--primary);">{{ item.seller.email }}</a>
-                                    {% else %}
-                                        <span style="color: #999;">Admin</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if item.collection_method == 'in_person' %}
-                                        <span style="background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
-                                            <i class="fas fa-box"></i> In-Person
-                                        </span>
-                                    {% else %}
-                                        <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
-                                            <i class="fas fa-globe"></i> Online
-                                        </span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <select name="category_{{ item.id }}" class="table-select" style="margin-bottom: 5px;">
-                                        {% for cat in all_cats %}
-                                            <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-                                        {% endfor %}
-                                    </select>
-                                    <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
-                                        {% for i in range(5, 1, -1) %}
-                                        <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
-                                        {% endfor %}
-                                    </select>
-                                </td>
-                                <td>
-                                    {% if item.suggested_price %}
-                                        <span style="font-size: 0.9rem; color: var(--text-muted);">${{ '%.2f'|format(item.suggested_price) }}</span>
-                                    {% else %}
-                                        <span style="font-size: 0.85rem; color: #cbd5e1;">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <input type="number" name="price_{{ item.id }}" step="0.01" placeholder="0.00" 
-                                           class="table-input" style="border: 2px solid #fca5a5;">
-                                </td>
-                                <td>
-                                    {% if item.collection_method == 'online' %}
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem;">
-                                        <input type="checkbox" name="is_large_{{ item.id }}" value="1" {% if item.is_large %}checked{% endif %}>
-                                        Large
-                                    </label>
-                                    {% else %}
-                                    <span style="color: #cbd5e1; font-size: 0.8rem;">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <div style="display: flex; gap: 5px;">
-                                        <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
-                                    <button type="submit" name="delete_item" value="{{ item.id }}" 
-                                            class="text-btn btn-delete" data-confirm="Reject '{{ item.description }}'?">Reject</button>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
-                    <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary" id="bulk-update-btn">
-                        <i class="fas fa-save"></i> Save Changes
-                    </button>
-                </div>
+                <p style="margin-bottom: 16px; font-size: 0.9rem; color: var(--text-muted);">Set price, oversized flag, and approve or reject in card view.</p>
+                <a href="{{ url_for('admin_approve') }}" class="btn" style="background: var(--primary); color: white;">
+                    <i class="fas fa-th-large"></i> Approve Items (Card View)
+                </a>
             </div>
             {% endif %}
 
             <div class="card no-hover" style="margin-top: 20px;">
+            <div class="lifecycle-filters" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; margin-bottom: 0;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
+                    <i class="fas fa-tag" style="color: var(--text-muted);"></i>
+                    <select id="filter-category" class="table-select" style="min-width: 140px;">
+                        <option value="">All categories</option>
+                        {% for cat in all_cats %}
+                        <option value="{{ cat.name }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
+                    <i class="fas fa-envelope" style="color: var(--text-muted);"></i>
+                    <input type="text" id="filter-seller" class="table-input" placeholder="Seller email" style="min-width: 180px;">
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
+                    <i class="fas fa-search" style="color: var(--text-muted);"></i>
+                    <input type="text" id="filter-title" class="table-input" placeholder="Item title" style="min-width: 180px;">
+                </label>
+                <button type="button" id="filter-clear" class="text-btn" style="font-size: 0.85rem; color: var(--text-muted);">Clear filters</button>
+                <span id="filter-count" style="font-size: 0.85rem; color: var(--text-muted); margin-left: auto;"></span>
+            </div>
             <div style="overflow-x: auto;">
-                <table class="admin-table">
+                <table class="admin-table" id="lifecycle-table">
                     <thead>
                         <tr>
                             <th>Item</th>
                             <th>Seller</th>
-                            <th>Category</th> 
-                            <th>Quality</th>
-                            <th>Price ($)</th>
-                            <th>Large</th>
+                            <th>Picked up</th>
+                            <th>At store</th>
                             <th>Status</th>
                             <th>Payout</th>
                             <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="lifecycle-tbody">
                         {% for item in gallery_items %}
-                        <tr>
+                        <tr class="lifecycle-row" data-category="{{ (item.category.name if item.category else '')|e }}" data-seller-email="{{ (item.seller.email if item.seller else '')|e }}" data-item-title="{{ (item.description or '')|e }}" data-item-id="{{ item.id }}">
                             <td>
-                                <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
                                     {% if item.photo_url %}
-                                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover;">
+                                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex-shrink: 0;">
                                     {% else %}
-                                    <div style="width: 40px; height: 40px; background: #eee; border-radius: 8px;"></div>
+                                    <div style="width: 32px; height: 32px; background: #eee; border-radius: 6px; flex-shrink: 0;"></div>
                                     {% endif %}
-                                    <div>
-                                        <div style="font-weight: 600;">{{ item.description }}</div>
-                                        <div style="font-size: 0.8rem; color: var(--text-muted);">{{ item.date_added.strftime('%b %d') }}</div>
+                                    <div style="min-width: 0;">
+                                        <div style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.description }}</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">{{ item.date_added.strftime('%b %d') }}</div>
                                     </div>
                                 </div>
                             </td>
 
-                            <td>
+                            <td style="font-size: 0.85rem;">
                                 {% if item.seller %}
-                                    <div style="font-weight: 600; font-size: 0.9rem;">{{ item.seller.full_name }}</div>
+                                    <div style="font-weight: 600;">{{ item.seller.full_name }}</div>
                                     <div style="font-size: 0.8rem; color: var(--text-muted);">{{ item.seller.email }}</div>
                                 {% else %}
-                                    <span style="color: #999; font-size: 0.9rem;">Admin</span>
+                                    <span style="color: #999;">Admin</span>
                                 {% endif %}
                             </td>
 
-                            <td>
-                                <select name="category_{{ item.id }}" class="table-select">
-                                    {% for cat in all_cats %}
-                                        <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-                                    {% endfor %}
-                                </select>
+                            <td class="lifecycle-picked-cell" style="font-size: 0.8rem; min-width: 90px;" data-item-id="{{ item.id }}">
+                                {% if item.picked_up_at %}
+                                    <span class="lifecycle-done" style="color: #15803d;"><i class="fas fa-check"></i></span>
+                                    <button type="button" class="lifecycle-undo" data-action="unmark_picked_up" data-id="{{ item.id }}" data-confirm="Undo picked up? This will also unmark at store." title="Undo">Undo</button>
+                                {% elif item.status != 'pending_valuation' %}
+                                    <label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="{{ item.id }}" data-confirm="Mark as picked up / in POD?">
+                                        <i class="fas fa-truck"></i>
+                                    </label>
+                                {% else %}-{% endif %}
                             </td>
-                            
-                            <td>
-                                <select name="quality_{{ item.id }}" class="table-select" style="width: 80px;">
-                                    {% for i in range(5, 1, -1) %}
-                                    <option value="{{ i }}" {% if item.quality == i %}selected{% endif %}>{{ i }}/5</option>
-                                    {% endfor %}
-                                </select>
-                            </td>
-                            
-                            <td>
-                                <input type="number" name="price_{{ item.id }}" step="0.01" 
-                                       value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
-                                       class="table-input">
-                            </td>
-                            <td>
-                                {% if item.collection_method == 'online' %}
-                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem;">
-                                    <input type="checkbox" name="is_large_{{ item.id }}" value="1" {% if item.is_large %}checked{% endif %}>
-                                </label>
-                                {% else %}
-                                <span style="color: #cbd5e1;">-</span>
-                                {% endif %}
+                            <td class="lifecycle-store-cell" style="font-size: 0.8rem; min-width: 90px;">
+                                {% if item.arrived_at_store_at %}
+                                    <span class="lifecycle-done" style="color: #15803d;"><i class="fas fa-store"></i></span>
+                                    <button type="button" class="lifecycle-undo" data-action="unmark_at_store" data-id="{{ item.id }}" data-confirm="Undo at store?" title="Undo">Undo</button>
+                                {% elif item.picked_up_at %}
+                                    <label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" class="lifecycle-cb" data-action="mark_at_store" data-id="{{ item.id }}" data-confirm="Mark as arrived at store?">
+                                        <i class="fas fa-store"></i>
+                                    </label>
+                                {% else %}-{% endif %}
                             </td>
                             <td>
                                 {% if item.status == 'sold' %}
@@ -762,7 +796,7 @@
                             <td style="text-align: right; min-width: 180px;">
                                 <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center; flex-wrap: wrap;">
                                     
-                                    <a href="/edit_item/{{ item.id }}" class="text-btn btn-edit">Edit</a>
+                                    <a href="{{ url_for('edit_item', item_id=item.id) }}" class="text-btn btn-edit">Edit</a>
                                     
                                     {% if item.status == 'available' %}
                                         <button type="submit" name="mark_sold" value="{{ item.id }}" class="text-btn btn-sold" data-confirm="Mark '{{ item.description }}' as sold?">Sold</button>
@@ -787,14 +821,11 @@
                 </table>
             </div>
 
-            <div style="margin-top: 20px; text-align: right; background: rgba(255,255,255,0.6); padding: 15px; border-radius: 12px; border: 1px solid #eee;">
-                <button type="submit" name="bulk_update_items" value="true" class="btn btn-primary" id="bulk-update-gallery-btn">
-                    <i class="fas fa-save"></i> Save Changes
-                </button>
-            </div>
             </div>
         </form>
     </details>
+        </main>
+    </div>
 </div>
 
 <script>
@@ -828,6 +859,28 @@
     
     // Export data type selector
     document.addEventListener('DOMContentLoaded', function() {
+        // Sidebar active state: highlight nav link based on URL hash
+        function updateSidebarActive() {
+            const hash = (window.location.hash || '#overview').replace('#', '');
+            const section = hash || 'overview';
+            document.querySelectorAll('.admin-sidebar a[data-section]').forEach(function(a) {
+                a.classList.toggle('active', a.getAttribute('data-section') === section);
+            });
+        }
+        updateSidebarActive();
+        window.addEventListener('hashchange', updateSidebarActive);
+        // Update active when clicking sidebar links (in case hash doesn't change)
+        document.querySelectorAll('.admin-sidebar a[data-section]').forEach(function(a) {
+            a.addEventListener('click', function() {
+                const sect = this.getAttribute('data-section');
+                if (sect && this.getAttribute('href').includes('#')) {
+                    document.querySelectorAll('.admin-sidebar a[data-section]').forEach(function(l) {
+                        l.classList.toggle('active', l.getAttribute('data-section') === sect);
+                    });
+                }
+            });
+        });
+        
         // Restore scroll position if set
         const savedScrollPos = sessionStorage.getItem('adminScrollPos');
         if (savedScrollPos) {
@@ -860,7 +913,138 @@
                 }
             }, true);  // capture phase - runs before layout's handler
         }
-        
+
+        // Lifecycle checkboxes and undo buttons - AJAX updates without page reload
+        function sendLifecycleAjax(action, id) {
+            const csrf = document.querySelector('input[name="csrf_token"]');
+            if (!csrf) return Promise.reject(new Error('CSRF token missing'));
+            const fd = new FormData();
+            fd.append('csrf_token', csrf.value);
+            fd.append(action, id);
+            fd.append('X-Requested-With', 'XMLHttpRequest');
+            const url = galleryForm ? galleryForm.action : window.location.pathname;
+            return fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)));
+        }
+
+        function handleLifecycleChange(e) {
+            const cb = e.target;
+            if (!cb.matches('.lifecycle-cb') || !cb.checked) return;
+            const action = cb.dataset.action;
+            const id = cb.dataset.id;
+            const confirmMsg = cb.dataset.confirm;
+            if (confirmMsg && !confirm(confirmMsg)) {
+                cb.checked = false;
+                return;
+            }
+            const label = cb.closest('label');
+            const row = cb.closest('tr');
+            const pickedCell = row.querySelector('.lifecycle-picked-cell');
+            const storeCell = row.querySelector('.lifecycle-store-cell');
+            label.style.opacity = '0.6';
+            cb.disabled = true;
+            sendLifecycleAjax(action, id).then(function(data) {
+                if (data.success) {
+                    if (typeof showFlashMessage === 'function') showFlashMessage(data.message, 'success');
+                    if (action === 'mark_picked_up') {
+                        pickedCell.innerHTML = '<span class="lifecycle-done" style="color: #15803d;"><i class="fas fa-check"></i></span><button type="button" class="lifecycle-undo" data-action="unmark_picked_up" data-id="' + id + '" data-confirm="Undo picked up? This will also unmark at store." title="Undo">Undo</button>';
+                        storeCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_at_store" data-id="' + id + '" data-confirm="Mark as arrived at store?"><i class="fas fa-store"></i></label>';
+                    } else {
+                        storeCell.innerHTML = '<span class="lifecycle-done" style="color: #15803d;"><i class="fas fa-store"></i></span><button type="button" class="lifecycle-undo" data-action="unmark_at_store" data-id="' + id + '" data-confirm="Undo at store?" title="Undo">Undo</button>';
+                    }
+                } else {
+                    label.style.opacity = '1';
+                    cb.disabled = false;
+                    cb.checked = false;
+                    if (typeof showFlashMessage === 'function') showFlashMessage(data.message || 'Error', 'error');
+                }
+            }).catch(function(err) {
+                label.style.opacity = '1';
+                cb.disabled = false;
+                cb.checked = false;
+                if (typeof showFlashMessage === 'function') showFlashMessage(err.message || 'Request failed', 'error');
+            });
+        }
+
+        function handleLifecycleUndo(e) {
+            const btn = e.target;
+            if (!btn.matches('.lifecycle-undo')) return;
+            e.preventDefault();
+            const action = btn.dataset.action;
+            const id = btn.dataset.id;
+            const confirmMsg = btn.dataset.confirm;
+            if (confirmMsg && !confirm(confirmMsg)) return;
+            const row = btn.closest('tr');
+            const pickedCell = row.querySelector('.lifecycle-picked-cell');
+            const storeCell = row.querySelector('.lifecycle-store-cell');
+            btn.disabled = true;
+            sendLifecycleAjax(action, id).then(function(data) {
+                if (data.success) {
+                    if (typeof showFlashMessage === 'function') showFlashMessage(data.message, 'success');
+                    if (action === 'unmark_picked_up') {
+                        pickedCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="' + id + '" data-confirm="Mark as picked up / in POD?"><i class="fas fa-truck"></i></label>';
+                        storeCell.innerHTML = '-';
+                    } else {
+                        storeCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_at_store" data-id="' + id + '" data-confirm="Mark as arrived at store?"><i class="fas fa-store"></i></label>';
+                    }
+                } else {
+                    btn.disabled = false;
+                    if (typeof showFlashMessage === 'function') showFlashMessage(data.message || 'Error', 'error');
+                }
+            }).catch(function(err) {
+                btn.disabled = false;
+                if (typeof showFlashMessage === 'function') showFlashMessage(err.message || 'Request failed', 'error');
+            });
+        }
+
+        if (galleryForm) {
+            galleryForm.addEventListener('change', handleLifecycleChange);
+            galleryForm.addEventListener('click', handleLifecycleUndo);
+        }
+
+        // Item Lifecycle filters (category, seller email, item title)
+        function runLifecycleFilter() {
+            const categoryVal = (document.getElementById('filter-category') && document.getElementById('filter-category').value) || '';
+            const sellerVal = (document.getElementById('filter-seller') && document.getElementById('filter-seller').value.trim().toLowerCase()) || '';
+            const titleVal = (document.getElementById('filter-title') && document.getElementById('filter-title').value.trim().toLowerCase()) || '';
+            const rows = document.querySelectorAll('#lifecycle-tbody .lifecycle-row');
+            let visible = 0;
+            rows.forEach(function(row) {
+                const cat = (row.dataset.category || '').toLowerCase();
+                const seller = (row.dataset.sellerEmail || '').toLowerCase();
+                const title = (row.dataset.itemTitle || '').toLowerCase();
+                const matchCategory = !categoryVal || cat === categoryVal.toLowerCase();
+                const matchSeller = !sellerVal || seller.indexOf(sellerVal) >= 0;
+                const matchTitle = !titleVal || title.indexOf(titleVal) >= 0;
+                const show = matchCategory && matchSeller && matchTitle;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const countEl = document.getElementById('filter-count');
+            if (countEl) {
+                countEl.textContent = (categoryVal || sellerVal || titleVal) ? visible + ' of ' + rows.length + ' items' : '';
+            }
+        }
+        ['filter-category', 'filter-seller', 'filter-title'].forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener(id === 'filter-category' ? 'change' : 'input', runLifecycleFilter);
+            }
+        });
+        const clearBtn = document.getElementById('filter-clear');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function() {
+                const cat = document.getElementById('filter-category');
+                const seller = document.getElementById('filter-seller');
+                const title = document.getElementById('filter-title');
+                if (cat) cat.value = '';
+                if (seller) seller.value = '';
+                if (title) title.value = '';
+                runLifecycleFilter();
+            });
+        }
+        runLifecycleFilter();
+
         // AJAX form handler - intercept all form submissions
         function showFlashMessage(message, type) {
             const flashContainer = document.querySelector('.container');
@@ -898,10 +1082,12 @@
         
             // Handle all form submissions with AJAX (except file uploads, database reset, mass email, and gallery form)
             document.querySelectorAll('form').forEach(function(form) {
-                // Skip file upload forms, database reset, pickup period toggle, mass email, and gallery/pending items form
+                // Skip file upload forms, database reset, pickup period toggle, mass email, make-admin, revoke-admin, and gallery form
                 if (form.enctype === 'multipart/form-data' || 
                     form.action.includes('database/reset') ||
                     form.action.includes('mass-email') ||
+                    form.action.includes('make-admin') ||
+                    form.action.includes('revoke-admin') ||
                     form.querySelector('input[name="toggle_pickup_period"]') ||
                     form.querySelector('input[name="run_pickup_charges"]') ||
                     form.id === 'admin-gallery-form') {

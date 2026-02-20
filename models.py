@@ -10,8 +10,9 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=True)
     full_name = db.Column(db.String(100), nullable=True)
     
-    # NEW: ADMIN TOGGLE
+    # ADMIN: is_admin = can access admin panel; is_super_admin = full access (user mgmt, approval, etc.)
     is_admin = db.Column(db.Boolean, default=False)
+    is_super_admin = db.Column(db.Boolean, default=False)
     
     # SELLER INFO
     phone = db.Column(db.String(20), nullable=True)
@@ -67,6 +68,11 @@ class User(UserMixin, db.Model):
             return self.pickup_address
         return ''
 
+    @property
+    def is_guest_account(self):
+        """True if user has neither password nor OAuth - needs to create password or link OAuth."""
+        return not self.password_hash and not self.oauth_provider
+
 class InventoryCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -97,6 +103,10 @@ class InventoryItem(db.Model):
     # PAYOUT TRACKING
     sold_at = db.Column(db.DateTime, nullable=True)  # When item was marked sold
     payout_sent = db.Column(db.Boolean, default=False)  # Whether seller has been paid
+    
+    # LIFECYCLE: Operational milestones (do not affect count_in_stock or status)
+    picked_up_at = db.Column(db.DateTime, nullable=True)  # When item was collected from seller or placed in POD
+    arrived_at_store_at = db.Column(db.DateTime, nullable=True)  # When item physically arrived at store
     
     category_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=False)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)

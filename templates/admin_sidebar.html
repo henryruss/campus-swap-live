@@ -1,0 +1,11 @@
+<aside class="admin-sidebar">
+    <nav>
+        <a href="{{ url_for('admin_panel') }}#overview" data-section="overview" class="{% if not active or active == 'overview' %}active{% endif %}"><i class="fas fa-chart-pie"></i> Overview</a>
+        {% if is_super_admin() %}
+        <a href="{{ url_for('admin_approve') }}" data-section="approve" class="{% if active == 'approve' %}active{% endif %}"><i class="fas fa-th-large"></i> Approve Items{% if pending_count %} ({{ pending_count }}){% endif %}</a>
+        {% endif %}
+        <a href="{{ url_for('admin_panel') }}#add-item" data-section="add-item" class="{% if active == 'add-item' %}active{% endif %}"><i class="fas fa-plus-circle"></i> Add Item</a>
+        <a href="{{ url_for('admin_panel') }}#categories" data-section="categories" class="{% if active == 'categories' %}active{% endif %}"><i class="fas fa-tags"></i> Categories</a>
+        <a href="{{ url_for('admin_panel') }}#items" data-section="items" class="{% if active == 'items' %}active{% endif %}"><i class="fas fa-boxes"></i> Item Lifecycle</a>
+    </nav>
+</aside>

@@ -40,7 +40,7 @@
     <div class="dashboard-layout">
         <div>
             {# Guest mode card #}
-            {% if not current_user.password_hash %}
+            {% if current_user.is_guest_account %}
             <div class="dashboard-section guest-mode-card" style="margin-bottom: 24px;">
                 <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-lock"></i> Save Your Progress</h3>
                 <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
