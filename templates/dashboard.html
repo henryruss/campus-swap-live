@@ -52,22 +52,6 @@
             </div>
             {% endif %}
 
-            {# Claim Your Space - Pickup (payment required) #}
-            {% if pending_pickup %}
-            <div class="dashboard-section claim-space-card" style="margin-bottom: 24px;">
-                <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-truck" style="color: #d97706;"></i> Claim Your Space</h3>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Your items were approved. Pay the service fee and pick your pickup week to secure your spot.</p>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;">
-                    {% for item in pending_pickup %}
-                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 2px solid #e2e8f0;">
-                    {% endfor %}
-                </div>
-                <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="width: 100%; padding: 14px;">
-                    <i class="fas fa-credit-card"></i> View Receipt & Pay
-                </button>
-            </div>
-            {% endif %}
-
             {# Choose Drop-off Pod (no payment) #}
             {% if pending_pod %}
             <div id="pod-selection" class="dashboard-section claim-space-card pod" style="margin-bottom: 24px;">
@@ -94,82 +78,75 @@
             </div>
             {% endif %}
 
-            {# My Inventory - Unified Pinterest-style grid #}
+            {# My Inventory - Personal shop with small squares + mini checklist #}
             <div class="dashboard-section no-hover">
-                <h3 class="dashboard-section-title"><i class="fas fa-box"></i> My Inventory</h3>
+                <h3 class="dashboard-section-title"><i class="fas fa-store"></i> My Shop</h3>
                 {% if my_items %}
-                {% if pending_pickup %}
-                <p class="dashboard-section-desc" style="margin-bottom: 16px;">{{ pending_pickup|length }} item{{ 's' if pending_pickup|length != 1 else '' }} approved – complete payment above to go live.</p>
-                {% endif %}
-                <div class="dashboard-unified-grid">
+                <div class="dashboard-shop-grid">
+                    {% set _ns = namespace(oversized_count=0) %}
                     {% for item in my_items %}
                     {% if item.status == 'rejected' %}
                         {% set bg_class = 'item-card-bg-red' %}
-                        {% set status_label = 'Rejected' %}
-                        {% set lifecycle_text = 'Rejected' %}
                     {% elif item.status == 'sold' %}
                         {% set bg_class = 'item-card-bg-green' %}
-                        {% set status_label = 'Sold' %}
-                        {% set lifecycle_text = 'Sold' %}
                     {% elif item.status == 'available' %}
                         {% set bg_class = 'item-card-bg-green' %}
-                        {% set status_label = 'Live' %}
-                        {% if item.arrived_at_store_at %}
-                            {% set lifecycle_text = 'In store' %}
-                        {% elif item.picked_up_at %}
-                            {% set lifecycle_text = 'Picked up' %}
-                        {% else %}
-                            {% set lifecycle_text = 'Live' %}
-                        {% endif %}
                     {% elif item.status == 'pending_logistics' %}
                         {% set bg_class = 'item-card-bg-yellow' %}
-                        {% set status_label = 'Approved' %}
-                        {% if item.picked_up_at %}
-                            {% if item.arrived_at_store_at %}
-                                {% set lifecycle_text = 'In store' %}
-                            {% else %}
-                                {% set lifecycle_text = 'Picked up' %}
-                            {% endif %}
-                        {% else %}
-                            {% set lifecycle_text = 'Awaiting pickup' %}
-                        {% endif %}
                     {% else %}
                         {% set bg_class = 'item-card-bg-yellow' %}
-                        {% set status_label = 'Pending' %}
-                        {% set lifecycle_text = 'Pending approval' %}
                     {% endif %}
-                    <div class="dashboard-item-card-unified {{ bg_class }}">
+                    <div class="dashboard-item-square {{ bg_class }}">
                         {% if item.status == 'pending_valuation' %}
-                        <a href="/edit_item/{{ item.id }}" style="text-decoration: none; color: inherit; display: block;">
+                        <a href="/edit_item/{{ item.id }}" class="dashboard-item-square-inner" style="text-decoration: none; color: inherit;">
                         {% elif item.status in ('available', 'sold') %}
-                        <a href="/item/{{ item.id }}" target="_blank" style="text-decoration: none; color: inherit; display: block;">
+                        <a href="/item/{{ item.id }}" target="_blank" class="dashboard-item-square-inner" style="text-decoration: none; color: inherit;">
+                        {% else %}
+                        <div class="dashboard-item-square-inner">
                         {% endif %}
-                            <div style="height: 200px; overflow: hidden;">
+                            <div class="dashboard-item-square-img">
                                 {% if item.photo_url %}
-                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}">
                                 {% else %}
-                                <div style="width: 100%; height: 100%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: var(--text-muted);"><i class="fas fa-image fa-2x"></i></div>
+                                <div class="dashboard-item-square-placeholder"><i class="fas fa-image"></i></div>
                                 {% endif %}
                             </div>
-                            <div style="padding: 16px;">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-                                    <span style="font-size: 1.1rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
-                                    <span class="dashboard-status-badge dashboard-status-{{ item.status }}">{{ status_label }}</span>
+                            <div class="dashboard-item-square-body">
+                                <div class="dashboard-item-square-header">
+                                    <span class="dashboard-item-square-price">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
+                                    {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large %}
+                                    {% set _ns.oversized_count = _ns.oversized_count + 1 %}
+                                    <span class="dashboard-item-oversized" title="First oversized included; additional +$10 each">{% if _ns.oversized_count > 1 %}+$10{% else %}Oversized{% endif %}</span>
+                                    {% endif %}
                                 </div>
-                                <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;">{{ item.description }}</p>
-                                <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">{{ lifecycle_text }}</div>
-                                {% if item.status == 'pending_logistics' and item.collection_method == 'online' %}
-                                <button type="button" class="btn btn-primary" onclick="event.preventDefault(); event.stopPropagation(); openClaimModal();" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.85rem;">
-                                    <i class="fas fa-credit-card"></i> Pay & Select Pickup Week
-                                </button>
-                                {% elif item.status == 'pending_logistics' and item.collection_method == 'in_person' %}
-                                <a href="#pod-selection" class="btn btn-outline" style="display: block; text-align: center; margin-top: 12px; padding: 10px; font-size: 0.85rem; text-decoration: none;">
-                                    <i class="fas fa-map-marker-alt"></i> Select Pod
-                                </a>
-                                {% endif %}
+                                <p class="dashboard-item-square-desc">{{ item.description }}</p>
+                                <ul class="dashboard-item-checklist">
+                                    {% if item.status == 'pending_valuation' %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Pending approval</li>
+                                    {% elif item.status == 'rejected' %}
+                                    <li class="check-fail"><i class="fas fa-times-circle"></i> Rejected</li>
+                                    {% elif item.status == 'sold' %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
+                                    {% elif item.status == 'available' %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Paid</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'In store' if item.arrived_at_store_at else 'Picked up' }}</li>
+                                    {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Pay fee</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
+                                    {% elif item.status == 'pending_logistics' and item.collection_method == 'in_person' %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Select pod</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
+                                    {% endif %}
+                                </ul>
                             </div>
                         {% if item.status in ('pending_valuation', 'available', 'sold') %}
                         </a>
+                        {% else %}
+                        </div>
                         {% endif %}
                         {% if item.status == 'sold' %}
                         <div class="dashboard-item-sold-overlay"><span>SOLD</span></div>
@@ -177,7 +154,7 @@
                     </div>
                     {% endfor %}
                 </div>
-                <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 20px;">
+                <a href="/add_item" class="btn btn-outline dashboard-add-item-btn">
                     <i class="fas fa-plus"></i> Add More Items
                 </a>
                 {% else %}
@@ -187,34 +164,40 @@
             </div>
         </div>
 
-        {# Sidebar - Account Settings & Quick Info #}
+        {# Sidebar - Pay card (replaces Quick Access) #}
         <aside class="dashboard-sidebar">
-            <div class="card no-hover">
-                <h3 style="font-size: 1rem; margin-bottom: 16px;">Quick Access</h3>
-                <a href="{{ url_for('account_settings') }}" class="dashboard-quick-link">
-                    <i class="fas fa-cog" style="color: var(--primary);"></i>
-                    Account Settings
-                </a>
-                {% if has_in_person_items and stripe_configured %}
-                <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-bottom: 10px;">
+            {% if pending_pickup %}
+            <div class="dashboard-sidebar-pay-card">
+                <h3 style="font-size: 0.95rem; margin-bottom: 8px; font-weight: 700;"><i class="fas fa-credit-card" style="color: var(--primary);"></i> Service Fee</h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">One-time ${{ "%.2f"|format(pending_pickup_fee_cents / 100) }} for your whole inventory. Pickup week applies to all items.</p>
+                <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="width: 100%; padding: 12px; font-size: 0.9rem;">
+                    Pay & Select Pickup Week
+                </button>
+            </div>
+            {% endif %}
+            {% if has_in_person_items and stripe_configured %}
+            <div class="dashboard-sidebar-pay-card" style="margin-top: 12px;">
+                <form method="POST" action="{{ url_for('upgrade_checkout') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                    <button type="submit" class="dashboard-quick-link" style="width: 100%; border: none; background: none; cursor: pointer; font-family: inherit; text-align: left;">
-                        <i class="fas fa-truck" style="color: var(--primary);"></i>
-                        Upgrade to Campus Swap Pickup
-                    </button>
+                    <h3 style="font-size: 0.95rem; margin-bottom: 8px; font-weight: 700;"><i class="fas fa-truck" style="color: var(--primary);"></i> Upgrade</h3>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">Switch to Campus Swap Pickup for $15.</p>
+                    <button type="submit" class="btn btn-outline" style="width: 100%; padding: 10px; font-size: 0.85rem;">Upgrade to Pickup</button>
                 </form>
-                {% endif %}
+            </div>
+            {% endif %}
+            <div style="margin-top: 16px; font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 10px;">
                 {% if has_pickup_location %}
-                <div class="dashboard-sidebar-status ready"><i class="fas fa-check-circle"></i> Pickup location set</div>
+                <span style="color: #15803d;"><i class="fas fa-check-circle"></i> Pickup set</span>
                 {% else %}
-                <div class="dashboard-sidebar-status warn"><i class="fas fa-exclamation-circle"></i> Set pickup in settings</div>
+                <span style="color: #d97706;"><i class="fas fa-exclamation-circle"></i> Set pickup</span>
                 {% endif %}
                 {% if has_payout_info %}
-                <div class="dashboard-sidebar-status ready"><i class="fas fa-check-circle"></i> Payout info set</div>
+                <span style="color: #15803d;"><i class="fas fa-check-circle"></i> Payout set</span>
                 {% else %}
-                <div class="dashboard-sidebar-status warn"><i class="fas fa-exclamation-circle"></i> Add payout for sales</div>
+                <span style="color: #d97706;"><i class="fas fa-exclamation-circle"></i> Add payout</span>
                 {% endif %}
             </div>
+            <a href="{{ url_for('account_settings') }}" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; text-decoration: none;">Account Settings</a>
         </aside>
     </div>
 </div>
@@ -226,7 +209,7 @@
         <div class="dashboard-receipt-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
                 <h3 style="margin: 0; font-size: 1.2rem;">Claim Your Space</h3>
-                <p style="margin: 8px 0 0; color: var(--text-muted); font-size: 0.9rem;">Pickup confirmation & payment</p>
+                <p style="margin: 8px 0 0; color: var(--text-muted); font-size: 0.85rem;">One-time payment. Pickup week applies to your whole inventory.</p>
             </div>
             <button type="button" onclick="closeClaimModal()" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 1.2rem;" aria-label="Close">&times;</button>
         </div>

@@ -2630,9 +2630,10 @@ def payment_success():
 @login_required
 def onboard():
     """6-step wizard for first-time sellers (0 items)."""
-    if not get_pickup_period_active():
-        flash("Pickup period has ended. Check back next year!", "error")
-        return redirect(get_user_dashboard())
+    pickup_period_active = get_pickup_period_active()
+    if not pickup_period_active:
+        # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
+        return render_template('onboard.html', pickup_ended=True, categories=[], dorms={}, google_maps_key='')
     if current_user.payment_declined:
         flash("Please add a valid payment method to continue.", "error")
         return redirect(url_for('add_payment_method'))

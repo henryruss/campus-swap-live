@@ -336,6 +336,16 @@
 </style>
 
 <div class="wizard-container">
+    {% if pickup_ended %}
+    <div class="wizard-header">
+        <h1>Pickup Period Has Ended</h1>
+        <p class="sub">Check back next year when signups open for the new season.</p>
+    </div>
+    <div style="text-align: center; padding: 40px 24px;">
+        <p style="color: var(--text-muted); margin-bottom: 24px;">We've saved your account. We'll notify you when it's time to list items again.</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px;">Back to Home</a>
+    </div>
+    {% else %}
     <div class="wizard-header">
         <h1>List Your First Item</h1>
         <p class="sub">Quick setup. We'll walk you through it.</p>
@@ -580,8 +590,10 @@
         <button type="button" class="btn btn-primary" id="btn-next">Next</button>
     </div>
     </div>
+    {% endif %}
 </div>
 
+{% if not pickup_ended %}
 <!-- Crop modal -->
 <div id="crop-modal-overlay" class="crop-modal-overlay">
     <div class="crop-modal">
@@ -1155,4 +1167,5 @@
     });
 })();
 </script>
+{% endif %}
 {% endblock %}
