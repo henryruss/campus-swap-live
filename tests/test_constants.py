@@ -9,7 +9,7 @@ from constants import (
     PAYOUT_PERCENTAGE, SELLER_ACTIVATION_FEE_CENTS,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
-    ITEMS_PER_PAGE
+    ITEMS_PER_PAGE, calc_pickup_fee_cents, SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS,
 )
 
 
@@ -57,3 +57,10 @@ class TestConstants:
         """Test pagination settings"""
         assert ITEMS_PER_PAGE > 0
         assert ITEMS_PER_PAGE == 24
+
+    def test_calc_pickup_fee_cents(self):
+        """$15 base includes 1 oversized; each additional oversized = $10."""
+        assert calc_pickup_fee_cents(0) == SERVICE_FEE_CENTS  # $15
+        assert calc_pickup_fee_cents(1) == SERVICE_FEE_CENTS  # $15 (first included)
+        assert calc_pickup_fee_cents(2) == SERVICE_FEE_CENTS + LARGE_ITEM_FEE_CENTS  # $25
+        assert calc_pickup_fee_cents(3) == SERVICE_FEE_CENTS + (2 * LARGE_ITEM_FEE_CENTS)  # $35

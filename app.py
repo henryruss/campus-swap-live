@@ -30,7 +30,7 @@ from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSet
 # Import Constants
 from constants import (
     PAYOUT_PERCENTAGE, PAYOUT_PERCENTAGE_ONLINE, PAYOUT_PERCENTAGE_IN_PERSON,
-    SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS,
+    SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS, calc_pickup_fee_cents,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     IMAGE_QUALITY, THUMBNAIL_SIZE,
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
@@ -677,8 +677,11 @@ def sitemap():
         xml.append(f'    <priority>{page["priority"]}</priority>')
         xml.append('  </url>')
     
-    # Add all available (live) product pages
-    available_items = InventoryItem.query.filter_by(status='available').all()
+    # Add all available (live) product pages - only items marked at store
+    available_items = InventoryItem.query.filter(
+        InventoryItem.status == 'available',
+        InventoryItem.arrived_at_store_at.isnot(None)
+    ).all()
     for item in available_items:
         xml.append('  <url>')
         xml.append(f'    <loc>{base_url}/item/{item.id}</loc>')
@@ -789,10 +792,14 @@ def inventory():
     commodities = InventoryCategory.query.all()
     
     # Build query with eager loading to prevent N+1 queries
+    # Only show items marked "at store" in admin - items we can actually sell
     query = InventoryItem.query.options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
-    ).filter(InventoryItem.status != 'pending_valuation')
+    ).filter(
+        InventoryItem.status != 'pending_valuation',
+        InventoryItem.arrived_at_store_at.isnot(None)
+    )
     
     # Apply category filter
     if cat_id:
@@ -833,6 +840,11 @@ def inventory():
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     item = InventoryItem.query.get_or_404(item_id)
+    # Non-admins cannot view items not yet marked "at store"
+    if item.arrived_at_store_at is None:
+        if not (current_user.is_authenticated and current_user.is_admin):
+            flash("This item is not yet available for purchase.", "error")
+            return redirect(url_for('inventory'))
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
     # Preserve search and filter parameters for "Back" link
@@ -1000,6 +1012,10 @@ def buy_item(item_id):
             logger.info(f"Item {item_id} not available (status: {item.status})")
             flash("Sorry! This item is no longer available.", "error")
             return redirect(url_for('product_detail', item_id=item_id))
+        
+        if item.arrived_at_store_at is None:
+            flash("Sorry! This item is not yet available for purchase.", "error")
+            return redirect(url_for('inventory'))
         
         if item.price is None or item.price <= 0:
             logger.warning(f"Item {item_id} has invalid price: {item.price}")
@@ -1402,9 +1418,7 @@ def admin_panel():
                                     is_pickup = item.collection_method == 'online'
                                     fee_text = ""
                                     if is_pickup:
-                                        fee = SERVICE_FEE_CENTS // 100
-                                        if item.is_large:
-                                            fee += LARGE_ITEM_FEE_CENTS // 100
+                                        fee = SERVICE_FEE_CENTS // 100  # Single item: $15 (first oversized included)
                                         fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
                                     else:
                                         fee_text = " Select your dropoff pod location—no payment required."
@@ -1610,7 +1624,10 @@ def admin_panel():
     gallery_items = InventoryItem.query.options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
-    ).filter(InventoryItem.status != 'pending_valuation').order_by(InventoryItem.date_added.desc()).all()
+    ).filter(
+        InventoryItem.status != 'pending_valuation',
+        InventoryItem.status != 'rejected'
+    ).order_by(InventoryItem.date_added.desc()).all()
     
     pickup_period_active = get_pickup_period_active()
     
@@ -1660,9 +1677,7 @@ def admin_approve():
         
         if action == 'reject':
             desc = item.description
-            for photo in item.gallery_photos[:]:
-                db.session.delete(photo)
-            db.session.delete(item)
+            item.status = 'rejected'
             db.session.commit()
             flash(f"Rejected '{desc}'.", "success")
             return redirect(url_for('admin_approve'))
@@ -1696,9 +1711,7 @@ def admin_approve():
             try:
                 fee_text = ""
                 if item.collection_method == 'online':
-                    fee = SERVICE_FEE_CENTS // 100
-                    if item.is_large:
-                        fee += LARGE_ITEM_FEE_CENTS // 100
+                    fee = SERVICE_FEE_CENTS // 100  # Single item: $15 (first oversized included)
                     fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
                 else:
                     fee_text = " Select your dropoff pod location—no payment required."
@@ -2036,7 +2049,6 @@ def update_account_info():
     return redirect(url_for('account_settings'))
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("3 per hour") if limiter else lambda f: f
 def register():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
@@ -2242,7 +2254,6 @@ def auth_google_callback():
 
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute") if limiter else lambda f: f
 def login():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
@@ -2327,6 +2338,7 @@ def dashboard():
     
     # Check if user has any online items (which require payment)
     has_online_items = any(item.collection_method == 'online' for item in my_items)
+    has_in_person_items = any(item.collection_method == 'in_person' for item in my_items)
     
     # Calculate payout statistics (per-item percentage: online 50%, in-person 33%)
     live_items = [item for item in my_items if item.status == 'available']
@@ -2341,15 +2353,15 @@ def dashboard():
     pending_payouts = sum(_payout_for_item(i) for i in sold_items if not i.payout_sent)
     total_potential = estimated_payout + pending_payouts + paid_out
     
-    # Fee calculation for pickup: $15 + $10 per large online item
+    # Fee calculation for pickup: $15 includes 1 oversized; $10 per additional oversized
     approved_online = [i for i in live_items if i.collection_method == 'online']
     approved_large_count = sum(1 for i in approved_online if i.is_large)
-    projected_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * approved_large_count) if approved_online else 0
+    projected_fee_cents = calc_pickup_fee_cents(approved_large_count) if approved_online else 0
 
     # Pending pickup: items awaiting confirmation + fee breakdown for receipt modal
     pending_pickup = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'online']
     pending_pickup_large_count = sum(1 for i in pending_pickup if i.is_large)
-    pending_pickup_fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * pending_pickup_large_count) if pending_pickup else 0
+    pending_pickup_fee_cents = calc_pickup_fee_cents(pending_pickup_large_count) if pending_pickup else 0
 
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     stripe_configured = bool(stripe.api_key and stripe_pk)
@@ -2357,6 +2369,7 @@ def dashboard():
     return render_template('dashboard.html',
                           my_items=my_items,
                           has_online_items=has_online_items,
+                          has_in_person_items=has_in_person_items,
                           estimated_payout=estimated_payout,
                           paid_out=paid_out,
                           pending_payouts=pending_payouts,
@@ -2368,6 +2381,7 @@ def dashboard():
                           projected_fee_cents=projected_fee_cents,
                           pending_pickup=pending_pickup,
                           pending_pickup_large_count=pending_pickup_large_count,
+                          pending_pickup_additional_oversized_count=max(0, pending_pickup_large_count - 1),
                           pending_pickup_fee_cents=pending_pickup_fee_cents,
                           pickup_weeks=PICKUP_WEEKS,
                           service_fee_cents=SERVICE_FEE_CENTS,
@@ -2819,7 +2833,7 @@ def onboard_cancel():
 @app.route('/confirm_pickup', methods=['GET', 'POST'])
 @login_required
 def confirm_pickup():
-    """Pickup users confirm week and pay ($15 + $10 per oversized item)."""
+    """Pickup users confirm week and pay ($15 includes 1 oversized; $10 per additional oversized)."""
     pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'online']
     if not pending:
         flash("No items awaiting pickup confirmation.", "info")
@@ -2832,7 +2846,7 @@ def confirm_pickup():
             return redirect(url_for('confirm_pickup'))
 
         large_count = sum(1 for i in pending if i.is_large)
-        fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
+        fee_cents = calc_pickup_fee_cents(large_count)
 
         if not stripe.api_key:
             flash("Payment is not configured. Please contact support.", "error")
@@ -2870,13 +2884,14 @@ def confirm_pickup():
             return redirect(url_for('confirm_pickup'))
 
     large_count = sum(1 for i in pending if i.is_large)
-    fee_cents = SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * large_count)
+    fee_cents = calc_pickup_fee_cents(large_count)
     fee_dollars = fee_cents / 100
     return render_template('confirm_pickup.html',
                           pending_items=pending,
                           pickup_weeks=PICKUP_WEEKS,
                           fee_dollars=fee_dollars,
                           large_count=large_count,
+                          additional_oversized_count=max(0, large_count - 1),
                           service_fee_cents=SERVICE_FEE_CENTS,
                           large_item_fee_cents=LARGE_ITEM_FEE_CENTS)
 

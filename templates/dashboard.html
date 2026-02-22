@@ -56,7 +56,12 @@
             {% if pending_pickup %}
             <div class="dashboard-section claim-space-card" style="margin-bottom: 24px;">
                 <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-truck" style="color: #d97706;"></i> Claim Your Space</h3>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Your items were approved. Pay the service fee and pick your pickup week to secure your spot.</p>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Your items were approved. Pay the service fee and pick your pickup week to secure your spot.</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;">
+                    {% for item in pending_pickup %}
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 2px solid #e2e8f0;">
+                    {% endfor %}
+                </div>
                 <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="width: 100%; padding: 14px;">
                     <i class="fas fa-credit-card"></i> View Receipt & Pay
                 </button>
@@ -65,7 +70,7 @@
 
             {# Choose Drop-off Pod (no payment) #}
             {% if pending_pod %}
-            <div class="dashboard-section claim-space-card pod" style="margin-bottom: 24px;">
+            <div id="pod-selection" class="dashboard-section claim-space-card pod" style="margin-bottom: 24px;">
                 <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Choose Drop-off Pod</h3>
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">No payment required – just pick your drop-off location.</p>
                 <div style="display: flex; flex-wrap: wrap; gap: 12px;">
@@ -89,59 +94,90 @@
             </div>
             {% endif %}
 
-            {# My Inventory #}
+            {# My Inventory - Unified Pinterest-style grid #}
             <div class="dashboard-section no-hover">
                 <h3 class="dashboard-section-title"><i class="fas fa-box"></i> My Inventory</h3>
                 {% if my_items %}
-
-                {% if pending_items %}
-                <div style="margin-bottom: 24px;">
-                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-hourglass-half" style="color: #3b82f6;"></i> Pending Approval ({{ pending_items|length }})</h4>
-                    <p class="dashboard-section-desc" style="margin-bottom: 12px;">These items are awaiting pricing. You can still edit them.</p>
-                    <div class="dashboard-inventory-grid">
-                        {% for item in pending_items %}
-                        <a href="/edit_item/{{ item.id }}" class="dashboard-item-card pending" style="position: relative; text-decoration: none; color: inherit;">
-                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
-                            <span class="dashboard-item-badge edit"><i class="fas fa-edit"></i> Edit</span>
-                        </a>
-                        {% endfor %}
-                    </div>
-                </div>
+                {% if pending_pickup %}
+                <p class="dashboard-section-desc" style="margin-bottom: 16px;">{{ pending_pickup|length }} item{{ 's' if pending_pickup|length != 1 else '' }} approved – complete payment above to go live.</p>
                 {% endif %}
-
-                {% if live_items %}
-                <div style="margin-bottom: 24px;">
-                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-store" style="color: var(--primary);"></i> Live in Store ({{ live_items|length }})</h4>
-                    <p class="dashboard-section-desc" style="margin-bottom: 12px;">These items are live. Prices are set and cannot be edited.</p>
-                    <div class="dashboard-inventory-grid">
-                        {% for item in live_items %}
-                        <a href="/item/{{ item.id }}" target="_blank" class="dashboard-item-card live" style="text-decoration: none; color: inherit;">
-                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
-                            <div class="dashboard-item-info">
-                                <div class="dashboard-item-price">${{ "%.0f"|format(item.price) if item.price else "-" }}</div>
-                                <div class="dashboard-item-desc">{{ item.description }}</div>
+                <div class="dashboard-unified-grid">
+                    {% for item in my_items %}
+                    {% if item.status == 'rejected' %}
+                        {% set bg_class = 'item-card-bg-red' %}
+                        {% set status_label = 'Rejected' %}
+                        {% set lifecycle_text = 'Rejected' %}
+                    {% elif item.status == 'sold' %}
+                        {% set bg_class = 'item-card-bg-green' %}
+                        {% set status_label = 'Sold' %}
+                        {% set lifecycle_text = 'Sold' %}
+                    {% elif item.status == 'available' %}
+                        {% set bg_class = 'item-card-bg-green' %}
+                        {% set status_label = 'Live' %}
+                        {% if item.arrived_at_store_at %}
+                            {% set lifecycle_text = 'In store' %}
+                        {% elif item.picked_up_at %}
+                            {% set lifecycle_text = 'Picked up' %}
+                        {% else %}
+                            {% set lifecycle_text = 'Live' %}
+                        {% endif %}
+                    {% elif item.status == 'pending_logistics' %}
+                        {% set bg_class = 'item-card-bg-yellow' %}
+                        {% set status_label = 'Approved' %}
+                        {% if item.picked_up_at %}
+                            {% if item.arrived_at_store_at %}
+                                {% set lifecycle_text = 'In store' %}
+                            {% else %}
+                                {% set lifecycle_text = 'Picked up' %}
+                            {% endif %}
+                        {% else %}
+                            {% set lifecycle_text = 'Awaiting pickup' %}
+                        {% endif %}
+                    {% else %}
+                        {% set bg_class = 'item-card-bg-yellow' %}
+                        {% set status_label = 'Pending' %}
+                        {% set lifecycle_text = 'Pending approval' %}
+                    {% endif %}
+                    <div class="dashboard-item-card-unified {{ bg_class }}">
+                        {% if item.status == 'pending_valuation' %}
+                        <a href="/edit_item/{{ item.id }}" style="text-decoration: none; color: inherit; display: block;">
+                        {% elif item.status in ('available', 'sold') %}
+                        <a href="/item/{{ item.id }}" target="_blank" style="text-decoration: none; color: inherit; display: block;">
+                        {% endif %}
+                            <div style="height: 200px; overflow: hidden;">
+                                {% if item.photo_url %}
+                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                {% else %}
+                                <div style="width: 100%; height: 100%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: var(--text-muted);"><i class="fas fa-image fa-2x"></i></div>
+                                {% endif %}
                             </div>
+                            <div style="padding: 16px;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                                    <span style="font-size: 1.1rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
+                                    <span class="dashboard-status-badge dashboard-status-{{ item.status }}">{{ status_label }}</span>
+                                </div>
+                                <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;">{{ item.description }}</p>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">{{ lifecycle_text }}</div>
+                                {% if item.status == 'pending_logistics' and item.collection_method == 'online' %}
+                                <button type="button" class="btn btn-primary" onclick="event.preventDefault(); event.stopPropagation(); openClaimModal();" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.85rem;">
+                                    <i class="fas fa-credit-card"></i> Pay & Select Pickup Week
+                                </button>
+                                {% elif item.status == 'pending_logistics' and item.collection_method == 'in_person' %}
+                                <a href="#pod-selection" class="btn btn-outline" style="display: block; text-align: center; margin-top: 12px; padding: 10px; font-size: 0.85rem; text-decoration: none;">
+                                    <i class="fas fa-map-marker-alt"></i> Select Pod
+                                </a>
+                                {% endif %}
+                            </div>
+                        {% if item.status in ('pending_valuation', 'available', 'sold') %}
                         </a>
-                        {% endfor %}
+                        {% endif %}
+                        {% if item.status == 'sold' %}
+                        <div class="dashboard-item-sold-overlay"><span>SOLD</span></div>
+                        {% endif %}
                     </div>
+                    {% endfor %}
                 </div>
-                {% endif %}
-
-                {% if sold_items %}
-                <div style="margin-bottom: 20px;">
-                    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 700;"><i class="fas fa-check-circle" style="color: #15803d;"></i> Sold ({{ sold_items|length }})</h4>
-                    <div class="dashboard-inventory-grid">
-                        {% for item in sold_items %}
-                        <div class="dashboard-item-card sold" style="position: relative;">
-                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="dashboard-item-thumb" alt="">
-                            <span class="dashboard-item-badge sold">SOLD</span>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
-
-                <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 8px;">
+                <a href="/add_item" class="btn btn-outline" style="width: 100%; margin-top: 20px;">
                     <i class="fas fa-plus"></i> Add More Items
                 </a>
                 {% else %}
@@ -159,6 +195,15 @@
                     <i class="fas fa-cog" style="color: var(--primary);"></i>
                     Account Settings
                 </a>
+                {% if has_in_person_items and stripe_configured %}
+                <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-bottom: 10px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="dashboard-quick-link" style="width: 100%; border: none; background: none; cursor: pointer; font-family: inherit; text-align: left;">
+                        <i class="fas fa-truck" style="color: var(--primary);"></i>
+                        Upgrade to Campus Swap Pickup
+                    </button>
+                </form>
+                {% endif %}
                 {% if has_pickup_location %}
                 <div class="dashboard-sidebar-status ready"><i class="fas fa-check-circle"></i> Pickup location set</div>
                 {% else %}
@@ -188,22 +233,26 @@
         <div class="dashboard-receipt-body">
             <div style="margin-bottom: 20px;">
                 <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase;">Items to be picked up</div>
+                {% set _ns = namespace(oversized_seen=0) %}
                 {% for item in pending_pickup %}
                 <div class="dashboard-receipt-row">
                     <span>{{ item.description[:35] }}{% if item.description|length > 35 %}...{% endif %}</span>
-                    {% if item.is_large %}<span style="color: var(--accent); font-weight: 600;">+$10</span>{% else %}<span>—</span>{% endif %}
+                    {% if item.is_large %}
+                    {% if _ns.oversized_seen == 0 %}<span style="color: var(--text-muted); font-weight: 600;">Included</span>{% set _ns.oversized_seen = 1 %}
+                    {% else %}<span style="color: var(--accent); font-weight: 600;">+$10</span>{% endif %}
+                    {% else %}<span>—</span>{% endif %}
                 </div>
                 {% endfor %}
             </div>
             <div class="dashboard-receipt-divider"></div>
             <div class="dashboard-receipt-row">
-                <span>Service fee (guaranteed space)</span>
+                <span>Service fee (includes 1 oversized)</span>
                 <span>${{ "%.2f"|format(service_fee_cents / 100) }}</span>
             </div>
-            {% if pending_pickup_large_count %}
+            {% if pending_pickup_additional_oversized_count and pending_pickup_additional_oversized_count > 0 %}
             <div class="dashboard-receipt-row">
-                <span>Oversized items ({{ pending_pickup_large_count }} × $10)</span>
-                <span>${{ "%.2f"|format(pending_pickup_large_count * (large_item_fee_cents / 100)) }}</span>
+                <span>Additional oversized ({{ pending_pickup_additional_oversized_count }} × $10)</span>
+                <span>${{ "%.2f"|format(pending_pickup_additional_oversized_count * (large_item_fee_cents / 100)) }}</span>
             </div>
             {% endif %}
             <div class="dashboard-receipt-divider"></div>

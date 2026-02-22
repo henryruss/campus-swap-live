@@ -14,6 +14,7 @@
     <div class="card no-hover" style="margin-bottom: 24px;">
         <h3 style="margin-bottom: 16px;"><i class="fas fa-box" style="color: var(--primary);"></i> Items to be picked up</h3>
         <div style="margin-bottom: 24px;">
+            {% set _ns = namespace(oversized_seen=0) %}
             {% for item in pending_items %}
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f8fafc; border-radius: 10px; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
@@ -22,7 +23,10 @@
                     {% endif %}
                     <div style="min-width: 0;">
                         <div style="font-weight: 600; font-size: 0.95rem;">{{ item.description }}</div>
-                        {% if item.is_large %}<span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">Oversized (+$10)</span>{% endif %}
+                        {% if item.is_large %}
+                        {% if _ns.oversized_seen == 0 %}<span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Oversized (included)</span>{% set _ns.oversized_seen = 1 %}
+                        {% else %}<span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">Oversized (+$10)</span>{% endif %}
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -33,13 +37,13 @@
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
             <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 14px; text-transform: uppercase;">Fee breakdown</div>
             <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
-                <span>Service fee (guaranteed space)</span>
+                <span>Service fee (includes 1 oversized)</span>
                 <span>${{ "%.2f"|format(service_fee_cents / 100) }}</span>
             </div>
-            {% if large_count %}
+            {% if additional_oversized_count and additional_oversized_count > 0 %}
             <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
-                <span>Oversized items ({{ large_count }} × $10)</span>
-                <span>${{ "%.2f"|format(large_count * (large_item_fee_cents / 100)) }}</span>
+                <span>Additional oversized ({{ additional_oversized_count }} × $10)</span>
+                <span>${{ "%.2f"|format(additional_oversized_count * (large_item_fee_cents / 100)) }}</span>
             </div>
             {% endif %}
             <div style="height: 1px; background: #e2e8f0; margin: 12px 0;"></div>

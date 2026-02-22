@@ -9,7 +9,12 @@ PAYOUT_PERCENTAGE = 0.50  # Legacy alias; use PAYOUT_PERCENTAGE_ONLINE
 
 # Payment Configuration
 SERVICE_FEE_CENTS = 1500  # $15 service fee (guarantees space + move-out pickup)
-LARGE_ITEM_FEE_CENTS = 1000  # $10 per large item (admin marks during approval)
+LARGE_ITEM_FEE_CENTS = 1000  # $10 per additional large item (first included in SERVICE_FEE_CENTS)
+
+
+def calc_pickup_fee_cents(large_count: int) -> int:
+    """$15 base includes 1 oversized; each additional oversized = $10."""
+    return SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * max(0, large_count - 1))
 SELLER_ACTIVATION_FEE_CENTS = 1500  # Legacy alias
 
 # File Upload Configuration
