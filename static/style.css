@@ -534,6 +534,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     gap: 32px;
     align-items: start;
 }
+.dashboard-layout-no-sidebar { grid-template-columns: 1fr; }
 @media (max-width: 900px) {
     .dashboard-layout { grid-template-columns: 1fr; }
 }
@@ -555,6 +556,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 }
 .dashboard-stat-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
 .dashboard-stat-value { font-size: 1.5rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em; }
+.dashboard-stat-pickup { min-width: 180px; }
 
 .dashboard-section {
     background: var(--card-bg);

@@ -16,7 +16,7 @@
         <a href="/logout" class="btn btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">Log Out</a>
     </div>
 
-    {# Earnings stats bar #}
+    {# Earnings stats bar + Pickup method #}
     <div class="dashboard-stats-bar">
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Potential Earnings</div>
@@ -35,9 +35,33 @@
             <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
             {% endif %}
         </div>
+        <div class="dashboard-stat dashboard-stat-pickup">
+            <div class="dashboard-stat-label">Pickup Method</div>
+            {% if pickup_method_type == 'week' %}
+            <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
+            <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
+            {% elif pickup_method_type == 'pod' %}
+            <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
+            {% if has_in_person_items and stripe_configured %}
+            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
+            </form>
+            {% endif %}
+            {% elif pickup_method_type == 'needs_pickup' %}
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Select pickup window</div>
+            <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="padding: 8px 14px; font-size: 0.85rem;">Pay & Select</button>
+            {% elif pickup_method_type == 'needs_pod' %}
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Select drop-off pod</div>
+            <a href="#pod-selection" class="btn btn-outline" style="padding: 8px 14px; font-size: 0.85rem; text-decoration: none;">Select Pod</a>
+            {% else %}
+            <div class="dashboard-stat-value" style="font-size: 0.9rem; color: var(--text-muted);">—</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Select when approved</div>
+            {% endif %}
+        </div>
     </div>
 
-    <div class="dashboard-layout">
+    <div class="dashboard-layout {% if not pending_pickup and not (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}dashboard-layout-no-sidebar{% endif %}">
         <div>
             {# Guest mode card #}
             {% if current_user.is_guest_account %}
@@ -164,7 +188,8 @@
             </div>
         </div>
 
-        {# Sidebar - Pay card (replaces Quick Access) #}
+        {# Sidebar - Pay card (only when needed) #}
+        {% if pending_pickup or (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}
         <aside class="dashboard-sidebar">
             {% if pending_pickup %}
             <div class="dashboard-sidebar-pay-card">
@@ -175,7 +200,7 @@
                 </button>
             </div>
             {% endif %}
-            {% if has_in_person_items and stripe_configured %}
+            {% if has_in_person_items and stripe_configured and not pickup_method_type == 'pod' %}
             <div class="dashboard-sidebar-pay-card" style="margin-top: 12px;">
                 <form method="POST" action="{{ url_for('upgrade_checkout') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -185,20 +210,8 @@
                 </form>
             </div>
             {% endif %}
-            <div style="margin-top: 16px; font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 10px;">
-                {% if has_pickup_location %}
-                <span style="color: #15803d;"><i class="fas fa-check-circle"></i> Pickup set</span>
-                {% else %}
-                <span style="color: #d97706;"><i class="fas fa-exclamation-circle"></i> Set pickup</span>
-                {% endif %}
-                {% if has_payout_info %}
-                <span style="color: #15803d;"><i class="fas fa-check-circle"></i> Payout set</span>
-                {% else %}
-                <span style="color: #d97706;"><i class="fas fa-exclamation-circle"></i> Add payout</span>
-                {% endif %}
-            </div>
-            <a href="{{ url_for('account_settings') }}" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; text-decoration: none;">Account Settings</a>
         </aside>
+        {% endif %}
     </div>
 </div>
 

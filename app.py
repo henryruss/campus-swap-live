@@ -2360,11 +2360,28 @@ def dashboard():
 
     # Pending pickup: items awaiting confirmation + fee breakdown for receipt modal
     pending_pickup = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'online']
+    pending_pod = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'in_person']
     pending_pickup_large_count = sum(1 for i in pending_pickup if i.is_large)
     pending_pickup_fee_cents = calc_pickup_fee_cents(pending_pickup_large_count) if pending_pickup else 0
 
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     stripe_configured = bool(stripe.api_key and stripe_pk)
+
+    # Pickup method for header card: week, pod, needs_pickup, or needs_pod
+    pickup_method_type = None
+    pickup_method_label = None
+    item_with_week = next((i for i in my_items if i.pickup_week), None)
+    item_with_pod = next((i for i in my_items if i.dropoff_pod), None)
+    if item_with_week:
+        pickup_method_type = 'week'
+        pickup_method_label = dict(PICKUP_WEEKS).get(item_with_week.pickup_week, item_with_week.pickup_week)
+    elif item_with_pod:
+        pickup_method_type = 'pod'
+        pickup_method_label = dict(POD_LOCATIONS).get(item_with_pod.dropoff_pod, item_with_pod.dropoff_pod)
+    elif pending_pickup:
+        pickup_method_type = 'needs_pickup'
+    elif pending_pod:
+        pickup_method_type = 'needs_pod'
 
     return render_template('dashboard.html',
                           my_items=my_items,
@@ -2392,7 +2409,9 @@ def dashboard():
                           pod_locations=POD_LOCATIONS,
                           google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''),
                           has_pickup_location=current_user.has_pickup_location,
-                          has_payout_info=bool(current_user.payout_handle))
+                          has_payout_info=bool(current_user.payout_handle),
+                          pickup_method_type=pickup_method_type,
+                          pickup_method_label=pickup_method_label)
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
