@@ -483,11 +483,26 @@ def request_entity_too_large(error):
 # SECTION 1: PUBLIC & LANDING ROUTES
 # =========================================================
 
+def _get_ticker_items():
+    """Build ticker items from categories for the index hero slideshow. Falls back to defaults if no categories."""
+    ticker_cats = InventoryCategory.query.order_by(InventoryCategory.id).limit(8).all()
+    if ticker_cats:
+        return [{"icon": c.image_url or "fa-box", "price": "$75"} for c in ticker_cats]
+    return [
+        {"icon": "fa-couch", "price": "$80"},
+        {"icon": "fa-snowflake", "price": "$75"},
+        {"icon": "fa-bed", "price": "$90"},
+        {"icon": "fa-tv", "price": "$85"},
+    ]
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     # 1. TRACKING LOGIC
     if request.args.get('source'):
         session['source'] = request.args.get('source')
+
+    ticker_items = _get_ticker_items()
 
     if request.method == 'POST':
         email = request.form.get('email', '').strip()
@@ -495,15 +510,15 @@ def index():
         # Validate email
         if not email:
             flash("Please provide your email address.", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active())
+            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
         
         if not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active())
+            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
         
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active())
+            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
         
         # Check if pickup period is active
         pickup_period_active = get_pickup_period_active()
@@ -554,7 +569,7 @@ def index():
             return redirect(get_user_dashboard())
     
     pickup_period_active = get_pickup_period_active()
-    return render_template('index.html', pickup_period_active=pickup_period_active)
+    return render_template('index.html', pickup_period_active=pickup_period_active, ticker_items=ticker_items)
 
 @app.route('/about')
 def about():

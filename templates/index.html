@@ -394,13 +394,8 @@
     });
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-    // 2. TICKER ANIMATION LOGIC
-    const items = [
-        { icon: 'fa-couch', price: '$80' },
-        { icon: 'fa-snowflake', price: '$75' },
-        { icon: 'fa-bed', price: '$90' },
-        { icon: 'fa-tv', price: '$85' }
-    ];
+    // 2. TICKER ANIMATION LOGIC (icons from admin category settings)
+    const items = {{ ticker_items | tojson | safe }};
 
     const wrapper = document.getElementById('ticker');
     
