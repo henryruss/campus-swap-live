@@ -250,9 +250,8 @@
                             </div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 12px;">${{ "%.2f"|format(item.price) if item.price else "—" }}</div>
                             {% endif %}
-                            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 12px;">
-                                {% for i in range(1, 6) %}<i class="fas fa-star" style="color: {% if i <= item.quality %}#f59e0b{% else %}#e2e8f0{% endif %}; font-size: 0.9rem;"></i>{% endfor %}
-                                <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 6px;">{{ item.quality }}/5</span>
+                            <div style="margin-bottom: 12px;">
+                                <span style="font-size: 0.85rem; color: var(--text-muted);">{{ item.quality|quality_label }}</span>
                             </div>
                             <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
                             {% if item.status == 'pending_logistics' or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}

@@ -301,6 +301,12 @@
                         <input type="email" name="email" placeholder="helper@college.edu" required
                                style="width: 220px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
                     </div>
+                    <div style="display: flex; align-items: center; padding-bottom: 2px;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;">
+                            <input type="checkbox" name="super_admin" value="on">
+                            <span>Super admin</span>
+                        </label>
+                    </div>
                     <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Make Admin</button>
                 </form>
                 <form method="POST" action="/admin/user/revoke-admin" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
@@ -316,7 +322,7 @@
                     </button>
                 </form>
             </div>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;">Grant helper access so they can add items and manage the item lifecycle. They cannot edit categories or access user/database tools.</p>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px;">Grant helper or super admin access. If the user hasn't signed up yet, they'll get admin access when they do. Super admins can edit categories, manage users, and access all admin tools.</p>
         </div>
         
         <!-- Data Export Section -->
@@ -446,12 +452,11 @@
                         </select>
                     </div>
                     <div>
-                        <label>Quality</label>
+                        <label>Condition</label>
                         <select name="quality" required>
-                            <option value="5">5 - Like New</option>
-                            <option value="4" selected>4 - Great</option>
-                            <option value="3">3 - Good</option>
-                            <option value="2">2 - Fair</option>
+                            <option value="5" selected>Like new – Used once or twice, perfect condition</option>
+                            <option value="4">Good – Minor signs of wear, fully functional</option>
+                            <option value="3">Fair – Visible wear, but still usable</option>
                         </select>
                     </div>
                 </div>

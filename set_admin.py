@@ -1,33 +1,46 @@
 #!/usr/bin/env python3
 """
-Set a user as admin by email.
-Usage: FLASK_APP=app python set_admin.py your@email.com
+Set a user as admin by email. Works for users who haven't signed up yet (pre-assignment).
 
-Run from the project directory (where app.py lives).
+Usage:
+  FLASK_APP=app python set_admin.py your@email.com
+  FLASK_APP=app python set_admin.py your@email.com --admin-only
+
+If the user exists: grants admin immediately.
+If the user doesn't exist: pre-assigns so they get admin when they sign up.
 """
 import sys
-import os
+import argparse
 
-# Ensure we're in the right directory
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: FLASK_APP=app python set_admin.py your@email.com")
-        print("Example: FLASK_APP=app python set_admin.py henry@campusswap.com")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='Grant admin/super admin access by email')
+    parser.add_argument('email', help='Email address')
+    parser.add_argument('--admin-only', action='store_true',
+                        help='Grant regular admin only (default: super admin)')
+    args = parser.parse_args()
 
-    email = sys.argv[1].strip()
+    email = args.email.strip()
+    is_super = not args.admin_only
 
-    # Load app and db
     from app import app, db
-    from models import User
+    from models import User, AdminEmail
+    from sqlalchemy import func
 
     with app.app_context():
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            print(f"No user found with email: {email}")
-            sys.exit(1)
-
-        user.is_admin = True
-        user.is_super_admin = True
-        db.session.commit()
-        print(f"Done! {email} is now a super admin.")
+        email_lower = email.lower()
+        user = User.query.filter(func.lower(User.email) == email_lower).first()
+        if user:
+            user.is_admin = True
+            user.is_super_admin = is_super
+            db.session.commit()
+            print(f"Done! {email} is now a {'super ' if is_super else ''}admin.")
+        else:
+            existing = AdminEmail.query.filter_by(email=email_lower).first()
+            if existing:
+                existing.is_super_admin = is_super
+                db.session.commit()
+                print(f"Updated! {email} was already pre-assigned. Now {'super ' if is_super else ''}admin.")
+            else:
+                db.session.add(AdminEmail(email=email_lower, is_super_admin=is_super))
+                db.session.commit()
+                print(f"Pre-assigned! {email} will be a {'super ' if is_super else ''}admin when they sign up.")

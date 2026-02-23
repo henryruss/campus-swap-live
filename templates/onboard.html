@@ -480,6 +480,9 @@
             <div id="off-campus-fields" class="location-fields">
                 <label>Address</label>
                 <input type="text" name="pickup_address" id="pickup_address" value="{{ current_user.pickup_address or '' }}" placeholder="Start typing your address...">
+                <div id="pickup-map-container" style="display: none; margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; height: 180px;">
+                    <iframe id="pickup-map-iframe" style="width: 100%; height: 100%; border: 0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                </div>
                 <input type="hidden" name="pickup_lat" id="pickup_lat" value="{{ current_user.pickup_lat or '' }}">
                 <input type="hidden" name="pickup_lng" id="pickup_lng" value="{{ current_user.pickup_lng or '' }}">
             </div>
@@ -616,14 +619,34 @@
         if (key && document.getElementById('pickup_address')) {
             function initPlaces() {
                 if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
-                var ac = new google.maps.places.Autocomplete(document.getElementById('pickup_address'), { types: ['address'] });
+                var addressInput = document.getElementById('pickup_address');
+                var mapContainer = document.getElementById('pickup-map-container');
+                var mapIframe = document.getElementById('pickup-map-iframe');
+                function updateMap(url) {
+                    if (mapIframe && url) {
+                        mapIframe.src = url;
+                        if (mapContainer) mapContainer.style.display = 'block';
+                    } else if (mapContainer) {
+                        mapContainer.style.display = 'none';
+                    }
+                }
+                var ac = new google.maps.places.Autocomplete(addressInput, { types: ['address'] });
                 ac.addListener('place_changed', function() {
                     var place = ac.getPlace();
                     if (place.geometry && place.geometry.location) {
                         document.getElementById('pickup_lat').value = place.geometry.location.lat();
                         document.getElementById('pickup_lng').value = place.geometry.location.lng();
                     }
+                    var addr = place.formatted_address || addressInput.value;
+                    if (addr && key) {
+                        var embedUrl = 'https://www.google.com/maps/embed/v1/place?key=' + encodeURIComponent(key) + '&q=' + encodeURIComponent(addr);
+                        updateMap(embedUrl);
+                    }
                 });
+                if (addressInput.value && key) {
+                    var q = encodeURIComponent(addressInput.value);
+                    updateMap('https://www.google.com/maps/embed/v1/place?key=' + encodeURIComponent(key) + '&q=' + q);
+                }
             }
             if (typeof google !== 'undefined' && google.maps) initPlaces();
             else window.addEventListener('load', function() { setTimeout(initPlaces, 500); });

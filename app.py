@@ -22,10 +22,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload, AdminEmail
 
 # Import Constants
 from constants import (
@@ -187,6 +187,19 @@ def get_user_dashboard():
     if current_user.is_authenticated and current_user.is_admin:
         return url_for('admin_panel')
     return url_for('dashboard')
+
+
+def apply_admin_email_if_pending(user):
+    """If user's email is in AdminEmail, apply admin status and remove the record."""
+    if not user or not user.email:
+        return
+    email_lower = user.email.strip().lower()
+    admin_email = AdminEmail.query.filter_by(email=email_lower).first()
+    if admin_email:
+        user.is_admin = True
+        user.is_super_admin = admin_email.is_super_admin
+        db.session.delete(admin_email)
+        db.session.commit()
 
 def require_super_admin():
     """Returns redirect response if current user is not a super admin. Call at start of super-admin-only routes."""
@@ -466,6 +479,27 @@ def validate_quality(quality):
         return True, quality_int
     except (ValueError, TypeError):
         return False, "Invalid quality value"
+
+
+def quality_to_label(quality):
+    """Map numeric quality (1-5) to rubric label."""
+    if quality is None:
+        return ''
+    try:
+        q = int(quality)
+        if q >= 5:
+            return "Like new"
+        if q == 4:
+            return "Good"
+        return "Fair"  # 1, 2, 3
+    except (ValueError, TypeError):
+        return ''
+
+
+@app.template_filter('quality_label')
+def quality_label_filter(quality):
+    """Jinja filter: map numeric quality to rubric label."""
+    return quality_to_label(quality)
 
 
 # --- ERROR HANDLERS ---
@@ -2194,6 +2228,8 @@ def register():
                 if full_name:
                     user.full_name = full_name
                 db.session.commit()
+                apply_admin_email_if_pending(user)
+                db.session.refresh(user)
                 login_user(user)
                 logger.info(f"Guest account converted to full account: {email}")
                 
@@ -2225,6 +2261,8 @@ def register():
         new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
         db.session.add(new_user)
         db.session.commit()
+        apply_admin_email_if_pending(new_user)
+        db.session.refresh(new_user)
         login_user(new_user)
         logger.info(f"New user registered: {email}")
         
@@ -2339,6 +2377,8 @@ def auth_google_callback():
             if name and not user.full_name:
                 user.full_name = name
             db.session.commit()
+        apply_admin_email_if_pending(user)
+        db.session.refresh(user)
         login_user(user, remember=True)
         if not pickup_period_active:
             flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
@@ -2350,6 +2390,8 @@ def auth_google_callback():
                         oauth_provider='google', oauth_id=oauth_id)
         db.session.add(new_user)
         db.session.commit()
+        apply_admin_email_if_pending(new_user)
+        db.session.refresh(new_user)
         login_user(new_user, remember=True)
         flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
         return redirect(url_for('index'))
@@ -2357,6 +2399,8 @@ def auth_google_callback():
                     oauth_provider='google', oauth_id=oauth_id)
     db.session.add(new_user)
     db.session.commit()
+    apply_admin_email_if_pending(new_user)
+    db.session.refresh(new_user)
     login_user(new_user, remember=True)
     flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
     return redirect(get_user_dashboard())
@@ -2766,6 +2810,8 @@ def payment_success():
 @login_required
 def onboard():
     """6-step wizard for first-time sellers (0 items)."""
+    if current_user.is_admin:
+        return redirect(url_for('admin_panel'))
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
@@ -3654,38 +3700,63 @@ def admin_delete_user(user_id):
 @app.route('/admin/user/make-admin', methods=['POST'])
 @login_required
 def admin_make_admin():
-    """Grant admin (helper) access to a user by email. Super admin only."""
+    """Grant admin or super admin access by email. Supports pre-assignment for users who haven't signed up yet."""
     if (r := require_super_admin()):
         return r
     email = request.form.get('email', '').strip()
     if not email:
         flash("Please enter an email address.", "error")
         return redirect(url_for('admin_panel') + '#database')
-    user = User.query.filter_by(email=email).first()
+    is_super = request.form.get('super_admin') == 'on'
+    email_lower = email.lower()
+    user = User.query.filter(func.lower(User.email) == email_lower).first()
     if not user:
-        flash(f"No user found with email '{email}'.", "error")
+        # Pre-assign: add to AdminEmail so they get admin when they sign up
+        existing = AdminEmail.query.filter_by(email=email_lower).first()
+        if existing:
+            existing.is_super_admin = is_super
+            db.session.commit()
+            flash(f"{email} was already pre-assigned. Updated to {'super admin' if is_super else 'admin'}.", "info")
+        else:
+            db.session.add(AdminEmail(email=email_lower, is_super_admin=is_super))
+            db.session.commit()
+            flash(f"Pre-assigned {email}. When they sign up, they will be granted {'super admin' if is_super else 'admin'} access.", "success")
         return redirect(url_for('admin_panel') + '#database')
     if user.is_admin:
-        flash(f"{email} is already an admin.", "info")
+        # Allow upgrading admin to super admin
+        if is_super and not user.is_super_admin:
+            user.is_super_admin = True
+            db.session.commit()
+            flash(f"Promoted {email} to super admin.", "success")
+        else:
+            flash(f"{email} is already an admin.", "info")
         return redirect(url_for('admin_panel') + '#database')
     user.is_admin = True
-    user.is_super_admin = False
+    user.is_super_admin = is_super
     db.session.commit()
-    flash(f"Granted admin access to {email}.", "success")
+    flash(f"Granted {'super admin' if is_super else 'admin'} access to {email}.", "success")
     return redirect(url_for('admin_panel') + '#database')
 
 
 @app.route('/admin/user/revoke-admin', methods=['POST'])
 @login_required
 def admin_revoke_admin():
-    """Revoke admin access from a user by email. Super admin only."""
+    """Revoke admin access from a user by email. Also removes from AdminEmail if pre-assigned."""
     if (r := require_super_admin()):
         return r
     email = request.form.get('email', '').strip()
     if not email:
         flash("Please enter an email address.", "error")
         return redirect(url_for('admin_panel') + '#database')
-    user = User.query.filter_by(email=email).first()
+    email_lower = email.lower()
+    # Remove from AdminEmail if pre-assigned (so future signups don't get admin)
+    pending = AdminEmail.query.filter_by(email=email_lower).first()
+    if pending:
+        db.session.delete(pending)
+        db.session.commit()
+        flash(f"Removed {email} from pre-assigned admins.", "success")
+        return redirect(url_for('admin_panel') + '#database')
+    user = User.query.filter(func.lower(User.email) == email_lower).first()
     if not user:
         flash(f"No user found with email '{email}'.", "error")
         return redirect(url_for('admin_panel') + '#database')
@@ -3793,7 +3864,7 @@ def admin_preview_items():
     items = InventoryItem.query.order_by(InventoryItem.date_added.desc()).all()
     
     # Prepare data for template
-    headers = ['ID', 'Description', 'Category', 'Price', 'Quality', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent']
+    headers = ['ID', 'Description', 'Category', 'Price', 'Condition', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent']
     rows = []
     for item in items:
         seller_email = item.seller.email if item.seller else ''
@@ -3805,7 +3876,7 @@ def admin_preview_items():
             'description': item.description,
             'category': category_name,
             'price': f"${item.price:.2f}" if item.price else '',
-            'quality': item.quality,
+            'quality': quality_to_label(item.quality),
             'status': item.status,
             'collection_method': item.collection_method,
             'seller_email': seller_email,
@@ -3838,7 +3909,7 @@ def admin_export_items():
     writer = csv.writer(output)
     
     # Header row
-    writer.writerow(['ID', 'Description', 'Category', 'Price', 'Quality', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent'])
+    writer.writerow(['ID', 'Description', 'Category', 'Price', 'Condition', 'Status', 'Collection Method', 'Seller Email', 'Seller Name', 'Date Added', 'Sold At', 'Payout Sent'])
     
     # Data rows
     for item in items:
@@ -3851,7 +3922,7 @@ def admin_export_items():
             item.description,
             category_name,
             item.price or '',
-            item.quality,
+            quality_to_label(item.quality),
             item.status,
             item.collection_method,
             seller_email,

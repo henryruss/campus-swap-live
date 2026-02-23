@@ -208,7 +208,7 @@
         <div class="approve-body">
             <h2 class="approve-title">{{ pending_item.description }}</h2>
             <div class="approve-meta">
-                {{ pending_item.category.name }} &middot; Quality {{ pending_item.quality }}/5
+                {{ pending_item.category.name }} &middot; Condition: {{ pending_item.quality|quality_label }}
                 {% if pending_item.seller %}
                 &middot; {{ pending_item.seller.full_name }}
                 {% if pending_item.suggested_price %}
@@ -237,11 +237,11 @@
                         </select>
                     </div>
                     <div>
-                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Quality</label>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Condition</label>
                         <select name="quality" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
-                            {% for i in range(5, 1, -1) %}
-                            <option value="{{ i }}" {% if pending_item.quality == i %}selected{% endif %}>{{ i }}/5</option>
-                            {% endfor %}
+                            <option value="5" {% if pending_item.quality == 5 %}selected{% endif %}>Like new – Used once or twice, perfect condition</option>
+                            <option value="4" {% if pending_item.quality == 4 %}selected{% endif %}>Good – Minor signs of wear, fully functional</option>
+                            <option value="3" {% if pending_item.quality in (1, 2, 3) %}selected{% endif %}>Fair – Visible wear, but still usable</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: flex-end; padding-bottom: 4px;">

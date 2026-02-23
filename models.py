@@ -137,6 +137,14 @@ class TempUpload(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class AdminEmail(db.Model):
+    """Emails pre-approved for admin/super_admin. Applied when user signs up."""
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    is_super_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class AppSetting(db.Model):
     """Simple key-value store for app-wide settings"""
     id = db.Column(db.Integer, primary_key=True)
