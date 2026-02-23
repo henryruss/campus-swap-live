@@ -95,7 +95,8 @@ class InventoryItem(db.Model):
     
     # LARGE ITEM: Admin marks during approval; $10 fee for online items (pickup only)
     is_large = db.Column(db.Boolean, default=False)
-    oversize_fee_paid = db.Column(db.Boolean, default=False)  # True when seller paid $10 (first oversized is included in $15)
+    oversize_included_in_service_fee = db.Column(db.Boolean, default=False)  # True = first oversized, waived with $15
+    oversize_fee_paid = db.Column(db.Boolean, default=False)  # True when seller paid $10 (additional oversized)
     
     # LOGISTICS (set when seller confirms after approval)
     pickup_week = db.Column(db.String(20), nullable=True)   # 'week1' (Apr 26-May 2) or 'week2' (May 3-May 9)

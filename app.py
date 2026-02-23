@@ -2988,8 +2988,10 @@ def confirm_pickup_success():
                     if item.is_large:
                         oversized_seen += 1
                         if oversized_seen > 1:
-                            continue  # Additional oversized: stay pending
+                            continue  # Additional oversized: stay pending (never set status or oversize_included)
                     item.status = 'available'
+                    if item.is_large:
+                        item.oversize_included_in_service_fee = True  # Explicit: first oversized is waived
                     if item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
