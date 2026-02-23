@@ -3,7 +3,6 @@
 {% block content %}
 {% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
 {% set pending_logistics = my_items|selectattr('status', 'equalto', 'pending_logistics')|list %}
-{% set live_items = my_items|selectattr('status', 'equalto', 'available')|list %}
 {% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
 {% set pending_pod = pending_logistics|selectattr('collection_method', 'equalto', 'in_person')|list %}
 
@@ -21,7 +20,7 @@
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Potential Earnings</div>
             <div class="dashboard-stat-value">${{ "%.0f"|format(estimated_payout + pending_payouts) }}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Live + sold, not yet paid</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">{{ earnings_subtext }}</div>
         </div>
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Paid Out</div>
@@ -35,12 +34,12 @@
             <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
             {% endif %}
         </div>
-        <div class="dashboard-stat dashboard-stat-pickup">
+        <div class="dashboard-stat dashboard-stat-pickup {% if pickup_method_type in ('pod', 'needs_pod') and has_in_person_items and stripe_configured %}dashboard-stat-pickup-with-upgrade{% endif %}">
             <div class="dashboard-stat-label">{% if pickup_method_type == 'week' or pickup_method_type == 'needs_pickup' %}Pickup window{% elif pickup_method_type in ('pod', 'needs_pod') or has_in_person_items %}Pod location{% else %}Pickup window{% endif %}</div>
             {% if pickup_method_type == 'week' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
-            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pickup routes and will notify you with a specific pickup date and time as soon as we can.</p>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pickup routes and will let you know more specifically when we're coming by {{ pod_change_deadline_display }}.</p>
             {% elif pickup_method_type == 'pod' %}
             {% if pod_change_allowed %}
             <form method="POST" action="{{ url_for('confirm_dropoff') }}" style="margin-top: 4px;">
@@ -56,26 +55,27 @@
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             {% endif %}
             <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pod pickups based on projected volume.{% if pod_change_allowed %} You can change your pod location until {{ pod_change_deadline_display }}.{% endif %}</p>
+            {% if has_in_person_items and stripe_configured %}
+            <a href="{{ url_for('upgrade_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; display: inline-block; margin-top: 12px;">Upgrade to Campus Swap Pickup</a>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 8px;">This action cannot be undone.</p>
+            {% endif %}
             {% elif pickup_method_type == 'needs_pickup' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pickup window pending</div>
             {% elif pickup_method_type == 'needs_pod' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pod location pending</div>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pod pickups based on projected volume.</p>
+            {% if stripe_configured %}
+            <a href="{{ url_for('upgrade_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; display: inline-block; margin-top: 12px;">Upgrade to Campus Swap Pickup</a>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 8px;">This action cannot be undone.</p>
+            {% endif %}
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: var(--text-muted);">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Select when approved</div>
             {% endif %}
         </div>
-        {% if pickup_method_type in ('pod', 'needs_pod') and has_in_person_items and stripe_configured %}
-        <div class="dashboard-stat dashboard-stat-upgrade">
-            <div class="dashboard-stat-label">Upgrade</div>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 12px; line-height: 1.4;">Switch to Campus Swap Pickup. We'll pick up from you.</p>
-            <a href="{{ url_for('upgrade_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; display: inline-block;">Upgrade to Campus Swap Pickup</a>
-            <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 8px;">This action cannot be undone.</p>
-        </div>
-        {% endif %}
     </div>
 
-    <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}dashboard-layout-no-sidebar{% endif %}">
+    <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type == 'needs_pickup') %}dashboard-layout-no-sidebar{% endif %}">
         <div>
             {# Action Required: Select pickup window #}
             {% if pickup_method_type == 'needs_pickup' %}
@@ -168,7 +168,7 @@
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
                                     {% elif item.status == 'available' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Paid</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {% if item.collection_method == 'in_person' %}Pod selected{% else %}Paid{% endif %}</li>
                                     {% if item.is_large and item.collection_method == 'online' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'Oversized fee paid' if item.oversize_fee_paid else 'Oversized (included)' }}</li>
                                     {% endif %}
@@ -227,7 +227,7 @@
                             <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
                                 <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">Item ID #{{ item.id }}</span>
                                 {% if item.status == 'sold' %}<span class="badge bg-red">SOLD</span>
-                                {% elif item.status == 'available' %}<span class="badge bg-green">Live</span>
+                                {% elif item.status == 'available' %}{% if item.id in live_item_ids %}<span class="badge bg-green">Live</span>{% else %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>{% endif %}
                                 {% elif item.status == 'pending_valuation' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
                                 {% elif item.status == 'pending_logistics' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
                                 {% elif item.status == 'rejected' %}<span class="badge bg-red">Rejected</span>
@@ -266,8 +266,8 @@
             </div>
         </div>
 
-        {# Sidebar - Upgrade only (Pay & Select is in header) #}
-        {% if has_in_person_items and stripe_configured and pickup_method_type != 'pod' %}
+        {# Sidebar - Only for needs_pickup (header has upgrade for pod/needs_pod) #}
+        {% if has_in_person_items and stripe_configured and pickup_method_type == 'needs_pickup' %}
         <aside class="dashboard-sidebar">
             <div class="dashboard-sidebar-pay-card">
                 <form method="POST" action="{{ url_for('upgrade_checkout') }}">

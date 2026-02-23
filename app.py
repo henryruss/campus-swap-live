@@ -37,7 +37,7 @@ from constants import (
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
-    PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE
+    PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE, POD_CHANGE_DEADLINE_DISPLAY
 )
 
 # Configure Logging
@@ -99,6 +99,11 @@ def inject_store_functions():
 # SECURITY: This secret key enables sessions. 
 # On Render, set this as an Environment Variable called 'SECRET_KEY'.
 app.secret_key = os.environ.get('SECRET_KEY', 'dev_key_for_local_use')
+
+# Cookie security: only use Secure flag in production (HTTPS).
+# On localhost/127.0.0.1 (HTTP), Secure cookies won't be sent, causing auth failures and redirect loops.
+if not os.environ.get('DATABASE_URL'):
+    app.config['SESSION_COOKIE_SECURE'] = False
 
 # 1. DATABASE CONFIGURATION
 db_url = os.environ.get('DATABASE_URL')
@@ -2533,8 +2538,20 @@ def dashboard():
     has_in_person_items = any(item.collection_method == 'in_person' for item in my_items)
     
     # Calculate payout statistics (per-item percentage: online 50%, in-person 33%)
-    live_items = [item for item in my_items if item.status == 'available']
+    available_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
+
+    # Items actually visible in inventory (matches inventory route logic)
+    # Online: has_paid. In_person: has_paid AND arrived_at_store_at.
+    live_items = [
+        i for i in available_items
+        if (i.collection_method == 'online' and current_user.has_paid)
+        or (i.collection_method == 'in_person' and current_user.has_paid and i.arrived_at_store_at)
+    ]
+
+    # Earnings subtext: 50% if any pickup items, else 33% (free/pod)
+    has_any_pickup = any(i.collection_method == 'online' for i in available_items)
+    earnings_subtext = "Based on 50% cut (pickup service)" if has_any_pickup else "Based on 33% cut (free user)"
     
     def _payout_for_item(it):
         pct = _get_payout_percentage(it)
@@ -2575,7 +2592,7 @@ def dashboard():
     elif pending_pod:
         pickup_method_type = 'needs_pod'
 
-    # Pod change: allowed until May 1st; items that can be changed (available, in_person, has pod, not yet dropped off)
+    # Pod change: allowed until April 20th; items that can be changed (available, in_person, has pod, not yet dropped off)
     today = datetime.utcnow().date()
     pod_deadline = datetime(today.year, POD_CHANGE_DEADLINE[0], POD_CHANGE_DEADLINE[1]).date()
     pod_change_allowed = today < pod_deadline
@@ -2590,6 +2607,8 @@ def dashboard():
                           total_potential=total_potential,
                           sold_items=sold_items,
                           live_items=live_items,
+                          live_item_ids={i.id for i in live_items},
+                          earnings_subtext=earnings_subtext,
                           approved_online_count=len(approved_online),
                           approved_large_count=approved_large_count,
                           projected_fee_cents=projected_fee_cents,
@@ -2611,7 +2630,7 @@ def dashboard():
                           pickup_method_label=pickup_method_label,
                           current_pod_value=item_with_pod.dropoff_pod if item_with_pod else None,
                           pod_change_allowed=pod_change_allowed,
-                          pod_change_deadline_display='May 1st')
+                          pod_change_deadline_display=POD_CHANGE_DEADLINE_DISPLAY)
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -3104,7 +3123,8 @@ def confirm_pickup():
 
     return render_template('confirm_pickup.html',
                           pending_items=pending,
-                          pickup_weeks=PICKUP_WEEKS)
+                          pickup_weeks=PICKUP_WEEKS,
+                          route_specific_date=POD_CHANGE_DEADLINE_DISPLAY)
 
 
 @app.route('/confirm_pickup_success')
@@ -3149,8 +3169,15 @@ def confirm_pickup_success():
 @login_required
 def upgrade_pickup():
     """Pod users upgrade to Campus Swap Pickup: select week and pay $15. Converts in_person items to online pickup."""
-    pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'in_person']
-    if not pending:
+    eligible = [
+        i for i in current_user.items
+        if i.collection_method == 'in_person'
+        and (
+            i.status == 'pending_logistics'
+            or (i.status == 'available' and i.arrived_at_store_at is None)
+        )
+    ]
+    if not eligible:
         flash("No items eligible for upgrade.", "info")
         return redirect(url_for('dashboard'))
 
@@ -3165,7 +3192,7 @@ def upgrade_pickup():
             return redirect(url_for('upgrade_pickup'))
 
         try:
-            item_ids = ','.join(str(i.id) for i in pending)
+            item_ids = ','.join(str(i.id) for i in eligible)
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{
@@ -3196,8 +3223,9 @@ def upgrade_pickup():
             return redirect(url_for('upgrade_pickup'))
 
     return render_template('upgrade_pickup.html',
-                          pending_items=pending,
-                          pickup_weeks=PICKUP_WEEKS)
+                          pending_items=eligible,
+                          pickup_weeks=PICKUP_WEEKS,
+                          route_specific_date=POD_CHANGE_DEADLINE_DISPLAY)
 
 
 @app.route('/upgrade_pickup_success')
@@ -3215,21 +3243,27 @@ def upgrade_pickup_success():
             if item_ids_str and pickup_week:
                 item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
                 items = [InventoryItem.query.get(iid) for iid in item_ids]
-                items = [i for i in items if i and i.seller_id == current_user.id and i.collection_method == 'in_person' and i.status == 'pending_logistics']
+                items = [
+                    i for i in items
+                    if i and i.seller_id == current_user.id and i.collection_method == 'in_person'
+                    and (i.status == 'pending_logistics' or (i.status == 'available' and i.arrived_at_store_at is None))
+                ]
+                # Track which items were pending (need count_in_stock increment); available already have count
+                pending_ids = {i.id for i in items if i.status == 'pending_logistics'}
                 for item in items:
                     item.collection_method = 'online'
                     item.pickup_week = pickup_week
-                # Move to available: all standard + first oversized. Additional oversized stay pending (pay $10 per-item).
                 oversized_seen = 0
                 for item in sorted(items, key=lambda x: x.id):
                     if item.is_large:
                         oversized_seen += 1
                         if oversized_seen > 1:
-                            continue  # Additional oversized: stay pending (never set status or oversize_included)
+                            continue
                     item.status = 'available'
                     if item.is_large:
                         item.oversize_included_in_service_fee = True
-                    if item.category:
+                    # Only increment count for items moving from pending; available already had count
+                    if item.id in pending_ids and item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
                 db.session.commit()
@@ -3319,7 +3353,7 @@ def pay_oversize_fee_success():
 @app.route('/confirm_dropoff', methods=['POST'])
 @login_required
 def confirm_dropoff():
-    """Pod users confirm or change dropoff location—no payment. One pod for all items. Change allowed until May 1st."""
+    """Pod users confirm or change dropoff location—no payment. One pod for all items. Change allowed until April 20th."""
     dropoff_pod = request.form.get('dropoff_pod')
 
     valid_pods = [p[0] for p in POD_LOCATIONS]
@@ -3347,7 +3381,7 @@ def confirm_dropoff():
         flash(f"Dropoff location confirmed! Your item{'s' if count > 1 else ''} {'are' if count > 1 else 'is'} now live.", "success")
         return redirect(get_user_dashboard())
 
-    # Case 2: Change pod – update ALL eligible in_person items (before May 1st, not yet dropped off)
+    # Case 2: Change pod – update ALL eligible in_person items (before April 20th, not yet dropped off)
     if pod_change_allowed:
         change_items = [
             i for i in current_user.items

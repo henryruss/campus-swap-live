@@ -59,7 +59,8 @@ POD_LOCATIONS = [
 ]
 
 # Pod change deadline: users can change their drop-off pod until this date (month, day)
-POD_CHANGE_DEADLINE = (5, 1)  # May 1st
+POD_CHANGE_DEADLINE = (4, 20)  # April 20th
+POD_CHANGE_DEADLINE_DISPLAY = 'April 20th'
 
 # Residence halls by store (for on-campus pickup selection)
 RESIDENCE_HALLS_BY_STORE = {
