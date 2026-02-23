@@ -1779,8 +1779,31 @@ def edit_item(item_id):
         flash("This item is live and cannot be edited. Contact support if you need changes.", "error")
         return redirect(url_for('dashboard'))
     
+    # Prevent editing sold items (non-admin sellers)
+    if item.status == 'sold' and not current_user.is_admin:
+        flash("Sold items cannot be edited.", "error")
+        return redirect(url_for('dashboard'))
+    
     categories = InventoryCategory.query.all()
     
+    if request.method == 'POST' and request.form.get('withdraw_item') == '1':
+        # Seller withdraws/removes item (change of mind - no refund, taken off route)
+        if item.status not in ('pending_valuation', 'pending_logistics', 'rejected'):
+            flash("This item can no longer be removed. Contact support if needed.", "error")
+            return redirect(url_for('edit_item', item_id=item_id))
+        if current_user.is_admin:
+            flash("Admins should use the admin panel to delete items.", "error")
+            return redirect(url_for('edit_item', item_id=item_id))
+        item_desc = item.description
+        # No count_in_stock change - pending items were never in stock
+        for photo in item.gallery_photos[:]:
+            db.session.delete(photo)
+        db.session.delete(item)
+        db.session.commit()
+        logger.info(f"Item {item.id} withdrawn by seller {current_user.id}")
+        flash("Item removed. You have been taken off the route list. No refunds.", "success")
+        return redirect(url_for('dashboard'))
+
     if request.method == 'POST':
         # Validate inputs
         description = request.form.get('description', '').strip()
@@ -1790,13 +1813,16 @@ def edit_item(item_id):
         
         item.description = description
         
-        # Validate price
-        if request.form.get('price'):
-            price_valid, price_result = validate_price(request.form['price'])
-            if not price_valid:
-                flash(f"Invalid price: {price_result}", "error")
-                return render_template('edit_item.html', item=item, categories=categories)
-            item.price = price_result
+        # Price: lock for seller when editing pending_logistics or rejected (admin-set)
+        if item.status in ('pending_logistics', 'rejected') and not current_user.is_admin:
+            pass  # Keep existing price; do not apply form value
+        else:
+            if request.form.get('price'):
+                price_valid, price_result = validate_price(request.form['price'])
+                if not price_valid:
+                    flash(f"Invalid price: {price_result}", "error")
+                    return render_template('edit_item.html', item=item, categories=categories)
+                item.price = price_result
         
         # Validate quality
         quality_valid, quality_value = validate_quality(request.form.get('quality', item.quality))
@@ -1862,9 +1888,14 @@ def edit_item(item_id):
                         flash("Error processing image. Please try again.", "error")
                         return redirect(url_for('edit_item', item_id=item_id))
         
+        # Re-approval: when seller edits pending_logistics or rejected, send back to approval queue
+        needs_reapproval = not current_user.is_admin and item.status in ('pending_logistics', 'rejected')
+        if needs_reapproval:
+            item.status = 'pending_valuation'
+        
         db.session.commit()
         logger.info(f"Item {item.id} updated by user {current_user.id}")
-        flash("Item updated successfully!", "success")
+        flash("Edits submitted for re-approval." if needs_reapproval else "Item updated successfully!", "success")
         
         if current_user.is_admin:
             # Check if item was pending - if so, redirect to pending section

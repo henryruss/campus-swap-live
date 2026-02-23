@@ -29,11 +29,18 @@
 
             <div style="margin-top: 15px;">
                 <label>Price ($)</label>
+                {% if not current_user.is_admin and item.status in ('pending_logistics', 'rejected') %}
+                <div style="padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; color: var(--text-muted);">
+                    {{ '$%.2f'|format(item.price) if item.price else 'Pending' }}
+                </div>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">Price set by admin on approval. Submit edits to request re-approval.</p>
+                {% else %}
                 <input type="number" name="price" step="0.01" 
                        value="{{ '%.2f'|format(item.price) if item.price else '' }}" 
                        placeholder="Pending" style="width: 100%;">
                 {% if item.suggested_price %}
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 0;">Seller suggested: ${{ '%.2f'|format(item.suggested_price) }}</p>
+                {% endif %}
                 {% endif %}
             </div>
 
@@ -94,6 +101,19 @@
                 {% endif %}
             </div>
         </form>
+
+        {% if not current_user.is_admin and item.status in ('pending_valuation', 'pending_logistics', 'rejected') %}
+        <hr style="margin: 30px 0;">
+        <div style="padding: 20px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;">
+            <h3 style="font-size: 1rem; margin-bottom: 8px; color: #991b1b;">Remove Item</h3>
+            <p style="font-size: 0.9rem; color: #7f1d1d; margin-bottom: 16px;">Changed your mind? Remove this item and we'll take you off the pickup route. No refunds.</p>
+            <form method="POST" onsubmit="return confirm('Remove this item? You will be taken off the route list. No refunds.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="withdraw_item" value="1"/>
+                <button type="submit" class="btn btn-outline" style="border-color: #dc2626; color: #dc2626;">Remove from Campus Swap</button>
+            </form>
+        </div>
+        {% endif %}
     </div>
 </div>
 
