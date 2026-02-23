@@ -22,8 +22,12 @@
                     </select>
                 </div>
                 <div>
-                    <label>Quality (1-5)</label>
-                    <input type="number" name="quality" min="1" max="5" value="{{ item.quality }}" required>
+                    <label>Condition</label>
+                    <select name="quality" required>
+                        <option value="5" {% if item.quality == 5 %}selected{% endif %}>Like new – Used once or twice, perfect condition</option>
+                        <option value="4" {% if item.quality == 4 %}selected{% endif %}>Good – Minor signs of wear, fully functional</option>
+                        <option value="3" {% if item.quality in (1, 2, 3) %}selected{% endif %}>Fair – Visible wear, but still usable</option>
+                    </select>
                 </div>
             </div>
 
@@ -106,7 +110,6 @@
         <hr style="margin: 30px 0;">
         <div style="padding: 20px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;">
             <h3 style="font-size: 1rem; margin-bottom: 8px; color: #991b1b;">Remove Item</h3>
-            <p style="font-size: 0.9rem; color: #7f1d1d; margin-bottom: 16px;">Changed your mind? Remove this item and we'll take you off the pickup route. No refunds.</p>
             <form method="POST" onsubmit="return confirm('Remove this item? You will be taken off the route list. No refunds.');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="withdraw_item" value="1"/>

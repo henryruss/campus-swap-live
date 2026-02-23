@@ -139,6 +139,17 @@
                                     {% endif %}
                                 </div>
                                 <p class="dashboard-item-square-desc">{{ item.description }}</p>
+                                <div class="dashboard-item-type">
+                                    Item type:
+                                    {% if item.is_large %}
+                                    <span class="dashboard-item-type-oversized">
+                                        Oversized
+                                        <i class="fas fa-info-circle dashboard-item-type-info" title="Oversized items take two people to move and take up more space in our shop. Examples: futons, couches, mattresses, and other large furniture."></i>
+                                    </span>
+                                    {% else %}
+                                    Standard
+                                    {% endif %}
+                                </div>
                                 <ul class="dashboard-item-checklist">
                                     {% if item.status == 'pending_valuation' %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Pending approval</li>
@@ -149,15 +160,21 @@
                                     {% elif item.status == 'available' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Paid</li>
+                                    {% if item.is_large and item.collection_method == 'online' %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Oversized fee paid</li>
+                                    {% endif %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'In store' if item.arrived_at_store_at else 'Picked up' }}</li>
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
                                     <li class="check-pending"><i class="fas fa-circle"></i> Pay fee</li>
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
-                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
-                                    {% if item.is_large and _ns.oversized_count > 1 %}
+                                    {% if item.is_large and _ns.oversized_count == 1 %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Oversized (included)</li>
+                                    {% elif item.is_large and _ns.oversized_count > 1 %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Oversized fee: Pending</li>
                                     <li style="margin-top: 8px;"><button type="button" class="btn btn-primary" onclick="event.preventDefault(); event.stopPropagation(); openClaimModal();" style="width: 100%; padding: 8px; font-size: 0.75rem;">Pay +$10</button></li>
                                     {% endif %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'in_person' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
                                     <li class="check-pending"><i class="fas fa-circle"></i> Select pod</li>
@@ -199,6 +216,9 @@
                                 {% endif %}
                             </div>
                             <h3 style="font-size: 1.25rem; margin-bottom: 8px;">{{ item.description }}</h3>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+                                Item type: {% if item.is_large %}Oversized <i class="fas fa-info-circle" style="font-size: 0.7rem; cursor: help; color: #94a3b8;" title="Oversized items take two people to move and take up more space in our shop. Examples: futons, couches, mattresses, and other large furniture."></i>{% else %}Standard{% endif %}
+                            </div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 12px;">${{ "%.2f"|format(item.price) if item.price else "—" }}</div>
                             <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 12px;">
                                 {% for i in range(1, 6) %}<i class="fas fa-star" style="color: {% if i <= item.quality %}#f59e0b{% else %}#e2e8f0{% endif %}; font-size: 0.9rem;"></i>{% endfor %}
