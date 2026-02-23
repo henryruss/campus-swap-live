@@ -44,8 +44,11 @@
             cursor: pointer;
         }
         .file-input-wrap:active { background: #f1f5f9; }
+        .btn-row { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+        .file-input-wrap { margin: 0; }
         input[type="file"] { display: none; }
         .camera-icon { font-size: 2.5rem; color: #64748b; flex-shrink: 0; }
+        .gallery-icon { font-size: 2.5rem; color: #64748b; flex-shrink: 0; }
         .success-msg { color: #16a34a; font-weight: 600; margin-top: 12px; }
         .success-msg::before { content: "✓ "; }
         .thumb { max-width: 100%; border-radius: 8px; margin-top: 12px; max-height: 200px; object-fit: contain; }
@@ -61,11 +64,18 @@
         {% else %}
         <form id="upload-form">
             <input type="hidden" name="token" value="{{ token }}">
-            <label class="file-input-wrap" for="photo-input">
-                <span class="camera-icon"><i class="fas fa-camera"></i></span>
-                <span>Tap to take photo or choose image</span>
-                <input id="photo-input" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
-            </label>
+            <div class="btn-row">
+                <label class="file-input-wrap" for="photo-input-camera">
+                    <span class="camera-icon"><i class="fas fa-camera"></i></span>
+                    <span>Take a new photo</span>
+                    <input id="photo-input-camera" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
+                </label>
+                <label class="file-input-wrap" for="photo-input-library">
+                    <span class="gallery-icon"><i class="fas fa-images"></i></span>
+                    <span>Choose from photo library</span>
+                    <input id="photo-input-library" type="file" name="photo" accept="image/jpeg,image/png,image/webp">
+                </label>
+            </div>
             <div id="status"></div>
             <img id="preview" class="thumb" style="display: none;" alt="Preview">
         </form>
@@ -74,13 +84,13 @@
 
     {% if not error %}
     <script>
-        const form = document.getElementById('upload-form');
-        const input = document.getElementById('photo-input');
+        const inputCamera = document.getElementById('photo-input-camera');
+        const inputLibrary = document.getElementById('photo-input-library');
         const status = document.getElementById('status');
         const preview = document.getElementById('preview');
         const token = '{{ token }}';
 
-        input.addEventListener('change', async function() {
+        function handleFileSelect(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
             status.textContent = 'Uploading...';
@@ -90,29 +100,33 @@
             fd.append('photo', file);
             fd.append('token', token);
 
-            try {
-                const r = await fetch('/upload_from_phone?token=' + encodeURIComponent(token), {
-                    method: 'POST',
-                    body: fd,
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                });
-                const data = await r.json();
-
+            fetch('/upload_from_phone?token=' + encodeURIComponent(token), {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(r => r.json())
+            .then(data => {
                 if (data.success) {
                     status.textContent = 'Photo uploaded! Check your computer.';
                     status.className = 'success-msg';
                     preview.src = data.url;
                     preview.style.display = 'block';
-                    input.value = '';
+                    inputCamera.value = '';
+                    inputLibrary.value = '';
                 } else {
                     status.textContent = data.error || 'Upload failed';
                     status.className = 'error';
                 }
-            } catch (e) {
+            })
+            .catch(() => {
                 status.textContent = 'Upload failed. Please try again.';
                 status.className = 'error';
-            }
-        });
+            });
+        }
+
+        inputCamera.addEventListener('change', function() { handleFileSelect(inputCamera); });
+        inputLibrary.addEventListener('change', function() { handleFileSelect(inputLibrary); });
     </script>
     {% endif %}
 </body>
