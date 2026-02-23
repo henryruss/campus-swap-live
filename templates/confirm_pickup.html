@@ -14,7 +14,6 @@
     <div class="card no-hover" style="margin-bottom: 24px;">
         <h3 style="margin-bottom: 16px;"><i class="fas fa-box" style="color: var(--primary);"></i> Items to be picked up</h3>
         <div style="margin-bottom: 24px;">
-            {% set _ns = namespace(oversized_seen=0) %}
             {% for item in pending_items %}
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f8fafc; border-radius: 10px; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
@@ -23,34 +22,18 @@
                     {% endif %}
                     <div style="min-width: 0;">
                         <div style="font-weight: 600; font-size: 0.95rem;">{{ item.description }}</div>
-                        {% if item.is_large %}
-                        {% if _ns.oversized_seen == 0 %}<span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Oversized (included)</span>{% set _ns.oversized_seen = 1 %}
-                        {% else %}<span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">Oversized (+$10)</span>{% endif %}
-                        {% endif %}
                     </div>
                 </div>
             </div>
             {% endfor %}
         </div>
 
-        {# Itemized receipt #}
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-            <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 14px; text-transform: uppercase;">Fee breakdown</div>
-            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
-                <span>Service fee (includes 1 oversized)</span>
-                <span>${{ "%.2f"|format(service_fee_cents / 100) }}</span>
-            </div>
-            {% if additional_oversized_count and additional_oversized_count > 0 %}
-            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem;">
-                <span>Additional oversized ({{ additional_oversized_count }} × $10)</span>
-                <span>${{ "%.2f"|format(additional_oversized_count * (large_item_fee_cents / 100)) }}</span>
-            </div>
-            {% endif %}
-            <div style="height: 1px; background: #e2e8f0; margin: 12px 0;"></div>
             <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: 800; color: var(--primary); padding-top: 8px;">
-                <span>Total</span>
-                <span>${{ "%.2f"|format(fee_dollars) }}</span>
+                <span>Service fee</span>
+                <span>$15.00</span>
             </div>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 12px;">Oversized item fees ($10 each) are paid on each item card in your dashboard.</p>
         </div>
 
         <form method="POST" action="{{ url_for('confirm_pickup') }}">
@@ -66,7 +49,7 @@
             </div>
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;"><i class="fas fa-info-circle"></i> Your choice of pickup week cannot be changed after confirmation.</p>
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px; font-size: 1.1rem;">
-                <i class="fas fa-credit-card"></i> Pay ${{ "%.2f"|format(fee_dollars) }} & Confirm Pickup
+                <i class="fas fa-credit-card"></i> Pay $15 & Confirm Pickup
             </button>
         </form>
     </div>

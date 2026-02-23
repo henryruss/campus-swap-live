@@ -692,10 +692,14 @@ def sitemap():
         xml.append(f'    <priority>{page["priority"]}</priority>')
         xml.append('  </url>')
     
-    # Add all available (live) product pages - only items marked at store
-    available_items = InventoryItem.query.filter(
+    # Add all available (live) product pages - approved + seller paid (for online) or in-person
+    available_items = InventoryItem.query.join(InventoryItem.seller, isouter=True).filter(
         InventoryItem.status == 'available',
-        InventoryItem.arrived_at_store_at.isnot(None)
+        or_(
+            InventoryItem.seller_id.is_(None),
+            InventoryItem.collection_method == 'in_person',
+            User.has_paid == True
+        )
     ).all()
     for item in available_items:
         xml.append('  <url>')
@@ -807,13 +811,17 @@ def inventory():
     commodities = InventoryCategory.query.all()
     
     # Build query with eager loading to prevent N+1 queries
-    # Only show items marked "at store" in admin - items we can actually sell
-    query = InventoryItem.query.options(
+    # Show approved items where seller has paid service fee (online) or in-person / no seller
+    query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
     ).filter(
         InventoryItem.status != 'pending_valuation',
-        InventoryItem.arrived_at_store_at.isnot(None)
+        or_(
+            InventoryItem.seller_id.is_(None),
+            InventoryItem.collection_method == 'in_person',
+            User.has_paid == True
+        )
     )
     
     # Apply category filter
@@ -855,11 +863,13 @@ def inventory():
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     item = InventoryItem.query.get_or_404(item_id)
-    # Non-admins cannot view items not yet marked "at store"
-    if item.arrived_at_store_at is None:
-        if not (current_user.is_authenticated and current_user.is_admin):
-            flash("This item is not yet available for purchase.", "error")
-            return redirect(url_for('inventory'))
+    # Non-admins cannot view items where seller hasn't paid service fee (online items only)
+    if item.collection_method == 'online' and item.seller_id is not None:
+        seller = item.seller
+        if seller and not seller.has_paid:
+            if not (current_user.is_authenticated and current_user.is_admin):
+                flash("This item is not yet available for purchase.", "error")
+                return redirect(url_for('inventory'))
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
     # Preserve search and filter parameters for "Back" link
@@ -1028,9 +1038,12 @@ def buy_item(item_id):
             flash("Sorry! This item is no longer available.", "error")
             return redirect(url_for('product_detail', item_id=item_id))
         
-        if item.arrived_at_store_at is None:
-            flash("Sorry! This item is not yet available for purchase.", "error")
-            return redirect(url_for('inventory'))
+        # Online items require seller to have paid service fee
+        if item.collection_method == 'online' and item.seller_id is not None:
+            seller = item.seller
+            if seller and not seller.has_paid:
+                flash("Sorry! This item is not yet available for purchase.", "error")
+                return redirect(url_for('inventory'))
         
         if item.price is None or item.price <= 0:
             logger.warning(f"Item {item_id} has invalid price: {item.price}")
@@ -2899,7 +2912,7 @@ def onboard_cancel():
 @app.route('/confirm_pickup', methods=['GET', 'POST'])
 @login_required
 def confirm_pickup():
-    """Pickup users confirm week and pay ($15 includes 1 oversized; $10 per additional oversized)."""
+    """Pickup users confirm week and pay $15 service fee (includes 1 oversized). Additional oversized paid per-item on dashboard."""
     pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'online']
     if not pending:
         flash("No items awaiting pickup confirmation.", "info")
@@ -2910,9 +2923,6 @@ def confirm_pickup():
         if pickup_week not in ('week1', 'week2'):
             flash("Please select a pickup week.", "error")
             return redirect(url_for('confirm_pickup'))
-
-        large_count = sum(1 for i in pending if i.is_large)
-        fee_cents = calc_pickup_fee_cents(large_count)
 
         if not stripe.api_key:
             flash("Payment is not configured. Please contact support.", "error")
@@ -2927,9 +2937,9 @@ def confirm_pickup():
                         'currency': 'usd',
                         'product_data': {
                             'name': 'Campus Swap Pickup - Service Fee',
-                            'description': f"Pickup week: {dict(PICKUP_WEEKS).get(pickup_week, pickup_week)}" + (f" ({large_count} oversized)" if large_count else ''),
+                            'description': f"Pickup week: {dict(PICKUP_WEEKS).get(pickup_week, pickup_week)}",
                         },
-                        'unit_amount': fee_cents,
+                        'unit_amount': SERVICE_FEE_CENTS,
                     },
                     'quantity': 1,
                 }],
@@ -2949,23 +2959,15 @@ def confirm_pickup():
             flash("Payment setup failed. Please try again.", "error")
             return redirect(url_for('confirm_pickup'))
 
-    large_count = sum(1 for i in pending if i.is_large)
-    fee_cents = calc_pickup_fee_cents(large_count)
-    fee_dollars = fee_cents / 100
     return render_template('confirm_pickup.html',
                           pending_items=pending,
-                          pickup_weeks=PICKUP_WEEKS,
-                          fee_dollars=fee_dollars,
-                          large_count=large_count,
-                          additional_oversized_count=max(0, large_count - 1),
-                          service_fee_cents=SERVICE_FEE_CENTS,
-                          large_item_fee_cents=LARGE_ITEM_FEE_CENTS)
+                          pickup_weeks=PICKUP_WEEKS)
 
 
 @app.route('/confirm_pickup_success')
 @login_required
 def confirm_pickup_success():
-    """After Stripe payment for pickup confirmation."""
+    """After Stripe payment for $15 service fee. Move standard + first oversized to available; additional oversized stay pending (pay per-item)."""
     session_id = request.args.get('session_id')
     if not session_id:
         return redirect(get_user_dashboard())
@@ -2976,18 +2978,101 @@ def confirm_pickup_success():
             pickup_week = stripe_session.metadata.get('pickup_week', '')
             if item_ids_str and pickup_week:
                 item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
-                for item_id in item_ids:
-                    item = InventoryItem.query.get(item_id)
-                    if item and item.seller_id == current_user.id and item.status == 'pending_logistics':
-                        item.pickup_week = pickup_week
-                        item.status = 'available'
-                        if item.category:
-                            item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+                items = [InventoryItem.query.get(iid) for iid in item_ids]
+                items = [i for i in items if i and i.seller_id == current_user.id and i.status == 'pending_logistics']
+                for item in items:
+                    item.pickup_week = pickup_week
+                # Move to available: all standard + first oversized. Additional oversized stay pending (pay $10 per-item).
+                oversized_seen = 0
+                for item in sorted(items, key=lambda x: x.id):
+                    if item.is_large:
+                        oversized_seen += 1
+                        if oversized_seen > 1:
+                            continue  # Additional oversized: stay pending
+                    item.status = 'available'
+                    if item.category:
+                        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
                 db.session.commit()
     except Exception as e:
         logger.error(f"confirm_pickup_success error: {e}", exc_info=True)
-    flash("Pickup confirmed! Your items are now live.", "success")
+    flash("Pickup confirmed! Your items are now live. Pay oversize fee on each additional oversized item card.", "success")
+    return redirect(get_user_dashboard())
+
+
+@app.route('/pay_oversize_fee/<int:item_id>', methods=['GET', 'POST'])
+@login_required
+def pay_oversize_fee(item_id):
+    """Dedicated page for $10 oversize fee. GET shows the page; POST creates Stripe checkout. Service fee must be paid first."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.seller_id != current_user.id or item.status != 'pending_logistics' or item.collection_method != 'online' or not item.is_large:
+        flash("Invalid item.", "error")
+        return redirect(get_user_dashboard())
+    user_has_week = any(i.pickup_week for i in current_user.items if i.pickup_week)
+    if not user_has_week:
+        if request.method == 'GET':
+            return render_template('pay_oversize_fee_blocked.html')
+        flash("Pay the service fee first to select your pickup window.", "error")
+        return redirect(url_for('pay_oversize_fee', item_id=item_id))
+    if request.method == 'GET':
+        return render_template('pay_oversize_fee.html', item=item)
+    if not stripe.api_key:
+        flash("Payment is not configured. Please contact support.", "error")
+        return redirect(url_for('pay_oversize_fee', item_id=item_id))
+    try:
+        pickup_week = next((i.pickup_week for i in current_user.items if i.pickup_week), 'week1')
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': f'Oversize fee: {item.description[:50]}',
+                        'description': 'Campus Swap - oversize item fee',
+                    },
+                    'unit_amount': LARGE_ITEM_FEE_CENTS,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            metadata={
+                'type': 'pay_oversize_fee',
+                'item_id': str(item.id),
+                'user_id': str(current_user.id),
+                'pickup_week': pickup_week,
+            },
+            success_url=url_for('pay_oversize_fee_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
+            cancel_url=url_for('pay_oversize_fee', item_id=item_id, _external=True),
+        )
+        return redirect(checkout_session.url, code=303)
+    except stripe.error.StripeError as e:
+        logger.error(f"Pay oversize fee Stripe error: {e}", exc_info=True)
+        flash("Payment setup failed. Please try again.", "error")
+        return redirect(url_for('pay_oversize_fee', item_id=item_id))
+
+
+@app.route('/pay_oversize_fee_success')
+@login_required
+def pay_oversize_fee_success():
+    """After Stripe payment for $10 oversize fee."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return redirect(get_user_dashboard())
+    try:
+        stripe_session = stripe.checkout.Session.retrieve(session_id)
+        if stripe_session.metadata.get('type') == 'pay_oversize_fee' and stripe_session.payment_status == 'paid':
+            item_id = stripe_session.metadata.get('item_id')
+            if item_id:
+                item = InventoryItem.query.get(int(item_id))
+                if item and item.seller_id == current_user.id and item.status == 'pending_logistics':
+                    item.pickup_week = stripe_session.metadata.get('pickup_week') or next((i.pickup_week for i in current_user.items if i.pickup_week), 'week1')
+                    item.status = 'available'
+                    if item.category:
+                        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+                    db.session.commit()
+    except Exception as e:
+        logger.error(f"pay_oversize_fee_success error: {e}", exc_info=True)
+    flash("Oversize fee paid. Item is now live.", "success")
     return redirect(get_user_dashboard())
 
 
