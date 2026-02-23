@@ -125,6 +125,7 @@
                 {% if my_items %}
                 <div class="dashboard-shop-grid">
                     {% set _ns = namespace(oversized_count=0) %}
+                    {% set _has_included_oversized = my_items|selectattr('status','equalto','available')|selectattr('is_large')|selectattr('oversize_included_in_service_fee')|list|length > 0 %}
                     {% for item in my_items %}
                     {% if item.status == 'rejected' %}
                         {% set bg_class = 'item-card-bg-red' %}
@@ -171,11 +172,17 @@
                                     {% if item.is_large and item.collection_method == 'online' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'Oversized fee paid' if item.oversize_fee_paid else 'Oversized (included)' }}</li>
                                     {% endif %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'In store' if item.arrived_at_store_at else 'Picked up' }}</li>
+                                    {% if item.arrived_at_store_at %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> In store</li>
+                                    {% elif item.picked_up_at %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
+                                    {% else %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                                    {% endif %}
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
                                     {% if item.is_large %}{% set _ns.oversized_count = _ns.oversized_count + 1 %}{% endif %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    {% if item.is_large and _ns.oversized_count > 1 %}
+                                    {% if item.is_large and (_has_included_oversized or _ns.oversized_count > 1) %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Oversized fee: Pending</li>
                                     {% endif %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
@@ -187,7 +194,7 @@
                                     <li style="margin-top: 8px;"><button type="button" class="btn btn-outline" onclick="event.preventDefault(); event.stopPropagation(); var el=document.getElementById('pod-selection'); if(el) el.scrollIntoView({behavior:'smooth'});" style="width: 100%; padding: 8px; font-size: 0.75rem;"><i class="fas fa-map-marker-alt"></i> Select Pod</button></li>
                                     {% endif %}
                                 </ul>
-                                {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large and _ns.oversized_count > 1 %}
+                                {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large and (_has_included_oversized or _ns.oversized_count > 1) %}
                                 <a href="{{ url_for('pay_oversize_fee', item_id=item.id) }}" onclick="event.stopPropagation()" class="btn btn-primary" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;">Pay oversize fee</a>
                                 {% endif %}
                                 {% if item.status == 'pending_logistics' %}

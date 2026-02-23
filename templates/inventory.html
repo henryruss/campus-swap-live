@@ -133,7 +133,7 @@
                 
                 <div style="padding: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) }}</span>
+                        <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</span>
                         {% if item.status != 'sold' %}
                         <span class="badge bg-green">Available</span>
                         {% endif %}

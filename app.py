@@ -498,16 +498,40 @@ def request_entity_too_large(error):
 # SECTION 1: PUBLIC & LANDING ROUTES
 # =========================================================
 
+# Ticker prices match the become-a-seller interactive room (seller profit per item)
+_TICKER_PRICE_MAP = {
+    "mini fridge": 55, "mini-fridge": 55, "minifridge": 55,
+    "rug": 40,
+    "microwave": 25,
+    "headboard": 40,
+    "mattress": 80, "twin xl mattress": 80,
+    "couch": 70, "sofa": 70, "couch / sofa": 70, "couch/sofa": 70,
+    "ac unit": 50, "acunit": 50, "climate control": 50, "box fan": 50,
+    "tv": 90, "television": 90,
+}
+_TICKER_FALLBACK_PRICES = [55, 40, 25, 40, 80, 70, 50, 90]  # From become-a-seller page
+
+
 def _get_ticker_items():
-    """Build ticker items from categories for the index hero slideshow. Falls back to defaults if no categories."""
+    """Build ticker items from categories for the index hero slideshow. Uses same prices as become-a-seller page."""
     ticker_cats = InventoryCategory.query.order_by(InventoryCategory.id).limit(8).all()
     if ticker_cats:
-        return [{"icon": c.image_url or "fa-box", "price": "$75"} for c in ticker_cats]
+        result = []
+        for i, c in enumerate(ticker_cats):
+            name = (c.name or "").lower().strip()
+            price = _TICKER_PRICE_MAP.get(name)
+            if price is None:
+                price = _TICKER_FALLBACK_PRICES[i % len(_TICKER_FALLBACK_PRICES)]
+            result.append({"icon": c.image_url or "fa-box", "price": f"${price}"})
+        return result
+    # Fallback when no categories - match become-a-seller interactive room
     return [
-        {"icon": "fa-couch", "price": "$80"},
-        {"icon": "fa-snowflake", "price": "$75"},
-        {"icon": "fa-bed", "price": "$90"},
+        {"icon": "fa-couch", "price": "$70"},
+        {"icon": "fa-snowflake", "price": "$55"},
+        {"icon": "fa-bed", "price": "$80"},
         {"icon": "fa-tv", "price": "$90"},
+        {"icon": "fa-wind", "price": "$50"},
+        {"icon": "fa-square", "price": "$40"},
     ]
 
 
@@ -817,6 +841,8 @@ def inventory():
         joinedload(InventoryItem.seller)
     ).filter(
         InventoryItem.status != 'pending_valuation',
+        InventoryItem.price.isnot(None),
+        InventoryItem.price > 0,
         or_(
             InventoryItem.seller_id.is_(None),
             InventoryItem.collection_method == 'in_person',
