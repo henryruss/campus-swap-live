@@ -623,11 +623,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px;
 }
 .dashboard-item-square-price { font-size: 1rem; font-weight: 800; color: var(--text-main); }
-.dashboard-item-oversized { font-size: 0.65rem; font-weight: 700; color: #b45309; }
-.dashboard-item-type { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.dashboard-item-type-oversized { font-weight: 600; color: #b45309; }
-.dashboard-item-type-info { font-size: 0.65rem; cursor: help; color: #94a3b8; opacity: 0.9; }
-.dashboard-item-type-info:hover { color: var(--primary); opacity: 1; }
+.dashboard-item-type { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 8px; }
 .dashboard-item-square-desc {
     font-size: 0.75rem; color: var(--text-muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
