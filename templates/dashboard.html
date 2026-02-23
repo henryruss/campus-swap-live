@@ -36,7 +36,7 @@
             {% endif %}
         </div>
         <div class="dashboard-stat dashboard-stat-pickup">
-            <div class="dashboard-stat-label">{% if pickup_method_type in ('pod', 'needs_pod') %}Pod location{% else %}Pickup window{% endif %}</div>
+            <div class="dashboard-stat-label">{% if pickup_method_type == 'week' or pickup_method_type == 'needs_pickup' %}Pickup window{% elif pickup_method_type in ('pod', 'needs_pod') or has_in_person_items %}Pod location{% else %}Pickup window{% endif %}</div>
             {% if pickup_method_type == 'week' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
@@ -53,9 +53,21 @@
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pickup window pending</div>
             {% elif pickup_method_type == 'needs_pod' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pod location pending</div>
+            {% if has_in_person_items and stripe_configured %}
+            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
+            </form>
+            {% endif %}
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: var(--text-muted);">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Select when approved</div>
+            {% if has_in_person_items and stripe_configured %}
+            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
+            </form>
+            {% endif %}
             {% endif %}
         </div>
     </div>
@@ -68,15 +80,6 @@
                 <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Select Pickup Window</h3>
                 <p style="color: #92400e; font-size: 0.9rem;">Choose your pickup week and pay the $15 service fee to get your items live.</p>
                 <button type="button" onclick="openClaimModal()" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem;">Select Pickup Window</button>
-            </div>
-            {% endif %}
-
-            {# Action Required: Select pod location #}
-            {% if pickup_method_type == 'needs_pod' and pending_pod %}
-            <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
-                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Select Pod Location</h3>
-                <p style="color: #92400e; font-size: 0.9rem;">Choose your drop-off pod to complete setup. No payment required.</p>
-                <a href="#pod-selection" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem; display: inline-block; text-decoration: none;">Select Pod Location</a>
             </div>
             {% endif %}
 
@@ -177,7 +180,7 @@
                                     {% elif item.picked_up_at %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
                                     {% else %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> {% if item.collection_method == 'in_person' %}Awaiting dropoff{% else %}Awaiting pickup{% endif %}</li>
                                     {% endif %}
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
                                     {% if item.is_large %}{% set _ns.oversized_count = _ns.oversized_count + 1 %}{% endif %}

@@ -1,6 +1,12 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<style>
+    .remove-confirm-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .remove-confirm-dialog { background: white; border-radius: 12px; padding: 24px; max-width: 360px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+    .remove-confirm-msg { margin: 0 0 20px; font-size: 1rem; line-height: 1.5; }
+    .remove-confirm-actions { display: flex; gap: 12px; justify-content: flex-end; }
+</style>
 <div class="container" style="max-width: 800px; margin-top: 40px;">
     <h1>Edit Item</h1>
     
@@ -110,17 +116,39 @@
         <hr style="margin: 30px 0;">
         <div style="padding: 20px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;">
             <h3 style="font-size: 1rem; margin-bottom: 8px; color: #991b1b;">Remove Item</h3>
-            <form method="POST" onsubmit="return confirm('Remove this item? You will be taken off the route list. No refunds.');">
+            <form method="POST" id="withdraw-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="withdraw_item" value="1"/>
-                <button type="submit" class="btn btn-outline" style="border-color: #dc2626; color: #dc2626;">Remove from Campus Swap</button>
+                <button type="button" class="btn btn-outline" style="border-color: #dc2626; color: #dc2626;" id="remove-item-btn">Remove from Campus Swap</button>
             </form>
+        </div>
+        <div id="remove-confirm-modal" class="remove-confirm-modal" style="display: none;">
+            <div class="remove-confirm-dialog" onclick="event.stopPropagation()">
+                <p class="remove-confirm-msg">Remove this item? You will be taken off the route list. No refunds.</p>
+                <div class="remove-confirm-actions">
+                    <button type="button" class="btn btn-outline" id="remove-cancel-btn">Cancel</button>
+                    <button type="button" class="btn btn-primary" style="background: #dc2626; border-color: #dc2626;" id="remove-confirm-btn">Remove</button>
+                </div>
+            </div>
         </div>
         {% endif %}
     </div>
 </div>
 
 <script>
+    (function() {
+        var removeBtn = document.getElementById('remove-item-btn');
+        var withdrawForm = document.getElementById('withdraw-form');
+        var modal = document.getElementById('remove-confirm-modal');
+        if (removeBtn && withdrawForm && modal) {
+            var cancelBtn = document.getElementById('remove-cancel-btn');
+            var confirmBtn = document.getElementById('remove-confirm-btn');
+            removeBtn.addEventListener('click', function() { modal.style.display = 'flex'; });
+            cancelBtn.addEventListener('click', function() { modal.style.display = 'none'; });
+            confirmBtn.addEventListener('click', function() { modal.style.display = 'none'; withdrawForm.submit(); });
+            modal.addEventListener('click', function(e) { if (e.target === modal) modal.style.display = 'none'; });
+        }
+    })();
     function updateNewPhotosPreview(input) {
         const preview = document.getElementById('new-photos-preview');
         const list = document.getElementById('new-photos-list');
