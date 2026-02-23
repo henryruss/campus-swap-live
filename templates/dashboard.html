@@ -229,10 +229,13 @@
                             {% else %}
                             <div class="listing-modal-placeholder"><i class="fas fa-image"></i> No image</div>
                             {% endif %}
+                            {% if item.status == 'pending_logistics' or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
+                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.9rem; text-align: center; text-decoration: none; display: block;"><i class="fas fa-edit"></i> Edit listing</a>
+                            {% endif %}
                         </div>
                         <div class="listing-modal-details">
                             <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
-                                <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">#{{ item.id }}</span>
+                                <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">Item ID #{{ item.id }}</span>
                                 {% if item.status == 'sold' %}<span class="badge bg-red">SOLD</span>
                                 {% elif item.status == 'available' %}<span class="badge bg-green">Live</span>
                                 {% elif item.status == 'pending_valuation' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
@@ -252,7 +255,7 @@
                                 <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 6px;">{{ item.quality }}/5</span>
                             </div>
                             <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
-                            {% if item.status in ('pending_valuation', 'pending_logistics') or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
+                            {% if item.status == 'pending_logistics' or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;"><i class="fas fa-edit"></i> Edit listing</a>
                             {% elif item.status == 'rejected' %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; border-color: #dc2626; color: #dc2626;">Remove item</a>
