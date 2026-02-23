@@ -66,6 +66,14 @@
         align-items: center;
         justify-content: center;
     }
+    .approve-container.approve-container-wide {
+        max-width: 1200px;
+        align-items: stretch;
+    }
+    .approve-container .approve-browse-wrapper {
+        max-width: 100%;
+        width: 100%;
+    }
     .approve-progress {
         font-size: 1rem;
         color: var(--text-muted);
@@ -179,6 +187,131 @@
         color: var(--text-muted);
         margin-bottom: 24px;
     }
+    /* Browse list layout */
+    .approve-sort-bar {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    .approve-sort-bar label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    .approve-sort-bar select {
+        padding: 8px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        min-width: 180px;
+    }
+    .approve-list-scroll {
+        max-height: 70vh;
+        overflow-y: auto;
+        padding-right: 8px;
+    }
+    .approve-list-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 20px;
+        padding: 8px 0;
+    }
+    .approve-list-card {
+        background: white;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
+        transition: box-shadow 0.2s;
+        display: flex;
+        flex-direction: column;
+    }
+    .approve-list-card:hover {
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.12);
+    }
+    .approve-list-card .thumb-wrap {
+        aspect-ratio: 4/3;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    .approve-list-card .thumb-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .approve-list-card .thumb-placeholder {
+        color: #cbd5e1;
+        font-size: 2rem;
+    }
+    .approve-list-card .card-body {
+        padding: 16px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .approve-list-card .card-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .approve-list-card .card-price {
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: var(--primary);
+    }
+    .approve-list-card .card-meta {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    .approve-list-card .card-actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+    }
+    .approve-list-card .card-actions a {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+    .approve-list-card .card-actions .btn-approve {
+        background: var(--primary);
+        color: white;
+        border: 2px solid var(--primary);
+    }
+    .approve-list-card .card-actions .btn-approve:hover {
+        background: var(--primary-light);
+        transform: translateY(-1px);
+    }
+    .approve-list-card .card-actions .btn-reject {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 2px solid #fecaca;
+    }
+    .approve-list-card .card-actions .btn-reject:hover {
+        background: #fee2e2;
+        border-color: #dc2626;
+    }
 </style>
 
 <div class="container">
@@ -189,10 +322,20 @@
     <div class="admin-layout">
         {% with active='approve', pending_count=total_pending %}{% include 'admin_sidebar.html' %}{% endwith %}
         <main class="admin-main">
-<div class="approve-container">
-    {% if pending_item %}
+<div class="approve-container{% if not pending_item and total_pending %} approve-container-wide{% endif %}">
+    {% if total_pending == 0 %}
+    <div class="approve-card approve-done">
+        <h2><i class="fas fa-check-circle" style="color: #15803d;"></i> All caught up!</h2>
+        <p>No items waiting for approval.</p>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-primary">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+    {% elif pending_item %}
     <div class="approve-progress">
-        {{ total_pending }} item{{ 's' if total_pending != 1 else '' }} to approve
+        <a href="{{ url_for('admin_approve', sort=sort) }}" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none;">
+            <i class="fas fa-arrow-left"></i> Back to list
+        </a> &middot; {{ total_pending }} item{{ 's' if total_pending != 1 else '' }} to approve
     </div>
     
     <div class="approve-card">
@@ -220,11 +363,12 @@
             <form method="POST" action="{{ url_for('admin_approve') }}" id="approve-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="item_id" value="{{ pending_item.id }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
                 
                 <div class="approve-form-grid">
                     <div>
                         <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Price ($)</label>
-                        <input type="number" name="price" step="0.01" placeholder="0.00" required
+                        <input type="number" name="price" step="0.01" placeholder="0.00"
                                value="{{ '%.2f'|format(pending_item.suggested_price) if pending_item.suggested_price else '' }}"
                                style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 1.1rem;">
                     </div>
@@ -274,10 +418,56 @@
         <i class="fas fa-arrow-left"></i> Back to Dashboard
     </a>
     {% else %}
-    <div class="approve-card approve-done">
-        <h2><i class="fas fa-check-circle" style="color: #15803d;"></i> All caught up!</h2>
-        <p>No items waiting for approval.</p>
-        <a href="{{ url_for('admin_panel') }}" class="btn btn-primary">
+    <div style="width: 100%; max-width: 100%;" class="approve-browse-wrapper">
+        <div class="approve-sort-bar">
+            <label for="approve-sort">
+                <i class="fas fa-sort-amount-down" style="color: var(--text-muted);"></i>
+                Sort by:
+            </label>
+            <select id="approve-sort" onchange="window.location.href='{{ url_for('admin_approve') }}?sort=' + this.value">
+                <option value="price_desc" {% if sort == 'price_desc' %}selected{% endif %}>Price (high to low)</option>
+                <option value="price_asc" {% if sort == 'price_asc' %}selected{% endif %}>Price (low to high)</option>
+                <option value="date" {% if sort == 'date' %}selected{% endif %}>Date added (oldest first)</option>
+            </select>
+            <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: 600;">
+                {{ total_pending }} item{{ 's' if total_pending != 1 else '' }} to approve
+            </span>
+        </div>
+        <div class="approve-list-scroll">
+            <div class="approve-list-grid">
+                {% for item in pending_items %}
+                <div class="approve-list-card">
+                    <div class="thumb-wrap">
+                        {% if item.photo_url %}
+                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+                        {% else %}
+                        <div class="thumb-placeholder"><i class="fas fa-image"></i></div>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <div class="card-title">{{ item.description }}</div>
+                        <div class="card-price">
+                            {% if item.suggested_price %}
+                            ${{ '%.2f'|format(item.suggested_price) }}
+                            {% else %}
+                            <span style="color: var(--text-muted); font-weight: 600;">No price</span>
+                            {% endif %}
+                        </div>
+                        <div class="card-meta">
+                            {{ item.category.name }} &middot; {{ item.quality|quality_label }}
+                            {% if item.seller %}&middot; {{ item.seller.full_name }}{% endif %}
+                        </div>
+                        <div class="card-actions">
+                            <a href="{{ url_for('admin_approve', item=item.id, sort=sort) }}" class="btn-approve">
+                                <i class="fas fa-check"></i> Approve
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <a href="{{ url_for('admin_panel') }}" style="margin-top: 24px; display: inline-block; color: var(--text-muted); font-size: 0.9rem;">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
         </a>
     </div>

@@ -258,7 +258,7 @@
                             <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;"><i class="fas fa-edit"></i> Edit listing</a>
                             {% elif item.status == 'rejected' %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; border-color: #dc2626; color: #dc2626;">Remove item</a>
-                            {% else %}
+                            {% elif item.status == 'available' %}
                             <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
                             {% endif %}
                         </div>

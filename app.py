@@ -22,7 +22,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, nulls_last
 
 # Import Models
 from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload, AdminEmail
@@ -1750,9 +1750,12 @@ def admin_approve():
     if request.method == 'POST':
         action = request.form.get('action')  # 'approve' or 'reject'
         item_id = request.form.get('item_id')
+        sort_val = request.form.get('sort', request.args.get('sort', 'date'))
+        if sort_val not in ('price_desc', 'price_asc', 'date'):
+            sort_val = 'date'
         if not item_id or action not in ('approve', 'reject'):
             flash("Invalid request.", "error")
-            return redirect(url_for('admin_approve'))
+            return redirect(url_for('admin_approve', sort=sort_val))
         
         item = InventoryItem.query.options(
             joinedload(InventoryItem.category),
@@ -1761,25 +1764,25 @@ def admin_approve():
         
         if not item or item.status != 'pending_valuation':
             flash("Item not found or already processed.", "error")
-            return redirect(url_for('admin_approve'))
+            return redirect(url_for('admin_approve', sort=sort_val))
         
         if action == 'reject':
             desc = item.description
             item.status = 'rejected'
             db.session.commit()
             flash(f"Rejected '{desc}'.", "success")
-            return redirect(url_for('admin_approve'))
+            return redirect(url_for('admin_approve', sort=sort_val))
         
         # Approve: set price, is_large, category, quality, status
         price_str = request.form.get('price', '').strip()
         if not price_str:
             flash("Please set a price to approve.", "error")
-            return redirect(url_for('admin_approve') + f'?item={item_id}')
+            return redirect(url_for('admin_approve', item=item_id, sort=sort_val))
         
         price_valid, price_result = validate_price(price_str)
         if not price_valid:
             flash(f"Invalid price: {price_result}", "error")
-            return redirect(url_for('admin_approve') + f'?item={item_id}')
+            return redirect(url_for('admin_approve', item=item_id, sort=sort_val))
         
         item.price = price_result
         item.is_large = request.form.get('is_large', '').lower() in ('1', 'true', 'on', 'yes')
@@ -1821,33 +1824,43 @@ def admin_approve():
         
         db.session.commit()
         flash(f"Approved '{item.description}' at ${item.price:.2f}.", "success")
-        return redirect(url_for('admin_approve'))
+        return redirect(url_for('admin_approve', sort=sort_val))
     
-    # GET: fetch next pending item
+    # GET: fetch pending items with sort; optionally one item for approve form
+    sort_param = request.args.get('sort', 'date')
+    if sort_param not in ('price_desc', 'price_asc', 'date'):
+        sort_param = 'date'
+
+    base_query = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller)
+    ).filter_by(status='pending_valuation')
+
+    if sort_param == 'price_desc':
+        base_query = base_query.order_by(nulls_last(InventoryItem.suggested_price.desc()), InventoryItem.date_added.asc())
+    elif sort_param == 'price_asc':
+        base_query = base_query.order_by(nulls_last(InventoryItem.suggested_price.asc()), InventoryItem.date_added.asc())
+    else:
+        base_query = base_query.order_by(InventoryItem.date_added.asc())
+
+    pending_items = base_query.all()
+    total_pending = len(pending_items)
+
     item_id_param = request.args.get('item')
+    pending_item = None
     if item_id_param:
         try:
-            pending_item = InventoryItem.query.options(
-                joinedload(InventoryItem.category),
-                joinedload(InventoryItem.seller)
-            ).filter(
-                InventoryItem.id == int(item_id_param),
-                InventoryItem.status == 'pending_valuation'
-            ).first()
+            pid = int(item_id_param)
+            pending_item = next((i for i in pending_items if i.id == pid), None)
         except (ValueError, TypeError):
-            pending_item = None
-    else:
-        pending_item = InventoryItem.query.options(
-            joinedload(InventoryItem.category),
-            joinedload(InventoryItem.seller)
-        ).filter_by(status='pending_valuation').order_by(InventoryItem.date_added.asc()).first()
-    
-    total_pending = InventoryItem.query.filter_by(status='pending_valuation').count()
-    
+            pass
+
     return render_template('admin_approve.html',
         pending_item=pending_item,
+        pending_items=pending_items,
         all_cats=all_cats,
-        total_pending=total_pending
+        total_pending=total_pending,
+        sort=sort_param
     )
 
 
