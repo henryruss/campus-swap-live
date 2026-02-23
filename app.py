@@ -226,12 +226,26 @@ def html_to_text(html_content):
 
 def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
     """
-    Wrap email content in a proper HTML template with footer.
+    Wrap email content in a proper HTML template with logo and footer.
     
     Args:
         html_content: The main email content (HTML)
         unsubscribe_url: Optional unsubscribe URL for marketing emails
         is_marketing: Whether this is a marketing email (adds unsubscribe link)
+    """
+    try:
+        logo_url = url_for('static', filename='logo.jpg', _external=True)
+        site_url = url_for('index', _external=True)
+    except Exception:
+        base = os.environ.get('BASE_URL', 'https://usecampusswap.com')
+        logo_url = f"{base.rstrip('/')}/static/logo.jpg"
+        site_url = base
+    logo_block = f"""
+        <div style="text-align: center; margin-bottom: 28px;">
+            <a href="{site_url}" style="text-decoration: none;">
+                <img src="{logo_url}" alt="Campus Swap" style="height: 48px; width: auto; display: inline-block;" />
+            </a>
+        </div>
     """
     footer = ""
     if is_marketing and unsubscribe_url:
@@ -267,6 +281,7 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
                 <table role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                     <tr>
                         <td style="padding: 30px;">
+                            {logo_block}
                             {html_content}
                             {footer}
                         </td>

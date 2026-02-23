@@ -159,10 +159,8 @@
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
                                     {% if item.is_large %}{% set _ns.oversized_count = _ns.oversized_count + 1 %}{% endif %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Pay fee</li>
                                     {% if item.is_large and _ns.oversized_count > 1 %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Oversized fee: Pending</li>
-                                    <li style="margin-top: 8px;"><button type="button" class="btn btn-primary" onclick="event.preventDefault(); event.stopPropagation(); openClaimModal();" style="width: 100%; padding: 8px; font-size: 0.75rem;">Pay +$10</button></li>
                                     {% endif %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
                                     <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
@@ -173,6 +171,9 @@
                                     <li style="margin-top: 8px;"><button type="button" class="btn btn-outline" onclick="event.preventDefault(); event.stopPropagation(); var el=document.getElementById('pod-selection'); if(el) el.scrollIntoView({behavior:'smooth'});" style="width: 100%; padding: 8px; font-size: 0.75rem;"><i class="fas fa-map-marker-alt"></i> Select Pod</button></li>
                                     {% endif %}
                                 </ul>
+                                {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large and _ns.oversized_count > 1 %}
+                                <button type="button" class="btn btn-primary" onclick="event.preventDefault(); event.stopPropagation(); openClaimModal();" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 0.75rem;">Pay oversize fee</button>
+                                {% endif %}
                                 {% if item.status in ('pending_logistics', 'rejected') %}
                                 <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
                                 {% endif %}
