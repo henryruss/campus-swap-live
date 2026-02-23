@@ -750,13 +750,20 @@ def sitemap():
         xml.append(f'    <priority>{page["priority"]}</priority>')
         xml.append('  </url>')
     
-    # Add all available (live) product pages - approved + seller paid (for online) or in-person
+    # Add all available (live) product pages - same visibility as inventory
     available_items = InventoryItem.query.join(InventoryItem.seller, isouter=True).filter(
         InventoryItem.status == 'available',
         or_(
             InventoryItem.seller_id.is_(None),
-            InventoryItem.collection_method == 'in_person',
-            User.has_paid == True
+            and_(
+                InventoryItem.collection_method == 'online',
+                User.has_paid == True
+            ),
+            and_(
+                InventoryItem.collection_method == 'in_person',
+                User.has_paid == True,
+                InventoryItem.arrived_at_store_at.isnot(None)
+            )
         )
     ).all()
     for item in available_items:
@@ -869,24 +876,32 @@ def inventory():
     commodities = InventoryCategory.query.all()
     
     # Build query with eager loading to prevent N+1 queries
-    # Show approved items where seller has paid service fee (online) or in-person / no seller
+    # Show items where: no seller; or online + seller paid; or POD + seller paid + arrived at store
     query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
     ).filter(
         InventoryItem.status != 'pending_valuation',
+        InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
         InventoryItem.price > 0,
         or_(
             InventoryItem.seller_id.is_(None),
-            InventoryItem.collection_method == 'in_person',
-            User.has_paid == True
+            and_(
+                InventoryItem.collection_method == 'online',
+                User.has_paid == True
+            ),
+            and_(
+                InventoryItem.collection_method == 'in_person',
+                User.has_paid == True,
+                InventoryItem.arrived_at_store_at.isnot(None)
+            )
         )
     )
     
-    # Apply category filter
+    # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
     if cat_id:
-        query = query.filter_by(category_id=cat_id)
+        query = query.filter(InventoryItem.category_id == cat_id)
     
     # Apply search filter
     if search_query:
@@ -923,11 +938,18 @@ def inventory():
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     item = InventoryItem.query.get_or_404(item_id)
-    # Non-admins cannot view items where seller hasn't paid service fee (online items only)
-    if item.collection_method == 'online' and item.seller_id is not None:
+    # Block non-admins from viewing rejected items
+    if item.status == 'rejected' and not (current_user.is_authenticated and current_user.is_admin):
+        flash("This item is not available.", "error")
+        return redirect(url_for('inventory'))
+    # Block non-admins from viewing items where seller hasn't paid (online) or POD not yet in-store
+    if item.seller_id is not None and not (current_user.is_authenticated and current_user.is_admin):
         seller = item.seller
-        if seller and not seller.has_paid:
-            if not (current_user.is_authenticated and current_user.is_admin):
+        if seller:
+            if not seller.has_paid:
+                flash("This item is not yet available for purchase.", "error")
+                return redirect(url_for('inventory'))
+            if item.collection_method == 'in_person' and item.arrived_at_store_at is None:
                 flash("This item is not yet available for purchase.", "error")
                 return redirect(url_for('inventory'))
     store_name = request.args.get('store', get_current_store())
@@ -1098,12 +1120,16 @@ def buy_item(item_id):
             flash("Sorry! This item is no longer available.", "error")
             return redirect(url_for('product_detail', item_id=item_id))
         
-        # Online items require seller to have paid service fee
-        if item.collection_method == 'online' and item.seller_id is not None:
+        # Block if seller hasn't paid (online) or POD item not yet at store
+        if item.seller_id is not None:
             seller = item.seller
-            if seller and not seller.has_paid:
-                flash("Sorry! This item is not yet available for purchase.", "error")
-                return redirect(url_for('inventory'))
+            if seller:
+                if not seller.has_paid:
+                    flash("Sorry! This item is not yet available for purchase.", "error")
+                    return redirect(url_for('inventory'))
+                if item.collection_method == 'in_person' and item.arrived_at_store_at is None:
+                    flash("Sorry! This item is not yet available for purchase.", "error")
+                    return redirect(url_for('inventory'))
         
         if item.price is None or item.price <= 0:
             logger.warning(f"Item {item_id} has invalid price: {item.price}")
@@ -3116,6 +3142,100 @@ def confirm_pickup_success():
     except Exception as e:
         logger.error(f"confirm_pickup_success error: {e}", exc_info=True)
     flash("Pickup confirmed! Your items are now live. Pay oversize fee on each additional oversized item card.", "success")
+    return redirect(get_user_dashboard())
+
+
+@app.route('/upgrade_pickup', methods=['GET', 'POST'])
+@login_required
+def upgrade_pickup():
+    """Pod users upgrade to Campus Swap Pickup: select week and pay $15. Converts in_person items to online pickup."""
+    pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'in_person']
+    if not pending:
+        flash("No items eligible for upgrade.", "info")
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        pickup_week = request.form.get('pickup_week')
+        if pickup_week not in ('week1', 'week2'):
+            flash("Please select a pickup week.", "error")
+            return redirect(url_for('upgrade_pickup'))
+
+        if not stripe.api_key:
+            flash("Payment is not configured. Please contact support.", "error")
+            return redirect(url_for('upgrade_pickup'))
+
+        try:
+            item_ids = ','.join(str(i.id) for i in pending)
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': 'usd',
+                        'product_data': {
+                            'name': 'Campus Swap Pickup - Service Fee',
+                            'description': f"Upgrade from pod. Pickup week: {dict(PICKUP_WEEKS).get(pickup_week, pickup_week)}",
+                        },
+                        'unit_amount': SERVICE_FEE_CENTS,
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                metadata={
+                    'type': 'upgrade_pickup',
+                    'item_ids': item_ids,
+                    'pickup_week': pickup_week,
+                    'user_id': str(current_user.id),
+                },
+                success_url=url_for('upgrade_pickup_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
+                cancel_url=url_for('upgrade_pickup', _external=True),
+            )
+            return redirect(checkout_session.url, code=303)
+        except stripe.error.StripeError as e:
+            logger.error(f"Upgrade pickup Stripe error: {e}", exc_info=True)
+            flash("Payment setup failed. Please try again.", "error")
+            return redirect(url_for('upgrade_pickup'))
+
+    return render_template('upgrade_pickup.html',
+                          pending_items=pending,
+                          pickup_weeks=PICKUP_WEEKS)
+
+
+@app.route('/upgrade_pickup_success')
+@login_required
+def upgrade_pickup_success():
+    """After Stripe payment for upgrade: convert in_person items to online, set pickup_week, move to available."""
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return redirect(get_user_dashboard())
+    try:
+        stripe_session = stripe.checkout.Session.retrieve(session_id)
+        if stripe_session.metadata.get('type') == 'upgrade_pickup' and stripe_session.payment_status == 'paid':
+            item_ids_str = stripe_session.metadata.get('item_ids', '')
+            pickup_week = stripe_session.metadata.get('pickup_week', '')
+            if item_ids_str and pickup_week:
+                item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
+                items = [InventoryItem.query.get(iid) for iid in item_ids]
+                items = [i for i in items if i and i.seller_id == current_user.id and i.collection_method == 'in_person' and i.status == 'pending_logistics']
+                for item in items:
+                    item.collection_method = 'online'
+                    item.pickup_week = pickup_week
+                # Move to available: all standard + first oversized. Additional oversized stay pending (pay $10 per-item).
+                oversized_seen = 0
+                for item in sorted(items, key=lambda x: x.id):
+                    if item.is_large:
+                        oversized_seen += 1
+                        if oversized_seen > 1:
+                            continue  # Additional oversized: stay pending (never set status or oversize_included)
+                    item.status = 'available'
+                    if item.is_large:
+                        item.oversize_included_in_service_fee = True
+                    if item.category:
+                        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+                current_user.has_paid = True
+                db.session.commit()
+    except Exception as e:
+        logger.error(f"upgrade_pickup_success error: {e}", exc_info=True)
+    flash("Upgraded to Campus Swap Pickup! Your items are now live. We'll pick up from you during your chosen week.", "success")
     return redirect(get_user_dashboard())
 
 

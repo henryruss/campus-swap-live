@@ -157,6 +157,8 @@ class TestBuyItem:
             item_id = item.id
         
         response = client.get(f'/buy_item/{item_id}', follow_redirects=True)
-        # Should show error or redirect
+        # Should show error or redirect (seller has_paid=False so item not available)
         assert response.status_code == 200
-        assert b'not available' in response.data.lower() or b'invalid' in response.data.lower()
+        assert (b'not available' in response.data.lower() or
+                b'not yet available' in response.data.lower() or
+                b'invalid' in response.data.lower())

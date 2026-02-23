@@ -56,33 +56,23 @@
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             {% endif %}
             <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pod pickups based on projected volume.{% if pod_change_allowed %} You can change your pod location until {{ pod_change_deadline_display }}.{% endif %}</p>
-            {% if has_in_person_items and stripe_configured %}
-            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
-            </form>
-            {% endif %}
             {% elif pickup_method_type == 'needs_pickup' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pickup window pending</div>
             {% elif pickup_method_type == 'needs_pod' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pod location pending</div>
-            {% if has_in_person_items and stripe_configured %}
-            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
-            </form>
-            {% endif %}
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: var(--text-muted);">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Select when approved</div>
-            {% if has_in_person_items and stripe_configured %}
-            <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Upgrade to Pickup</button>
-            </form>
-            {% endif %}
             {% endif %}
         </div>
+        {% if pickup_method_type in ('pod', 'needs_pod') and has_in_person_items and stripe_configured %}
+        <div class="dashboard-stat dashboard-stat-upgrade">
+            <div class="dashboard-stat-label">Upgrade</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 8px 0 12px; line-height: 1.4;">Switch to Campus Swap Pickup. We'll pick up from you.</p>
+            <a href="{{ url_for('upgrade_pickup') }}" class="btn btn-primary" style="width: 100%; padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; display: inline-block;">Upgrade to Campus Swap Pickup</a>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 8px;">This action cannot be undone.</p>
+        </div>
+        {% endif %}
     </div>
 
     <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}dashboard-layout-no-sidebar{% endif %}">
