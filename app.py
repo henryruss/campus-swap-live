@@ -93,7 +93,8 @@ def inject_store_functions():
         get_current_store=get_current_store,
         get_store_info=get_store_info,
         google_oauth_enabled=bool(oauth),
-        is_super_admin=is_super_admin
+        is_super_admin=is_super_admin,
+        turnstile_site_key=os.environ.get('TURNSTILE_SITE_KEY', '')
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -418,6 +419,27 @@ def validate_email(email):
     return bool(re.match(pattern, email))
 
 
+def verify_turnstile(token):
+    """Verify Cloudflare Turnstile token. Returns True if valid or if Turnstile not configured."""
+    secret = os.environ.get('TURNSTILE_SECRET_KEY')
+    if not secret:
+        logger.warning("TURNSTILE_SECRET_KEY not set - skipping Turnstile verification")
+        return True
+    if not token:
+        return False
+    try:
+        import requests
+        resp = requests.post(
+            'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            data={'secret': secret, 'response': token},
+            timeout=10
+        )
+        return bool(resp.json().get('success'))
+    except Exception as e:
+        logger.warning(f"Turnstile verification error: {e}")
+        return False
+
+
 def validate_phone(phone):
     """
     Validate US phone number: exactly 10 digits.
@@ -575,6 +597,7 @@ def _get_ticker_items():
 
 
 @app.route('/', methods=['GET', 'POST'])
+@limiter.limit("10 per hour", methods=['POST']) if limiter else lambda f: f
 def index():
     # 1. TRACKING LOGIC
     if request.args.get('source'):
@@ -583,6 +606,9 @@ def index():
     ticker_items = _get_ticker_items()
 
     if request.method == 'POST':
+        if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
+            flash("Verification failed. Please try again.", "error")
+            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
         email = request.form.get('email', '').strip()
         
         # Validate email
@@ -666,12 +692,16 @@ def refund_policy():
     return render_template('refund_policy.html')
 
 @app.route('/become-a-seller', methods=['GET', 'POST'])
+@limiter.limit("10 per hour", methods=['POST']) if limiter else lambda f: f
 def become_a_seller():
     """Become a Seller page - comprehensive seller guide with timeline, earnings, FAQ, and CTA."""
     if request.args.get('source'):
         session['source'] = request.args.get('source')
 
     if request.method == 'POST':
+        if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
+            flash("Verification failed. Please try again.", "error")
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
         email = request.form.get('email', '').strip()
 
         if not email:
@@ -1952,7 +1982,7 @@ def edit_item(item_id):
         db.session.delete(item)
         db.session.commit()
         logger.info(f"Item {item.id} withdrawn by seller {current_user.id}")
-        flash("Item removed. You have been taken off the route list. No refunds.", "success")
+        flash("Item removed successfully.", "success")
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
@@ -2236,11 +2266,15 @@ def update_account_info():
     return redirect(url_for('account_settings'))
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("3 per hour") if limiter else lambda f: f
 def register():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
 
     if request.method == 'POST':
+        if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
+            flash("Verification failed. Please try again.", "error")
+            return redirect(url_for('login', signup='true', email=request.form.get('email', ''), full_name=request.form.get('full_name', '')))
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
@@ -2520,9 +2554,11 @@ def dashboard():
         return redirect(url_for('admin_panel'))
 
     # First-time sellers (0 items) go straight to onboarding - never see setup cards
+    # Returning sellers who removed all items see empty dashboard instead of onboard
     my_items_pre = InventoryItem.query.filter_by(seller_id=current_user.id).all()
     if len(my_items_pre) == 0:
-        return redirect(url_for('onboard'))
+        if not current_user.is_seller:
+            return redirect(url_for('onboard'))
 
     # Refresh user object to ensure we have latest data (especially has_paid status)
     db.session.expire(current_user)

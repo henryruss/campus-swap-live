@@ -381,6 +381,10 @@
         <form method="POST" class="ready-to-sell-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="email" name="email" placeholder="student@college.edu" required>
+            {% if turnstile_site_key %}
+            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 16px auto; display: flex; justify-content: center;"></div>
+            {% endif %}
             <button type="submit" class="btn btn-primary">{% if pickup_period_active %}Create Account{% else %}Get Notified{% endif %}</button>
         </form>
         <p class="ready-to-sell-subtext">{% if pickup_period_active %}Seller spots are limited. <a href="/become-a-seller">Learn more</a>{% else %}We&rsquo;ll email you when signups open next year.{% endif %}</p>

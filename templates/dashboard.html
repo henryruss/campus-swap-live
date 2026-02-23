@@ -247,7 +247,11 @@
                             {% if item.status == 'pending_logistics' or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;"><i class="fas fa-edit"></i> Edit listing</a>
                             {% elif item.status == 'rejected' %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; border-color: #dc2626; color: #dc2626;">Remove item</a>
+                            <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="withdraw_item" value="1"/>
+                                <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
+                            </form>
                             {% elif item.status == 'available' %}
                             <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
                             {% endif %}
