@@ -507,7 +507,7 @@ def _get_ticker_items():
         {"icon": "fa-couch", "price": "$80"},
         {"icon": "fa-snowflake", "price": "$75"},
         {"icon": "fa-bed", "price": "$90"},
-        {"icon": "fa-tv", "price": "$85"},
+        {"icon": "fa-tv", "price": "$90"},
     ]
 
 
@@ -3066,6 +3066,7 @@ def pay_oversize_fee_success():
                 item = InventoryItem.query.get(int(item_id))
                 if item and item.seller_id == current_user.id and item.status == 'pending_logistics':
                     item.pickup_week = stripe_session.metadata.get('pickup_week') or next((i.pickup_week for i in current_user.items if i.pickup_week), 'week1')
+                    item.oversize_fee_paid = True
                     item.status = 'available'
                     if item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1

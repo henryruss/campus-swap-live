@@ -36,10 +36,11 @@
             {% endif %}
         </div>
         <div class="dashboard-stat dashboard-stat-pickup">
-            <div class="dashboard-stat-label">Service Fee & Pickup Method</div>
+            <div class="dashboard-stat-label">{% if pickup_method_type in ('pod', 'needs_pod') %}Pod location{% else %}Pickup window{% endif %}</div>
             {% if pickup_method_type == 'week' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pickup routes and will notify you with a specific pickup date and time as soon as we can.</p>
             {% elif pickup_method_type == 'pod' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             {% if has_in_person_items and stripe_configured %}
@@ -168,7 +169,7 @@
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Paid</li>
                                     {% if item.is_large and item.collection_method == 'online' %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Oversized fee paid</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'Oversized fee paid' if item.oversize_fee_paid else 'Oversized (included)' }}</li>
                                     {% endif %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'In store' if item.arrived_at_store_at else 'Picked up' }}</li>
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
@@ -189,7 +190,7 @@
                                 {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large and _ns.oversized_count > 1 %}
                                 <a href="{{ url_for('pay_oversize_fee', item_id=item.id) }}" onclick="event.stopPropagation()" class="btn btn-primary" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;">Pay oversize fee</a>
                                 {% endif %}
-                                {% if item.status in ('pending_logistics', 'rejected') %}
+                                {% if item.status == 'pending_logistics' %}
                                 <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
                                 {% endif %}
                             </div>
@@ -234,8 +235,10 @@
                                 <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 6px;">{{ item.quality }}/5</span>
                             </div>
                             <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
-                            {% if item.status in ('pending_valuation', 'pending_logistics', 'rejected') %}
+                            {% if item.status in ('pending_valuation', 'pending_logistics') %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;"><i class="fas fa-edit"></i> Edit listing</a>
+                            {% elif item.status == 'rejected' %}
+                            <a href="/edit_item/{{ item.id }}" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; border-color: #dc2626; color: #dc2626;">Remove item</a>
                             {% else %}
                             <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
                             {% endif %}
