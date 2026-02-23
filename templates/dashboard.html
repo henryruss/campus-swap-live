@@ -42,7 +42,20 @@
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
             <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pickup routes and will notify you with a specific pickup date and time as soon as we can.</p>
             {% elif pickup_method_type == 'pod' %}
+            {% if pod_change_allowed %}
+            <form method="POST" action="{{ url_for('confirm_dropoff') }}" style="margin-top: 4px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <select name="dropoff_pod" style="font-size: 0.95rem; padding: 8px 12px; width: 100%; margin-bottom: 8px;">
+                    {% for value, label in pod_locations %}
+                    <option value="{{ value }}" {% if current_pod_value == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.8rem; width: 100%;">Update</button>
+            </form>
+            {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
+            {% endif %}
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pod pickups based on projected volume.{% if pod_change_allowed %} You can change your pod location until {{ pod_change_deadline_display }}.{% endif %}</p>
             {% if has_in_person_items and stripe_configured %}
             <form method="POST" action="{{ url_for('upgrade_checkout') }}" style="margin-top: 8px;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -96,29 +109,23 @@
             </div>
             {% endif %}
 
-            {# Choose Drop-off Pod (no payment) #}
+            {# Choose Drop-off Pod (no payment) – one choice for all items #}
             {% if pending_pod %}
             <div id="pod-selection" class="dashboard-section claim-space-card pod" style="margin-bottom: 24px;">
                 <h3 style="margin-bottom: 6px; font-size: 1.15rem;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Choose Drop-off Pod</h3>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">No payment required – just pick your drop-off location.</p>
-                <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-                    {% for item in pending_pod %}
-                    <form method="POST" action="{{ url_for('confirm_dropoff') }}" class="pod-selection-card" style="flex: 1; min-width: 200px;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                        <input type="hidden" name="item_id" value="{{ item.id }}">
-                        <label style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; display: block;">{{ item.description[:40] }}{% if item.description|length > 40 %}...{% endif %}</label>
-                        <div style="display: flex; gap: 10px; align-items: flex-end;">
-                            <select name="dropoff_pod" required style="flex: 1; padding: 10px 12px;">
-                                <option value="">Select pod...</option>
-                                {% for value, label in pod_locations %}
-                                <option value="{{ value }}">{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" class="btn btn-primary" style="padding: 10px 18px;">Confirm</button>
-                        </div>
-                    </form>
-                    {% endfor %}
-                </div>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">No payment required – pick where you'll drop off all your items. We optimize our pod pickups based on projected volume. You can change your pod until {{ pod_change_deadline_display }}.</p>
+                <form method="POST" action="{{ url_for('confirm_dropoff') }}" style="max-width: 320px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div style="display: flex; gap: 10px; align-items: flex-end;">
+                        <select name="dropoff_pod" required style="flex: 1; padding: 10px 12px;">
+                            <option value="">Select pod...</option>
+                            {% for value, label in pod_locations %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-primary" style="padding: 10px 18px;">Confirm</button>
+                    </div>
+                </form>
             </div>
             {% endif %}
 
@@ -200,7 +207,7 @@
                                 {% if item.status == 'pending_logistics' and item.collection_method == 'online' and item.is_large and (_has_included_oversized or _ns.oversized_count > 1) %}
                                 <a href="{{ url_for('pay_oversize_fee', item_id=item.id) }}" onclick="event.stopPropagation()" class="btn btn-primary" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;">Pay oversize fee</a>
                                 {% endif %}
-                                {% if item.status == 'pending_logistics' %}
+                                {% if item.status == 'pending_logistics' or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
                                 <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
                                 {% endif %}
                             </div>
@@ -245,7 +252,7 @@
                                 <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 6px;">{{ item.quality }}/5</span>
                             </div>
                             <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
-                            {% if item.status in ('pending_valuation', 'pending_logistics') %}
+                            {% if item.status in ('pending_valuation', 'pending_logistics') or (item.status == 'available' and item.collection_method == 'in_person' and not item.arrived_at_store_at) %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;"><i class="fas fa-edit"></i> Edit listing</a>
                             {% elif item.status == 'rejected' %}
                             <a href="/edit_item/{{ item.id }}" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; border-color: #dc2626; color: #dc2626;">Remove item</a>

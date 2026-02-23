@@ -58,6 +58,9 @@ POD_LOCATIONS = [
     ('apartment', 'Apartment pod'),
 ]
 
+# Pod change deadline: users can change their drop-off pod until this date (month, day)
+POD_CHANGE_DEADLINE = (5, 1)  # May 1st
+
 # Residence halls by store (for on-campus pickup selection)
 RESIDENCE_HALLS_BY_STORE = {
     'UNC Chapel Hill': {

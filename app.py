@@ -37,7 +37,7 @@ from constants import (
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
-    PICKUP_WEEKS, POD_LOCATIONS
+    PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE
 )
 
 # Configure Logging
@@ -1828,10 +1828,15 @@ def edit_item(item_id):
         flash("You cannot edit this item.", "error")
         return redirect(get_user_dashboard())
     
-    # Prevent editing live items (non-admin sellers)
+    # Prevent editing live items (non-admin sellers). Exception: pod items can be edited until dropped off.
     if item.status == 'available' and not current_user.is_admin:
-        flash("This item is live and cannot be edited. Contact support if you need changes.", "error")
-        return redirect(url_for('dashboard'))
+        is_pod_not_dropped = (
+            item.collection_method == 'in_person'
+            and item.arrived_at_store_at is None
+        )
+        if not is_pod_not_dropped:
+            flash("This item is live and cannot be edited. Contact support if you need changes.", "error")
+            return redirect(url_for('dashboard'))
     
     # Prevent editing sold items (non-admin sellers)
     if item.status == 'sold' and not current_user.is_admin:
@@ -1842,14 +1847,23 @@ def edit_item(item_id):
     
     if request.method == 'POST' and request.form.get('withdraw_item') == '1':
         # Seller withdraws/removes item (change of mind - no refund, taken off route)
-        if item.status not in ('pending_valuation', 'pending_logistics', 'rejected'):
+        # Pod items can be removed until marked as dropped off (arrived_at_store_at)
+        is_pod_not_dropped = (
+            item.status == 'available'
+            and item.collection_method == 'in_person'
+            and item.arrived_at_store_at is None
+        )
+        if item.status not in ('pending_valuation', 'pending_logistics', 'rejected') and not is_pod_not_dropped:
             flash("This item can no longer be removed. Contact support if needed.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
         if current_user.is_admin:
             flash("Admins should use the admin panel to delete items.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
         item_desc = item.description
-        # No count_in_stock change - pending items were never in stock
+        # Decrement count_in_stock if item was available (was in stock)
+        if item.status == 'available' and item.category:
+            if (item.category.count_in_stock or 0) > 0:
+                item.category.count_in_stock = item.category.count_in_stock - 1
         for photo in item.gallery_photos[:]:
             db.session.delete(photo)
         db.session.delete(item)
@@ -1867,8 +1881,13 @@ def edit_item(item_id):
         
         item.description = description
         
-        # Price: lock for seller when editing pending_logistics or rejected (admin-set)
-        if item.status in ('pending_logistics', 'rejected') and not current_user.is_admin:
+        # Price: lock for seller when editing pending_logistics, rejected, or pod-not-dropped (admin-set)
+        is_pod_editable = (
+            item.status == 'available'
+            and item.collection_method == 'in_person'
+            and item.arrived_at_store_at is None
+        )
+        if (item.status in ('pending_logistics', 'rejected') or is_pod_editable) and not current_user.is_admin:
             pass  # Keep existing price; do not apply form value
         else:
             if request.form.get('price'):
@@ -2468,6 +2487,11 @@ def dashboard():
     elif pending_pod:
         pickup_method_type = 'needs_pod'
 
+    # Pod change: allowed until May 1st; items that can be changed (available, in_person, has pod, not yet dropped off)
+    today = datetime.utcnow().date()
+    pod_deadline = datetime(today.year, POD_CHANGE_DEADLINE[0], POD_CHANGE_DEADLINE[1]).date()
+    pod_change_allowed = today < pod_deadline
+
     return render_template('dashboard.html',
                           my_items=my_items,
                           has_online_items=has_online_items,
@@ -2496,7 +2520,10 @@ def dashboard():
                           has_pickup_location=current_user.has_pickup_location,
                           has_payout_info=bool(current_user.payout_handle),
                           pickup_method_type=pickup_method_type,
-                          pickup_method_label=pickup_method_label)
+                          pickup_method_label=pickup_method_label,
+                          current_pod_value=item_with_pod.dropoff_pod if item_with_pod else None,
+                          pod_change_allowed=pod_change_allowed,
+                          pod_change_deadline_display='May 1st')
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -3108,8 +3135,7 @@ def pay_oversize_fee_success():
 @app.route('/confirm_dropoff', methods=['POST'])
 @login_required
 def confirm_dropoff():
-    """Pod users confirm dropoff location—no payment."""
-    item_id = request.form.get('item_id')
+    """Pod users confirm or change dropoff location—no payment. One pod for all items. Change allowed until May 1st."""
     dropoff_pod = request.form.get('dropoff_pod')
 
     valid_pods = [p[0] for p in POD_LOCATIONS]
@@ -3117,17 +3143,43 @@ def confirm_dropoff():
         flash("Please select a valid dropoff location.", "error")
         return redirect(get_user_dashboard())
 
-    item = InventoryItem.query.get(item_id) if item_id else None
-    if not item or item.seller_id != current_user.id or item.status != 'pending_logistics' or item.collection_method != 'in_person':
-        flash("Invalid item or item not awaiting confirmation.", "error")
+    today = datetime.utcnow().date()
+    pod_deadline = datetime(today.year, POD_CHANGE_DEADLINE[0], POD_CHANGE_DEADLINE[1]).date()
+    pod_change_allowed = today < pod_deadline
+
+    # Case 1: Initial confirmation – set pod for ALL pending_logistics in_person items
+    pending_pod_items = [
+        i for i in current_user.items
+        if i.status == 'pending_logistics' and i.collection_method == 'in_person'
+    ]
+    if pending_pod_items:
+        for item in pending_pod_items:
+            item.dropoff_pod = dropoff_pod
+            item.status = 'available'
+            if item.category:
+                item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+        db.session.commit()
+        count = len(pending_pod_items)
+        flash(f"Dropoff location confirmed! Your item{'s' if count > 1 else ''} {'are' if count > 1 else 'is'} now live.", "success")
         return redirect(get_user_dashboard())
 
-    item.dropoff_pod = dropoff_pod
-    item.status = 'available'
-    if item.category:
-        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
-    db.session.commit()
-    flash("Dropoff location confirmed! Your item is now live.", "success")
+    # Case 2: Change pod – update ALL eligible in_person items (before May 1st, not yet dropped off)
+    if pod_change_allowed:
+        change_items = [
+            i for i in current_user.items
+            if i.collection_method == 'in_person'
+            and i.dropoff_pod
+            and i.status == 'available'
+            and i.arrived_at_store_at is None
+        ]
+        if change_items:
+            for item in change_items:
+                item.dropoff_pod = dropoff_pod
+            db.session.commit()
+            flash("Pod location updated.", "success")
+            return redirect(get_user_dashboard())
+
+    flash("You can no longer change your pod location.", "error")
     return redirect(get_user_dashboard())
 
 
