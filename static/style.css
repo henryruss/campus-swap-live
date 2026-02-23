@@ -683,13 +683,27 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 .dashboard-receipt-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 0.95rem; }
 .dashboard-receipt-divider { height: 1px; background: #e2e8f0; margin: 16px 0; }
 .dashboard-receipt-total { font-size: 1.25rem; font-weight: 800; color: var(--primary); padding-top: 8px; }
-.pickup-week-option { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer; transition: all 0.2s; margin-bottom: 10px; }
-.pickup-week-option:hover { border-color: #cbd5e1; background: #f8fafc; }
-.pickup-week-option.selected,
-.pickup-week-option:has(input:checked) { border-color: var(--primary); background: #f0fdf4; }
+.pickup-week-grid { display: flex; flex-direction: column; gap: 12px; }
+.pickup-week-card {
+    display: block;
+    padding: 20px 24px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.pickup-week-card:hover { border-color: #cbd5e1; background: #f8fafc; }
+.pickup-week-card:has(input:checked) {
+    border-color: var(--primary);
+    background: #dcfce7;
+}
+.pickup-week-card input { position: absolute; opacity: 0; pointer-events: none; }
+.pickup-week-label { font-weight: 600; font-size: 1rem; }
 .pod-selection-card { padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 12px; }
 
 .guest-mode-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
+.action-required-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
+.dashboard-stat-action-needed { background: #fffbeb; border: 2px solid #f59e0b; }
 
 /* Listing modal (item popup in My Shop) */
 .listing-modal { max-width: 560px; max-height: 90vh; overflow-y: auto; }

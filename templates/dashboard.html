@@ -35,8 +35,11 @@
             <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
             {% endif %}
         </div>
-        <div class="dashboard-stat dashboard-stat-pickup">
-            <div class="dashboard-stat-label">Service Fee & Pickup Method</div>
+        <div class="dashboard-stat dashboard-stat-pickup {% if pickup_method_type == 'needs_pickup' %}dashboard-stat-action-needed{% endif %}">
+            <div class="dashboard-stat-label">
+                {% if pickup_method_type == 'needs_pickup' %}Payment required
+                {% else %}Service Fee & Pickup Method{% endif %}
+            </div>
             {% if pickup_method_type == 'week' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
@@ -50,7 +53,7 @@
             {% endif %}
             {% elif pickup_method_type == 'needs_pickup' %}
             <div style="font-size: 0.85rem; margin-bottom: 4px;">$15 service fee</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">Select pickup window</div>
+            <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 8px;">Pay to complete setup</div>
             <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="padding: 8px 14px; font-size: 0.85rem;">Pay & Select</button>
             {% elif pickup_method_type == 'needs_pod' %}
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Select drop-off pod</div>
@@ -64,6 +67,24 @@
 
     <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}dashboard-layout-no-sidebar{% endif %}">
         <div>
+            {# Action Required: Pay service fee to go live #}
+            {% if pickup_method_type == 'needs_pickup' %}
+            <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Action Required</h3>
+                <p style="color: #92400e; font-size: 0.9rem;">Pay the $15 service fee and select your pickup window to get your items live in the shop.</p>
+                <button type="button" onclick="openClaimModal()" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem;">Pay $15 & Select Pickup Window</button>
+            </div>
+            {% endif %}
+
+            {# Action Required: Select drop-off pod #}
+            {% if pickup_method_type == 'needs_pod' and pending_pod %}
+            <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Action Required</h3>
+                <p style="color: #92400e; font-size: 0.9rem;">Select your drop-off pod to complete setup. No payment required.</p>
+                <a href="#pod-selection" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem; display: inline-block; text-decoration: none;">Select Pod</a>
+            </div>
+            {% endif %}
+
             {# Guest mode card #}
             {% if current_user.is_guest_account %}
             <div class="dashboard-section guest-mode-card" style="margin-bottom: 24px;">
@@ -267,33 +288,22 @@
             <button type="button" onclick="closeClaimModal()" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 1.2rem;" aria-label="Close">&times;</button>
         </div>
         <div class="dashboard-receipt-body">
-            <div style="margin-bottom: 20px;">
-                <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase;">Items to be picked up</div>
-                {% for item in pending_pickup %}
-                <div class="dashboard-receipt-row">
-                    <span>{{ item.description[:35] }}{% if item.description|length > 35 %}...{% endif %}</span>
-                    <span>—</span>
-                </div>
-                {% endfor %}
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #f8fafc; border-radius: 12px; margin-bottom: 24px;">
+                <span style="font-size: 1.1rem; font-weight: 700;">Service fee</span>
+                <span style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$15.00</span>
             </div>
-            <div class="dashboard-receipt-divider"></div>
-            <div class="dashboard-receipt-row dashboard-receipt-total">
-                <span>Service fee</span>
-                <span>$15.00</span>
-            </div>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 12px;">Oversized item fees ($10 each) are paid on each item card.</p>
-            <form method="POST" action="{{ url_for('confirm_pickup') }}" style="margin-top: 24px;">
+            <form method="POST" action="{{ url_for('confirm_pickup') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <label style="font-size: 0.85rem; font-weight: 700; margin-bottom: 12px; display: block;">Pickup week</label>
-                <div style="margin-bottom: 20px;">
+                <div class="pickup-week-grid">
                     {% for value, label in pickup_weeks %}
-                    <label class="pickup-week-option" style="cursor: pointer; display: flex;">
-                        <input type="radio" name="pickup_week" value="{{ value }}" required style="margin: 0;">
-                        <span>{{ label }}</span>
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_week" value="{{ value }}" required>
+                        <span class="pickup-week-label">{{ label }}</span>
                     </label>
                     {% endfor %}
                 </div>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;"><i class="fas fa-info-circle"></i> Your choice cannot be changed after confirmation.</p>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 16px 0;"><i class="fas fa-info-circle"></i> Your choice cannot be changed after confirmation.</p>
                 <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px;">
                     <i class="fas fa-credit-card"></i> Pay $15 & Confirm Pickup
                 </button>
