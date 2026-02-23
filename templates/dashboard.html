@@ -35,11 +35,8 @@
             <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
             {% endif %}
         </div>
-        <div class="dashboard-stat dashboard-stat-pickup {% if pickup_method_type == 'needs_pickup' %}dashboard-stat-action-needed{% endif %}">
-            <div class="dashboard-stat-label">
-                {% if pickup_method_type == 'needs_pickup' %}Payment required
-                {% else %}Service Fee & Pickup Method{% endif %}
-            </div>
+        <div class="dashboard-stat dashboard-stat-pickup">
+            <div class="dashboard-stat-label">Service Fee & Pickup Method</div>
             {% if pickup_method_type == 'week' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Campus Swap Pickup</div>
@@ -52,12 +49,9 @@
             </form>
             {% endif %}
             {% elif pickup_method_type == 'needs_pickup' %}
-            <div style="font-size: 0.85rem; margin-bottom: 4px;">$15 service fee</div>
-            <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 8px;">Pay to complete setup</div>
-            <button type="button" class="btn btn-primary" onclick="openClaimModal()" style="padding: 8px 14px; font-size: 0.85rem;">Pay & Select</button>
+            <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pickup window pending</div>
             {% elif pickup_method_type == 'needs_pod' %}
-            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Select drop-off pod</div>
-            <a href="#pod-selection" class="btn btn-outline" style="padding: 8px 14px; font-size: 0.85rem; text-decoration: none;">Select Pod</a>
+            <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pod location pending</div>
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: var(--text-muted);">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Select when approved</div>
@@ -67,21 +61,21 @@
 
     <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type != 'pod') %}dashboard-layout-no-sidebar{% endif %}">
         <div>
-            {# Action Required: Pay service fee to go live #}
+            {# Action Required: Select pickup window #}
             {% if pickup_method_type == 'needs_pickup' %}
             <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
-                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Action Required</h3>
-                <p style="color: #92400e; font-size: 0.9rem;">Pay the $15 service fee and select your pickup window to get your items live in the shop.</p>
-                <button type="button" onclick="openClaimModal()" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem;">Pay $15 & Select Pickup Window</button>
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Select Pickup Window</h3>
+                <p style="color: #92400e; font-size: 0.9rem;">Choose your pickup week and pay the $15 service fee to get your items live.</p>
+                <button type="button" onclick="openClaimModal()" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem;">Select Pickup Window</button>
             </div>
             {% endif %}
 
-            {# Action Required: Select drop-off pod #}
+            {# Action Required: Select pod location #}
             {% if pickup_method_type == 'needs_pod' and pending_pod %}
             <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
-                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Action Required</h3>
-                <p style="color: #92400e; font-size: 0.9rem;">Select your drop-off pod to complete setup. No payment required.</p>
-                <a href="#pod-selection" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem; display: inline-block; text-decoration: none;">Select Pod</a>
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Select Pod Location</h3>
+                <p style="color: #92400e; font-size: 0.9rem;">Choose your drop-off pod to complete setup. No payment required.</p>
+                <a href="#pod-selection" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem; display: inline-block; text-decoration: none;">Select Pod Location</a>
             </div>
             {% endif %}
 

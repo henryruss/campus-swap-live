@@ -703,7 +703,6 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 
 .guest-mode-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
 .action-required-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
-.dashboard-stat-action-needed { background: #fffbeb; border: 2px solid #f59e0b; }
 
 /* Listing modal (item popup in My Shop) */
 .listing-modal { max-width: 560px; max-height: 90vh; overflow-y: auto; }
