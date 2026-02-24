@@ -22,7 +22,7 @@ def upgrade():
 
     # Set default False for existing rows
     conn = op.get_bind()
-    conn.execute(text("UPDATE inventory_item SET price_changed_acknowledged = 0 WHERE price_changed_acknowledged IS NULL"))
+    conn.execute(text("UPDATE inventory_item SET price_changed_acknowledged = FALSE WHERE price_changed_acknowledged IS NULL"))
 
 
 def downgrade():

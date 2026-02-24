@@ -24,7 +24,7 @@ def upgrade():
     conn = op.get_bind()
     conn.execute(text("""
         UPDATE inventory_item
-        SET price_updated_at = datetime('now')
+        SET price_updated_at = CURRENT_TIMESTAMP
         WHERE price IS NOT NULL AND suggested_price IS NOT NULL
         AND ABS(price - suggested_price) > 0.01
         AND price_updated_at IS NULL
