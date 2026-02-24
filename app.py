@@ -121,15 +121,22 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 2. STORAGE CONFIGURATION
-# Check if the Render Disk folder exists. If so, use it.
-if os.path.exists('/var/data'):
-    app.config['UPLOAD_FOLDER'] = '/var/data'
+# S3: use AWS when env vars set. Local: disk for dev or Render persistent disk.
+if os.environ.get('AWS_S3_BUCKET'):
+    app.config['UPLOAD_FOLDER'] = '/tmp/campusswap_uploads'  # Temp uploads only when S3
 else:
-    # Local fallback
-    app.config['UPLOAD_FOLDER'] = 'static/uploads'
+    if os.path.exists('/var/data'):
+        app.config['UPLOAD_FOLDER'] = '/var/data'
+    else:
+        app.config['UPLOAD_FOLDER'] = 'static/uploads'
 
-# Ensure the upload folder actually exists
+# Temp uploads (QR mobile) always go to local disk
+app.config['TEMP_UPLOAD_FOLDER'] = app.config['UPLOAD_FOLDER']
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Initialize storage backend (S3 or local)
+from storage import init_storage
+photo_storage = init_storage(app)
 
 # Initialize DB & Migrations
 db.init_app(app)
@@ -993,9 +1000,11 @@ def product_detail(item_id):
     # Preserve search and filter parameters for "Back" link
     return render_template('product.html', item=item, current_store=store_name, store_info=store_info)
 
-# --- IMAGE SERVING ROUTE (CRITICAL FOR RENDER) ---
+# --- IMAGE SERVING ROUTE ---
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    if photo_storage.is_s3():
+        return redirect(photo_storage.get_photo_url(filename), code=302)
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
@@ -1005,10 +1014,11 @@ UPLOAD_SESSION_EXPIRY_MINUTES = 30
 def _cleanup_expired_upload_sessions():
     """Delete upload sessions and temp uploads older than expiry"""
     cutoff = datetime.utcnow() - timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES)
+    temp_folder = app.config['TEMP_UPLOAD_FOLDER']
     expired = UploadSession.query.filter(UploadSession.created_at < cutoff).all()
     for s in expired:
         for t in TempUpload.query.filter_by(session_token=s.session_token).all():
-            fp = os.path.join(app.config['UPLOAD_FOLDER'], t.filename)
+            fp = os.path.join(temp_folder, t.filename)
             if os.path.exists(fp):
                 try:
                     os.remove(fp)
@@ -1086,7 +1096,7 @@ def upload_from_phone_post():
 
     safe_token = token.replace('/', '_').replace('+', '-')[:32]
     filename = f"temp_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
-    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
     try:
         img = Image.open(file)
         img = ImageOps.exif_transpose(img)
@@ -1518,28 +1528,8 @@ def admin_panel():
                         return redirect(url_for('admin_panel') + '#add-item')
                     
                     filename = f"item_{new_item.id}_{int(time.time())}_{i}.jpg"
-                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    
                     try:
-                        img = Image.open(file)
-                        img = ImageOps.exif_transpose(img)
-                        img = img.convert("RGBA")
-                        bg = Image.new("RGB", img.size, (255, 255, 255))
-                        bg.paste(img, (0, 0), img)
-                        
-                        # Resize if image is too large (max 2000px on longest side)
-                        max_dimension = 2000
-                        if bg.width > max_dimension or bg.height > max_dimension:
-                            if bg.width > bg.height:
-                                new_width = max_dimension
-                                new_height = int(bg.height * (max_dimension / bg.width))
-                            else:
-                                new_height = max_dimension
-                                new_width = int(bg.width * (max_dimension / bg.height))
-                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                        
-                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
-                        
+                        photo_storage.save_photo(file, filename)
                         if not cover_set:
                             new_item.photo_url = filename
                             cover_set = True
@@ -2068,28 +2058,8 @@ def edit_item(item_id):
                         return redirect(url_for('edit_item', item_id=item_id))
                     
                     filename = f"item_{item.id}_{int(time.time())}_{i}.jpg"
-                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    
                     try:
-                        img = Image.open(file)
-                        img = ImageOps.exif_transpose(img)
-                        img = img.convert("RGBA")
-                        bg = Image.new("RGB", img.size, (255, 255, 255))
-                        bg.paste(img, (0, 0), img)
-                        
-                        # Resize if image is too large (max 2000px on longest side)
-                        max_dimension = 2000
-                        if bg.width > max_dimension or bg.height > max_dimension:
-                            if bg.width > bg.height:
-                                new_width = max_dimension
-                                new_height = int(bg.height * (max_dimension / bg.width))
-                            else:
-                                new_height = max_dimension
-                                new_width = int(bg.width * (max_dimension / bg.height))
-                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                        
-                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
-                        
+                        photo_storage.save_photo(file, filename)
                         # If no cover photo exists, set first new photo as cover
                         if not item.photo_url:
                             item.photo_url = filename
@@ -2130,9 +2100,7 @@ def delete_photo(photo_id):
         return redirect(get_user_dashboard())
 
     try:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], photo.photo_url)
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        photo_storage.delete_photo(photo.photo_url)
     except Exception as e:
         logger.error(f"Error deleting file: {e}", exc_info=True)
 
@@ -2338,21 +2306,17 @@ def process_pending_onboard(user):
 
     cover_set = False
     photo_index = 0
-    upload_folder = app.config['UPLOAD_FOLDER']
+    temp_folder = app.config['TEMP_UPLOAD_FOLDER']
 
     for filename in photo_filenames:
-        old_path = os.path.join(upload_folder, filename)
+        old_path = os.path.join(temp_folder, filename)
         if os.path.exists(old_path):
             new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-            new_path = os.path.join(upload_folder, new_filename)
             try:
-                shutil.move(old_path, new_path)
+                photo_storage.save_photo_from_path(old_path, new_filename)
+                os.remove(old_path)
             except OSError:
-                shutil.copy2(old_path, new_path)
-                try:
-                    os.remove(old_path)
-                except OSError:
-                    pass
+                pass
             if not cover_set:
                 new_item.photo_url = new_filename
                 cover_set = True
@@ -2363,14 +2327,14 @@ def process_pending_onboard(user):
         for temp_fn in temp_photo_ids:
             temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_fn).first()
             if temp_rec:
-                old_path = os.path.join(upload_folder, temp_fn)
+                old_path = os.path.join(temp_folder, temp_fn)
                 if os.path.exists(old_path):
                     new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                    new_path = os.path.join(upload_folder, new_filename)
                     try:
-                        os.rename(old_path, new_path)
+                        photo_storage.save_photo_from_path(old_path, new_filename)
+                        os.remove(old_path)
                     except OSError:
-                        shutil.move(old_path, new_path)
+                        pass
                     if not cover_set:
                         new_item.photo_url = new_filename
                         cover_set = True
@@ -3186,19 +3150,8 @@ def onboard():
                         flash(f"File upload error: {error_msg}", "error")
                         return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
                     filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     try:
-                        img = Image.open(file)
-                        img = ImageOps.exif_transpose(img)
-                        img = img.convert("RGBA")
-                        bg = Image.new("RGB", img.size, (255, 255, 255))
-                        bg.paste(img, (0, 0), img)
-                        max_dimension = 2000
-                        if bg.width > max_dimension or bg.height > max_dimension:
-                            ratio = max_dimension / max(bg.width, bg.height)
-                            new_w, new_h = int(bg.width * ratio), int(bg.height * ratio)
-                            bg = bg.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                        photo_storage.save_photo(file, filename)
                         if not cover_set:
                             new_item.photo_url = filename
                             cover_set = True
@@ -3211,6 +3164,7 @@ def onboard():
                         return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
 
         if has_temp_photos:
+            temp_folder = app.config['TEMP_UPLOAD_FOLDER']
             for temp_fn in temp_photo_ids:
                 temp_rec = TempUpload.query.filter(
                     TempUpload.filename == temp_fn,
@@ -3222,17 +3176,17 @@ def onboard():
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
                     return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
-                old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+                old_path = os.path.join(temp_folder, temp_fn)
                 if not os.path.exists(old_path):
                     db.session.rollback()
                     flash("Photo from phone no longer available. Please re-upload.", "error")
                     return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
                 try:
-                    os.rename(old_path, new_path)
+                    photo_storage.save_photo_from_path(old_path, new_filename)
+                    os.remove(old_path)
                 except OSError:
-                    shutil.move(old_path, new_path)
+                    pass
                 if not cover_set:
                     new_item.photo_url = new_filename
                     cover_set = True
@@ -3356,7 +3310,7 @@ def onboard_guest_save():
                 if not is_valid:
                     return _err(f"File upload error: {error_msg}")
                 filename = f"guest_temp_{int(time.time())}_{secrets.token_hex(4)}_{len(photo_filenames)}.jpg"
-                save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
                 try:
                     img = Image.open(file)
                     img = ImageOps.exif_transpose(img)
@@ -3381,7 +3335,7 @@ def onboard_guest_save():
             temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_fn).first()
             if not temp_rec:
                 return _err("Invalid or expired photo from phone. Please re-scan the QR code.")
-            old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+            old_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], temp_fn)
             if not os.path.exists(old_path):
                 return _err("Photo from phone no longer available. Please re-upload.")
 
@@ -3874,28 +3828,8 @@ def add_item():
                         return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                     
                     filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    
                     try:
-                        img = Image.open(file)
-                        img = ImageOps.exif_transpose(img)
-                        img = img.convert("RGBA")
-                        bg = Image.new("RGB", img.size, (255, 255, 255))
-                        bg.paste(img, (0, 0), img)
-                        
-                        # Resize if image is too large (max 2000px on longest side)
-                        max_dimension = 2000
-                        if bg.width > max_dimension or bg.height > max_dimension:
-                            if bg.width > bg.height:
-                                new_width = max_dimension
-                                new_height = int(bg.height * (max_dimension / bg.width))
-                            else:
-                                new_height = max_dimension
-                                new_width = int(bg.width * (max_dimension / bg.height))
-                            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                        
-                        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
-                        
+                        photo_storage.save_photo(file, filename)
                         if not cover_set:
                             new_item.photo_url = filename
                             cover_set = True
@@ -3909,6 +3843,7 @@ def add_item():
         
         # Process temp photos from phone (QR upload)
         if has_temp_photos:
+            temp_folder = app.config['TEMP_UPLOAD_FOLDER']
             for temp_fn in temp_photo_ids:
                 temp_rec = TempUpload.query.filter(
                     TempUpload.filename == temp_fn,
@@ -3920,17 +3855,17 @@ def add_item():
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
                     return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
-                old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+                old_path = os.path.join(temp_folder, temp_fn)
                 if not os.path.exists(old_path):
                     db.session.rollback()
                     flash("Photo from phone no longer available. Please re-upload.", "error")
                     return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
                 try:
-                    os.rename(old_path, new_path)
+                    photo_storage.save_photo_from_path(old_path, new_filename)
+                    os.remove(old_path)
                 except OSError:
-                    shutil.move(old_path, new_path)
+                    pass
                 if not cover_set:
                     new_item.photo_url = new_filename
                     cover_set = True
@@ -4182,8 +4117,6 @@ def admin_delete_user(user_id):
         return redirect(url_for('admin_preview_users'))
 
     try:
-        upload_folder = app.config['UPLOAD_FOLDER']
-
         # 1. Delete user's items (and their photo files)
         for item in list(user.items):
             if item.status == 'available':
@@ -4198,9 +4131,7 @@ def admin_delete_user(user_id):
                     photo_filenames.append(p.photo_url)
             for fn in photo_filenames:
                 try:
-                    path = os.path.join(upload_folder, fn)
-                    if os.path.exists(path):
-                        os.remove(path)
+                    photo_storage.delete_photo(fn)
                 except Exception as e:
                     logger.error(f"Error deleting photo file {fn}: {e}", exc_info=True)
             db.session.delete(item)
