@@ -1020,9 +1020,8 @@ def _cleanup_expired_upload_sessions():
 
 
 @app.route('/api/upload_session/create', methods=['POST'])
-@login_required
 def create_upload_session():
-    """Create a session for QR code mobile photo upload. Returns token and QR code image."""
+    """Create a session for QR code mobile photo upload. Returns token and QR code image. Guests get user_id=None."""
     import base64
     import qrcode
 
@@ -1031,9 +1030,13 @@ def create_upload_session():
     token = secrets.token_urlsafe(16)
     upload_url = url_for('upload_from_phone', token=token, _external=True)
 
-    session_obj = UploadSession(session_token=token, user_id=current_user.id)
+    user_id = current_user.id if current_user.is_authenticated else None
+    session_obj = UploadSession(session_token=token, user_id=user_id)
     db.session.add(session_obj)
     db.session.commit()
+
+    if not current_user.is_authenticated:
+        session['guest_upload_token'] = token
 
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=8, border=2)
     qr.add_data(upload_url)
@@ -1116,15 +1119,18 @@ def upload_from_phone_post():
 
 
 @app.route('/api/upload_session/status')
-@login_required
 def upload_session_status():
     """Return list of temp uploads for the given token (for desktop polling)."""
     token = request.args.get('token', '')
     session_obj = UploadSession.query.filter_by(session_token=token).first()
     if not session_obj:
         return jsonify({'images': [], 'error': 'Session not found'}), 404
-    if session_obj.user_id != current_user.id:
-        return jsonify({'images': [], 'error': 'Unauthorized'}), 403
+    if session_obj.user_id is not None:
+        if not current_user.is_authenticated or session_obj.user_id != current_user.id:
+            return jsonify({'images': [], 'error': 'Unauthorized'}), 403
+    else:
+        if session.get('guest_upload_token') != token:
+            return jsonify({'images': [], 'error': 'Unauthorized'}), 403
     if datetime.utcnow() - session_obj.created_at > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
         return jsonify({'images': [], 'error': 'Session expired'}), 400
 
@@ -2285,36 +2291,150 @@ def update_account_info():
     
     return redirect(url_for('account_settings'))
 
+
+def process_pending_onboard(user):
+    """Create item from session['pending_onboard'] after guest registers. Returns True if processed."""
+    pending = session.pop('pending_onboard', None)
+    if not pending:
+        return False
+    session.pop('guest_upload_token', None)
+
+    category_id = pending.get('category_id')
+    desc = pending.get('description', '')
+    long_desc = pending.get('long_description')
+    quality = pending.get('quality', 4)
+    suggested_price = pending.get('suggested_price')
+    collection_method = pending.get('collection_method', 'online')
+    photo_filenames = pending.get('photo_filenames', [])
+    temp_photo_ids = pending.get('temp_photo_ids', [])
+    guest_upload_token = pending.get('guest_upload_token')
+
+    if not category_id or not desc:
+        return False
+
+    # Apply user profile
+    user.pickup_location_type = pending.get('pickup_location_type')
+    user.pickup_dorm = pending.get('pickup_dorm')
+    user.pickup_room = pending.get('pickup_room')
+    user.pickup_address = pending.get('pickup_address')
+    user.pickup_lat = pending.get('pickup_lat')
+    user.pickup_lng = pending.get('pickup_lng')
+    user.pickup_note = pending.get('pickup_note')
+    user.phone = pending.get('phone')
+    user.payout_method = pending.get('payout_method')
+    user.payout_handle = pending.get('payout_handle')
+    user.is_seller = True
+    db.session.commit()
+
+    new_item = InventoryItem(
+        seller_id=user.id, category_id=category_id, description=desc[:MAX_DESCRIPTION_LENGTH],
+        long_description=long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
+        quality=quality, status="pending_valuation", photo_url="",
+        collection_method=collection_method,
+        suggested_price=suggested_price
+    )
+    db.session.add(new_item)
+    db.session.flush()
+
+    cover_set = False
+    photo_index = 0
+    upload_folder = app.config['UPLOAD_FOLDER']
+
+    for filename in photo_filenames:
+        old_path = os.path.join(upload_folder, filename)
+        if os.path.exists(old_path):
+            new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+            new_path = os.path.join(upload_folder, new_filename)
+            try:
+                shutil.move(old_path, new_path)
+            except OSError:
+                shutil.copy2(old_path, new_path)
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+            if not cover_set:
+                new_item.photo_url = new_filename
+                cover_set = True
+            db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
+            photo_index += 1
+
+    if guest_upload_token and temp_photo_ids:
+        for temp_fn in temp_photo_ids:
+            temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_fn).first()
+            if temp_rec:
+                old_path = os.path.join(upload_folder, temp_fn)
+                if os.path.exists(old_path):
+                    new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                    new_path = os.path.join(upload_folder, new_filename)
+                    try:
+                        os.rename(old_path, new_path)
+                    except OSError:
+                        shutil.move(old_path, new_path)
+                    if not cover_set:
+                        new_item.photo_url = new_filename
+                        cover_set = True
+                    db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
+                    db.session.delete(temp_rec)
+                    photo_index += 1
+
+    db.session.commit()
+
+    try:
+        submission_content = f"""
+        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+            <h2 style="color: #166534;">Item Submitted for Review</h2>
+            <p>Hi {user.full_name or 'there'},</p>
+            <p>We've received your item submission: <strong>{desc}</strong></p>
+            <p>We'll review and price it soon. You'll get an email when it's approved—then you'll confirm pickup week or dropoff location.</p>
+            <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">View Dashboard</a></p>
+            <p>Thanks for selling with Campus Swap!</p>
+        </div>
+        """
+        send_email(user.email, "Item Submitted - Campus Swap", submission_content)
+    except Exception as email_error:
+        logger.error(f"Onboard email error: {email_error}")
+
+    return True
+
+
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("3 per hour") if limiter else lambda f: f
 def register():
     if current_user.is_authenticated:
         return redirect(get_user_dashboard())
 
+    from_onboard = request.args.get('from_onboard') or request.form.get('from_onboard')
+
+    def _error_redirect():
+        if from_onboard:
+            return redirect(url_for('onboard_complete_account'))
+        return redirect(url_for('login', signup='true', email=request.form.get('email', ''), full_name=request.form.get('full_name', '')))
+
     if request.method == 'POST':
         if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
             flash("Verification failed. Please try again.", "error")
-            return redirect(url_for('login', signup='true', email=request.form.get('email', ''), full_name=request.form.get('full_name', '')))
+            return _error_redirect()
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
         
-        # Validate inputs - redirect to login with signup view to keep same layout
+        # Validate inputs
         if not email or not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return redirect(url_for('login', signup='true', email=email or '', full_name=full_name or ''))
+            return _error_redirect()
         
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
+            return _error_redirect()
         
         if not password or len(password) < 6:
             flash("Password must be at least 6 characters long.", "error")
-            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
+            return _error_redirect()
         
         if full_name and len(full_name) > MAX_NAME_LENGTH:
             flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
-            return redirect(url_for('login', signup='true', email=email, full_name=full_name))
+            return _error_redirect()
         
         user = User.query.filter_by(email=email).first()
         
@@ -2350,6 +2470,8 @@ def register():
                 except Exception as email_error:
                     logger.warning(f"Failed to send welcome email: {email_error}")
                 
+                if process_pending_onboard(user):
+                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
                 return redirect(get_user_dashboard())
             else:
                 # Account already exists with password - redirect to login with message
@@ -2391,6 +2513,8 @@ def register():
             logger.warning(f"Failed to send welcome email: {email_error}")
             # Don't fail registration if email fails
         
+        if process_pending_onboard(new_user):
+            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
         return redirect(get_user_dashboard())
 
     return render_template('register.html')
@@ -2481,7 +2605,10 @@ def auth_google_callback():
         if not pickup_period_active:
             flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
             return redirect(url_for('index'))
-        flash("Welcome back!", "success")
+        if process_pending_onboard(user):
+            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+        else:
+            flash("Welcome back!", "success")
         return redirect(get_user_dashboard())
     if not pickup_period_active:
         new_user = User(email=email, full_name=name or None, referral_source=source,
@@ -2500,7 +2627,10 @@ def auth_google_callback():
     apply_admin_email_if_pending(new_user)
     db.session.refresh(new_user)
     login_user(new_user, remember=True)
-    flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
+    if process_pending_onboard(new_user):
+        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+    else:
+        flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
     return redirect(get_user_dashboard())
 
 
@@ -2551,6 +2681,8 @@ def login():
             else:
                 # Successful login
                 login_user(user)
+                if process_pending_onboard(user):
+                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
                 return redirect(get_user_dashboard())
         else:
             # This shouldn't happen as signup form posts to /register
@@ -2752,19 +2884,23 @@ def update_profile():
 def update_payout():
     method = request.form.get('payout_method')
     handle = request.form.get('payout_handle')
-    
+    handle_confirm = request.form.get('payout_handle_confirm', '').strip()
+
     if method and handle:
         clean_handle = handle.lstrip('@').strip() if method == 'Venmo' else handle.strip()
-        if clean_handle:
-            current_user.payout_method = method
-            current_user.payout_handle = clean_handle
-            current_user.is_seller = True
-            db.session.commit()
-            db.session.refresh(current_user)
-            flash("Payout info secured.", "success")
-        else:
+        clean_confirm = handle_confirm.lstrip('@').strip() if method == 'Venmo' else handle_confirm.strip()
+        if not clean_handle:
             flash("Please enter a valid handle.", "error")
-    # Remove scroll parameter - form is already visible, no need to scroll
+            return redirect(url_for('account_settings'))
+        if clean_handle.lower() != clean_confirm.lower():
+            flash("Handles do not match. Please re-enter to confirm.", "error")
+            return redirect(url_for('account_settings'))
+        current_user.payout_method = method
+        current_user.payout_handle = clean_handle
+        current_user.is_seller = True
+        db.session.commit()
+        db.session.refresh(current_user)
+        flash("Payout info secured.", "success")
     return redirect(get_user_dashboard())
 
 @app.route('/add_payment_method')
@@ -2921,18 +3057,19 @@ def payment_success():
     return redirect(get_user_dashboard())
 
 @app.route('/onboard', methods=['GET', 'POST'])
-@login_required
 def onboard():
-    """6-step wizard for first-time sellers (0 items)."""
-    if current_user.is_admin:
-        return redirect(url_for('admin_panel'))
+    """6-step wizard for first-time sellers (0 items). Guests can complete wizard then create account at end."""
+    if current_user.is_authenticated:
+        if current_user.is_admin:
+            return redirect(url_for('admin_panel'))
+        if current_user.payment_declined:
+            flash("Please add a valid payment method to continue.", "error")
+            return redirect(url_for('add_payment_method'))
+
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
-        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='')
-    if current_user.payment_declined:
-        flash("Please add a valid payment method to continue.", "error")
-        return redirect(url_for('add_payment_method'))
+        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated)
 
     categories = InventoryCategory.query.all()
     category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
@@ -2941,9 +3078,11 @@ def onboard():
 
     if not categories:
         flash("No categories available. Please contact an administrator.", "error")
-        return redirect(get_user_dashboard())
+        if current_user.is_authenticated:
+            return redirect(get_user_dashboard())
+        return redirect(url_for('index'))
 
-    if request.method == 'POST':
+    if request.method == 'POST' and current_user.is_authenticated:
         cat_id = request.form.get('category_id')
         desc = request.form.get('description', '').strip()
         long_desc = (request.form.get('long_description') or '').strip()
@@ -2958,15 +3097,15 @@ def onboard():
         has_temp_photos = len(temp_photo_ids) > 0
         if not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
-            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
         if not cat_id:
             flash("Please select a category.", "error")
-            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
 
         quality_valid, quality_value = validate_quality(quality)
         if not quality_valid:
             flash(f"Invalid condition.", "error")
-            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
 
         suggested_price = None
         if suggested_price_raw:
@@ -3007,9 +3146,14 @@ def onboard():
             current_user.phone = phone_raw[:20]
 
         payout_raw = (request.form.get('payout_handle') or '').strip()
+        payout_confirm_raw = (request.form.get('payout_handle_confirm') or '').strip()
         payout_method = (request.form.get('payout_method') or 'Venmo').strip()[:20]
         payout_handle = payout_raw.lstrip('@') if payout_method == 'Venmo' else payout_raw
+        payout_confirm = payout_confirm_raw.lstrip('@') if payout_method == 'Venmo' else payout_confirm_raw
         if payout_handle:
+            if payout_handle.lower() != payout_confirm.lower():
+                flash("Handles do not match. Please re-enter to confirm.", "error")
+                return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
             current_user.payout_method = payout_method if payout_method in ('Venmo', 'PayPal', 'Zelle') else 'Venmo'
             current_user.payout_handle = payout_handle
             current_user.is_seller = True
@@ -3036,7 +3180,7 @@ def onboard():
                     if not is_valid:
                         db.session.rollback()
                         flash(f"File upload error: {error_msg}", "error")
-                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
                     filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     try:
@@ -3060,7 +3204,7 @@ def onboard():
                         db.session.rollback()
                         logger.error(f"Image error: {img_error}", exc_info=True)
                         flash("Error processing image. Please try again.", "error")
-                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
 
         if has_temp_photos:
             for temp_fn in temp_photo_ids:
@@ -3073,12 +3217,12 @@ def onboard():
                 if not temp_rec:
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
-                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
                 old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
                 if not os.path.exists(old_path):
                     db.session.rollback()
                     flash("Photo from phone no longer available. Please re-upload.", "error")
-                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                 new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
                 try:
@@ -3113,7 +3257,164 @@ def onboard():
 
         return redirect(get_user_dashboard())
 
-    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
+    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=not current_user.is_authenticated)
+
+
+@app.route('/onboard/guest/save', methods=['POST'])
+def onboard_guest_save():
+    """Save guest onboarding data to session; redirect or return JSON for embedded step 11."""
+    ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+    def _err(msg):
+        if ajax:
+            return jsonify({'success': False, 'error': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('onboard'))
+
+    def _ok():
+        if ajax:
+            return jsonify({'success': True})
+        return redirect(url_for('onboard_complete_account'))
+
+    if current_user.is_authenticated:
+        return redirect(url_for('onboard'))
+
+    pickup_period_active = get_pickup_period_active()
+    if not pickup_period_active:
+        if ajax:
+            return jsonify({'success': False, 'error': "Pickup period has ended."}), 400
+        flash("Pickup period has ended. We'll notify you when signups open again.", "info")
+        return redirect(url_for('index'))
+
+    cat_id = request.form.get('category_id')
+    desc = request.form.get('description', '').strip()
+    long_desc = (request.form.get('long_description') or '').strip()
+    quality = request.form.get('quality')
+    suggested_price_raw = request.form.get('suggested_price', '').strip()
+    collection_method = (request.form.get('collection_method') or 'online').strip()
+    files = request.files.getlist('photos')
+    temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
+    temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
+    guest_upload_token = session.get('guest_upload_token')
+
+    has_files = files and files[0].filename and files[0].filename != ''
+    has_temp_photos = len(temp_photo_ids) > 0
+    if not has_files and not has_temp_photos:
+        return _err("Please add at least one photo.")
+    if not cat_id:
+        return _err("Please select a category.")
+
+    quality_valid, quality_value = validate_quality(quality)
+    if not quality_valid:
+        return _err("Invalid condition.")
+
+    suggested_price = None
+    if suggested_price_raw:
+        try:
+            sp = float(suggested_price_raw)
+            if sp >= 0:
+                suggested_price = sp
+        except ValueError:
+            pass
+
+    location_type = request.form.get('pickup_location_type')
+    if location_type == 'on_campus':
+        dorm = (request.form.get('pickup_dorm') or '').strip()
+        room = (request.form.get('pickup_room') or '').strip()
+        if not dorm or not room:
+            return _err("Please select your dorm and enter your room number.")
+    elif location_type == 'off_campus':
+        address = (request.form.get('pickup_address') or '').strip()
+        if not address:
+            return _err("Please enter your address.")
+    else:
+        return _err("Please select where we can pick up your item.")
+
+    phone_raw = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+    if len(phone_raw) < 10:
+        return _err("Please enter a valid phone number.")
+
+    payout_raw = (request.form.get('payout_handle') or '').strip()
+    payout_confirm_raw = (request.form.get('payout_handle_confirm') or '').strip()
+    payout_method = (request.form.get('payout_method') or 'Venmo').strip()[:20]
+    payout_handle = payout_raw.lstrip('@') if payout_method == 'Venmo' else payout_raw
+    payout_confirm = payout_confirm_raw.lstrip('@') if payout_method == 'Venmo' else payout_confirm_raw
+    if not payout_handle:
+        return _err("Please enter your payout information.")
+    if payout_handle.lower() != payout_confirm.lower():
+        return _err("Handles do not match. Please re-enter to confirm.")
+
+    photo_filenames = []
+    if has_files:
+        for file in files:
+            if file.filename:
+                is_valid, error_msg = validate_file_upload(file)
+                if not is_valid:
+                    return _err(f"File upload error: {error_msg}")
+                filename = f"guest_temp_{int(time.time())}_{secrets.token_hex(4)}_{len(photo_filenames)}.jpg"
+                save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                try:
+                    img = Image.open(file)
+                    img = ImageOps.exif_transpose(img)
+                    img = img.convert("RGBA")
+                    bg = Image.new("RGB", img.size, (255, 255, 255))
+                    bg.paste(img, (0, 0), img)
+                    max_dimension = 2000
+                    if bg.width > max_dimension or bg.height > max_dimension:
+                        ratio = max_dimension / max(bg.width, bg.height)
+                        new_w, new_h = int(bg.width * ratio), int(bg.height * ratio)
+                        bg = bg.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+                    photo_filenames.append(filename)
+                except Exception as img_error:
+                    logger.error(f"Guest onboard image error: {img_error}", exc_info=True)
+                    return _err("Error processing image. Please try again.")
+
+    if has_temp_photos:
+        if not guest_upload_token:
+            return _err("Photo session expired. Please re-scan the QR code to add photos from your phone.")
+        for temp_fn in temp_photo_ids:
+            temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_fn).first()
+            if not temp_rec:
+                return _err("Invalid or expired photo from phone. Please re-scan the QR code.")
+            old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
+            if not os.path.exists(old_path):
+                return _err("Photo from phone no longer available. Please re-upload.")
+
+    session['pending_onboard'] = {
+        'category_id': int(cat_id),
+        'description': desc[:MAX_DESCRIPTION_LENGTH],
+        'long_description': long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
+        'quality': quality_value,
+        'suggested_price': suggested_price,
+        'collection_method': collection_method if collection_method in ('online', 'in_person') else 'online',
+        'pickup_location_type': location_type,
+        'pickup_dorm': (request.form.get('pickup_dorm') or '').strip()[:80] if location_type == 'on_campus' else None,
+        'pickup_room': (request.form.get('pickup_room') or '').strip()[:20] if location_type == 'on_campus' else None,
+        'pickup_address': (request.form.get('pickup_address') or '').strip()[:200] if location_type == 'off_campus' else None,
+        'pickup_lat': float(request.form.get('pickup_lat')) if request.form.get('pickup_lat') and str(request.form.get('pickup_lat')).strip() else None,
+        'pickup_lng': float(request.form.get('pickup_lng')) if request.form.get('pickup_lng') and str(request.form.get('pickup_lng')).strip() else None,
+        'pickup_note': (request.form.get('pickup_note') or '').strip()[:200] or None,
+        'phone': phone_raw[:20],
+        'payout_method': payout_method if payout_method in ('Venmo', 'PayPal', 'Zelle') else 'Venmo',
+        'payout_handle': payout_handle,
+        'photo_filenames': photo_filenames,
+        'temp_photo_ids': temp_photo_ids,
+        'guest_upload_token': guest_upload_token,
+    }
+    return _ok()
+
+
+@app.route('/onboard/complete_account', methods=['GET'])
+def onboard_complete_account():
+    """Create account page shown after guest completes onboarding."""
+    if current_user.is_authenticated:
+        return redirect(get_user_dashboard())
+    if not session.get('pending_onboard'):
+        flash("Your session expired. Please start over.", "info")
+        return redirect(url_for('onboard'))
+    return render_template('onboard_complete_account.html')
+
 
 @app.route('/onboard_complete')
 @login_required

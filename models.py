@@ -127,10 +127,10 @@ class ItemPhoto(db.Model):
     photo_url = db.Column(db.String(200), nullable=False)
 
 class UploadSession(db.Model):
-    """Temporary session for QR code mobile-to-desktop photo uploads"""
+    """Temporary session for QR code mobile-to-desktop photo uploads. user_id is None for guest sessions."""
     id = db.Column(db.Integer, primary_key=True)
     session_token = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

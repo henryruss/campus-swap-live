@@ -313,7 +313,11 @@
 
 <div class="seller-page">
     <div class="container">
-        <!-- Interactive Room - Hero (first and biggest) -->
+        <!-- Start Selling CTA - first thing under header -->
+        <div class="reveal fade-up" style="text-align: center; margin-top: 4px; margin-bottom: 8px;">
+            <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; display: inline-block;">Start Selling <i class="fas fa-arrow-right"></i></a>
+        </div>
+        <!-- Interactive Room - Hero (calculator) -->
         <div class="interactive-room-hero reveal fade-up">
             <div class="interactive-room">
                 <h2 class="interactive-room-headline"><span class="headline-text">See how much your room could make with Campus Swap</span><span class="profit-row"><span class="profit-label">Your profit:</span><span class="total-amount" id="room-total">$0</span></span></h2>
@@ -338,9 +342,6 @@
                     <ul class="room-receipt-list" id="room-receipt-list"></ul>
                     <div class="room-receipt-total" id="room-receipt-total">Total: $0</div>
                 </div>
-            </div>
-            <div style="text-align: center; margin-top: 24px;">
-                <a href="{{ url_for('register') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">Start selling now</a>
             </div>
         </div>
 

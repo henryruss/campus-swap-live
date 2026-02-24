@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
 <style>
     .onboard-wizard .wizard-container {
-        max-width: 660px;
+        max-width: 900px;
         margin: 0 auto;
         padding: 40px 24px 80px;
     }
@@ -268,22 +268,51 @@
     .payout-input-wrap input:focus { outline: none; }
 
     .tier-card {
-        padding: 28px 24px; border-radius: 20px; border: 2px solid #e2e8f0;
+        padding: 32px 28px; border-radius: 20px; border: 2px solid #e2e8f0;
         transition: all 0.25s; cursor: pointer; position: relative;
+        min-height: 280px; display: flex; flex-direction: column;
     }
     .tier-card:hover { border-color: #cbd5e1; transform: translateY(-2px); }
     .tier-card.selected { border-color: var(--primary); background: #f0fdf4; box-shadow: 0 0 0 3px rgba(6, 78, 59, 0.12); }
-    .tier-card.recommended { border-color: var(--accent); }
-    .tier-badge {
-        position: absolute; top: 12px; right: 16px;
-        font-size: 0.7rem; font-weight: 800; letter-spacing: 0.05em;
-        color: var(--accent);
+    .tier-card.recommended {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.2);
     }
-    .tier-card h4 { margin: 0 0 8px; font-size: 1.15rem; }
+    .tier-card.recommended.selected { box-shadow: 0 0 0 3px rgba(6, 78, 59, 0.12); }
+    .tier-card-wrapper { position: relative; }
+    .tier-badge {
+        position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+        font-size: 0.7rem; font-weight: 800; letter-spacing: 0.05em;
+        color: white; background: var(--accent);
+        padding: 6px 14px; border-radius: 8px;
+        z-index: 2;
+    }
+    .tier-card-img {
+        width: 100%; height: 180px; margin-bottom: 16px;
+        border-radius: 12px; overflow: hidden; background: #f8fafc;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .tier-card-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .tier-card h4 { margin: 0 0 6px; font-size: 1.25rem; font-weight: 800; }
+    .tier-card .tier-sub { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.4; }
+    .tier-fee-callout {
+        padding: 16px 20px; background: rgba(6, 78, 59, 0.08);
+        border-radius: 12px; margin-bottom: 18px;
+    }
+    .tier-fee-callout .payout-hero { font-size: 1.5rem; font-weight: 800; color: var(--primary); display: block; margin-bottom: 4px; }
+    .tier-fee-callout .payout-sub { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+    .tier-fee-callout.free { background: rgba(5, 150, 105, 0.1); }
+    .tier-fee-callout.free .payout-hero { color: #059669; }
     .tier-price { font-size: 1.5rem; font-weight: 800; color: var(--primary); margin-bottom: 12px; }
-    .tier-list { list-style: none; padding: 0; margin: 0; font-size: 0.9rem; color: var(--text-muted); line-height: 1.8; }
+    .tier-list { list-style: none; padding: 0; margin: 0; font-size: 0.95rem; color: var(--text-muted); line-height: 1.9; flex: 1; }
     .tier-list li::before { content: "✓ "; color: var(--primary); font-weight: 700; }
     .tier-list.warn li::before { content: "⚠ "; color: var(--accent); }
+    .tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 20px; }
+    @media (max-width: 560px) {
+        .tier-grid { grid-template-columns: 1fr; }
+        .tier-card { min-height: auto; }
+        .tier-card-img { height: 160px; }
+    }
 
     /* Review step */
     .review-block {
@@ -335,7 +364,7 @@
     .btn-back:hover { color: var(--primary); }
 </style>
 
-<div class="wizard-container">
+<div class="wizard-container" data-is-guest="{{ 'true' if is_guest else 'false' }}">
     {% if pickup_ended %}
     <div class="wizard-header">
         <h1>Pickup Period Has Ended</h1>
@@ -354,7 +383,7 @@
         <div class="progress-bar-fill" id="progress-fill" style="width: 10%;"></div>
     </div>
 
-    <form method="POST" action="{{ url_for('onboard') }}" enctype="multipart/form-data" id="onboard-form">
+    <form method="POST" action="{{ url_for('onboard_guest_save') if is_guest else url_for('onboard') }}" enctype="multipart/form-data" id="onboard-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="quality" id="quality-input" value="4">
         <input type="file" name="photos" id="file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none;">
@@ -441,14 +470,11 @@
         <div class="wizard-step" id="step-6" data-step="6">
             <h2 class="step-title">How much do you want to list this for?</h2>
             <p class="step-sub">You suggest a price. We review each item and may adjust the price based on brand, condition, and market. You'll see the final price when we approve your listing.</p>
-            <div id="price-range-display" class="price-range-display" style="display:none; padding:12px 16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; margin-bottom:16px; font-size:0.95rem;">
-                <strong>Recommended range:</strong> <span id="price-range-text"></span>
-            </div>
-            <p class="price-disclaimer" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px; line-height:1.5;">This is just a recommendation. Every item is different. We take into account brand, quality, and market trends when setting final prices.</p>
             <div class="price-input-wrap">
                 <span class="prefix">$</span>
                 <input type="text" name="suggested_price" id="price-input" placeholder="0" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" autocomplete="off">
             </div>
+            <p class="price-disclaimer" style="font-size:0.85rem; color:var(--text-muted); margin-top:12px; line-height:1.5;">This is just a recommendation. Every item is different. We take into account brand, quality, and market trends when setting final prices.</p>
         </div>
 
         <!-- Step 7: Location & Phone -->
@@ -473,27 +499,27 @@
                     {% for area, halls in dorms.items() %}
                     <optgroup label="{{ area }}">
                         {% for hall in halls %}
-                        <option value="{{ hall }}" {% if current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+                        <option value="{{ hall }}" {% if current_user.is_authenticated and current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
                         {% endfor %}
                     </optgroup>
                     {% endfor %}
                 </select>
                 <label>Room number</label>
-                <input type="text" name="pickup_room" value="{{ current_user.pickup_room or '' }}" placeholder="e.g. 204">
+                <input type="text" name="pickup_room" value="{% if current_user.is_authenticated %}{{ current_user.pickup_room or '' }}{% endif %}" placeholder="e.g. 204">
             </div>
             <div id="off-campus-fields" class="location-fields">
                 <label>Address</label>
-                <input type="text" name="pickup_address" id="pickup_address" value="{{ current_user.pickup_address or '' }}" placeholder="Start typing your address...">
+                <input type="text" name="pickup_address" id="pickup_address" value="{% if current_user.is_authenticated %}{{ current_user.pickup_address or '' }}{% endif %}" placeholder="Start typing your address...">
                 <div id="pickup-map-container" style="display: none; margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; height: 180px;">
                     <iframe id="pickup-map-iframe" style="width: 100%; height: 100%; border: 0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
                 </div>
-                <input type="hidden" name="pickup_lat" id="pickup_lat" value="{{ current_user.pickup_lat or '' }}">
-                <input type="hidden" name="pickup_lng" id="pickup_lng" value="{{ current_user.pickup_lng or '' }}">
+                <input type="hidden" name="pickup_lat" id="pickup_lat" value="{% if current_user.is_authenticated %}{{ current_user.pickup_lat or '' }}{% endif %}">
+                <input type="hidden" name="pickup_lng" id="pickup_lng" value="{% if current_user.is_authenticated %}{{ current_user.pickup_lng or '' }}{% endif %}">
             </div>
             <label style="margin-top:20px;display:block;">Additional directions (optional)</label>
-            <input type="text" name="pickup_note" value="{{ current_user.pickup_note or '' }}" placeholder="e.g. Third floor, Unit B">
+            <input type="text" name="pickup_note" value="{% if current_user.is_authenticated %}{{ current_user.pickup_note or '' }}{% endif %}" placeholder="e.g. Third floor, Unit B">
             <label>Phone number</label>
-            <input type="tel" name="phone" id="phone-input" value="{{ current_user.phone or '' }}" placeholder="(555) 555-5555" maxlength="14">
+            <input type="tel" name="phone" id="phone-input" value="{% if current_user.is_authenticated %}{{ current_user.phone or '' }}{% endif %}" placeholder="(555) 555-5555" maxlength="14">
             <p style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 0;">So we can text you upon arrival.</p>
             </div>
         </div>
@@ -504,49 +530,69 @@
             <p class="step-sub">We'll send your earnings here once the item sells.</p>
             <div class="payout-method-btns">
                 <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="Venmo" {% if not current_user.payout_method or current_user.payout_method == 'Venmo' %}checked{% endif %}>
+                    <input type="radio" name="payout_method" value="Venmo" {% if not current_user.is_authenticated or not current_user.payout_method or current_user.payout_method == 'Venmo' %}checked{% endif %}>
                     <span>Venmo</span>
                 </label>
                 <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="PayPal" {% if current_user.payout_method == 'PayPal' %}checked{% endif %}>
+                    <input type="radio" name="payout_method" value="PayPal" {% if current_user.is_authenticated and current_user.payout_method == 'PayPal' %}checked{% endif %}>
                     <span>PayPal</span>
                 </label>
                 <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="Zelle" {% if current_user.payout_method == 'Zelle' %}checked{% endif %}>
+                    <input type="radio" name="payout_method" value="Zelle" {% if current_user.is_authenticated and current_user.payout_method == 'Zelle' %}checked{% endif %}>
                     <span>Zelle</span>
                 </label>
             </div>
             <div id="payout-input-wrap" class="payout-input-wrap">
                 <span id="payout-prefix" class="payout-prefix">@</span>
-                <input type="text" name="payout_handle" id="payout-handle-input" value="{{ current_user.payout_handle or '' }}" placeholder="username" required>
+                <input type="text" name="payout_handle" id="payout-handle-input" value="{% if current_user.is_authenticated %}{{ current_user.payout_handle or '' }}{% endif %}" placeholder="username" required>
+            </div>
+            <label style="margin-top:16px;display:block;font-size:0.9rem;">Confirm handle</label>
+            <div id="payout-input-wrap-confirm" class="payout-input-wrap" style="margin-top:6px;">
+                <span id="payout-prefix-confirm" class="payout-prefix">@</span>
+                <input type="text" name="payout_handle_confirm" id="payout-handle-confirm-input" placeholder="username" required>
             </div>
             <p id="payout-hint" class="payout-hint" style="font-size:0.85rem;color:var(--text-muted);margin-top:8px;">Venmo username (without @)</p>
         </div>
 
         <!-- Step 9: Service Tier -->
         <div class="wizard-step" id="step-9" data-step="9">
-            <h2 class="step-title">Choose your type</h2>
-            <p class="step-sub">No payment yet—you'll confirm pickup or dropoff after your item is approved.</p>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-                <div class="tier-card recommended" id="tier-pickup" data-tier="online">
+            <h2 class="step-title">How do you want to sell?</h2>
+            <p class="step-sub">Choose based on what matters most to you.</p>
+            <div class="tier-grid">
+                <div class="tier-card-wrapper">
                     <span class="tier-badge">Recommended</span>
-                    <h4>Campus Swap Pickup</h4>
-                    <div class="tier-price">Pay after approval</div>
-                    <ul class="tier-list">
-                        <li>We drive to you & pick it up</li>
-                        <li>Guaranteed storage space</li>
-                        <li>50% of sale price</li>
-                        <li>You pay fee once item is approved</li>
-                    </ul>
+                    <div class="tier-card recommended" id="tier-pickup" data-tier="online">
+                        <div class="tier-card-img">
+                            <img src="{{ url_for('static', filename='campusSwapPickup.png') }}" alt="Campus Swap Pickup">
+                        </div>
+                        <h4>Campus Swap Pickup</h4>
+                        <p class="tier-sub">Convenience and more upside.</p>
+                        <div class="tier-fee-callout">
+                            <span class="payout-hero">50% of sale price</span>
+                            <span class="payout-sub">$15 pickup fee paid after approval</span>
+                        </div>
+                        <ul class="tier-list">
+                            <li>We drive to you & pick your item up</li>
+                            <li>Best for larger and heavier items</li>
+                        </ul>
+                    </div>
                 </div>
-                <div class="tier-card" id="tier-self" data-tier="in_person">
-                    <h4>Self Drop-off (Pod)</h4>
-                    <div class="tier-price">$0</div>
-                    <ul class="tier-list warn">
-                        <li>You bring items to on-campus POD</li>
-                        <li>33% of sale price</li>
-                        <li>No fee—pick pod after approval</li>
-                    </ul>
+                <div class="tier-card-wrapper">
+                    <div class="tier-card" id="tier-self" data-tier="in_person">
+                        <div class="tier-card-img">
+                            <img src="{{ url_for('static', filename='campusSwapPod.png') }}" alt="Self Dropoff">
+                        </div>
+                        <h4>Self Dropoff</h4>
+                        <p class="tier-sub">No up-front fee, lower payout.</p>
+                        <div class="tier-fee-callout free">
+                            <span class="payout-hero">33% of sale price</span>
+                            <span class="payout-sub">$0 — no fee ever</span>
+                        </div>
+                        <ul class="tier-list">
+                            <li>You bring items to on-campus POD</li>
+                            <li>You can always upgrade to pickup later</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             <input type="hidden" name="collection_method" id="collection-method-input" value="online">
@@ -564,6 +610,7 @@
                 <h5>Item</h5>
                 <p id="review-category"></p>
                 <p id="review-description" style="font-weight:500;margin-top:4px;"></p>
+                <p id="review-long-description" style="font-size:0.95rem;margin-top:8px;color:var(--text-muted);line-height:1.5;white-space:pre-wrap;"></p>
                 <p id="review-condition" style="font-size:0.95rem;margin-top:4px;"></p>
                 <p id="review-price" style="font-size:0.95rem;margin-top:8px;"></p>
             </div>
@@ -581,10 +628,50 @@
                 <p id="review-tier"></p>
             </div>
             <button type="button" class="btn btn-primary" style="width:100%;padding:18px;font-size:1.1rem;" id="publish-btn">
-                <i class="fas fa-check"></i> Submit Listing for Approval
+                <i class="fas fa-check"></i> {% if is_guest %}Continue{% else %}Submit Listing for Approval{% endif %}
             </button>
         </div>
     </form>
+
+        {% if is_guest %}
+        <!-- Step 11: Create account (guests only) - embedded in wizard -->
+        <div class="wizard-step" id="step-11" data-step="11" style="display:none;">
+            <h2 class="step-title">Last step, create an account to secure your listing</h2>
+            <p class="step-sub">Your listing is ready. Create an account to submit it for approval.</p>
+            {% if google_oauth_enabled %}
+            <a href="/auth/google" class="btn-google" style="margin-bottom: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Sign in with Google
+            </a>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 10px 0 16px; text-align: center;">or sign up with email</p>
+            {% endif %}
+            <form method="POST" action="{{ url_for('register', from_onboard=1) }}" id="create-account-form" class="step-11-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="from_onboard" value="1"/>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Full Name</label>
+                    <input type="text" name="full_name" placeholder="Your full name" required style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
+                    <input type="email" name="email" placeholder="your@email.com" required style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
+                    <input type="password" name="password" placeholder="Choose a password (min 6 characters)" required minlength="6" style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;">
+                </div>
+                {% if turnstile_site_key %}
+                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 16px 0;"></div>
+                {% endif %}
+                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px;">Create Account</button>
+            </form>
+            <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 15px;">Already have an account?</p>
+                <a href="{{ url_for('login') }}" class="btn btn-outline" style="width: 100%; display: inline-block; text-align: center;">Log In</a>
+            </div>
+        </div>
+        {% endif %}
 
     <div class="wizard-nav-wrap">
     <div id="wizard-validation-error" class="wizard-validation-error" role="alert">
@@ -660,8 +747,8 @@
 {% endif %}
 <script>
 (function() {
-    const TOTAL_STEPS = 10;
-    const CATEGORY_PRICE_RANGES = {{ category_price_ranges | default({}) | tojson }};
+    const isGuest = document.querySelector('.wizard-container').dataset.isGuest === 'true';
+    const TOTAL_STEPS = isGuest ? 11 : 10;
     let currentStep = 1;
     let selectedFiles = [];
     let tempPhotoFilenames = [];
@@ -700,28 +787,14 @@
         if (step === 3 && !uploadSessionToken) {
             loadQr();
         }
-        if (step === 6) updatePriceRangeDisplay();
-        if (step === TOTAL_STEPS) {
+        if (step >= 10) {
             btnNext.style.display = 'none';
-            populateReview();
+            if (step === 10) populateReview();
         } else {
             btnNext.style.display = 'flex';
             btnNext.textContent = 'Next';
         }
         window.scrollTo(0, 0);
-    }
-
-    function updatePriceRangeDisplay() {
-        const catId = document.getElementById('category-id-input')?.value;
-        const rangeEl = document.getElementById('price-range-display');
-        const textEl = document.getElementById('price-range-text');
-        if (rangeEl && textEl && catId && CATEGORY_PRICE_RANGES[catId]) {
-            const [min, max] = CATEGORY_PRICE_RANGES[catId];
-            textEl.textContent = '$' + min + '–$' + max;
-            rangeEl.style.display = 'block';
-        } else if (rangeEl) {
-            rangeEl.style.display = 'none';
-        }
     }
 
     function validateStep(step) {
@@ -762,9 +835,15 @@
         if (step === 8) {
             const method = form.querySelector('input[name="payout_method"]:checked');
             const handle = form.querySelector('input[name="payout_handle"]').value.trim();
+            const confirmHandle = form.querySelector('input[name="payout_handle_confirm"]').value.trim();
             if (!handle) { showValidationError('Please enter your payout information before continuing.'); return false; }
             if (method && method.value === 'Venmo' && !handle.replace(/^@/,'').trim()) {
                 showValidationError('Please enter your Venmo username before continuing.'); return false;
+            }
+            const norm = (s) => (method && method.value === 'Venmo' ? s.replace(/^@/,'').trim().toLowerCase() : s.trim().toLowerCase());
+            if (norm(handle) !== norm(confirmHandle)) {
+                showValidationError('Handles do not match. Please re-enter to confirm.');
+                return false;
             }
         }
         return true;
@@ -826,22 +905,24 @@
         const checked = form.querySelector('input[name="payout_method"]:checked');
         if (!checked) return;
         const prefix = document.getElementById('payout-prefix');
+        const prefixConfirm = document.getElementById('payout-prefix-confirm');
         const input = document.getElementById('payout-handle-input');
+        const inputConfirm = document.getElementById('payout-handle-confirm-input');
         const hint = document.getElementById('payout-hint');
         if (checked.value === 'Venmo') {
-            prefix.textContent = '@';
-            prefix.style.display = 'flex';
-            input.placeholder = 'username';
+            prefix.textContent = prefixConfirm.textContent = '@';
+            prefix.style.display = prefixConfirm.style.display = 'flex';
+            input.placeholder = inputConfirm.placeholder = 'username';
             hint.textContent = 'Venmo username (without @)';
         } else if (checked.value === 'PayPal') {
-            prefix.textContent = '';
-            prefix.style.display = 'none';
-            input.placeholder = 'your@email.com';
+            prefix.textContent = prefixConfirm.textContent = '';
+            prefix.style.display = prefixConfirm.style.display = 'none';
+            input.placeholder = inputConfirm.placeholder = 'your@email.com';
             hint.textContent = 'PayPal email address';
         } else {
-            prefix.textContent = '';
-            prefix.style.display = 'none';
-            input.placeholder = 'email or phone';
+            prefix.textContent = prefixConfirm.textContent = '';
+            prefix.style.display = prefixConfirm.style.display = 'none';
+            input.placeholder = inputConfirm.placeholder = 'email or phone';
             hint.textContent = 'Zelle email or phone number';
         }
     }
@@ -873,6 +954,7 @@
     form.querySelector('input[name="pickup_room"]')?.addEventListener('input', hideValidationError);
     form.querySelector('#pickup_address')?.addEventListener('input', hideValidationError);
     document.getElementById('payout-handle-input')?.addEventListener('input', hideValidationError);
+    document.getElementById('payout-handle-confirm-input')?.addEventListener('input', hideValidationError);
 
     // Populate review
     function populateReview() {
@@ -896,13 +978,18 @@
 
         const catCard = document.querySelector('.category-card.selected');
         document.getElementById('review-category').textContent = catCard ? catCard.dataset.categoryName : '';
-        document.getElementById('review-description').textContent = form.querySelector('input[name="description"]').value || '';
+        const titleVal = form.querySelector('input[name="description"]').value || '';
+        document.getElementById('review-description').textContent = titleVal ? 'Title: ' + titleVal : '';
+        const longDesc = (form.querySelector('textarea[name="long_description"]') || {}).value || '';
+        const longDescEl = document.getElementById('review-long-description');
+        longDescEl.textContent = longDesc ? 'Description: ' + longDesc : '';
+        longDescEl.style.display = longDesc ? 'block' : 'none';
         const condRadio = form.querySelector('input[name="condition_radio"]:checked');
         const condMap = { 'like_new': 'Like new', '4': 'Good', '3': 'Fair', '5': 'Like new' };
         document.getElementById('review-condition').textContent = condRadio ? 'Condition: ' + (condMap[condRadio.value] || condRadio.value) : '';
         const priceVal = form.querySelector('input[name="suggested_price"]').value;
         const priceNum = parseFloat(priceVal);
-        document.getElementById('review-price').textContent = priceVal && !isNaN(priceNum) ? 'Suggested: $' + priceNum.toFixed(2) : 'No suggested price';
+        document.getElementById('review-price').textContent = priceVal && !isNaN(priceNum) ? 'Suggested Price: $' + priceNum.toFixed(2) : 'No suggested price';
         const locRadio = form.querySelector('input[name="pickup_location_type"]:checked');
         const locType = locRadio ? locRadio.value : '';
         if (locType === 'on_campus') {
@@ -1182,8 +1269,8 @@
     // QR loads automatically when entering photos step (see goStep)
 
     // Publish button - ONLY way to submit; prevents accidental submit on Back/Enter
-    document.getElementById('publish-btn').addEventListener('click', function() {
-        if (currentStep !== TOTAL_STEPS) return;
+    document.getElementById('publish-btn').addEventListener('click', async function() {
+        if (currentStep !== 10) return;
         if (!validateStep(7)) return;  // Re-validate location
         if (!validateStep(8)) return;  // Re-validate Venmo
         if (getTotalPhotoCount() === 0) { showValidationError('Please add photos before continuing.'); return; }
@@ -1196,9 +1283,38 @@
             fileInput.files = dt.files;
         }
         const phInput = form.querySelector('input[name="payout_handle"]');
+        const phConfirmInput = form.querySelector('input[name="payout_handle_confirm"]');
         const pm = form.querySelector('input[name="payout_method"]:checked');
-        if (pm && pm.value === 'Venmo') phInput.value = phInput.value.replace(/^@/,'').trim();
-        form.submit();
+        if (pm && pm.value === 'Venmo') {
+            phInput.value = phInput.value.replace(/^@/,'').trim();
+            phConfirmInput.value = phConfirmInput.value.replace(/^@/,'').trim();
+        }
+
+        if (isGuest) {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            try {
+                const fd = new FormData(form);
+                const r = await fetch('{{ url_for("onboard_guest_save") }}', {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                const data = await r.json().catch(() => ({}));
+                if (r.ok && data.success) {
+                    goStep(11);
+                } else {
+                    showValidationError(data.error || 'Something went wrong. Please try again.');
+                }
+            } catch (e) {
+                showValidationError('Something went wrong. Please try again.');
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Continue';
+        } else {
+            form.submit();
+        }
     });
 
     // Block form submit from Enter key or accidental submit - only Publish button submits
