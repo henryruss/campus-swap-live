@@ -116,6 +116,11 @@ class InventoryItem(db.Model):
     photo_url = db.Column(db.String(200), nullable=True)
     gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True, cascade='all, delete-orphan')
 
+    # Price transparency: True when seller has acknowledged that we changed their suggested price
+    price_changed_acknowledged = db.Column(db.Boolean, default=False)
+    # When we set or change the price (approval or later edit) - badge shows until acknowledged
+    price_updated_at = db.Column(db.DateTime, nullable=True)
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

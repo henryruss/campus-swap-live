@@ -630,6 +630,13 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px;
 }
 .dashboard-item-square-price { font-size: 1rem; font-weight: 800; color: var(--text-main); }
+.price-change-badge {
+    font-size: 0.55rem; font-weight: 700; padding: 2px 5px; border-radius: 4px;
+    background: #fef3c7; color: #92400e; cursor: pointer; flex-shrink: 0;
+    white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    transition: background 0.2s, color 0.2s;
+}
+.price-change-badge:hover { background: #fde68a; color: #78350f; }
 .dashboard-item-type { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 8px; }
 .dashboard-item-square-desc {
     font-size: 0.75rem; color: var(--text-muted);

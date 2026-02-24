@@ -132,7 +132,9 @@
                     {% elif item.status == 'sold' %}
                         {% set bg_class = 'item-card-bg-green' %}
                     {% elif item.status == 'available' %}
-                        {% set bg_class = 'item-card-bg-green' %}
+                        {# Green only when all bullets complete: in store (arrived) #}
+                        {% set _all_complete = item.arrived_at_store_at is not none %}
+                        {% set bg_class = 'item-card-bg-green' if _all_complete else 'item-card-bg-yellow' %}
                     {% elif item.status == 'pending_logistics' %}
                         {% set bg_class = 'item-card-bg-yellow' %}
                     {% else %}
@@ -151,6 +153,12 @@
                                 {% if item.status not in ('pending_valuation', 'rejected') %}
                                 <div class="dashboard-item-square-header">
                                     <span class="dashboard-item-square-price">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
+                                    {% set _diff = ((item.price or 0) - (item.suggested_price or 0))|abs if (item.price is not none and item.suggested_price is not none) else 0 %}
+                                    {% set _price_updated = item.price_updated_at is not none or (item.suggested_price is not none and item.price is not none and _diff > 0.01) %}
+                                    {% set _show_badge = _price_updated and not (item.price_changed_acknowledged | default(false)) %}
+                                    {% if _show_badge %}
+                                    <span class="price-change-badge" data-item-id="{{ item.id }}" onclick="event.stopPropagation(); acknowledgePriceChange({{ item.id }}, this);" title="We updated the price">Pricing update</span>
+                                    {% endif %}
                                 </div>
                                 {% endif %}
                                 <p class="dashboard-item-square-desc">{{ item.description }}</p>
@@ -168,22 +176,29 @@
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
                                     {% elif item.status == 'available' %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> {% if item.collection_method == 'in_person' %}Pod selected{% else %}Paid{% endif %}</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {% if item.collection_method == 'in_person' %}Pod selected{% else %}Pickup fee paid{% endif %}</li>
                                     {% if item.is_large and item.collection_method == 'online' %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'Oversized fee paid' if item.oversize_fee_paid else 'Oversized (included)' }}</li>
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {{ 'Oversize fee: paid' if item.oversize_fee_paid else 'Oversize fee: waived' }}</li>
+                                    {% endif %}
+                                    {% if item.picked_up_at or item.arrived_at_store_at %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> {% if item.collection_method == 'in_person' %}Dropped off{% else %}Picked up{% endif %}</li>
+                                    {% else %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> {% if item.collection_method == 'in_person' %}Awaiting dropoff{% else %}Awaiting pickup{% endif %}</li>
                                     {% endif %}
                                     {% if item.arrived_at_store_at %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> In store</li>
-                                    {% elif item.picked_up_at %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
                                     {% else %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> {% if item.collection_method == 'in_person' %}Awaiting dropoff{% else %}Awaiting pickup{% endif %}</li>
+                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
                                     {% endif %}
                                     {% elif item.status == 'pending_logistics' and item.collection_method == 'online' %}
                                     {% if item.is_large %}{% set _ns.oversized_count = _ns.oversized_count + 1 %}{% endif %}
                                     <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    {% if item.is_large and (_has_included_oversized or _ns.oversized_count > 1) %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Oversized fee: Pending</li>
+                                    {% if item.is_large %}
+                                    {% if _ns.oversized_count == 1 %}
+                                    <li class="check-done"><i class="fas fa-check-circle"></i> Oversize fee: waived</li>
+                                    {% elif _has_included_oversized or _ns.oversized_count > 1 %}
+                                    <li class="check-pending"><i class="fas fa-circle"></i> Oversize fee: pending</li>
+                                    {% endif %}
                                     {% endif %}
                                     <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
                                     <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
@@ -376,6 +391,30 @@
             closeListingModal();
         }
     });
+
+    // Price change acknowledgment
+    function acknowledgePriceChange(itemId, badgeEl) {
+        if (!badgeEl) return;
+        var csrf = document.querySelector('input[name="csrf_token"]');
+        if (!csrf) return;
+        badgeEl.style.opacity = '0.5';
+        badgeEl.style.pointerEvents = 'none';
+        fetch('/api/item/' + itemId + '/acknowledge_price_change', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+            body: 'csrf_token=' + encodeURIComponent(csrf.value)
+        }).then(function(r) {
+            if (r.ok) {
+                badgeEl.remove();
+            } else {
+                badgeEl.style.opacity = '';
+                badgeEl.style.pointerEvents = '';
+            }
+        }).catch(function() {
+            badgeEl.style.opacity = '';
+            badgeEl.style.pointerEvents = '';
+        });
+    }
 
     // Scroll to anchor
     const urlParams = new URLSearchParams(window.location.search);

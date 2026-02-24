@@ -62,6 +62,47 @@ POD_LOCATIONS = [
 POD_CHANGE_DEADLINE = (4, 20)  # April 20th
 POD_CHANGE_DEADLINE_DISPLAY = 'April 20th'
 
+# Recommended price ranges by category (min, max) in dollars.
+# Keys match category names (case-insensitive, partial match).
+PRICE_RANGES = {
+    # Furniture
+    "couch": (50, 150),
+    "sofa": (50, 150),
+    "headboard": (25, 80),
+    "mattress": (40, 120),
+    "rug": (20, 60),
+    # Electronics
+    "television": (50, 150),
+    "tv": (50, 150),
+    "gaming": (80, 250),
+    "console": (80, 250),
+    "printer": (15, 40),
+    # Kitchen
+    "mini fridge": (40, 80),
+    "minifridge": (40, 80),
+    "microwave": (15, 35),
+    "air fryer": (15, 40),
+    # Climate
+    "ac unit": (30, 80),
+    "ac": (30, 80),
+    "heater": (15, 40),
+}
+
+# Generic fallback for categories without a specific range
+PRICE_RANGE_FALLBACK = (20, 100)
+
+
+def get_price_range_for_category(category_name: str) -> tuple[int, int]:
+    """Return (min, max) price range for a category, or None if no match.
+    Uses case-insensitive partial matching on category name."""
+    if not category_name:
+        return PRICE_RANGE_FALLBACK
+    name_lower = category_name.lower()
+    for key, value in PRICE_RANGES.items():
+        if key in name_lower:
+            return value
+    return PRICE_RANGE_FALLBACK
+
 # Residence halls by store (for on-campus pickup selection)
 RESIDENCE_HALLS_BY_STORE = {
     'UNC Chapel Hill': {

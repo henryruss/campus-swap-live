@@ -168,7 +168,11 @@
 
         <div class="wizard-step" id="step-6" data-step="6">
             <h2 class="step-title">How much do you want to list this for?</h2>
-            <p class="step-sub">You suggest a price. We'll try to accommodate, but we have discretion to raise or lower based on the market.</p>
+            <p class="step-sub">You suggest a price. We review each item and may adjust the price based on brand, condition, and market. You'll see the final price when we approve your listing.</p>
+            <div id="price-range-display" class="price-range-display" style="display:none; padding:12px 16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; margin-bottom:16px; font-size:0.95rem;">
+                <strong>Recommended range:</strong> <span id="price-range-text"></span>
+            </div>
+            <p class="price-disclaimer" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px; line-height:1.5;">This is just a recommendation. Every item is different. We take into account brand, quality, and market trends when setting final prices.</p>
             <div class="price-input-wrap">
                 <span class="prefix">$</span>
                 <input type="text" name="suggested_price" id="price-input" placeholder="0" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" autocomplete="off">
@@ -217,6 +221,7 @@
 <script>
 (function() {
     const TOTAL_STEPS = 7;
+    const CATEGORY_PRICE_RANGES = {{ category_price_ranges | default({}) | tojson }};
     let currentStep = 1;
     let selectedFiles = [];
     let tempPhotoFilenames = [];
@@ -235,6 +240,7 @@
         currentStep = step;
         document.getElementById('btn-back').style.visibility = step > 1 ? 'visible' : 'hidden';
         if (step === 3 && !uploadSessionToken) loadQr();
+        if (step === 6) updatePriceRangeDisplay();
         if (step === TOTAL_STEPS) {
             document.getElementById('btn-next').style.display = 'none';
             populateReview();
@@ -242,6 +248,19 @@
             document.getElementById('btn-next').style.display = 'flex';
         }
         window.scrollTo(0, 0);
+    }
+
+    function updatePriceRangeDisplay() {
+        const catId = document.getElementById('category-id-input').value;
+        const rangeEl = document.getElementById('price-range-display');
+        const textEl = document.getElementById('price-range-text');
+        if (catId && CATEGORY_PRICE_RANGES[catId]) {
+            const [min, max] = CATEGORY_PRICE_RANGES[catId];
+            textEl.textContent = '$' + min + '–$' + max;
+            rangeEl.style.display = 'block';
+        } else {
+            rangeEl.style.display = 'none';
+        }
     }
 
     function validateStep(step) {

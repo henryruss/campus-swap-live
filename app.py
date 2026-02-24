@@ -37,7 +37,8 @@ from constants import (
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
-    PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE, POD_CHANGE_DEADLINE_DISPLAY
+    PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE, POD_CHANGE_DEADLINE_DISPLAY,
+    get_price_range_for_category
 )
 
 # Configure Logging
@@ -1136,6 +1137,18 @@ def upload_session_status():
     return jsonify({'images': images})
 
 
+@app.route('/api/item/<int:item_id>/acknowledge_price_change', methods=['POST'])
+@login_required
+def acknowledge_price_change(item_id):
+    """Mark that the seller has acknowledged we changed their suggested price."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.seller_id != current_user.id:
+        return jsonify({"error": "Forbidden"}), 403
+    item.price_changed_acknowledged = True
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 @app.route('/buy_item/<int:item_id>')
 def buy_item(item_id):
     """Create Stripe checkout session for item purchase with race condition protection"""
@@ -1593,6 +1606,8 @@ def admin_panel():
                         
                         old_price = item.price
                         item.price = new_price
+                        item.price_updated_at = datetime.utcnow()
+                        item.price_changed_acknowledged = False
                         updated_count += 1
                         
                         # Quality & Category Updates
@@ -1846,6 +1861,8 @@ def admin_approve():
             return redirect(url_for('admin_approve', item=item_id, sort=sort_val))
         
         item.price = price_result
+        item.price_updated_at = datetime.utcnow()
+        item.price_changed_acknowledged = False
         item.is_large = request.form.get('is_large', '').lower() in ('1', 'true', 'on', 'yes')
         if request.form.get('category_id'):
             try:
@@ -2008,7 +2025,10 @@ def edit_item(item_id):
                 if not price_valid:
                     flash(f"Invalid price: {price_result}", "error")
                     return render_template('edit_item.html', item=item, categories=categories)
-                item.price = price_result
+                if item.price != price_result:
+                    item.price = price_result
+                    item.price_updated_at = datetime.utcnow()
+                    item.price_changed_acknowledged = False
         
         # Validate quality
         quality_valid, quality_value = validate_quality(request.form.get('quality', item.quality))
@@ -2909,12 +2929,13 @@ def onboard():
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
-        return render_template('onboard.html', pickup_ended=True, categories=[], dorms={}, google_maps_key='')
+        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='')
     if current_user.payment_declined:
         flash("Please add a valid payment method to continue.", "error")
         return redirect(url_for('add_payment_method'))
 
     categories = InventoryCategory.query.all()
+    category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
     dorms = RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {})
     google_maps_key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 
@@ -2937,15 +2958,15 @@ def onboard():
         has_temp_photos = len(temp_photo_ids) > 0
         if not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
-            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
         if not cat_id:
             flash("Please select a category.", "error")
-            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
 
         quality_valid, quality_value = validate_quality(quality)
         if not quality_valid:
             flash(f"Invalid condition.", "error")
-            return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
 
         suggested_price = None
         if suggested_price_raw:
@@ -3015,7 +3036,7 @@ def onboard():
                     if not is_valid:
                         db.session.rollback()
                         flash(f"File upload error: {error_msg}", "error")
-                        return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
                     filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     try:
@@ -3039,7 +3060,7 @@ def onboard():
                         db.session.rollback()
                         logger.error(f"Image error: {img_error}", exc_info=True)
                         flash("Error processing image. Please try again.", "error")
-                        return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
 
         if has_temp_photos:
             for temp_fn in temp_photo_ids:
@@ -3052,12 +3073,12 @@ def onboard():
                 if not temp_rec:
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
-                    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
                 old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
                 if not os.path.exists(old_path):
                     db.session.rollback()
                     flash("Photo from phone no longer available. Please re-upload.", "error")
-                    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                 new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
                 try:
@@ -3092,7 +3113,7 @@ def onboard():
 
         return redirect(get_user_dashboard())
 
-    return render_template('onboard.html', categories=categories, dorms=dorms, google_maps_key=google_maps_key)
+    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key)
 
 @app.route('/onboard_complete')
 @login_required
@@ -3455,7 +3476,8 @@ def add_item():
         return redirect(url_for('add_payment_method'))
     
     categories = InventoryCategory.query.all()
-    
+    category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
+
     # Check if categories exist - if not, show error
     if not categories:
         flash("No categories available. Please contact an administrator.", "error")
@@ -3477,39 +3499,39 @@ def add_item():
         
         if not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         # Validate category_id
         if not cat_id:
             flash("Please select a category.", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         try:
             cat_id = int(cat_id)
         except (ValueError, TypeError):
             flash("Invalid category selected.", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         # Verify category exists
         category = InventoryCategory.query.get(cat_id)
         if not category:
             flash("Selected category does not exist. Please select a valid category.", "error")
             logger.error(f"Invalid category_id {cat_id} submitted - category not found")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         # Validate inputs
         quality_valid, quality_value = validate_quality(quality)
         if not quality_valid:
             flash(f"Invalid quality: {quality_value}", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         if len(desc) > MAX_DESCRIPTION_LENGTH:
             flash(f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         if long_desc and len(long_desc) > MAX_LONG_DESCRIPTION_LENGTH:
             flash(f"Long description too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters)", "error")
-            return render_template('add_item.html', categories=categories)
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         suggested_price = None
         if suggested_price_raw:
@@ -3544,7 +3566,7 @@ def add_item():
                     if not is_valid:
                         db.session.rollback()
                         flash(f"File upload error: {error_msg}", "error")
-                        return render_template('add_item.html', categories=categories)
+                        return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                     
                     filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -3578,7 +3600,7 @@ def add_item():
                         db.session.rollback()
                         logger.error(f"Error processing image: {img_error}", exc_info=True)
                         flash("Error processing image. Please try again.", "error")
-                        return render_template('add_item.html', categories=categories)
+                        return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
         
         # Process temp photos from phone (QR upload)
         if has_temp_photos:
@@ -3592,12 +3614,12 @@ def add_item():
                 if not temp_rec:
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
-                    return render_template('add_item.html', categories=categories)
+                    return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                 old_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_fn)
                 if not os.path.exists(old_path):
                     db.session.rollback()
                     flash("Photo from phone no longer available. Please re-upload.", "error")
-                    return render_template('add_item.html', categories=categories)
+                    return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
                 new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
                 try:
@@ -3646,7 +3668,7 @@ def add_item():
         flash("Item drafted! Complete your activation to list it.", "success")
         return redirect(get_user_dashboard())
             
-    return render_template('add_item.html', categories=categories)
+    return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
 # =========================================================
 # SECTION: ADMIN DATABASE MANAGEMENT
