@@ -638,7 +638,7 @@ def index():
                 db.session.commit()
                 logger.info(f"Guest account created (pickup period closed): {email}")
             
-            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year! Check your spam folder when we send the notification.", "info")
             return redirect(url_for('index'))
         
         # Pickup period is active - proceed with normal flow
@@ -726,7 +726,7 @@ def become_a_seller():
                 db.session.commit()
                 logger.info(f"Guest account created (become-a-seller, pickup closed): {email}")
 
-            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year! Check your spam folder when we send the notification.", "info")
             return redirect(url_for('become_a_seller'))
 
         user = User.query.filter_by(email=email).first()
@@ -870,13 +870,13 @@ def dropoff():
             if name and name != user.full_name:
                 user.full_name = name
                 db.session.commit()
-            flash("Thanks! We'll email you when your item sells.", "success")
+            flash("Thanks! We'll email you when your item sells. Check your spam folder if you don't receive it.", "success")
         else:
             # Create new guest account (no password set yet)
             new_user = User(email=email, full_name=name, referral_source='in_person_dropoff')
             db.session.add(new_user)
             db.session.commit()
-            flash("Thanks! We'll email you when your item sells.", "success")
+            flash("Thanks! We'll email you when your item sells. Check your spam folder if you don't receive it.", "success")
         
         return render_template('dropoff.html', success=True, email=email)
     
@@ -2471,7 +2471,9 @@ def register():
                     logger.warning(f"Failed to send welcome email: {email_error}")
                 
                 if process_pending_onboard(user):
-                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
+                else:
+                    flash("Account created! Complete your profile and activate as a seller to start listing items. Check your spam folder if you don't see our welcome email.", "success")
                 return redirect(get_user_dashboard())
             else:
                 # Account already exists with password - redirect to login with message
@@ -2514,7 +2516,9 @@ def register():
             # Don't fail registration if email fails
         
         if process_pending_onboard(new_user):
-            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
+        else:
+            flash("Account created! Complete your profile and activate as a seller to start listing items. Check your spam folder if you don't see our welcome email.", "success")
         return redirect(get_user_dashboard())
 
     return render_template('register.html')
@@ -2603,10 +2607,10 @@ def auth_google_callback():
         db.session.refresh(user)
         login_user(user, remember=True)
         if not pickup_period_active:
-            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year! Check your spam folder when we send the notification.", "info")
             return redirect(url_for('index'))
         if process_pending_onboard(user):
-            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+            flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
         else:
             flash("Welcome back!", "success")
         return redirect(get_user_dashboard())
@@ -2618,7 +2622,7 @@ def auth_google_callback():
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
         login_user(new_user, remember=True)
-        flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year!", "info")
+        flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year! Check your spam folder when we send the notification.", "info")
         return redirect(url_for('index'))
     new_user = User(email=email, full_name=name or None, referral_source=source,
                     oauth_provider='google', oauth_id=oauth_id)
@@ -2628,7 +2632,7 @@ def auth_google_callback():
     db.session.refresh(new_user)
     login_user(new_user, remember=True)
     if process_pending_onboard(new_user):
-        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
     else:
         flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
     return redirect(get_user_dashboard())
@@ -2682,7 +2686,7 @@ def login():
                 # Successful login
                 login_user(user)
                 if process_pending_onboard(user):
-                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+                    flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
                 return redirect(get_user_dashboard())
         else:
             # This shouldn't happen as signup form posts to /register
@@ -3253,7 +3257,7 @@ def onboard():
             send_email(current_user.email, "Item Submitted - Campus Swap", submission_content)
         except Exception as email_error:
             logger.error(f"Onboard email error: {email_error}")
-        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval.", "success")
+        flash("Item submitted! We'll review and price it soon. You'll confirm pickup or dropoff after approval. Check your spam folder if you don't receive our emails.", "success")
 
         return redirect(get_user_dashboard())
 

@@ -1,7 +1,7 @@
 """Make UploadSession.user_id nullable for guest onboarding
 
 Revision ID: m1n2o3p4q5r6
-Revises: suggested_price
+Revises: l6m7n8o9p0q1
 Create Date: 2026-02-23
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = 'm1n2o3p4q5r6'
-down_revision = 'suggested_price'
+down_revision = 'l6m7n8o9p0q1'
 branch_labels = None
 depends_on = None
 
