@@ -151,6 +151,18 @@
         box-shadow: 0 12px 24px -8px rgba(6, 78, 59, 0.12);
     }
 
+    /* Testimonials: distinct block to stand out from value props */
+    .testimonials-section {
+        margin: 100px -20px 80px;
+        padding: 70px 40px 80px;
+        background: linear-gradient(180deg, rgba(6, 78, 59, 0.04) 0%, rgba(6, 78, 59, 0.08) 100%);
+        border-top: 2px solid rgba(6, 78, 59, 0.12);
+        border-bottom: 2px solid rgba(6, 78, 59, 0.12);
+    }
+    .testimonials-section h2 {
+        font-size: 2.25rem !important;
+    }
+
     @media (max-width: 768px) { 
         .grid-split { grid-template-columns: 1fr; } 
         .hero-title { font-size: 3rem; } 
@@ -167,7 +179,7 @@
             gap: 30px !important;
         }
         /* Testimonials responsive */
-        .testimonials-section { margin: 50px 0 70px; }
+        .testimonials-section { margin: 60px -16px 50px; padding: 50px 30px 60px; }
         .testimonials-grid { grid-template-columns: 1fr !important; }
     }
 </style>
@@ -197,7 +209,7 @@
         </div>
 
         <div class="reveal fade-up" style="animation-delay: 0.4s;">
-            <a href="/login" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
+            <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
                 Start Selling <i class="fas fa-arrow-right"></i>
             </a>
         </div>
@@ -209,9 +221,9 @@
     <div class="grid-split">
         <div class="reveal slide-left">
             <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">Snap & Relax</h2>
+            <h2 style="font-size: 2.5rem;">Snap & Relax.</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                Let’s face it- you’re not going to sell your mini-fridge before move-out. Don’t waste time on Facebook Marketplace. Snap a photo of your appliances, and we’ll handle the rest.            </p>
+                Let’s face it- you’re not going to sell your mini-fridge before move-out. Don’t waste time on Facebook Marketplace. Snap a photo of your furniture andappliances, and we’ll handle the rest.            </p>
         </div>
         <div class="visual-block reveal slide-right" style="background: #f1f5f9; position: relative; overflow: hidden;">
     <div style="position: absolute; bottom: 80px; left: 60px;">
@@ -289,56 +301,28 @@
 </div>
         <div class="reveal slide-right">
             <i class="fas fa-box-open" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">We Bridge the Summer Gap</h2>
+            <h2 style="font-size: 2.5rem;">Leave in May. Get Paid All Summer.</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                You leave in May. Buyers are here all summer, and more arrive next semester. We pick up your items, transport them to our <strong>retail store near campus</strong>, and display them for sale for <strong>three months over the summer (June 1-August 31)</strong>. You don&rsquo;t have to dump them. We handle everything.
+                You leave in May — but buyers don't. Students arrive all summer and into next semester, and they need what you're leaving behind. We pick up your items, bring them to our retail store near campus, and list them on our online storefront so they're selling 24/7 — in-store and online — for three months (June 1–August 31). No dumping. No waiting around. We handle everything.
             </p>
         </div>
     </div>
 
-    <div class="timeline-section reveal fade-up">
-        <div style="text-align: center; margin-bottom: 60px;">
-            <h2>How It Works</h2>
-            <p style="color: rgba(255, 255, 255, 0.9); max-width: 500px; margin: 12px auto 0;">List &rarr; Hand off in May &rarr; Get paid 50% when it sells.</p>
+    <div class="grid-split">
+        <div class="reveal slide-left">
+            <i class="fas fa-scale-balanced" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
+            <h2 style="font-size: 2.5rem;">Better Than Storage. Smarter Than Facebook.</h2>
+            <p style="font-size: 1.1rem; color: var(--text-muted);">
+                A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself during the most hectic week of your year. With us, you make money instead of spending it — and we do all the heavy lifting. No fees upfront, no coordination headaches, no regrets.
+            </p>
         </div>
-        <div class="timeline-inner" style="position: relative; max-width: 800px; margin: 0 auto;">
-            <div class="timeline-line"></div>
-            
-            <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
-                <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
-                    <h3>1. List It</h3>
-                    <p>Upload your items for approval.</p>
-                </div>
-                <div class="step-icon"><i class="fas fa-camera"></i></div>
-                <div style="flex: 1;"></div>
-            </div>
-
-            <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
-                <div style="flex: 1;"></div>
-                <div class="step-icon"><i class="fas fa-warehouse"></i></div>
-                <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
-                    <h3>2. Hand It Off In May</h3>
-                    <p>We pick up and bring items to our retail store near campus.</p>
-                </div>
-            </div>
-
-            <div class="timeline-step" style="display: flex; align-items: center;">
-                <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
-                    <h3>3. Go Home, Get Paid</h3>
-                    <p>Items sell over the summer. Submit through the site and earn 50% when yours sells (vs. 33% for in-person drop-offs).</p>
-                </div>
-                <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
-                <div style="flex: 1;"></div>
-            </div>
+        <div class="visual-block reveal slide-right" style="background: #f1f5f9; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px;">
+            <img src="{{ url_for('static', filename='thirdPic.png') }}" alt="Storage costs money, selling yourself is frustrating, we handle it" style="max-width: 100%; max-height: 100%; object-fit: contain;">
         </div>
-        <div style="margin-top: 40px; padding: 24px; background: rgba(255, 255, 255, 0.95); border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 16px; max-width: 500px; margin-left: auto; margin-right: auto;">
-            <strong style="color: var(--primary);"><i class="fas fa-chart-line" style="color: var(--accent);"></i> 50% vs 33%</strong>
-            <p style="color: var(--text-main); font-size: 0.95rem; margin: 8px 0 0;">Submit through the site = 50% when items sell. In-person drop-off = 33%.</p>
-        </div>
-        <p style="text-align: center; margin-top: 30px;"><a href="/become-a-seller" style="color: var(--accent); font-weight: 600;">Learn more on our Become a Seller page &rarr;</a></p>
     </div>
+</div>
 
-    <section class="testimonials-section reveal fade-up" style="margin: 80px 0 100px;">
+    <section class="testimonials-section reveal fade-up">
         <div style="text-align: center; margin-bottom: 50px;">
             <h2 style="font-size: 2rem; color: var(--text-main); margin-bottom: 10px;">What Students Say</h2>
             <p style="color: var(--text-muted); font-size: 1.05rem;">Real experiences from Campus Swap sellers</p>
@@ -358,7 +342,7 @@
             </div>
             <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
                 <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
-                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">The service fee was totally worth it. They came to my dorm, loaded everything, and I didn&rsquo;t have to deal with random Marketplace buyers. 10/10.</p>
+                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">The service fee was totally worth it. They came to my house, loaded everything, and I didn&rsquo;t have to deal with random Marketplace buyers. 10/10.</p>
                 <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Jack P.</div>
                 <div style="font-size: 0.85rem; color: var(--text-muted);">Davidson College &rsquo;26</div>
             </div>

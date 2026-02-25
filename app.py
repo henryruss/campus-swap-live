@@ -1003,6 +1003,9 @@ def product_detail(item_id):
 # --- IMAGE SERVING ROUTE ---
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    # Temp files (QR mobile, guest) are always on disk, never in S3
+    if filename.startswith('temp_') or filename.startswith('guest_temp_'):
+        return send_from_directory(app.config['TEMP_UPLOAD_FOLDER'], filename)
     if photo_storage.is_s3():
         return redirect(photo_storage.get_photo_url(filename), code=302)
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)

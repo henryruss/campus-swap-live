@@ -120,12 +120,16 @@
     .faq-item[open] summary::after {
         content: '−';
     }
-    .faq-item p {
+    .faq-item p,
+    .faq-item ul {
         padding: 0 0 18px;
         margin: 0;
         font-size: 0.95rem;
         line-height: 1.6;
         color: var(--text-muted);
+    }
+    .faq-item ul {
+        padding-left: 1.25rem;
     }
     
     /* Interactive Room - hero (first, biggest section) */
@@ -151,13 +155,18 @@
         margin-bottom: 12px;
         text-align: center;
     }
-    .interactive-room-headline .headline-text {
-        font-size: 1.5rem;
+    .interactive-room-headline .calculator-title {
+        font-size: 1.75rem;
         font-weight: 800;
         color: var(--text-main);
         line-height: 1.35;
-        max-width: 100%;
-        word-wrap: break-word;
+        margin: 0 0 8px;
+    }
+    .interactive-room-headline .calculator-subtitle {
+        font-size: 1.1rem;
+        color: var(--text-muted);
+        margin: 0 0 16px;
+        line-height: 1.5;
     }
     .interactive-room-headline .profit-row {
         display: flex;
@@ -305,7 +314,8 @@
     }
     
     @media (max-width: 768px) {
-        .interactive-room-headline .headline-text { font-size: 1.25rem; }
+        .interactive-room-headline .calculator-title { font-size: 1.4rem; }
+        .interactive-room-headline .calculator-subtitle { font-size: 1rem; }
         .interactive-room-headline .profit-label { font-size: 1.1rem; }
         .interactive-room-headline .total-amount { font-size: 3rem; }
     }
@@ -320,7 +330,11 @@
         <!-- Interactive Room - Hero (calculator) -->
         <div class="interactive-room-hero reveal fade-up">
             <div class="interactive-room">
-                <h2 class="interactive-room-headline"><span class="headline-text">See how much your room could make with Campus Swap</span><span class="profit-row"><span class="profit-label">Your profit:</span><span class="total-amount" id="room-total">$0</span></span></h2>
+                <div class="interactive-room-headline">
+                    <h2 class="calculator-title">What's your room worth?</h2>
+                    <p class="calculator-subtitle">See how much your room is worth with Campus Swap</p>
+                    <span class="profit-row"><span class="profit-label">Your profit:</span><span class="total-amount" id="room-total">$0</span></span>
+                </div>
                 <p class="tagline">Hover over items to see value. Click to add or remove from your potential earnings.</p>
                 <div class="room-image-container" id="room-container">
                     <div class="room-tooltip" id="room-tooltip"></div>
@@ -407,7 +421,7 @@
         <!-- Why We Charge a Fee (full width) -->
         <div id="why-fee" class="payment-structure-section reveal fade-up">
             <h2><i class="fas fa-info-circle"></i> Pricing &amp; Why We Charge</h2>
-            <p class="subhead"><strong>$15 service fee</strong> (covers 1 oversized item) guarantees your space in our store and our move-out pickup service. <strong>$10 per additional oversized item</strong> (we mark during approval). You add your card now. We charge only at pickup for approved items. In-person drop-offs have no fee but earn 33% vs. 50%.</p>
+            <p class="subhead"><strong>$15 service fee</strong> (covers 1 oversized item) guarantees your space in our store and our move-out pickup service. <strong>$10 per additional oversized item</strong> (we mark during approval). In-person drop-offs have no fee but earn 33% vs. 50%.</p>
         </div>
 
     <div class="container">
@@ -417,23 +431,39 @@
             <div class="faq-accordion">
                 <details class="faq-item">
                     <summary>What items can I sell?</summary>
-                    <p>Larger items that typically sell for ~$50+: couches, mini fridges, mattresses, futons, AC units, TVs. No small or low-value items.</p>
+                    <ul>
+                        <li>Larger items that typically sell for ~$50+</li>
+                        <li>Examples: couches, mini fridges, mattresses, futons, AC units, TVs</li>
+                        <li>No small or low-value items</li>
+                    </ul>
                 </details>
                 <details class="faq-item">
                     <summary>What happens if my item doesn't sell?</summary>
-                    <p>If the unlikely event that your item doesn't sell, we will donate it to a local Goodwill or Habitat for Humanity store.</p>
+                    <ul>
+                        <li>In the unlikely event that your item doesn&rsquo;t sell, we donate it to a local Goodwill or Habitat for Humanity store</li>
+                    </ul>
                 </details>
                 <details class="faq-item">
                     <summary>When will you pick up my items?</summary>
-                    <p>We organize pickups by area during move-out. You&rsquo;ll get an email 1-2 days before with your window. We&rsquo;ll text or call 30-60 minutes before we arrive.</p>
+                    <ul>
+                        <li>We organize pickups by area during move-out</li>
+                        <li>You&rsquo;ll get an email 1-2 days before with your window</li>
+                        <li>We&rsquo;ll text or call 30-60 minutes before we arrive</li>
+                    </ul>
                 </details>
                 <details class="faq-item">
                     <summary>Do I need to be home for pickup?</summary>
-                    <p>Yes. Someone must be home to let our team in. We&rsquo;ll contact you before we arrive.</p>
+                    <ul>
+                        <li>Yes. Someone must be home to let our team in</li>
+                        <li>We&rsquo;ll contact you before we arrive</li>
+                    </ul>
                 </details>
                 <details class="faq-item">
                     <summary>What if I&rsquo;m not home when you arrive?</summary>
-                    <p>We&rsquo;ll call you. If you can&rsquo;t get home quickly, we&rsquo;ll try to reschedule once within the pickup period.</p>
+                    <ul>
+                        <li>We&rsquo;ll call you</li>
+                        <li>If you can&rsquo;t get home quickly, we&rsquo;ll try to reschedule once within the pickup period</li>
+                    </ul>
                 </details>
             </div>
         </div>
