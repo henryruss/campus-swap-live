@@ -1952,11 +1952,6 @@ def edit_item(item_id):
         flash("You cannot edit this item.", "error")
         return redirect(get_user_dashboard())
     
-    # Sellers cannot edit until item is approved (avoids race with admin approval)
-    if item.status == 'pending_valuation' and not current_user.is_admin:
-        flash("You can edit this item once it's approved. Changes cannot be made while it's pending review.", "error")
-        return redirect(get_user_dashboard())
-    
     # Prevent editing live items (non-admin sellers). Exception: pod items can be edited until dropped off.
     if item.status == 'available' and not current_user.is_admin:
         is_pod_not_dropped = (
