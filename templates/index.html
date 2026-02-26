@@ -201,11 +201,6 @@
         animation: carousel-scroll 35s linear infinite;
         width: max-content;
     }
-    @media (prefers-reduced-motion: reduce) {
-        .carousel-inner {
-            animation: none;
-        }
-    }
     @keyframes carousel-scroll {
         0% { transform: translateX(0); }
         100% { transform: translateX(-50%); }
