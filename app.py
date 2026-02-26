@@ -196,6 +196,18 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
+# Carousel images: use CDN URL when CAROUSEL_CDN_URL is set (e.g. S3/CloudFront) for faster loading.
+# Set CAROUSEL_CDN_URL to your CloudFront distribution URL or S3 bucket URL (e.g. https://d1234.cloudfront.net/)
+# Upload static/CarouselPics/* to the root of the bucket so URLs resolve as base/CarouselPics/filename.png
+_carousel_cdn_base = os.environ.get('CAROUSEL_CDN_URL', '').rstrip('/')
+if _carousel_cdn_base:
+    _carousel_cdn_base = _carousel_cdn_base + '/'
+@app.context_processor
+def inject_carousel_cdn():
+    return {'carousel_image_base': _carousel_cdn_base}
+
+
 def get_user_dashboard():
     """Helper function to determine where user should be redirected"""
     if current_user.is_authenticated and current_user.is_admin:

@@ -89,7 +89,7 @@
     
     /* VALUE PROPS GRID */
     .grid-split { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; margin: 100px 0; }
-    .what-we-offer-section + .grid-split { margin-top: 40px; }
+    .container > .grid-split:first-child { margin-top: 40px; }
     .visual-block { height: 400px; background: #e2e8f0; border-radius: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #94a3b8; }
 
     /* Ready to sell card */
@@ -164,32 +164,24 @@
         font-size: 2.25rem !important;
     }
 
-    /* What we offer carousel (Neighbor-style) */
+    /* What we offer carousel (Neighbor-style) - full-width */
     .what-we-offer-section {
-        padding: 24px 20px 32px;
-        margin: 0 -20px;
+        padding: 0 0 32px;
         text-align: center;
         background: linear-gradient(180deg, rgba(6, 78, 59, 0.06) 0%, rgba(6, 78, 59, 0.02) 100%);
         border-top: 1px solid rgba(6, 78, 59, 0.1);
         border-bottom: 1px solid rgba(6, 78, 59, 0.1);
-        border-radius: 12px;
+        width: 100%;
+    }
+    .carousel-full-width {
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+        padding: 20px 0 0;
     }
     .what-we-offer-section h2 {
         font-size: 2.25rem;
         color: var(--text-main);
         margin-bottom: 8px;
-    }
-    .what-we-offer-subtitle {
-        font-size: 1.1rem;
-        color: var(--text-muted);
-        margin-bottom: 20px;
-    }
-    .what-we-offer-subtitle a {
-        color: var(--primary);
-        text-decoration: none;
-    }
-    .what-we-offer-subtitle a:hover {
-        text-decoration: underline;
     }
     .carousel-track {
         overflow: hidden;
@@ -220,6 +212,20 @@
         object-fit: cover;
         display: block;
     }
+    .carousel-label {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        z-index: 1;
+    }
 
     @media (max-width: 768px) { 
         .grid-split { grid-template-columns: 1fr; } 
@@ -240,10 +246,11 @@
         .testimonials-section { margin: 60px -16px 50px; padding: 50px 30px 60px; }
         .testimonials-grid { grid-template-columns: 1fr !important; }
         /* Carousel responsive */
-        .what-we-offer-section { padding: 20px 15px 24px; margin: 0 -15px; }
+        .what-we-offer-section { padding: 0 0 24px; }
         .what-we-offer-section h2 { font-size: 1.75rem; margin-bottom: 24px; }
         .carousel-card { width: 160px; }
         .carousel-inner { gap: 12px; }
+        .carousel-label { font-size: 0.65rem; padding: 3px 8px; }
     }
 </style>
 
@@ -279,37 +286,63 @@
     </div>
 </div>
 
-<div class="container">
-    <section class="what-we-offer-section reveal fade-up">
+<section class="what-we-offer-section reveal fade-up">
+    <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 24px 20px 0;">
         <h2>What we offer</h2>
-        <p class="what-we-offer-subtitle"><a href="{{ url_for('inventory') }}">Shop great deals on furniture / appliances in our inventory page</a></p>
-        <div class="carousel-track">
+    </div>
+    <div class="carousel-track carousel-full-width">
             <div class="carousel-inner">
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/couch.png') }}" alt="Couch"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/futon.png') }}" alt="Futon"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/mattress.png') }}" alt="Mattress"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/rug.png') }}" alt="Rug"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/minifridge.png') }}" alt="Mini fridge"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/microwave.png') }}" alt="Microwave"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/tv.png') }}" alt="TV"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/ACunit.png') }}" alt="AC unit"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/heater.png') }}" alt="Heater"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/xbox.png') }}" alt="Xbox"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/couch.png' if carousel_image_base else url_for('static', filename='CarouselPics/couch.png') %}
+                <div class="carousel-card"><span class="carousel-label">Couch</span><img src="{{ carousel_img }}" alt="Couch"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/futon.png' if carousel_image_base else url_for('static', filename='CarouselPics/futon.png') %}
+                <div class="carousel-card"><span class="carousel-label">Futon</span><img src="{{ carousel_img }}" alt="Futon"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/mattress.png' if carousel_image_base else url_for('static', filename='CarouselPics/mattress.png') %}
+                <div class="carousel-card"><span class="carousel-label">Mattress</span><img src="{{ carousel_img }}" alt="Mattress"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/rug.png' if carousel_image_base else url_for('static', filename='CarouselPics/rug.png') %}
+                <div class="carousel-card"><span class="carousel-label">Rug</span><img src="{{ carousel_img }}" alt="Rug"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/minifridge.png' if carousel_image_base else url_for('static', filename='CarouselPics/minifridge.png') %}
+                <div class="carousel-card"><span class="carousel-label">Mini fridge</span><img src="{{ carousel_img }}" alt="Mini fridge"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/microwave.png' if carousel_image_base else url_for('static', filename='CarouselPics/microwave.png') %}
+                <div class="carousel-card"><span class="carousel-label">Microwave</span><img src="{{ carousel_img }}" alt="Microwave"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/tv.png' if carousel_image_base else url_for('static', filename='CarouselPics/tv.png') %}
+                <div class="carousel-card"><span class="carousel-label">TV</span><img src="{{ carousel_img }}" alt="TV"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/ACunit.png' if carousel_image_base else url_for('static', filename='CarouselPics/ACunit.png') %}
+                <div class="carousel-card"><span class="carousel-label">AC unit</span><img src="{{ carousel_img }}" alt="AC unit"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/heater.png' if carousel_image_base else url_for('static', filename='CarouselPics/heater.png') %}
+                <div class="carousel-card"><span class="carousel-label">Heater</span><img src="{{ carousel_img }}" alt="Heater"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/xbox.png' if carousel_image_base else url_for('static', filename='CarouselPics/xbox.png') %}
+                <div class="carousel-card"><span class="carousel-label">Xbox</span><img src="{{ carousel_img }}" alt="Xbox"></div>
                 <!-- Duplicate set for seamless loop -->
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/couch.png') }}" alt="Couch"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/futon.png') }}" alt="Futon"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/mattress.png') }}" alt="Mattress"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/rug.png') }}" alt="Rug"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/minifridge.png') }}" alt="Mini fridge"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/microwave.png') }}" alt="Microwave"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/tv.png') }}" alt="TV"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/ACunit.png') }}" alt="AC unit"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/heater.png') }}" alt="Heater"></div>
-                <div class="carousel-card"><img src="{{ url_for('static', filename='CarouselPics/xbox.png') }}" alt="Xbox"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/couch.png' if carousel_image_base else url_for('static', filename='CarouselPics/couch.png') %}
+                <div class="carousel-card"><span class="carousel-label">Couch</span><img src="{{ carousel_img }}" alt="Couch"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/futon.png' if carousel_image_base else url_for('static', filename='CarouselPics/futon.png') %}
+                <div class="carousel-card"><span class="carousel-label">Futon</span><img src="{{ carousel_img }}" alt="Futon"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/mattress.png' if carousel_image_base else url_for('static', filename='CarouselPics/mattress.png') %}
+                <div class="carousel-card"><span class="carousel-label">Mattress</span><img src="{{ carousel_img }}" alt="Mattress"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/rug.png' if carousel_image_base else url_for('static', filename='CarouselPics/rug.png') %}
+                <div class="carousel-card"><span class="carousel-label">Rug</span><img src="{{ carousel_img }}" alt="Rug"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/minifridge.png' if carousel_image_base else url_for('static', filename='CarouselPics/minifridge.png') %}
+                <div class="carousel-card"><span class="carousel-label">Mini fridge</span><img src="{{ carousel_img }}" alt="Mini fridge"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/microwave.png' if carousel_image_base else url_for('static', filename='CarouselPics/microwave.png') %}
+                <div class="carousel-card"><span class="carousel-label">Microwave</span><img src="{{ carousel_img }}" alt="Microwave"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/tv.png' if carousel_image_base else url_for('static', filename='CarouselPics/tv.png') %}
+                <div class="carousel-card"><span class="carousel-label">TV</span><img src="{{ carousel_img }}" alt="TV"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/ACunit.png' if carousel_image_base else url_for('static', filename='CarouselPics/ACunit.png') %}
+                <div class="carousel-card"><span class="carousel-label">AC unit</span><img src="{{ carousel_img }}" alt="AC unit"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/heater.png' if carousel_image_base else url_for('static', filename='CarouselPics/heater.png') %}
+                <div class="carousel-card"><span class="carousel-label">Heater</span><img src="{{ carousel_img }}" alt="Heater"></div>
+                {% set carousel_img = carousel_image_base ~ 'CarouselPics/xbox.png' if carousel_image_base else url_for('static', filename='CarouselPics/xbox.png') %}
+                <div class="carousel-card"><span class="carousel-label">Xbox</span><img src="{{ carousel_img }}" alt="Xbox"></div>
             </div>
         </div>
-    </section>
+    <div style="text-align: center; padding: 24px 20px 32px;">
+        <a href="{{ url_for('inventory') }}" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
+            Shop Great Deals <i class="fas fa-arrow-right"></i>
+        </a>
+    </div>
+</section>
 
+<div class="container">
     <div class="grid-split">
         <div class="reveal slide-left">
             <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
@@ -405,7 +438,7 @@
             <i class="fas fa-scale-balanced" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
             <h2 style="font-size: 2.5rem;">Better Than Storage. Smarter Than Facebook.</h2>
             <p style="font-size: 1.1rem; color: var(--text-muted);">
-                A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself during the most hectic week of your year. With us, you make money instead of spending it — and we do all the heavy lifting. No fees upfront, no coordination headaches, no regrets.
+                A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself during the most hectic week of your year. With us, you make money instead of spending it. The best part? we do all the heavy lifting. No coordination headaches, no regrets.
             </p>
         </div>
         <div class="visual-block reveal slide-right" style="background: #f1f5f9; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px;">
