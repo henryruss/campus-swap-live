@@ -367,6 +367,17 @@
     }
     .btn-back { background: transparent; color: var(--text-muted); border: none; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 12px 0; }
     .btn-back:hover { color: var(--primary); }
+
+    @media (max-width: 480px) {
+        .onboard-wizard .wizard-container { padding: 20px 16px 60px; }
+        .upload-zone { min-height: 260px; padding: 32px 16px; }
+        .price-input-wrap,
+        .price-input-wrap input { font-size: 16px; }
+        .price-input-wrap .prefix { padding: 14px 16px; }
+        .price-input-wrap input { padding: 14px 16px; }
+        .payout-method-btns { flex-direction: column; }
+        .payout-method-btn { min-width: 100%; }
+    }
 </style>
 
 <div class="wizard-container" data-is-guest="{{ 'true' if is_guest else 'false' }}">

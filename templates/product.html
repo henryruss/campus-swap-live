@@ -79,8 +79,8 @@
     
     .close-lightbox {
         position: absolute;
-        top: 30px;
-        right: 40px;
+        top: calc(30px + env(safe-area-inset-top, 0px));
+        right: calc(40px + env(safe-area-inset-right, 0px));
         color: white;
         font-size: 3rem;
         cursor: pointer;
@@ -92,6 +92,11 @@
         .product-grid { grid-template-columns: 1fr; gap: 30px; }
         .main-photo-frame { height: 300px; }
         .gallery-container { position: static; }
+    }
+    @media (max-width: 480px) {
+        .thumbnail-grid { grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; }
+        .thumbnail { height: 60px; }
+        .close-lightbox { top: calc(16px + env(safe-area-inset-top, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); font-size: 2rem; }
     }
 </style>
 

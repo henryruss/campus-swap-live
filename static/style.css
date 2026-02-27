@@ -41,6 +41,14 @@ main { flex: 1; } /* Pushes footer to bottom */
 h1, h2, h3, h4 { color: var(--text-main); font-weight: 800; letter-spacing: -0.03em; margin-top: 0; }
 a { text-decoration: none; color: inherit; transition: color 0.2s; }
 
+/* Touch feedback: subtle tap highlight on mobile */
+a, button, .btn, .share-card-btn, .mobile-menu-link, .mobile-menu-store,
+.category-card, .condition-btn, .location-btn, .payout-method-btn,
+.pickup-week-card, .store-option {
+    -webkit-tap-highlight-color: rgba(6, 78, 59, 0.1);
+    touch-action: manipulation;
+}
+
 /* --- COMPONENTS --- */
 .card {
     background: var(--card-bg);
@@ -377,6 +385,10 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 
 @media (max-width: 768px) {
     /* Additional mobile tweaks - header/nav already handled at 950px breakpoint */
+    /* Form inputs: 16px prevents iOS zoom on focus */
+    input, select, textarea {
+        font-size: 16px;
+    }
     /* Container */
     .container {
         padding: 20px 15px;
@@ -467,6 +479,10 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     /* Prevent header/body width mismatch on small screens */
     body {
         overflow-x: hidden;
+    }
+    /* Inventory grid: prevent horizontal scroll on 320px devices */
+    .grid-inventory {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     }
     /* Hero - extend to fill viewport below header */
     .hero-wrapper {
@@ -716,6 +732,10 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 .pod-selection-card { padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 12px; }
 
 .guest-mode-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
+@media (max-width: 480px) {
+    .guest-mode-card form { flex-direction: column !important; align-items: stretch !important; }
+    .guest-mode-card form input[type="password"] { min-width: 0 !important; }
+}
 .action-required-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
 
 /* Listing modal (item popup in My Shop) */
@@ -742,14 +762,14 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     .dashboard-receipt-header, .dashboard-receipt-body { padding: 20px; }
 }
 
-/* Share card button (inventory) */
+/* Share card button (inventory) - 44px min tap target for mobile */
 .inventory-card-photo { position: relative; }
 .share-card-btn {
     position: absolute;
     top: 12px;
     right: 12px;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     border: none;
     background: rgba(0, 0, 0, 0.5);

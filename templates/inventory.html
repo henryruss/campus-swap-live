@@ -1,6 +1,30 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<style>
+    .inventory-search-form {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .inventory-search-form input[type="text"] {
+        flex: 1;
+        min-width: 120px;
+    }
+    .inventory-search-form .btn {
+        flex-shrink: 0;
+    }
+    @media (max-width: 480px) {
+        .inventory-search-form {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .inventory-search-form input[type="text"] {
+            min-width: 0;
+        }
+    }
+</style>
 
 <div class="container">
 
@@ -51,7 +75,7 @@
 
     <!-- Search Box -->
     <div style="margin-bottom: 30px;">
-        <form method="GET" action="/inventory" style="display: flex; gap: 10px; align-items: center;">
+        <form method="GET" action="/inventory" class="inventory-search-form">
             <input type="text" 
                    name="search" 
                    placeholder="Search items..." 

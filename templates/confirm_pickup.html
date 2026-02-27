@@ -1,6 +1,11 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<style>
+    @media (max-width: 480px) {
+        .location-buttons-grid { grid-template-columns: 1fr !important; }
+    }
+</style>
 <div class="container confirm-pickup-wizard" style="max-width: 560px; margin-top: 40px;" data-has-location="{{ 'true' if has_pickup_location else 'false' }}" data-is-free="{{ 'true' if is_free_confirmed else 'false' }}">
     <div style="margin-bottom: 30px;">
         <a href="{{ url_for('dashboard') }}" style="color: var(--text-muted); font-weight: 600;">

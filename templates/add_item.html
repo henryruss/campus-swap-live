@@ -76,6 +76,12 @@
     .category-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(6, 78, 59, 0.08); border-radius: 12px; color: var(--primary); font-size: 1.5rem; }
     .category-card.selected .category-icon { background: var(--primary); color: white; }
     .category-name { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+    @media (max-width: 480px) {
+        .add-item-wizard .wizard-container { padding: 20px 16px 60px; }
+        .price-input-wrap, .price-input-wrap input { font-size: 16px; }
+        .price-input-wrap .prefix { padding: 14px 16px; }
+        .price-input-wrap input { padding: 14px 16px; }
+    }
 </style>
 
 <div class="wizard-container">
