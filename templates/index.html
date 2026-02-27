@@ -87,10 +87,48 @@
     .ticker-icon { font-size: 2.5rem; margin-bottom: 5px; }
     .ticker-price { font-size: 1.4rem; font-weight: 800; color: var(--text-main); }
     
-    /* VALUE PROPS GRID */
-    .grid-split { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; margin: 100px 0; }
-    .container > .grid-split:first-child { margin-top: 40px; }
-    .visual-block { height: 400px; background: #e2e8f0; border-radius: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #94a3b8; }
+    /* VALUE PROPS ROW */
+    .value-props-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 24px;
+        margin: 80px 0;
+        align-items: start;
+    }
+    .value-prop-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 36px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .value-prop-card .vp-icon {
+        width: 52px;
+        height: 52px;
+        background: rgba(6, 78, 59, 0.08);
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: var(--primary);
+        margin-bottom: 4px;
+    }
+    .value-prop-card h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1.3;
+        color: var(--text-main);
+        margin: 0;
+    }
+    .value-prop-card p {
+        font-size: 1rem;
+        color: var(--text-muted);
+        line-height: 1.6;
+        margin: 0;
+    }
 
     /* Ready to sell card */
     .ready-to-sell-card {
@@ -228,7 +266,7 @@
     }
 
     @media (max-width: 768px) { 
-        .grid-split { grid-template-columns: 1fr; } 
+        .value-props-row { grid-template-columns: 1fr; gap: 16px; }
         .hero-title { font-size: 3rem; } 
         .hero-sentence { font-size: 1.4rem; }
         .hero-wrapper {
@@ -288,7 +326,7 @@
 
 <section class="what-we-offer-section reveal fade-up">
     <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 24px 20px 0;">
-        <h2>What we offer</h2>
+        <h2>What We Offer</h2>
     </div>
     <div class="carousel-track carousel-full-width">
             <div class="carousel-inner">
@@ -343,109 +381,23 @@
 </section>
 
 <div class="container">
-    <div class="grid-split">
-        <div class="reveal slide-left">
-            <i class="fas fa-camera" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">Snap & Relax.</h2>
-            <p style="font-size: 1.1rem; color: var(--text-muted);">
-                Let’s face it: you’re not going to sell your mini-fridge before move-out. Don’t waste time on Facebook Marketplace. Snap a photo of your furniture and appliances, and we’ll handle the rest.            </p>
+    <div class="value-props-row">
+        <div class="value-prop-card reveal fade-up">
+            <div class="vp-icon"><i class="fas fa-camera"></i></div>
+            <h2>Snap &amp; Relax.</h2>
+            <p>Let&rsquo;s face it: you&rsquo;re not going to sell your mini-fridge before move-out. Don&rsquo;t waste time on Facebook Marketplace. Snap a photo of your furniture and appliances, and we&rsquo;ll handle the rest.</p>
         </div>
-        <div class="visual-block reveal slide-right" style="background: #f1f5f9; position: relative; overflow: hidden;">
-    <div style="position: absolute; bottom: 80px; left: 60px;">
-        <div style="width: 120px; height: 50px; background: var(--primary); border-radius: 12px;"></div> <div style="width: 25px; height: 45px; background: var(--primary-light); position: absolute; top: -15px; left: -5px; border-radius: 8px;"></div> <div style="width: 25px; height: 45px; background: var(--primary-light); position: absolute; top: -15px; right: -5px; border-radius: 8px;"></div> <div style="width: 100px; height: 60px; background: var(--primary-light); position: absolute; top: -40px; left: 10px; border-radius: 12px; z-index: -1;"></div> </div>
-
-    <div id="photographer" style="position: absolute; bottom: 80px; right: 80px; width: 40px; height: 100px;">
-        <div style="width: 22px; height: 22px; border: 3px solid #334155; border-radius: 50%; position: absolute; top: 0; left: 9px;"></div> <div style="width: 4px; height: 40px; background: #334155; border-radius: 4px; position: absolute; top: 20px; left: 18px;"></div> <div style="width: 4px; height: 35px; background: #334155; border-radius: 4px; position: absolute; bottom: 0; left: 8px; transform: rotate(15deg); transform-origin: top;"></div>
-        <div style="width: 4px; height: 35px; background: #334155; border-radius: 4px; position: absolute; bottom: 0; right: 8px; transform: rotate(-15deg); transform-origin: top;"></div>
-        <div style="width: 24px; height: 4px; background: #334155; border-radius: 4px; position: absolute; top: 35px; left: -2px;"></div>
-    </div>
-
-    <div style="position: absolute; bottom: 135px; right: 105px; width: 24px; height: 16px; background: #0f172a; border-radius: 4px;">
-        <div style="width: 8px; height: 8px; background: #94a3b8; border-radius: 50%; position: absolute; top: 4px; left: 8px;"></div>
-        
-        <div class="flash-lines" style="position: absolute; top: -15px; left: -10px; width: 40px; height: 20px; opacity: 0;">
-            <div style="width: 2px; height: 8px; background: #f59e0b; position: absolute; left: 50%; top: 0; border-radius: 2px;"></div> <div style="width: 2px; height: 8px; background: #f59e0b; position: absolute; left: 10%; top: 5px; transform: rotate(-45deg); border-radius: 2px;"></div> <div style="width: 2px; height: 8px; background: #f59e0b; position: absolute; right: 10%; top: 5px; transform: rotate(45deg); border-radius: 2px;"></div> </div>
-    </div>
-
-    <style>
-        /* ANIMATION: Flash & Jump */
-        @keyframes flashJump {
-            0%, 85% { transform: translateY(0) rotate(0deg); }
-            90% { transform: translateY(-5px) rotate(-5deg); } /* Mini Jump */
-            95% { transform: translateY(0) rotate(0deg); }
-        }
-        @keyframes linePop {
-            0%, 89% { opacity: 0; transform: scale(0.5); }
-            90% { opacity: 1; transform: scale(1.2); } /* Pop! */
-            95% { opacity: 0; transform: scale(1.5); }
-        }
-        
-        #photographer { animation: flashJump 3s infinite ease-in-out; }
-        .flash-lines { animation: linePop 3s infinite; }
-    </style>
-</div>
-    </div>
-
-    <div class="grid-split">
-        <div class="visual-block reveal slide-left" style="background: #e0f2fe; position: relative; overflow: hidden;">
-    
-    <div style="position: absolute; bottom: 0; width: 100%; height: 60px; background: #cbd5e1; border-top: 4px solid #94a3b8;"></div>
-
-    <div style="position: absolute; bottom: 60px; left: 20px; width: 80px; height: 120px; background: #f87171; border-radius: 4px; display: grid; grid-template-columns: 1fr 1fr; padding: 5px; gap: 5px;">
-        <div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div><div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div>
-        <div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div><div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div>
-        <div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div><div style="background: #fef2f2; height: 20px; border-radius: 2px;"></div>
-    </div>
-    
-    <div style="position: absolute; bottom: 60px; right: 20px; width: 100px; height: 80px; background: #64748b; border-radius: 4px 4px 0 0;">
-        <div style="width: 60px; height: 40px; background: #475569; margin: 40px auto 0; border-radius: 4px 4px 0 0;"></div>
-    </div>
-
-    <div id="uhaul" style="position: absolute; bottom: 65px; left: 120px; width: 60px; height: 30px;">
-        <div style="width: 40px; height: 30px; background: var(--primary); position: absolute; left: 0; border-radius: 3px;"></div>
-        <div style="width: 30px; height: 4px; background: rgba(255,255,255,0.3); position: absolute; left: 5px; top: 12px;"></div>
-        
-        <div style="width: 20px; height: 20px; background: #cbd5e1; position: absolute; right: 0; bottom: 0; border-radius: 0 4px 0 0;"></div>
-        <div style="width: 12px; height: 10px; background: #94a3b8; position: absolute; right: 2px; top: 2px; border-radius: 0 2px 0 0;"></div>
-        
-        <div style="width: 10px; height: 10px; background: #1e293b; border-radius: 50%; position: absolute; bottom: -5px; left: 5px; border: 2px solid #64748b;"></div>
-        <div style="width: 10px; height: 10px; background: #1e293b; border-radius: 50%; position: absolute; bottom: -5px; right: 5px; border: 2px solid #64748b;"></div>
-    </div>
-
-    <style>
-        /* ANIMATION: Drive Back and Forth */
-        @keyframes driveLoop {
-            0% { transform: translateX(0) scaleX(1); }
-            45% { transform: translateX(180px) scaleX(1); } /* Drive Right */
-            50% { transform: translateX(180px) scaleX(-1); } /* Flip (Turn Around) */
-            95% { transform: translateX(0) scaleX(-1); } /* Drive Left */
-            100% { transform: translateX(0) scaleX(1); } /* Flip Back */
-        }
-        #uhaul { animation: driveLoop 6s infinite linear; }
-    </style>
-</div>
-        <div class="reveal slide-right">
-            <i class="fas fa-box-open" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">Leave in May. Get Paid All Summer.</h2>
-            <p style="font-size: 1.1rem; color: var(--text-muted);">
-                You leave in May. Buyers don't. Students arrive all summer and into next semester, and they need what you're leaving behind. We pick up your items, bring them to our retail store near campus, and list them on our online storefront so they're selling 24/7, in-store and online, for three months (June 1–August 31). No dumping. No waiting around. We handle everything.
-            </p>
+        <div class="value-prop-card reveal fade-up" style="animation-delay: 0.1s;">
+            <div class="vp-icon"><i class="fas fa-box-open"></i></div>
+            <h2>Leave in May. Get Paid All Summer.</h2>
+            <p>You leave in May. Buyers don&rsquo;t. Students arrive all summer and into next semester, and they need what you&rsquo;re leaving behind. We pick up your items, list them at our store near campus, and sell them 24/7 for three months. No dumping. No waiting around. We handle everything.</p>
+        </div>
+        <div class="value-prop-card reveal fade-up" style="animation-delay: 0.2s;">
+            <div class="vp-icon"><i class="fas fa-scale-balanced"></i></div>
+            <h2>Better Than Storage. Smarter Than Facebook.</h2>
+            <p>A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself. With us, you make money instead of spending it &mdash; and we do all the heavy lifting.</p>
         </div>
     </div>
-
-    <div class="grid-split">
-        <div class="reveal slide-left">
-            <i class="fas fa-scale-balanced" style="font-size: 2.5rem; color: var(--accent); margin-bottom: 20px;"></i>
-            <h2 style="font-size: 2.5rem;">Better Than Storage. Smarter Than Facebook.</h2>
-            <p style="font-size: 1.1rem; color: var(--text-muted);">
-                A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself during the most hectic week of your year. With us, you make money instead of spending it. The best part? we do all the heavy lifting. No coordination headaches, no regrets.
-            </p>
-        </div>
-        <div class="visual-block reveal slide-right" style="background: #f1f5f9; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px;">
-            <img src="{{ url_for('static', filename='thirdPic.png') }}" alt="Storage costs money, selling yourself is frustrating, we handle it" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-        </div>
-    </div>
-
     <div class="reveal fade-up" style="text-align: center; margin: 60px 0 80px;">
         <p style="font-size: 1.25rem; color: var(--text-muted); margin-bottom: 16px;">Curious how it all works?</p>
         <a href="{{ url_for('become_a_seller') }}" class="btn btn-primary" style="padding: 14px 28px; font-size: 1rem;">
@@ -469,7 +421,7 @@
             <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
                 <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
                 <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0 0 20px;">Dropped off my futon and desk at their pod. Zero hassle. Venmo hit a few weeks later. Way better than leaving stuff on the curb.</p>
-                <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Henry R.</div>
+                <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Piper H.</div>
                 <div style="font-size: 0.85rem; color: var(--text-muted);">Davidson College &rsquo;25</div>
             </div>
             <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">

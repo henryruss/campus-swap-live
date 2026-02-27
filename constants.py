@@ -7,6 +7,15 @@ PAYOUT_PERCENTAGE_ONLINE = 0.50   # Sellers receive 50% when submitting through 
 PAYOUT_PERCENTAGE_IN_PERSON = 0.33  # Sellers receive 33% for in-person drop-offs (Campus Swap takes 67%)
 PAYOUT_PERCENTAGE = 0.50  # Legacy alias; use PAYOUT_PERCENTAGE_ONLINE
 
+# Capacity Limits
+WAREHOUSE_CAPACITY = 2000   # Total items we can physically store and sell at our warehouse
+POD_CAPACITY = 250          # Total items that can be held across all campus PODs at once
+
+# Free Tier Configuration
+PAYOUT_PERCENTAGE_FREE = 0.20  # Free-tier sellers receive 20% (space-permitting pickup)
+FREE_TIER_MAX_ITEMS = 3        # Max items a free-tier seller can list
+
+
 # Payment Configuration
 SERVICE_FEE_CENTS = 1500  # $15 service fee (guarantees space + move-out pickup)
 LARGE_ITEM_FEE_CENTS = 1000  # $10 per additional large item (first included in SERVICE_FEE_CENTS)

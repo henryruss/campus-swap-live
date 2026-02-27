@@ -1,25 +1,48 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="container" style="max-width: 560px; margin-top: 40px;">
+<div class="container confirm-pickup-wizard" style="max-width: 560px; margin-top: 40px;" data-has-location="{{ 'true' if has_pickup_location else 'false' }}" data-is-free="{{ 'true' if is_free_confirmed else 'false' }}">
     <div style="margin-bottom: 30px;">
         <a href="{{ url_for('dashboard') }}" style="color: var(--text-muted); font-weight: 600;">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
         </a>
     </div>
 
-    <h1 style="margin-bottom: 10px;">Confirm Pickup & Pay</h1>
-    <p style="color: var(--text-muted); margin-bottom: 30px;">Select your pickup week and pay to secure your spot. This decision is final.</p>
-
-    <div class="card no-hover" style="margin-bottom: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #f8fafc; border-radius: 12px; margin-bottom: 24px;">
-            <span style="font-size: 1.25rem; font-weight: 700;">Service fee</span>
-            <span style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">$15.00</span>
+    {% if is_free_confirmed %}
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; gap: 12px; align-items: flex-start;">
+        <i class="fas fa-check-circle" style="color: #166534; font-size: 1.25rem; margin-top: 2px;"></i>
+        <div>
+            <strong style="color: #166534;">Free plan &mdash; no payment needed</strong>
+            <p style="color: #166534; font-size: 0.9rem; margin: 4px 0 0;">Add your address and phone, choose a pickup week. If we have space, you'll be on the route.</p>
         </div>
+    </div>
+    {% else %}
+    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; gap: 12px; align-items: flex-start;">
+        <i class="fas fa-truck" style="color: #92400e; font-size: 1.25rem; margin-top: 2px;"></i>
+        <div>
+            <strong style="color: #92400e;">Almost there!</strong>
+            <p style="color: #92400e; font-size: 0.9rem; margin: 4px 0 0;">Choose your pickup week, add your address, and pay $15 to lock in your spot.</p>
+        </div>
+    </div>
+    {% endif %}
 
-        <form method="POST" action="{{ url_for('confirm_pickup') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <label style="font-weight: 600; margin-bottom: 12px; display: block;">Pickup week</label>
+    <h1 style="margin-bottom: 10px;">{% if is_free_confirmed %}Confirm Pickup Details{% else %}Confirm Pickup &amp; Pay{% endif %}</h1>
+    <p style="color: var(--text-muted); margin-bottom: 24px;">Tell us when and where to come. Your items will go live once confirmed.</p>
+
+    <div class="progress-bar-wrap" style="height: 6px; background: rgba(6, 78, 59, 0.12); border-radius: 999px; overflow: hidden; margin-bottom: 32px;">
+        <div class="progress-bar-fill" id="confirm-progress" style="height: 100%; background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%); border-radius: 999px; transition: width 0.3s ease;"></div>
+    </div>
+
+    <form method="POST" action="{{ url_for('confirm_pickup') }}" id="confirm-pickup-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        {% if has_pickup_location %}
+        <input type="hidden" name="pickup_location_type" value="skip">
+        {% endif %}
+
+        <!-- Step 1: Pickup Week -->
+        <div class="wizard-step active" id="step-week" data-step="1">
+            <h2 class="step-title" style="font-size: 1.2rem; font-weight: 700; margin-bottom: 8px;">When should we pick up?</h2>
+            <p class="step-sub" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">Select your pickup week. This choice cannot be changed after confirmation.</p>
             <div class="pickup-week-grid">
                 {% for value, label in pickup_weeks %}
                 <label class="pickup-week-card">
@@ -28,22 +51,118 @@
                 </label>
                 {% endfor %}
             </div>
-            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 20px 0;">
-                <button type="button" onclick="toggleRouteMessage()" aria-label="More info" style="background: none; border: none; padding: 0; cursor: pointer; color: var(--text-muted); margin-right: 4px; vertical-align: middle;">
-                    <i class="fas fa-info-circle"></i>
-                </button>
+        </div>
+
+        <!-- Step 2: Address (skip if has_pickup_location) -->
+        <div class="wizard-step" id="step-address" data-step="2" {% if has_pickup_location %}style="display:none;"{% endif %}>
+            <h2 class="step-title" style="font-size: 1.2rem; font-weight: 700; margin-bottom: 8px;">Where should we come?</h2>
+            <p class="step-sub" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">We'll text you when we're on the way.</p>
+
+            <div style="margin-bottom: 20px;">
+                <div class="location-buttons-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                    <label class="location-type-btn">
+                        <input type="radio" name="pickup_location_type" value="on_campus" {% if not has_pickup_location %}required{% endif %} class="location-radio-sr">
+                        <span class="location-btn-icon"><i class="fas fa-building"></i></span>
+                        <span class="location-btn-label">On-campus</span>
+                        <span class="location-btn-desc">Dorm or residence hall</span>
+                    </label>
+                    <label class="location-type-btn">
+                        <input type="radio" name="pickup_location_type" value="off_campus" class="location-radio-sr">
+                        <span class="location-btn-icon"><i class="fas fa-home"></i></span>
+                        <span class="location-btn-label">Off-campus</span>
+                        <span class="location-btn-desc">House or apartment</span>
+                    </label>
+                </div>
+                <div id="on-campus-fields" style="display: none;">
+                    <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Dorm</label>
+                    <select name="pickup_dorm" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px; font-size: 0.95rem;">
+                        <option value="">Select dorm...</option>
+                        {% for area, halls in dorms.items() %}
+                        <optgroup label="{{ area }}">
+                            {% for hall in halls %}
+                            <option value="{{ hall }}">{{ hall }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                    <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Room number</label>
+                    <input type="text" name="pickup_room" placeholder="e.g. 204" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                </div>
+                <div id="off-campus-fields" style="display: none;">
+                    <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Address</label>
+                    <input type="text" name="pickup_address" id="pickup_address_input" placeholder="Start typing your address..." style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px;">
+                    <input type="hidden" name="pickup_lat" id="pickup_lat_input">
+                    <input type="hidden" name="pickup_lng" id="pickup_lng_input">
+                    <div id="pickup-map-container" style="display: none; margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; height: 180px;">
+                        <iframe id="pickup-map-iframe" style="width: 100%; height: 100%; border: 0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                    </div>
+                    <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px; margin-top: 12px;">Additional directions (optional)</label>
+                    <input type="text" name="pickup_note" placeholder="e.g. Third floor, Unit B" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                </div>
+            </div>
+            <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Phone number</label>
+            <input type="tel" name="phone" id="phone-input" placeholder="(555) 555-5555" maxlength="14" value="" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 0;">So we can text you when we're on the way.</p>
+        </div>
+
+        <!-- Step 3: Pay or Confirm -->
+        <div class="wizard-step" id="step-confirm" data-step="3">
+            <h2 class="step-title" style="font-size: 1.2rem; font-weight: 700; margin-bottom: 8px;">{% if is_free_confirmed %}Confirm{% else %}Review &amp; Pay{% endif %}</h2>
+            <p class="step-sub" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">Double-check your details below.</p>
+
+            <div id="review-week" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Pickup week</div>
+                <div id="review-week-value" style="font-weight: 600; font-size: 1rem;">—</div>
+            </div>
+            <div id="review-address-block" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Pickup location</div>
+                <div id="review-address-value" style="font-weight: 600; font-size: 1rem;">—</div>
+            </div>
+            <div id="review-phone-block" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Contact phone</div>
+                <div id="review-phone-value" style="font-weight: 600; font-size: 1rem;">—</div>
+            </div>
+            {% if is_free_confirmed and has_pickup_location %}
+            <div style="margin-bottom: 16px;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Phone number</label>
+                <input type="tel" name="phone" id="phone-input-confirm" placeholder="(555) 555-5555" maxlength="14" value="{{ current_user.phone or '' }}" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 0;">So we can text you when we're on the way.</p>
+            </div>
+            {% endif %}
+            {% if not is_free_confirmed %}
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #f8fafc; border-radius: 12px; margin-bottom: 16px;">
+                <span style="font-size: 1.25rem; font-weight: 700;">Service fee</span>
+                <span style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">$15.00</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px;">
+                <button type="button" onclick="var el=document.getElementById('route-message');if(el)el.style.display=el.style.display==='none'?'block':'none';" aria-label="More info" style="background: none; border: none; padding: 0; cursor: pointer; color: var(--text-muted); margin-right: 4px; vertical-align: middle;"><i class="fas fa-info-circle"></i></button>
                 Your choice of pickup week cannot be changed after confirmation.
             </p>
+            {% endif %}
             <div id="route-message" style="display: none; font-size: 0.9rem; color: var(--text-muted); padding: 12px; background: #f8fafc; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid var(--primary);">
                 We optimize our routes and will let you know more specifically when we're coming by {{ route_specific_date }}.
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px; font-size: 1.1rem;">
-                <i class="fas fa-credit-card"></i> Pay $15 & Confirm Pickup
+                {% if is_free_confirmed %}<i class="fas fa-check-circle"></i> Confirm Pickup{% else %}<i class="fas fa-credit-card"></i> Pay $15 &amp; Confirm Pickup{% endif %}
             </button>
-        </form>
+        </div>
+    </form>
+
+    <div class="wizard-nav-wrap" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #e2e8f0;">
+        <div id="wizard-validation-error" class="wizard-validation-error" role="alert" style="display: none; align-items: center; gap: 10px; padding: 10px 14px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; color: #c2410c; font-size: 0.9rem; font-weight: 500; margin-bottom: 12px;">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="wizard-validation-message"></span>
+        </div>
+        <div class="wizard-nav" style="display: flex; justify-content: space-between; align-items: center;">
+            <button type="button" class="btn-back" id="btn-back" style="visibility: hidden; background: transparent; color: var(--text-muted); border: none; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 12px 0;"><i class="fas fa-arrow-left"></i> Back</button>
+            <button type="button" class="btn btn-primary" id="btn-next">Next</button>
+        </div>
     </div>
 </div>
+
 <style>
+.confirm-pickup-wizard .wizard-step { display: none; }
+.confirm-pickup-wizard .wizard-step.active { display: block; }
 .pickup-week-grid { display: flex; flex-direction: column; gap: 12px; }
 .pickup-week-card {
     display: block;
@@ -60,11 +179,239 @@
 }
 .pickup-week-card input { position: absolute; opacity: 0; pointer-events: none; }
 .pickup-week-label { font-weight: 600; font-size: 1rem; }
-</style>
-<script>
-function toggleRouteMessage() {
-    var el = document.getElementById('route-message');
-    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+.location-type-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 28px 24px;
+    border: 2px solid #e2e8f0;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    background: #fff;
 }
+.location-type-btn:hover {
+    border-color: var(--primary);
+    background: #f0fdf4;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(6, 78, 59, 0.12);
+}
+.location-type-btn:has(input:checked) {
+    border-color: var(--primary);
+    background: #dcfce7;
+    box-shadow: 0 0 0 3px rgba(6, 78, 59, 0.2);
+}
+.location-type-btn .location-radio-sr {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.location-type-btn .location-btn-icon {
+    font-size: 2rem;
+    color: var(--primary);
+}
+.location-type-btn .location-btn-label {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #1e293b;
+}
+.location-type-btn .location-btn-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+</style>
+
+{% if google_maps_key %}
+<script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places" async defer></script>
+{% endif %}
+<script>
+(function() {
+    var container = document.querySelector('.confirm-pickup-wizard');
+    if (!container) return;
+    var hasLocation = container.dataset.hasLocation === 'true';
+    var isFree = container.dataset.isFree === 'true';
+    var totalSteps = hasLocation ? 2 : 3;
+    var currentStep = 1;
+
+    var stepWeek = document.getElementById('step-week');
+    var stepAddress = document.getElementById('step-address');
+    var stepConfirm = document.getElementById('step-confirm');
+    var progressFill = document.getElementById('confirm-progress');
+    var btnNext = document.getElementById('btn-next');
+    var btnBack = document.getElementById('btn-back');
+    var form = document.getElementById('confirm-pickup-form');
+    var validationEl = document.getElementById('wizard-validation-error');
+    var validationMsg = document.getElementById('wizard-validation-message');
+
+    function showError(msg) {
+        if (validationMsg) validationMsg.textContent = msg;
+        if (validationEl) { validationEl.style.display = 'flex'; validationEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    }
+    function hideError() {
+        if (validationEl) validationEl.style.display = 'none';
+    }
+
+    function getStepEl(step) {
+        if (step === 1) return stepWeek;
+        if (hasLocation) return stepConfirm;
+        if (step === 2) return stepAddress;
+        return stepConfirm;
+    }
+
+    function goStep(step) {
+        hideError();
+        [stepWeek, stepAddress, stepConfirm].forEach(function(el) { if (el) el.classList.remove('active'); });
+        var el = getStepEl(step);
+        if (el) el.classList.add('active');
+        currentStep = step;
+        progressFill.style.width = (step / totalSteps * 100) + '%';
+        btnBack.style.visibility = step > 1 ? 'visible' : 'hidden';
+        if (step === totalSteps) {
+            btnNext.style.display = 'none';
+            populateReview();
+        } else {
+            btnNext.style.display = 'flex';
+        }
+        window.scrollTo(0, 0);
+    }
+
+    function validateStep(step) {
+        if (step === 1) {
+            var week = form.querySelector('input[name="pickup_week"]:checked');
+            if (!week) { showError('Please select a pickup week.'); return false; }
+        }
+        if (step === 2 && !hasLocation) {
+            var locType = form.querySelector('input[name="pickup_location_type"]:checked');
+            if (!locType) { showError('Please select on-campus or off-campus.'); return false; }
+            if (locType.value === 'on_campus') {
+                var dorm = form.querySelector('select[name="pickup_dorm"]');
+                var room = form.querySelector('input[name="pickup_room"]');
+                if (!dorm || !dorm.value || !room || !room.value.trim()) { showError('Please select your dorm and enter your room number.'); return false; }
+            } else {
+                var addr = form.querySelector('input[name="pickup_address"]');
+                if (!addr || !addr.value.trim()) { showError('Please enter your address.'); return false; }
+            }
+            var phone = document.getElementById('phone-input');
+            if (phone) {
+                var digits = (phone.value || '').replace(/\D/g, '');
+                if (digits.length < 10) { showError('Please enter a valid 10-digit phone number.'); return false; }
+            }
+        }
+        if (step === 2 && hasLocation && isFree) {
+            var phoneEl = document.getElementById('phone-input-confirm') || document.getElementById('phone-input');
+            if (phoneEl) {
+                var digits = (phoneEl.value || '').replace(/\D/g, '');
+                if (digits.length < 10) { showError('Please enter a valid 10-digit phone number.'); return false; }
+            }
+        }
+        return true;
+    }
+
+    btnNext.addEventListener('click', function() {
+        if (!validateStep(currentStep)) return;
+        if (currentStep < totalSteps) goStep(currentStep + 1);
+    });
+    btnBack.addEventListener('click', function() {
+        if (currentStep > 1) goStep(currentStep - 1);
+    });
+
+    function populateReview() {
+        var weekRadio = form.querySelector('input[name="pickup_week"]:checked');
+        var weekVal = document.getElementById('review-week-value');
+        if (weekVal && weekRadio) {
+            var weekLabels = { {% for value, label in pickup_weeks %}'{{ value }}': '{{ label }}'{% if not loop.last %}, {% endif %}{% endfor %} };
+            weekVal.textContent = weekLabels[weekRadio.value] || weekRadio.value;
+        }
+        var addrBlock = document.getElementById('review-address-block');
+        var addrVal = document.getElementById('review-address-value');
+        if (hasLocation && addrBlock) addrBlock.style.display = 'none';
+        else if (addrVal) {
+            var locType = form.querySelector('input[name="pickup_location_type"]:checked');
+            if (locType && locType.value === 'on_campus') {
+                var dorm = form.querySelector('select[name="pickup_dorm"]');
+                var room = form.querySelector('input[name="pickup_room"]');
+                addrVal.textContent = (dorm && dorm.value ? dorm.value : '') + (room && room.value ? ', Room ' + room.value : '');
+            } else {
+                var addr = form.querySelector('input[name="pickup_address"]');
+                addrVal.textContent = addr && addr.value ? addr.value : '—';
+            }
+        }
+        var phoneVal = document.getElementById('review-phone-value');
+        if (phoneVal) {
+            var phoneEl = document.getElementById('phone-input-confirm') || document.getElementById('phone-input');
+            phoneVal.textContent = (phoneEl && phoneEl.value) ? phoneEl.value : '—';
+        }
+    }
+
+    var radios = document.querySelectorAll('input[name="pickup_location_type"]');
+    var onCampus = document.getElementById('on-campus-fields');
+    var offCampus = document.getElementById('off-campus-fields');
+    if (radios.length && onCampus && offCampus) {
+        radios.forEach(function(r) {
+            r.addEventListener('change', function() {
+                onCampus.style.display = this.value === 'on_campus' ? 'block' : 'none';
+                offCampus.style.display = this.value === 'off_campus' ? 'block' : 'none';
+                hideError();
+            });
+        });
+    }
+
+    function formatPhoneInput(el) {
+        if (!el) return;
+        el.addEventListener('input', function() {
+            var v = this.value.replace(/\D/g,'').slice(0,10);
+            if (v.length >= 6) this.value = '('+v.slice(0,3)+') '+v.slice(3,6)+'-'+v.slice(6);
+            else if (v.length >= 3) this.value = '('+v.slice(0,3)+') '+v.slice(3);
+            else this.value = v;
+            hideError();
+        });
+    }
+    formatPhoneInput(document.getElementById('phone-input'));
+    formatPhoneInput(document.getElementById('phone-input-confirm'));
+
+    form.addEventListener('submit', function(e) {
+        if (currentStep !== totalSteps) {
+            e.preventDefault();
+            return false;
+        }
+        if (!validateStep(currentStep)) {
+            e.preventDefault();
+            return false;
+        }
+    });
+
+    var key = '{{ google_maps_key or "" }}';
+    if (key) {
+        var addrInput = document.getElementById('pickup_address_input');
+        var mapContainer = document.getElementById('pickup-map-container');
+        var mapIframe = document.getElementById('pickup-map-iframe');
+        var latInput = document.getElementById('pickup_lat_input');
+        var lngInput = document.getElementById('pickup_lng_input');
+        function initPlaces() {
+            if (typeof google === 'undefined' || !google.maps || !google.maps.places || !addrInput) return;
+            var ac = new google.maps.places.Autocomplete(addrInput, { types: ['address'] });
+            ac.addListener('place_changed', function() {
+                var place = ac.getPlace();
+                if (place.geometry && place.geometry.location) {
+                    if (latInput) latInput.value = place.geometry.location.lat();
+                    if (lngInput) lngInput.value = place.geometry.location.lng();
+                }
+                var addr = place.formatted_address || addrInput.value;
+                if (addr && mapIframe) {
+                    mapIframe.src = 'https://www.google.com/maps/embed/v1/place?key=' + encodeURIComponent(key) + '&q=' + encodeURIComponent(addr);
+                    if (mapContainer) mapContainer.style.display = 'block';
+                }
+            });
+        }
+        if (typeof google !== 'undefined' && google.maps) initPlaces();
+        else window.addEventListener('load', function() { setTimeout(initPlaces, 500); });
+    }
+
+    progressFill.style.width = (1 / totalSteps * 100) + '%';
+})();
 </script>
 {% endblock %}

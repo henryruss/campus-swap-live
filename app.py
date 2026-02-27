@@ -30,6 +30,7 @@ from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSet
 # Import Constants
 from constants import (
     PAYOUT_PERCENTAGE, PAYOUT_PERCENTAGE_ONLINE, PAYOUT_PERCENTAGE_IN_PERSON,
+    PAYOUT_PERCENTAGE_FREE,
     SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS, calc_pickup_fee_cents,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     IMAGE_QUALITY, THUMBNAIL_SIZE,
@@ -38,6 +39,7 @@ from constants import (
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
     PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE, POD_CHANGE_DEADLINE_DISPLAY,
+    WAREHOUSE_CAPACITY, POD_CAPACITY, FREE_TIER_MAX_ITEMS,
     get_price_range_for_category
 )
 
@@ -404,8 +406,34 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
 
 
 def _get_payout_percentage(item):
-    """Return payout percentage based on collection method."""
-    return PAYOUT_PERCENTAGE_ONLINE if item.collection_method == 'online' else PAYOUT_PERCENTAGE_IN_PERSON
+    """Return payout percentage based on collection method.
+    online=50%, in_person (POD)=33%, free=20%."""
+    if item.collection_method == 'online':
+        return PAYOUT_PERCENTAGE_ONLINE
+    elif item.collection_method == 'in_person':
+        return PAYOUT_PERCENTAGE_IN_PERSON
+    elif item.collection_method == 'free':
+        return PAYOUT_PERCENTAGE_FREE
+    return PAYOUT_PERCENTAGE_IN_PERSON  # safe fallback
+
+
+def get_warehouse_spots_remaining():
+    """Count remaining warehouse spots. Only online (paid) and free items count against the 2,000 limit.
+    POD items are stored at campus PODs and do not occupy warehouse space."""
+    committed = InventoryItem.query.filter(
+        InventoryItem.collection_method.in_(['online', 'free']),
+        ~InventoryItem.status.in_(['rejected'])
+    ).count()
+    return max(0, WAREHOUSE_CAPACITY - committed)
+
+
+def get_pod_spots_remaining():
+    """Count remaining POD spots. Only in_person (POD) items count against the 250 limit."""
+    committed = InventoryItem.query.filter(
+        InventoryItem.collection_method == 'in_person',
+        ~InventoryItem.status.in_(['rejected'])
+    ).count()
+    return max(0, POD_CAPACITY - committed)
 
 def _item_sold_email_html(item, seller):
     """Build HTML for item sold notification with payout details."""
@@ -721,20 +749,21 @@ def become_a_seller():
     if request.method == 'POST':
         if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
             flash("Verification failed. Please try again.", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()),
+                               warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
         email = request.form.get('email', '').strip()
 
         if not email:
             flash("Please provide your email address.", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
         if not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()))
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
         pickup_period_active = get_pickup_period_active()
         if not pickup_period_active:
@@ -767,7 +796,9 @@ def become_a_seller():
 
     pickup_period_active = get_pickup_period_active()
     store_info = get_store_info(get_current_store())
-    return render_template('become_a_seller.html', pickup_period_active=pickup_period_active, store_info=store_info)
+    return render_template('become_a_seller.html', pickup_period_active=pickup_period_active, store_info=store_info,
+                           warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(),
+                           free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
 @app.route('/sitemap.xml')
 def sitemap():
@@ -816,7 +847,10 @@ def sitemap():
             ),
             and_(
                 InventoryItem.collection_method == 'in_person',
-                User.has_paid == True,
+                InventoryItem.arrived_at_store_at.isnot(None)
+            ),
+            and_(
+                InventoryItem.collection_method == 'free',
                 InventoryItem.arrived_at_store_at.isnot(None)
             )
         )
@@ -870,37 +904,6 @@ def favicon():
 # SECTION 2: MARKETPLACE ROUTES
 # =========================================================
 
-@app.route('/dropoff', methods=['GET', 'POST'])
-def dropoff():
-    """QR code landing page for in-person drop-offs. Quick signup without full onboarding."""
-    if request.method == 'POST':
-        email = request.form.get('email', '').strip()
-        name = request.form.get('name', '').strip()
-        
-        if not email:
-            flash("Please provide your email.", "error")
-            return render_template('dropoff.html', prefill_name=name)
-        
-        # Check if user exists
-        user = User.query.filter_by(email=email).first()
-        
-        if user:
-            # User exists - update name if provided and different
-            if name and name != user.full_name:
-                user.full_name = name
-                db.session.commit()
-            flash("Thanks! We'll email you when your item sells. Check your spam folder if you don't receive it.", "success")
-        else:
-            # Create new guest account (no password set yet)
-            new_user = User(email=email, full_name=name, referral_source='in_person_dropoff')
-            db.session.add(new_user)
-            db.session.commit()
-            flash("Thanks! We'll email you when your item sells. Check your spam folder if you don't receive it.", "success")
-        
-        return render_template('dropoff.html', success=True, email=email)
-    
-    return render_template('dropoff.html')
-
 @app.route('/unsubscribe/<token>', methods=['GET', 'POST'])
 def unsubscribe(token):
     """Handle email unsubscribe requests"""
@@ -948,7 +951,10 @@ def inventory():
             ),
             and_(
                 InventoryItem.collection_method == 'in_person',
-                User.has_paid == True,
+                InventoryItem.arrived_at_store_at.isnot(None)
+            ),
+            and_(
+                InventoryItem.collection_method == 'free',
                 InventoryItem.arrived_at_store_at.isnot(None)
             )
         )
@@ -1203,10 +1209,10 @@ def buy_item(item_id):
         if item.seller_id is not None:
             seller = item.seller
             if seller:
-                if not seller.has_paid:
+                if item.collection_method == 'online' and not seller.has_paid:
                     flash("Sorry! This item is not yet available for purchase.", "error")
                     return redirect(url_for('inventory'))
-                if item.collection_method == 'in_person' and item.arrived_at_store_at is None:
+                if item.collection_method in ('in_person', 'free') and item.arrived_at_store_at is None:
                     flash("Sorry! This item is not yet available for purchase.", "error")
                     return redirect(url_for('inventory'))
         
@@ -1523,7 +1529,9 @@ def admin_panel():
                 return redirect(url_for('admin_panel') + '#add-item')
             
             # Quick Add is always in-person drop-off, status pending (price set later)
-            collection_method = request.form.get('collection_method', 'in_person')
+            collection_method = (request.form.get('collection_method') or 'online').strip()
+        if collection_method not in ('online', 'in_person', 'free'):
+            collection_method = 'online'
             new_item = InventoryItem(
                 category_id=cat_id, description=desc, long_description=long_desc,
                 price=None, quality=quality_value, photo_url="", status="pending_valuation",
@@ -1813,12 +1821,51 @@ def admin_panel():
     pending_items_count = InventoryItem.query.filter_by(status='pending_valuation').count()
     available_items = InventoryItem.query.filter_by(status='available').count()
     
-    return render_template('admin.html', commodities=commodities, all_cats=all_cats, 
+    # Free tier data for admin panel
+    free_confirmed_ids_str = AppSetting.get('free_confirmed_user_ids') or ''
+    free_rejected_ids_str = AppSetting.get('free_rejected_user_ids') or ''
+    free_confirmed_ids = set(int(x) for x in free_confirmed_ids_str.split(',') if x.strip().isdigit())
+    free_rejected_ids = set(int(x) for x in free_rejected_ids_str.split(',') if x.strip().isdigit())
+
+    # All users with free-tier items in pending_logistics, sorted by total item value desc
+    from sqlalchemy import func as sqlfunc
+    free_user_rows = db.session.query(
+        InventoryItem.seller_id,
+        sqlfunc.sum(InventoryItem.price).label('total_value'),
+        sqlfunc.count(InventoryItem.id).label('item_count')
+    ).filter(
+        InventoryItem.collection_method == 'free',
+        InventoryItem.status == 'pending_logistics',
+        InventoryItem.seller_id.isnot(None)
+    ).group_by(InventoryItem.seller_id).order_by(sqlfunc.sum(InventoryItem.price).desc()).all()
+
+    free_tier_users = []
+    for row in free_user_rows:
+        user = User.query.get(row.seller_id)
+        if user:
+            user_items = InventoryItem.query.filter_by(
+                seller_id=user.id, collection_method='free', status='pending_logistics'
+            ).all()
+            free_tier_users.append({
+                'user': user,
+                'items': user_items,
+                'total_value': row.total_value or 0,
+                'item_count': row.item_count,
+                'is_confirmed': user.id in free_confirmed_ids,
+                'is_rejected': user.id in free_rejected_ids,
+            })
+
+    return render_template('admin.html', commodities=commodities, all_cats=all_cats,
                            pending_items=pending_items, gallery_items=gallery_items,
                            pickup_period_active=pickup_period_active,
                            total_users=total_users, total_items=total_items,
                            sold_items=sold_items, pending_items_count=pending_items_count,
-                           available_items=available_items)
+                           available_items=available_items,
+                           free_tier_users=free_tier_users,
+                           free_confirmed_ids=free_confirmed_ids,
+                           free_rejected_ids=free_rejected_ids,
+                           warehouse_spots=get_warehouse_spots_remaining(),
+                           pod_spots=get_pod_spots_remaining())
 
 
 @app.route('/admin/approve', methods=['GET', 'POST'])
@@ -1893,6 +1940,8 @@ def admin_approve():
                 if item.collection_method == 'online':
                     fee = SERVICE_FEE_CENTS // 100  # Single item: $15 (first oversized included)
                     fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
+                elif item.collection_method == 'free':
+                    fee_text = " Add your address and select a pickup window in your dashboard—no payment required."
                 else:
                     fee_text = " Select your dropoff pod location—no payment required."
                 email_content = f"""
@@ -1951,6 +2000,159 @@ def admin_approve():
         total_pending=total_pending,
         sort=sort_param
     )
+
+
+@app.route('/admin/free/confirm/<int:user_id>', methods=['POST'])
+@login_required
+def admin_free_confirm(user_id):
+    """Admin confirms a free-tier user for warehouse pickup."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    user = User.query.get_or_404(user_id)
+    
+    # Add to confirmed list, remove from rejected list
+    confirmed_str = AppSetting.get('free_confirmed_user_ids') or ''
+    confirmed_ids = [x.strip() for x in confirmed_str.split(',') if x.strip()]
+    if str(user_id) not in confirmed_ids:
+        confirmed_ids.append(str(user_id))
+    AppSetting.set('free_confirmed_user_ids', ','.join(confirmed_ids))
+    
+    rejected_str = AppSetting.get('free_rejected_user_ids') or ''
+    rejected_ids = [x.strip() for x in rejected_str.split(',') if x.strip() and x.strip() != str(user_id)]
+    AppSetting.set('free_rejected_user_ids', ','.join(rejected_ids))
+    
+    db.session.commit()
+    
+    # Send confirmation email
+    if user.email:
+        try:
+            name = user.first_name or user.full_name
+            dashboard_url = url_for('confirm_pickup', _external=True)
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Great News &mdash; You're Confirmed for Pickup!</h2>
+                <p>Hi {name},</p>
+                <p>We have warehouse space available and your items are confirmed for pickup. Please visit your dashboard to add your pickup address and select a pickup window.</p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Next step:</strong> Add your address and choose a pickup week in your dashboard.</p>
+                </div>
+                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Confirm Pickup Details</a></p>
+                <p>Thanks for selling with Campus Swap!</p>
+            </div>
+            """
+            send_email(user.email, "You're Confirmed for Pickup — Campus Swap", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send free confirm email: {e}")
+    
+    flash(f"Confirmed {user.full_name} for free-tier pickup and sent email.", "success")
+    return redirect(url_for('admin_panel') + '#free-tier')
+
+
+@app.route('/admin/free/reject/<int:user_id>', methods=['POST'])
+@login_required
+def admin_free_reject(user_id):
+    """Admin rejects a free-tier user (no space available)."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    user = User.query.get_or_404(user_id)
+    
+    # Add to rejected list, remove from confirmed list
+    rejected_str = AppSetting.get('free_rejected_user_ids') or ''
+    rejected_ids = [x.strip() for x in rejected_str.split(',') if x.strip()]
+    if str(user_id) not in rejected_ids:
+        rejected_ids.append(str(user_id))
+    AppSetting.set('free_rejected_user_ids', ','.join(rejected_ids))
+    
+    confirmed_str = AppSetting.get('free_confirmed_user_ids') or ''
+    confirmed_ids = [x.strip() for x in confirmed_str.split(',') if x.strip() and x.strip() != str(user_id)]
+    AppSetting.set('free_confirmed_user_ids', ','.join(confirmed_ids))
+    
+    db.session.commit()
+    
+    # Send rejection email
+    if user.email:
+        try:
+            name = user.first_name or user.full_name
+            dashboard_url = url_for('dashboard', _external=True)
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #92400e;">Update on Your Free Plan Items</h2>
+                <p>Hi {name},</p>
+                <p>Unfortunately, our pickup slots are now full and we're unable to pick up your free-plan items this semester. We're sorry for any inconvenience.</p>
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Your options:</strong></p>
+                    <ul style="margin: 0; padding-left: 20px;">
+                        <li>Switch to <strong>POD Drop-off</strong> &mdash; drop your items at a campus POD at no cost (33% payout)</li>
+                        <li>Upgrade to <strong>Priority Pickup</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
+                    </ul>
+                </div>
+                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Visit Your Dashboard</a></p>
+                <p>Thanks for considering Campus Swap. We hope to serve you!</p>
+            </div>
+            """
+            send_email(user.email, "Update on Your Free Plan Pickup — Campus Swap", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send free reject email: {e}")
+    
+    flash(f"Rejected {user.full_name}'s free-tier pickup and sent email.", "success")
+    return redirect(url_for('admin_panel') + '#free-tier')
+
+
+@app.route('/admin/free/notify_all', methods=['POST'])
+@login_required
+def admin_free_notify_all():
+    """Notify all unconfirmed free-tier users that warehouse is at capacity."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    
+    confirmed_str = AppSetting.get('free_confirmed_user_ids') or ''
+    confirmed_ids = set(x.strip() for x in confirmed_str.split(',') if x.strip())
+    rejected_str = AppSetting.get('free_rejected_user_ids') or ''
+    rejected_ids = set(x.strip() for x in rejected_str.split(',') if x.strip())
+    
+    from sqlalchemy import func as sqlfunc
+    free_user_ids = db.session.query(InventoryItem.seller_id).filter(
+        InventoryItem.collection_method == 'free',
+        InventoryItem.status == 'pending_logistics',
+        InventoryItem.seller_id.isnot(None)
+    ).distinct().all()
+    
+    sent = 0
+    for (uid,) in free_user_ids:
+        if str(uid) in confirmed_ids or str(uid) in rejected_ids:
+            continue
+        user = User.query.get(uid)
+        if not user or not user.email:
+            continue
+        try:
+            name = user.first_name or user.full_name
+            dashboard_url = url_for('dashboard', _external=True)
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #92400e;">Our Warehouse Is at Capacity</h2>
+                <p>Hi {name},</p>
+                <p>We wanted to reach out before move-out week. Our warehouse is now at capacity, and we are unable to guarantee pickup for free-plan sellers.</p>
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Your options:</strong></p>
+                    <ul style="margin: 0; padding-left: 20px;">
+                        <li>Switch to <strong>POD Drop-off</strong> &mdash; drop your items at a campus POD at no cost (33% payout)</li>
+                        <li>Upgrade to <strong>Priority Pickup</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
+                    </ul>
+                </div>
+                <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Visit Your Dashboard</a></p>
+                <p>Thanks for your understanding, and we hope to serve you!</p>
+            </div>
+            """
+            send_email(user.email, "Our Warehouse Is at Capacity — Campus Swap", email_content)
+            sent += 1
+        except Exception as e:
+            logger.error(f"Failed to send notify-all email to {user.email}: {e}")
+    
+    flash(f"Notified {sent} unconfirmed free-tier user(s) that warehouse is at capacity.", "success")
+    return redirect(url_for('admin_panel') + '#free-tier')
 
 
 @app.route('/edit_item/<int:item_id>', methods=['GET', 'POST'])
@@ -2702,22 +2904,41 @@ def dashboard():
     # Check if user has any online items (which require payment)
     has_online_items = any(item.collection_method == 'online' for item in my_items)
     has_in_person_items = any(item.collection_method == 'in_person' for item in my_items)
+    # Approved = moved from pending_valuation to pending_logistics (or beyond)
+    has_approved_in_person_items = any(
+        item.collection_method == 'in_person' and item.status != 'pending_valuation'
+        for item in my_items
+    )
+    has_approved_free_items = any(
+        item.collection_method == 'free' and item.status != 'pending_valuation'
+        for item in my_items
+    )
     
     # Calculate payout statistics (per-item percentage: online 50%, in-person 33%)
     available_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
 
     # Items actually visible in inventory (matches inventory route logic)
-    # Online: has_paid. In_person: has_paid AND arrived_at_store_at.
+    # Online: has_paid. In_person/free: arrived_at_store_at (no payment required).
     live_items = [
         i for i in available_items
         if (i.collection_method == 'online' and current_user.has_paid)
-        or (i.collection_method == 'in_person' and current_user.has_paid and i.arrived_at_store_at)
+        or (i.collection_method == 'in_person' and i.arrived_at_store_at)
+        or (i.collection_method == 'free' and i.arrived_at_store_at)
     ]
 
-    # Earnings subtext: 50% if any pickup items, else 33% (free/pod)
+    # Earnings subtext: shows highest applicable payout rate
     has_any_pickup = any(i.collection_method == 'online' for i in available_items)
-    earnings_subtext = "Based on 50% cut (pickup service)" if has_any_pickup else "Based on 33% cut (free user)"
+    has_any_pod = any(i.collection_method == 'in_person' for i in available_items)
+    has_any_free = any(i.collection_method == 'free' for i in available_items)
+    if has_any_pickup:
+        earnings_subtext = "Based on 50% cut (priority pickup)"
+    elif has_any_pod:
+        earnings_subtext = "Based on 33% cut (pod drop-off)"
+    elif has_any_free:
+        earnings_subtext = "Based on 20% cut (free plan)"
+    else:
+        earnings_subtext = "Based on your payout rate"
     
     def _payout_for_item(it):
         pct = _get_payout_percentage(it)
@@ -2736,13 +2957,21 @@ def dashboard():
     # Pending pickup: items awaiting confirmation + fee breakdown for receipt modal
     pending_pickup = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'online']
     pending_pod = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'in_person']
+    pending_free = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'free']
     pending_pickup_large_count = sum(1 for i in pending_pickup if i.is_large)
     pending_pickup_fee_cents = calc_pickup_fee_cents(pending_pickup_large_count) if pending_pickup else 0
+
+    # Free tier flags
+    has_free_items = any(i.collection_method == 'free' for i in my_items if i.status != 'rejected')
+    free_confirmed_ids_str = AppSetting.get('free_confirmed_user_ids') or ''
+    free_rejected_ids_str = AppSetting.get('free_rejected_user_ids') or ''
+    is_free_confirmed = str(current_user.id) in [x.strip() for x in free_confirmed_ids_str.split(',') if x.strip()]
+    is_free_rejected = str(current_user.id) in [x.strip() for x in free_rejected_ids_str.split(',') if x.strip()]
 
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     stripe_configured = bool(stripe.api_key and stripe_pk)
 
-    # Pickup method for header card: week, pod, needs_pickup, or needs_pod
+    # Pickup method for header card: week, pod, needs_pickup, needs_pod, free_waiting, free_confirmed, free_rejected
     pickup_method_type = None
     pickup_method_label = None
     item_with_week = next((i for i in my_items if i.pickup_week), None)
@@ -2757,6 +2986,14 @@ def dashboard():
         pickup_method_type = 'needs_pickup'
     elif pending_pod:
         pickup_method_type = 'needs_pod'
+    elif has_free_items:
+        # Free tier states (checked after paid/pod since user may have mixed items)
+        if is_free_rejected:
+            pickup_method_type = 'free_rejected'
+        elif is_free_confirmed:
+            pickup_method_type = 'free_confirmed'
+        else:
+            pickup_method_type = 'free_waiting'
 
     # Pod change: allowed until April 20th; items that can be changed (available, in_person, has pod, not yet dropped off)
     today = datetime.utcnow().date()
@@ -2767,6 +3004,8 @@ def dashboard():
                           my_items=my_items,
                           has_online_items=has_online_items,
                           has_in_person_items=has_in_person_items,
+                          has_approved_in_person_items=has_approved_in_person_items,
+                          has_approved_free_items=has_approved_free_items,
                           estimated_payout=estimated_payout,
                           paid_out=paid_out,
                           pending_payouts=pending_payouts,
@@ -2796,7 +3035,13 @@ def dashboard():
                           pickup_method_label=pickup_method_label,
                           current_pod_value=item_with_pod.dropoff_pod if item_with_pod else None,
                           pod_change_allowed=pod_change_allowed,
-                          pod_change_deadline_display=POD_CHANGE_DEADLINE_DISPLAY)
+                          pod_change_deadline_display=POD_CHANGE_DEADLINE_DISPLAY,
+                          warehouse_spots=get_warehouse_spots_remaining(),
+                          pod_spots=get_pod_spots_remaining(),
+                          is_free_confirmed=is_free_confirmed,
+                          is_free_rejected=is_free_rejected,
+                          free_tier_max_items=FREE_TIER_MAX_ITEMS,
+                          pending_free=pending_free)
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -3005,11 +3250,13 @@ def payment_success():
                 if user_id != current_user.id:
                     pass  # Not for this user
                 elif stripe_session.metadata.get('type') == 'upgrade':
-                    # Upgrade: batch-update in_person items to online
-                    upgraded = InventoryItem.query.filter_by(seller_id=current_user.id, collection_method='in_person').update(
-                        {'collection_method': 'online'}, synchronize_session=False
-                    )
+                    # Upgrade: batch-update in_person and free items to online
+                    upgraded = InventoryItem.query.filter(
+                        InventoryItem.seller_id == current_user.id,
+                        InventoryItem.collection_method.in_(['in_person', 'free'])
+                    ).update({'collection_method': 'online'}, synchronize_session=False)
                     current_user.payment_declined = False
+                    current_user.has_paid = True  # Required for online items to go live
                     db.session.commit()
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
@@ -3047,7 +3294,7 @@ def onboard():
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
-        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated)
+        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated, warehouse_spots=0, pod_spots=0, free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
     categories = InventoryCategory.query.all()
     category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
@@ -3066,7 +3313,9 @@ def onboard():
         long_desc = (request.form.get('long_description') or '').strip()
         quality = request.form.get('quality')
         suggested_price_raw = request.form.get('suggested_price', '').strip()
-        collection_method = request.form.get('collection_method', 'in_person')
+        collection_method = (request.form.get('collection_method') or 'online').strip()
+        if collection_method not in ('online', 'free'):
+            collection_method = 'online'
         files = request.files.getlist('photos')
         temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
         temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
@@ -3094,35 +3343,6 @@ def onboard():
             except ValueError:
                 pass
 
-        # Save user profile: location, phone, payout
-        location_type = request.form.get('pickup_location_type')
-        if location_type == 'on_campus':
-            dorm = (request.form.get('pickup_dorm') or '').strip()
-            room = (request.form.get('pickup_room') or '').strip()
-            if dorm and room:
-                current_user.pickup_location_type = 'on_campus'
-                current_user.pickup_dorm = dorm[:80]
-                current_user.pickup_room = room[:20]
-                current_user.pickup_address = None
-                current_user.pickup_lat = None
-                current_user.pickup_lng = None
-        elif location_type == 'off_campus':
-            address = (request.form.get('pickup_address') or '').strip()
-            if address:
-                current_user.pickup_location_type = 'off_campus'
-                current_user.pickup_address = address[:200]
-                current_user.pickup_dorm = None
-                current_user.pickup_room = None
-                lat = request.form.get('pickup_lat')
-                lng = request.form.get('pickup_lng')
-                current_user.pickup_lat = float(lat) if lat and str(lat).strip() else None
-                current_user.pickup_lng = float(lng) if lng and str(lng).strip() else None
-
-        current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
-        phone_raw = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
-        if len(phone_raw) >= 10:
-            current_user.phone = phone_raw[:20]
-
         payout_raw = (request.form.get('payout_handle') or '').strip()
         payout_confirm_raw = (request.form.get('payout_handle_confirm') or '').strip()
         payout_method = (request.form.get('payout_method') or 'Venmo').strip()[:20]
@@ -3137,6 +3357,17 @@ def onboard():
             current_user.is_seller = True
 
         db.session.commit()
+
+        # Enforce free tier item cap
+        if collection_method == 'free':
+            existing_free = InventoryItem.query.filter(
+                InventoryItem.seller_id == current_user.id,
+                InventoryItem.collection_method == 'free',
+                ~InventoryItem.status.in_(['rejected'])
+            ).count()
+            if existing_free >= FREE_TIER_MAX_ITEMS:
+                flash(f"The free plan allows up to {FREE_TIER_MAX_ITEMS} items. Upgrade to Priority Pickup to add more.", "error")
+                return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
         # Create the item (reuse add_item logic)
         new_item = InventoryItem(
@@ -3225,7 +3456,10 @@ def onboard():
 
         return redirect(get_user_dashboard())
 
-    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=not current_user.is_authenticated)
+    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=not current_user.is_authenticated,
+                           warehouse_spots=get_warehouse_spots_remaining(),
+                           pod_spots=get_pod_spots_remaining(),
+                           free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
 
 @app.route('/onboard/guest/save', methods=['POST'])
@@ -3285,22 +3519,8 @@ def onboard_guest_save():
         except ValueError:
             pass
 
-    location_type = request.form.get('pickup_location_type')
-    if location_type == 'on_campus':
-        dorm = (request.form.get('pickup_dorm') or '').strip()
-        room = (request.form.get('pickup_room') or '').strip()
-        if not dorm or not room:
-            return _err("Please select your dorm and enter your room number.")
-    elif location_type == 'off_campus':
-        address = (request.form.get('pickup_address') or '').strip()
-        if not address:
-            return _err("Please enter your address.")
-    else:
-        return _err("Please select where we can pick up your item.")
-
+    # Address and phone are collected at confirm_pickup when user selects their week
     phone_raw = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
-    if len(phone_raw) < 10:
-        return _err("Please enter a valid phone number.")
 
     payout_raw = (request.form.get('payout_handle') or '').strip()
     payout_confirm_raw = (request.form.get('payout_handle_confirm') or '').strip()
@@ -3355,15 +3575,15 @@ def onboard_guest_save():
         'long_description': long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
         'quality': quality_value,
         'suggested_price': suggested_price,
-        'collection_method': collection_method if collection_method in ('online', 'in_person') else 'online',
-        'pickup_location_type': location_type,
-        'pickup_dorm': (request.form.get('pickup_dorm') or '').strip()[:80] if location_type == 'on_campus' else None,
-        'pickup_room': (request.form.get('pickup_room') or '').strip()[:20] if location_type == 'on_campus' else None,
-        'pickup_address': (request.form.get('pickup_address') or '').strip()[:200] if location_type == 'off_campus' else None,
-        'pickup_lat': float(request.form.get('pickup_lat')) if request.form.get('pickup_lat') and str(request.form.get('pickup_lat')).strip() else None,
-        'pickup_lng': float(request.form.get('pickup_lng')) if request.form.get('pickup_lng') and str(request.form.get('pickup_lng')).strip() else None,
-        'pickup_note': (request.form.get('pickup_note') or '').strip()[:200] or None,
-        'phone': phone_raw[:20],
+        'collection_method': collection_method if collection_method in ('online', 'in_person', 'free') else 'online',
+        'pickup_location_type': None,
+        'pickup_dorm': None,
+        'pickup_room': None,
+        'pickup_address': None,
+        'pickup_lat': None,
+        'pickup_lng': None,
+        'pickup_note': None,
+        'phone': phone_raw[:20] if len(phone_raw) >= 10 else None,
         'payout_method': payout_method if payout_method in ('Venmo', 'PayPal', 'Zelle') else 'Venmo',
         'payout_handle': payout_handle,
         'photo_filenames': photo_filenames,
@@ -3400,7 +3620,80 @@ def onboard_cancel():
 @app.route('/confirm_pickup', methods=['GET', 'POST'])
 @login_required
 def confirm_pickup():
-    """Pickup users confirm week and pay $15 service fee (includes 1 oversized). Additional oversized paid per-item on dashboard."""
+    """Pickup users confirm week and pay $15 service fee. Free-tier users: no payment, just address + phone + week."""
+    # Free-tier path: any user with approved free items can select pickup window (no payment)
+    pending_free = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'free']
+    free_rejected_ids_str = AppSetting.get('free_rejected_user_ids') or ''
+    is_free_rejected = str(current_user.id) in [x.strip() for x in free_rejected_ids_str.split(',') if x.strip()]
+
+    if pending_free and not is_free_rejected:
+        # Free path: collect address + phone + pickup week, no payment
+        if request.method == 'POST':
+            pickup_week = request.form.get('pickup_week')
+            if pickup_week not in dict(PICKUP_WEEKS):
+                flash("Please select a pickup week.", "error")
+                return redirect(url_for('confirm_pickup'))
+
+            # Collect address if not already on file
+            location_type = request.form.get('pickup_location_type')
+            if not current_user.pickup_location_type:
+                if location_type == 'on_campus':
+                    dorm = (request.form.get('pickup_dorm') or '').strip()
+                    room = (request.form.get('pickup_room') or '').strip()
+                    if not dorm or not room:
+                        flash("Please select your dorm and room number.", "error")
+                        return redirect(url_for('confirm_pickup'))
+                    current_user.pickup_location_type = 'on_campus'
+                    current_user.pickup_dorm = dorm[:80]
+                    current_user.pickup_room = room[:20]
+                elif location_type == 'off_campus':
+                    address = (request.form.get('pickup_address') or '').strip()
+                    if not address:
+                        flash("Please enter your address.", "error")
+                        return redirect(url_for('confirm_pickup'))
+                    current_user.pickup_location_type = 'off_campus'
+                    current_user.pickup_address = address[:200]
+                    lat = request.form.get('pickup_lat')
+                    lng = request.form.get('pickup_lng')
+                    current_user.pickup_lat = float(lat) if lat and str(lat).strip() else None
+                    current_user.pickup_lng = float(lng) if lng and str(lng).strip() else None
+                else:
+                    flash("Please select your pickup location.", "error")
+                    return redirect(url_for('confirm_pickup'))
+
+            # Collect phone number (required for pickup)
+            phone_raw = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+            if len(phone_raw) >= 10:
+                current_user.phone = phone_raw[:20]
+            elif not current_user.phone:
+                flash("Please enter a valid 10-digit phone number.", "error")
+                return redirect(url_for('confirm_pickup'))
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+
+            # Move free items to available
+            for item in pending_free:
+                item.pickup_week = pickup_week
+                item.status = 'available'
+                if item.category:
+                    item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+            db.session.commit()
+            flash("Pickup confirmed! Your items are now live in our inventory.", "success")
+            return redirect(url_for('dashboard'))
+
+        return render_template('confirm_pickup.html',
+                              pending_items=pending_free,
+                              pickup_weeks=PICKUP_WEEKS,
+                              route_specific_date=POD_CHANGE_DEADLINE_DISPLAY,
+                              is_free_confirmed=True,
+                              dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
+                              has_pickup_location=current_user.has_pickup_location,
+                              google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
+
+    if pending_free and is_free_rejected:
+        flash("Pickup slots are full for the free plan. Upgrade to Campus Swap Pickup to secure your spot.", "info")
+        return redirect(url_for('dashboard'))
+
+    # Standard paid pickup path
     pending = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'online']
     if not pending:
         flash("No items awaiting pickup confirmation.", "info")
@@ -3408,9 +3701,46 @@ def confirm_pickup():
 
     if request.method == 'POST':
         pickup_week = request.form.get('pickup_week')
-        if pickup_week not in ('week1', 'week2'):
+        if pickup_week not in dict(PICKUP_WEEKS):
             flash("Please select a pickup week.", "error")
             return redirect(url_for('confirm_pickup'))
+
+        # Save address if not already on file
+        if not current_user.has_pickup_location:
+            location_type = request.form.get('pickup_location_type')
+            if location_type == 'on_campus':
+                dorm = (request.form.get('pickup_dorm') or '').strip()
+                room = (request.form.get('pickup_room') or '').strip()
+                if not dorm or not room:
+                    flash("Please select your dorm and enter your room number.", "error")
+                    return redirect(url_for('confirm_pickup'))
+                current_user.pickup_location_type = 'on_campus'
+                current_user.pickup_dorm = dorm[:80]
+                current_user.pickup_room = room[:20]
+                current_user.pickup_address = None
+                current_user.pickup_lat = None
+                current_user.pickup_lng = None
+            elif location_type == 'off_campus':
+                address = (request.form.get('pickup_address') or '').strip()
+                if not address:
+                    flash("Please enter your address.", "error")
+                    return redirect(url_for('confirm_pickup'))
+                current_user.pickup_location_type = 'off_campus'
+                current_user.pickup_address = address[:200]
+                current_user.pickup_dorm = None
+                current_user.pickup_room = None
+                lat = request.form.get('pickup_lat')
+                lng = request.form.get('pickup_lng')
+                current_user.pickup_lat = float(lat) if lat and str(lat).strip() else None
+                current_user.pickup_lng = float(lng) if lng and str(lng).strip() else None
+            else:
+                flash("Please select your pickup location.", "error")
+                return redirect(url_for('confirm_pickup'))
+            phone_raw = (request.form.get('phone') or '').replace('(','').replace(')','').replace('-','').replace(' ','')
+            if len(phone_raw) >= 10:
+                current_user.phone = phone_raw[:20]
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            db.session.commit()
 
         if not stripe.api_key:
             flash("Payment is not configured. Please contact support.", "error")
@@ -3450,7 +3780,11 @@ def confirm_pickup():
     return render_template('confirm_pickup.html',
                           pending_items=pending,
                           pickup_weeks=PICKUP_WEEKS,
-                          route_specific_date=POD_CHANGE_DEADLINE_DISPLAY)
+                          route_specific_date=POD_CHANGE_DEADLINE_DISPLAY,
+                          is_free_confirmed=False,
+                          dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
+                          has_pickup_location=current_user.has_pickup_location,
+                          google_maps_key=os.environ.get('GOOGLE_MAPS_API_KEY', ''))
 
 
 @app.route('/confirm_pickup_success')
@@ -3497,7 +3831,7 @@ def upgrade_pickup():
     """Pod users upgrade to Campus Swap Pickup: select week and pay $15. Converts in_person items to online pickup."""
     eligible = [
         i for i in current_user.items
-        if i.collection_method == 'in_person'
+        if i.collection_method in ('in_person', 'free')
         and (
             i.status == 'pending_logistics'
             or (i.status == 'available' and i.arrived_at_store_at is None)
@@ -3571,7 +3905,7 @@ def upgrade_pickup_success():
                 items = [InventoryItem.query.get(iid) for iid in item_ids]
                 items = [
                     i for i in items
-                    if i and i.seller_id == current_user.id and i.collection_method == 'in_person'
+                    if i and i.seller_id == current_user.id and i.collection_method in ('in_person', 'free')
                     and (i.status == 'pending_logistics' or (i.status == 'available' and i.arrived_at_store_at is None))
                 ]
                 # Track which items were pending (need count_in_stock increment); available already have count
