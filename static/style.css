@@ -741,3 +741,91 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     .dashboard-modal { max-height: 90vh; overflow-y: auto; }
     .dashboard-receipt-header, .dashboard-receipt-body { padding: 20px; }
 }
+
+/* Share card button (inventory) */
+.inventory-card-photo { position: relative; }
+.share-card-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+    z-index: 5;
+}
+.share-card-btn:hover {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+/* Share modal */
+.share-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+.share-modal {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.share-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.share-modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    line-height: 1;
+}
+.share-modal-close:hover { color: var(--text-main); }
+.share-modal-body { padding: 24px; }
+.share-modal-preview {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    position: relative;
+}
+.share-modal-preview img { max-height: 400px; }
+.share-modal-loading {
+    color: var(--text-muted);
+    font-size: 1rem;
+}
+.share-modal-error {
+    color: #dc2626;
+    font-size: 0.95rem;
+}
+.share-modal-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.share-modal-actions .btn { flex: 1; min-width: 100px; }

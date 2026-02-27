@@ -1018,6 +1018,144 @@ def product_detail(item_id):
     # Preserve search and filter parameters for "Back" link
     return render_template('product.html', item=item, current_store=store_name, store_info=store_info)
 
+# --- SHARE CARD IMAGE GENERATION ---
+def _is_item_shareable(item):
+    """True if item would appear in inventory and is not sold."""
+    if not item or item.status == 'sold':
+        return False
+    if item.status not in ('available',):
+        return False
+    if not item.price or item.price <= 0:
+        return False
+    if item.seller_id is None:
+        return True  # No seller = internal item, shareable
+    seller = item.seller
+    if not seller:
+        return True
+    if item.collection_method == 'online':
+        return bool(seller.has_paid)
+    if item.collection_method == 'in_person':
+        return item.arrived_at_store_at is not None
+    if item.collection_method == 'free':
+        return item.arrived_at_store_at is not None
+    return False
+
+
+def _share_card_font(size, bold=False):
+    """Load a TTF font for share card, cross-platform fallback."""
+    from PIL import ImageFont
+    bold_paths = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]
+    regular_paths = [
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    ]
+    for p in (bold_paths if bold else []) + regular_paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except OSError:
+                pass
+    return ImageFont.load_default()
+
+
+def _generate_share_card_png(item):
+    """Generate 1200x1200 PNG share card. Returns bytes or None."""
+    from PIL import ImageDraw, ImageFont
+    CARD_W, CARD_H = 1200, 1200
+    # Full-bleed photo with gradient overlay (no solid banner)
+    WHITE = (255, 255, 255)
+
+    # Load item photo or create placeholder
+    photo_bytes = None
+    if item.photo_url:
+        photo_bytes = photo_storage.get_photo_bytes(item.photo_url)
+    if not photo_bytes:
+        base = Image.new("RGB", (CARD_W, CARD_H), (200, 200, 200))
+        draw = ImageDraw.Draw(base)
+        font = _share_card_font(48)
+        draw.text((CARD_W // 2 - 80, CARD_H // 2 - 24), "No image", fill=(100, 100, 100), font=font)
+    else:
+        img = Image.open(BytesIO(photo_bytes))
+        img = img.convert("RGB")
+        img.thumbnail((CARD_W * 2, CARD_H * 2), Image.Resampling.LANCZOS)
+        w, h = img.size
+        # Crop center to fill card
+        if w / h > CARD_W / CARD_H:
+            new_h = h
+            new_w = int(h * CARD_W / CARD_H)
+            left = (w - new_w) // 2
+            img = img.crop((left, 0, left + new_w, new_h))
+        else:
+            new_w = w
+            new_h = int(w * CARD_H / CARD_W)
+            top = (h - new_h) // 2
+            img = img.crop((0, top, new_w, top + new_h))
+        base = img.resize((CARD_W, CARD_H), Image.Resampling.LANCZOS)
+
+    # Gradient overlay: transparent at top, dark at bottom (Spotify-style)
+    gradient_h = 420
+    band = Image.new("RGBA", (1, gradient_h))
+    for y in range(gradient_h):
+        t = y / gradient_h
+        alpha = int(230 * (t ** 0.7))
+        band.putpixel((0, y), (0, 0, 0, alpha))
+    overlay = band.resize((CARD_W, gradient_h), Image.Resampling.NEAREST)
+    base.paste(overlay, (0, CARD_H - gradient_h), overlay)
+
+    draw = ImageDraw.Draw(base)
+    title_font = _share_card_font(54, bold=True)
+    price_font = _share_card_font(80, bold=True)
+    bottom_y = CARD_H - 50
+
+    # Price - large, bold, bottom-left
+    price_str = f"${int(item.price)}" if item.price and item.price == int(item.price) else f"${item.price:.2f}" if item.price else "—"
+    # Text shadow for pop
+    draw.text((43, bottom_y - 75), price_str, fill=(0, 0, 0), font=price_font)
+    draw.text((40, bottom_y - 78), price_str, fill=WHITE, font=price_font)
+
+    # Title - above price, truncated
+    title = (item.description or "Item")[:45]
+    if len(item.description or "") > 45:
+        title = title.rstrip() + "…"
+    draw.text((43, bottom_y - 145), title, fill=(0, 0, 0), font=title_font)
+    draw.text((40, bottom_y - 148), title, fill=WHITE, font=title_font)
+
+    # Logo only - large, bottom-right corner
+    logo_path = os.path.join(app.static_folder, "logo.jpg")
+    if os.path.exists(logo_path):
+        logo_img = Image.open(logo_path)
+        logo_img = logo_img.convert("RGBA")
+        logo_size = 120
+        logo_img.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
+        lw, lh = logo_img.size
+        base.paste(logo_img, (CARD_W - lw - 30, CARD_H - lh - 30), logo_img)
+
+    buf = BytesIO()
+    base.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+@app.route('/share/item/<int:item_id>/card.png')
+def share_card_image(item_id):
+    """Serve shareable card PNG for live inventory items."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if not _is_item_shareable(item):
+        return "This item cannot be shared.", 403
+    png_bytes = _generate_share_card_png(item)
+    if not png_bytes:
+        return "Failed to generate share card.", 500
+    return Response(png_bytes, mimetype="image/png", headers={
+        "Cache-Control": "public, max-age=300",
+        "Content-Disposition": "inline; filename=campus-swap-share.png"
+    })
+
+
 # --- IMAGE SERVING ROUTE ---
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):

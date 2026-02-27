@@ -113,7 +113,7 @@
     
     <div class="grid-inventory">
         {% for item in items %}
-        <a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}{% if pagination and pagination.page > 1 %}&page={{ pagination.page }}{% endif %}" style="text-decoration: none; color: inherit;">
+        <a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}{% if pagination and pagination.page > 1 %}&page={{ pagination.page }}{% endif %}" class="inventory-card-link" style="text-decoration: none; color: inherit;">
             <div class="card" style="padding: 0; overflow: hidden; position: relative;">
                 
                 {% if item.status == 'sold' %}
@@ -124,11 +124,16 @@
                 </div>
                 {% endif %}
 
-                <div style="height: 240px; overflow: hidden;">
+                <div class="inventory-card-photo" style="height: 240px; overflow: hidden; position: relative;">
                     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" 
                          loading="lazy"
                          alt="{{ item.description }}"
                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
+                    {% if item.status != 'sold' %}
+                    <button type="button" class="share-card-btn" onclick="event.preventDefault(); event.stopPropagation(); openShareModal({{ item.id }})" aria-label="Share item" title="Share">
+                        <i class="fas fa-share-nodes"></i>
+                    </button>
+                    {% endif %}
                 </div>
                 
                 <div style="padding: 20px;">
@@ -148,4 +153,119 @@
     </div>
 
 </div>
+
+{# Share Modal #}
+<div id="shareModal" class="share-modal-overlay" style="display: none;" aria-hidden="true">
+    <div class="share-modal" onclick="event.stopPropagation()">
+        <div class="share-modal-header">
+            <h3 style="margin: 0; font-size: 1.2rem;">Share Item</h3>
+            <button type="button" class="share-modal-close" onclick="closeShareModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="share-modal-body">
+            <div id="shareModalPreview" class="share-modal-preview">
+                <div id="shareModalLoading" class="share-modal-loading"><i class="fas fa-spinner fa-spin"></i> Generating...</div>
+                <img id="shareModalImg" src="" alt="Share card" style="display: none; max-width: 100%; border-radius: 12px;">
+                <div id="shareModalError" class="share-modal-error" style="display: none;">This item can't be shared right now.</div>
+            </div>
+            <div class="share-modal-actions">
+                <button type="button" id="shareModalShareBtn" class="btn btn-primary" style="display: none;">
+                    <i class="fas fa-share-nodes"></i> Send
+                </button>
+                <button type="button" class="btn btn-outline" onclick="copyShareLink()" id="shareModalCopyBtn" style="display: none;">
+                    <i class="fas fa-link"></i> Copy link
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var currentShareItemId = null;
+    var currentShareUrl = '';
+
+    window.openShareModal = function(itemId) {
+        currentShareItemId = itemId;
+        currentShareUrl = window.location.origin + '/item/' + itemId;
+        var modal = document.getElementById('shareModal');
+        var loading = document.getElementById('shareModalLoading');
+        var img = document.getElementById('shareModalImg');
+        var err = document.getElementById('shareModalError');
+        var shareBtn = document.getElementById('shareModalShareBtn');
+        var copyBtn = document.getElementById('shareModalCopyBtn');
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        loading.style.display = 'block';
+        img.style.display = 'none';
+        err.style.display = 'none';
+        shareBtn.style.display = 'none';
+        copyBtn.style.display = 'none';
+
+        var cardUrl = '/share/item/' + itemId + '/card.png';
+        fetch(cardUrl).then(function(r) {
+            if (!r.ok) throw new Error('Not shareable');
+            return r.blob();
+        }).then(function(blob) {
+            var url = URL.createObjectURL(blob);
+            img.src = url;
+            img.style.display = 'block';
+            loading.style.display = 'none';
+            shareBtn.style.display = 'inline-flex';
+            copyBtn.style.display = 'inline-flex';
+        }).catch(function() {
+            loading.style.display = 'none';
+            err.style.display = 'block';
+        });
+    };
+
+    window.closeShareModal = function() {
+        var modal = document.getElementById('shareModal');
+        var img = document.getElementById('shareModalImg');
+        if (img && img.src && img.src.startsWith('blob:')) {
+            URL.revokeObjectURL(img.src);
+        }
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    };
+
+    window.copyShareLink = function() {
+        if (!currentShareUrl) return;
+        navigator.clipboard.writeText(currentShareUrl).then(function() {
+            var btn = document.getElementById('shareModalCopyBtn');
+            if (btn) {
+                var orig = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(function() { btn.innerHTML = orig; }, 2000);
+            }
+        });
+    };
+
+    document.getElementById('shareModal') && document.getElementById('shareModal').addEventListener('click', function(e) {
+        if (e.target === this) closeShareModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeShareModal();
+    });
+
+    document.getElementById('shareModalShareBtn') && document.getElementById('shareModalShareBtn').addEventListener('click', function() {
+        var img = document.getElementById('shareModalImg');
+        if (!img || !img.src || !img.src.startsWith('blob:')) return;
+        fetch(img.src).then(function(r) { return r.blob(); }).then(function(blob) {
+            var file = new File([blob], 'campus-swap-share.png', { type: 'image/png' });
+            if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({
+                    title: 'Campus Swap',
+                    text: 'Check out this item on Campus Swap',
+                    url: currentShareUrl,
+                    files: [file]
+                }).then(function() { closeShareModal(); }).catch(function() {});
+            } else {
+                copyShareLink();
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

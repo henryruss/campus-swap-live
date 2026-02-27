@@ -92,6 +92,14 @@ class LocalStorage:
     def exists(self, key: str) -> bool:
         return os.path.exists(os.path.join(self.upload_folder, key))
 
+    def get_photo_bytes(self, key: str) -> bytes | None:
+        """Load photo bytes from disk. Returns None if not found."""
+        path = os.path.join(self.upload_folder, key)
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as f:
+            return f.read()
+
 
 class S3Storage:
     """Store photos in AWS S3."""
@@ -168,6 +176,15 @@ class S3Storage:
             return True
         except Exception:
             return False
+
+    def get_photo_bytes(self, key: str) -> bytes | None:
+        """Load photo bytes from S3. Returns None if not found."""
+        try:
+            resp = self.client.get_object(Bucket=self.bucket, Key=self._key(key))
+            return resp["Body"].read()
+        except Exception as e:
+            logger.error(f"Failed to get S3 object {key}: {e}", exc_info=True)
+            return None
 
 
 def get_storage():
