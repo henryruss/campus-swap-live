@@ -2,6 +2,27 @@
 
 {% block content %}
 <style>
+    /* ANNOUNCEMENT BANNER - bubble/pop-up on gradient */
+    .announcement-banner {
+        position: absolute;
+        top: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1;
+        text-align: center;
+        padding: 14px 24px;
+        max-width: 320px;
+        background: white;
+        border-radius: 50px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(6, 78, 59, 0.1);
+        border: 1px solid rgba(6, 78, 59, 0.12);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .announcement-banner-main { font-weight: 700; color: var(--primary); font-size: 1rem; }
+    .announcement-banner-sub { font-size: 0.9rem; color: var(--text-muted); }
+
     /* HERO LAYOUT */
     .hero-wrapper {
         min-height: 85vh;
@@ -291,6 +312,7 @@
     }
 
     @media (max-width: 768px) { 
+        .announcement-banner { top: 20px; padding: 12px 20px; }
         .value-props-row { grid-template-columns: 1fr; gap: 16px; }
         .hero-title { font-size: 3rem; } 
         .hero-sentence { font-size: 1.4rem; }
@@ -329,7 +351,12 @@
     <div class="blob" style="background: #bbf7d0; top: -10%; left: -10%;"></div>
     <div class="blob" style="background: #fde68a; bottom: -10%; right: -10%; animation-delay: -5s;"></div>
 
-    <div style="max-width: 900px; padding: 20px;">
+    <div class="announcement-banner">
+        <span class="announcement-banner-main">Doors open June 1st</span>
+        <span class="announcement-banner-sub">Location details are coming soon</span>
+    </div>
+
+    <div style="max-width: 900px; padding: 80px 20px 20px;">
         
         <p class="reveal fade-up" style="font-size: 1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 12px;">Campus Swap</p>
         <h1 class="hero-title reveal fade-up">
