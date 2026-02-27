@@ -370,8 +370,8 @@
                 <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
                     <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                         <div class="step-date">Step 1</div>
-                        <h3>Sign Up</h3>
-                        <p>Create your account and add your pickup address. No charge yet.</p>
+                        <h3>Sign Up &amp; List Your Item</h3>
+                        <p>Create your account and list your first item: upload photos, add details, and suggest a price. Choose your plan (Free or Campus Swap Pickup) during setup&mdash;you can always upgrade later.</p>
                     </div>
                     <div class="step-icon"><i class="fas fa-user-plus"></i></div>
                     <div style="flex: 1;"></div>
@@ -382,17 +382,18 @@
                     <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
                         <div class="step-date">Within 1 day</div>
                         <h3>Items Approved</h3>
-                        <p>Upload photos and details. We review and approve items that meet our criteria.</p>
+                        <p>We review and approve items that meet our criteria. You&rsquo;ll see your final price when approved.</p>
                     </div>
                 </div>
                 <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
                     <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
-                        <div class="step-date">Before pickup</div>
-                        <h3>Add Card</h3>
-                        <p>Add your card now. You won&rsquo;t be charged until pickup week. Fee: $15 service + $10 per large item (we mark during approval).</p>
+                        <div class="step-date">After approval</div>
+                        <h3>Secure Your Spot</h3>
+                        <p><strong>Free Plan:</strong> Confirm your pickup details (address, phone, week)&mdash;no payment. We confirm by April 20th if we have warehouse space. Max 3 items.</p>
+                        <p><strong>Campus Swap Pickup:</strong> Pay the one-time $15 pickup fee and select your week. Add your card when prompted. Guaranteed pickup. No extra per additional item; $10 each for extra oversized items (we mark during approval).</p>
                         <a href="#why-fee" class="why-fee-link">Why do we charge a fee?</a>
                     </div>
-                    <div class="step-icon"><i class="fas fa-credit-card"></i></div>
+                    <div class="step-icon"><i class="fas fa-calendar-check"></i></div>
                     <div style="flex: 1;"></div>
                 </div>
                 <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
@@ -408,7 +409,7 @@
                     <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                         <div class="step-date">Summer</div>
                         <h3>Get Paid</h3>
-                        <p>Your items are stored and sold at our <strong>retail store near campus</strong> June 1-Aug 31. Buyers browse in person. {{ store_info.address }}. You receive <strong style="color: var(--accent);">50%</strong> of the sale price via Venmo or Zelle when yours sells. Add your payout info in your dashboard; we process within a few days.</p>
+                        <p>Your items are stored and sold at our <strong>retail store near campus</strong> June 1&ndash;Aug 31. Buyers browse in person. {{ store_info.address }}. You receive <strong style="color: var(--accent);">20%</strong> (Free) or <strong style="color: var(--accent);">50%</strong> (Campus Swap Pickup) of the sale price via Venmo, PayPal, or Zelle when yours sells. Add your payout info in your dashboard; we process within a few days.</p>
                     </div>
                     <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
                     <div style="flex: 1;"></div>
@@ -436,25 +437,25 @@
                         <li>✓ We pick up if space exists</li>
                         <li>✓ Can upgrade anytime</li>
                     </ul>
-                    <a href="{{ url_for('login') }}" class="btn" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">Start Free</a>
+                    <a href="{{ url_for('onboard') }}" class="btn btn-start-free" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">Start Free</a>
                 </div>
                 <!-- Campus Swap Pickup -->
                 <div style="border: 2px solid #d97706; border-radius: 16px; padding: 24px; background: #fffbeb; display: flex; flex-direction: column; position: relative;">
                     <div style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #d97706; color: white; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 12px; border-radius: 20px;">&#9733; Recommended</div>
                     <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #92400e; margin-bottom: 8px;">Campus Swap Pickup</div>
                     <div style="font-size: 2rem; font-weight: 800; color: #92400e; margin-bottom: 4px;">50%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">of sale price · $15 fee</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">of sale price · $15 one-time pickup fee (no extra per item)</div>
                     <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 0.9rem; color: var(--text-muted); line-height: 2; flex: 1;">
                         <li>✓ Guaranteed pickup</li>
-                        <li>✓ Best payout rate</li>
+                        <li>✓ Unlimited items ($10 / extra oversized item)</li>
                         <li>✓ We come to you</li>
-                        <li>✓ $10/extra oversized item</li>
-                        <li style="color: #92400e; font-weight: 600;">Guaranteed spot</li>
+                        <li>✓ Best payout</li>
                     </ul>
-                    <a href="{{ url_for('login') }}" class="btn btn-primary" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #d97706; border-color: #d97706;">Get Started</a>
+                    <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #d97706; border-color: #d97706;">Get Started</a>
                 </div>
             </div>
             <style>
+                .btn-start-free:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); background: #e2e8f0 !important; }
                 @media (max-width: 680px) {
                     #why-fee > div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
                     #why-fee > div[style*="gap: 24px"] { flex-direction: column; align-items: center; }

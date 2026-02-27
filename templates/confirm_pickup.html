@@ -21,7 +21,7 @@
         <i class="fas fa-truck" style="color: #92400e; font-size: 1.25rem; margin-top: 2px;"></i>
         <div>
             <strong style="color: #92400e;">Almost there!</strong>
-            <p style="color: #92400e; font-size: 0.9rem; margin: 4px 0 0;">Choose your pickup week, add your address, and pay $15 to lock in your spot.</p>
+            <p style="color: #92400e; font-size: 0.9rem; margin: 4px 0 0;">Choose your pickup week, add your address, and pay the one-time $15 pickup fee to lock in your spot. No extra charge per additional item.</p>
         </div>
     </div>
     {% endif %}
@@ -131,9 +131,10 @@
             {% endif %}
             {% if not is_free_confirmed %}
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #f8fafc; border-radius: 12px; margin-bottom: 16px;">
-                <span style="font-size: 1.25rem; font-weight: 700;">Service fee</span>
+                <span style="font-size: 1.25rem; font-weight: 700;">One-time pickup fee</span>
                 <span style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">$15.00</span>
             </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 16px;">Covers all items — no extra per additional item.</p>
             <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px;">
                 <button type="button" onclick="var el=document.getElementById('route-message');if(el)el.style.display=el.style.display==='none'?'block':'none';" aria-label="More info" style="background: none; border: none; padding: 0; cursor: pointer; color: var(--text-muted); margin-right: 4px; vertical-align: middle;"><i class="fas fa-info-circle"></i></button>
                 Your choice of pickup week cannot be changed after confirmation.

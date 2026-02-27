@@ -17,7 +17,9 @@
                 <span style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 20px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Free Plan</span>
                 {% elif pickup_method_type in ('pod', 'needs_pod') %}
                 <span style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 20px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Drop-off</span>
-                {% elif pickup_method_type in ('week', 'needs_pickup') %}
+                {% elif pickup_method_type == 'needs_pickup' %}
+                <span style="background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 20px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Awaiting Payment</span>
+                {% elif pickup_method_type == 'week' %}
                 <span style="background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 20px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">&#9733; Priority Pickup</span>
                 {% endif %}
             </div>
@@ -29,8 +31,8 @@
     <div class="dashboard-stats-bar">
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Potential Earnings</div>
-            <div class="dashboard-stat-value">${{ "%.0f"|format(estimated_payout + pending_payouts) }}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">{{ earnings_subtext }}</div>
+            <div class="dashboard-stat-value">{% if estimated_payout + pending_payouts == 0 %}—{% else %}${{ "%.0f"|format(estimated_payout + pending_payouts) }}{% endif %}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">{% if estimated_payout + pending_payouts == 0 %}Updates once your items are approved{% else %}{{ earnings_subtext }}{% endif %}</div>
         </div>
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Paid Out</div>
@@ -71,6 +73,7 @@
             {% endif %}
             {% elif pickup_method_type == 'needs_pickup' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pickup window pending</div>
+            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">Pay to secure your spot.</p>
             {% elif pickup_method_type == 'needs_pod' %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem; color: var(--text-muted);">Pod location pending</div>
             <p style="font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4;">We optimize our pod pickups based on projected volume.</p>
@@ -105,12 +108,12 @@
 
     <div class="dashboard-layout {% if not (has_in_person_items and stripe_configured and pickup_method_type == 'needs_pickup') %}dashboard-layout-no-sidebar{% endif %}">
         <div>
-            {# Action Required: Select pickup window #}
+            {# Awaiting payment: spot not guaranteed + pay to secure #}
             {% if pickup_method_type == 'needs_pickup' %}
-            <div class="dashboard-section action-required-card" style="margin-bottom: 24px;">
-                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Select Pickup Window</h3>
-                <p style="color: #92400e; font-size: 0.9rem;">Choose your pickup week and pay the $15 service fee to get your items live.</p>
-                <button type="button" onclick="openClaimModal()" class="btn btn-primary" style="margin-top: 16px; background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem;">Select Pickup Window</button>
+            <div class="dashboard-section action-required-card" style="margin-bottom: 24px; background: #fffbeb; border: 2px solid #fde68a;">
+                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-exclamation-circle"></i> Awaiting Payment</h3>
+                <p style="color: #92400e; font-size: 0.9rem; margin-bottom: 16px;">Your spot on the pickup route isn't guaranteed until you pay. Pay the one-time $15 pickup fee and select your pickup week to secure your spot and get your items live. No extra charge per additional item.</p>
+                <a href="{{ url_for('confirm_pickup') }}" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706; padding: 12px 24px; font-size: 1rem; text-decoration: none; display: inline-block;">Select Pickup Window & Pay $15</a>
             </div>
             {% endif %}
 
@@ -413,7 +416,7 @@
                 <form method="POST" action="{{ url_for('upgrade_checkout') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <h3 style="font-size: 0.95rem; margin-bottom: 8px; font-weight: 700;"><i class="fas fa-truck" style="color: var(--primary);"></i> Upgrade</h3>
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">Switch to Campus Swap Pickup for $15.</p>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">Switch to Campus Swap Pickup for a one-time $15 pickup fee. No extra per item.</p>
                     <button type="submit" class="btn btn-outline" style="width: 100%; padding: 10px; font-size: 0.85rem;">Upgrade to Pickup</button>
                 </form>
             </div>
@@ -434,10 +437,11 @@
             <button type="button" onclick="closeClaimModal()" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-muted); font-size: 1.2rem;" aria-label="Close">&times;</button>
         </div>
         <div class="dashboard-receipt-body">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #f8fafc; border-radius: 12px; margin-bottom: 24px;">
-                <span style="font-size: 1.1rem; font-weight: 700;">Service fee</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #f8fafc; border-radius: 12px; margin-bottom: 8px;">
+                <span style="font-size: 1.1rem; font-weight: 700;">One-time pickup fee</span>
                 <span style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$15.00</span>
             </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 24px;">Covers all items — no extra per additional item.</p>
             <form method="POST" action="{{ url_for('confirm_pickup') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <label style="font-size: 0.85rem; font-weight: 700; margin-bottom: 12px; display: block;">Pickup week</label>
@@ -450,6 +454,7 @@
                     {% endfor %}
                 </div>
                 <p style="font-size: 0.8rem; color: var(--text-muted); margin: 16px 0;"><i class="fas fa-info-circle"></i> Your choice cannot be changed after confirmation.</p>
+                <p style="font-size: 0.8rem; color: #166534; margin: 0 0 16px; font-weight: 600;"><i class="fas fa-check-circle"></i> Your spot is secured once payment is complete.</p>
                 <button type="submit" class="btn btn-primary" style="width: 100%; padding: 16px;">
                     <i class="fas fa-credit-card"></i> Pay $15 & Confirm Pickup
                 </button>
