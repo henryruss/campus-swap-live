@@ -25,7 +25,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import or_, and_, func, nulls_last
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload, AdminEmail
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail
 
 # Import Constants
 from constants import (
@@ -39,6 +39,7 @@ from constants import (
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
     PICKUP_WEEKS, POD_LOCATIONS, POD_CHANGE_DEADLINE, POD_CHANGE_DEADLINE_DISPLAY,
+    RESERVE_ONLY_DEADLINE,
     WAREHOUSE_CAPACITY, POD_CAPACITY, FREE_TIER_MAX_ITEMS,
     get_price_range_for_category
 )
@@ -73,6 +74,16 @@ def is_super_admin():
         return False
     return getattr(current_user, 'is_super_admin', False)
 
+def is_reserve_only_mode():
+    """True if we are before RESERVE_ONLY_DEADLINE (April 20). No Stripe charges for item purchases."""
+    now = datetime.utcnow()
+    month, day = RESERVE_ONLY_DEADLINE
+    return (now.month, now.day) < (month, day)
+
+def item_is_picked_up(item):
+    """True if item is in Campus Swap's possession (picked up or arrived at store)."""
+    return bool(item.picked_up_at or item.arrived_at_store_at)
+
 def get_store_info(store_name):
     """Get store information by name"""
     stores = {
@@ -97,7 +108,9 @@ def inject_store_functions():
         get_store_info=get_store_info,
         google_oauth_enabled=bool(oauth),
         is_super_admin=is_super_admin,
-        turnstile_site_key=os.environ.get('TURNSTILE_SITE_KEY', '')
+        turnstile_site_key=os.environ.get('TURNSTILE_SITE_KEY', ''),
+        is_reserve_only_mode=is_reserve_only_mode,
+        item_is_picked_up=item_is_picked_up
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -934,7 +947,7 @@ def inventory():
     commodities = InventoryCategory.query.all()
     
     # Build query with eager loading to prevent N+1 queries
-    # Show items where: no seller; or online + seller paid; or POD + seller paid + arrived at store
+    # Items appear on shop once approved (pending_logistics or available or sold) - no wait for has_paid or arrived_at_store
     query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
@@ -942,22 +955,7 @@ def inventory():
         InventoryItem.status != 'pending_valuation',
         InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
-        InventoryItem.price > 0,
-        or_(
-            InventoryItem.seller_id.is_(None),
-            and_(
-                InventoryItem.collection_method == 'online',
-                User.has_paid == True
-            ),
-            and_(
-                InventoryItem.collection_method == 'in_person',
-                InventoryItem.arrived_at_store_at.isnot(None)
-            ),
-            and_(
-                InventoryItem.collection_method == 'free',
-                InventoryItem.arrived_at_store_at.isnot(None)
-            )
-        )
+        InventoryItem.price > 0
     )
     
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
@@ -1003,16 +1001,7 @@ def product_detail(item_id):
     if item.status == 'rejected' and not (current_user.is_authenticated and current_user.is_admin):
         flash("This item is not available.", "error")
         return redirect(url_for('inventory'))
-    # Block non-admins from viewing items where seller hasn't paid (online) or POD not yet in-store
-    if item.seller_id is not None and not (current_user.is_authenticated and current_user.is_admin):
-        seller = item.seller
-        if seller:
-            if not seller.has_paid:
-                flash("This item is not yet available for purchase.", "error")
-                return redirect(url_for('inventory'))
-            if item.collection_method == 'in_person' and item.arrived_at_store_at is None:
-                flash("This item is not yet available for purchase.", "error")
-                return redirect(url_for('inventory'))
+    # Approved items are visible on shop (no longer block on has_paid or arrived_at_store)
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
     is_shareable = _is_item_shareable(item)
@@ -1023,22 +1012,11 @@ def _is_item_shareable(item):
     """True if item would appear in inventory and is not sold."""
     if not item or item.status == 'sold':
         return False
-    if item.status not in ('available',):
+    if item.status not in ('available', 'pending_logistics'):
         return False
     if not item.price or item.price <= 0:
         return False
-    if item.seller_id is None:
-        return True  # No seller = internal item, shareable
-    seller = item.seller
-    if not seller:
-        return True
-    if item.collection_method == 'online':
-        return bool(seller.has_paid)
-    if item.collection_method == 'in_person':
-        return item.arrived_at_store_at is not None
-    if item.collection_method == 'free':
-        return item.arrived_at_store_at is not None
-    return False
+    return True  # Approved items are shareable (no longer require has_paid or arrived_at_store)
 
 
 def _share_card_font(size, bold=False):
@@ -1338,9 +1316,36 @@ def acknowledge_price_change(item_id):
     return jsonify({"ok": True})
 
 
+@app.route('/reserve_item/<int:item_id>')
+@login_required
+def reserve_item(item_id):
+    """Non-binding reservation (no payment). Used before April 20 or for items not yet picked up."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status != 'available' and item.status != 'pending_logistics':
+        flash("This item is not available for reservation.", "error")
+        return redirect(url_for('inventory'))
+    if item.status == 'sold':
+        flash("This item has already been sold.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+    if not item.price or item.price <= 0:
+        flash("This item is not available for reservation.", "error")
+        return redirect(url_for('inventory'))
+    # Create reservation record (idempotent - one per user per item)
+    existing = ItemReservation.query.filter_by(item_id=item_id, user_id=current_user.id).first()
+    if not existing:
+        r = ItemReservation(item_id=item_id, user_id=current_user.id)
+        db.session.add(r)
+        db.session.commit()
+        logger.info(f"Reservation created for item {item_id} by user {current_user.id}")
+    return render_template('reserve_success.html', item=item)
+
+
 @app.route('/buy_item/<int:item_id>')
 def buy_item(item_id):
-    """Create Stripe checkout session for item purchase with race condition protection"""
+    """Create Stripe checkout session for item purchase. Only for picked-up items after April 20."""
+    # Reserve-only mode: redirect to reserve instead of charging
+    if is_reserve_only_mode():
+        return redirect(url_for('reserve_item', item_id=item_id))
     try:
         # Use pessimistic locking to prevent race conditions
         item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
@@ -1357,16 +1362,10 @@ def buy_item(item_id):
             flash("Sorry! This item is no longer available.", "error")
             return redirect(url_for('product_detail', item_id=item_id))
         
-        # Block if seller hasn't paid (online) or POD item not yet at store
-        if item.seller_id is not None:
-            seller = item.seller
-            if seller:
-                if item.collection_method == 'online' and not seller.has_paid:
-                    flash("Sorry! This item is not yet available for purchase.", "error")
-                    return redirect(url_for('inventory'))
-                if item.collection_method in ('in_person', 'free') and item.arrived_at_store_at is None:
-                    flash("Sorry! This item is not yet available for purchase.", "error")
-                    return redirect(url_for('inventory'))
+        # After April 20: only allow purchase when item is picked up (in our possession)
+        if not item_is_picked_up(item):
+            flash("This item is not yet available for purchase. You can reserve it and we'll notify you when it's ready.", "info")
+            return redirect(url_for('product_detail', item_id=item_id))
         
         if item.price is None or item.price <= 0:
             logger.warning(f"Item {item_id} has invalid price: {item.price}")
@@ -2237,7 +2236,7 @@ def admin_free_reject(user_id):
                     <p style="margin: 0 0 8px;"><strong>Your options:</strong></p>
                     <ul style="margin: 0; padding-left: 20px;">
                         <li>Switch to <strong>POD Drop-off</strong> &mdash; drop your items at a campus POD at no cost (33% payout)</li>
-                        <li>Upgrade to <strong>Priority Pickup</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
+                        <li>Upgrade to <strong>Pro User</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
                     </ul>
                 </div>
                 <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Visit Your Dashboard</a></p>
@@ -2291,7 +2290,7 @@ def admin_free_notify_all():
                     <p style="margin: 0 0 8px;"><strong>Your options:</strong></p>
                     <ul style="margin: 0; padding-left: 20px;">
                         <li>Switch to <strong>POD Drop-off</strong> &mdash; drop your items at a campus POD at no cost (33% payout)</li>
-                        <li>Upgrade to <strong>Priority Pickup</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
+                        <li>Upgrade to <strong>Pro User</strong> &mdash; guaranteed pickup for $15 (50% payout)</li>
                     </ul>
                 </div>
                 <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Visit Your Dashboard</a></p>
@@ -2318,15 +2317,8 @@ def edit_item(item_id):
         flash("You cannot edit this item.", "error")
         return redirect(get_user_dashboard())
     
-    # Prevent editing live items (non-admin sellers). Exception: pod items can be edited until dropped off.
-    if item.status == 'available' and not current_user.is_admin:
-        is_pod_not_dropped = (
-            item.collection_method == 'in_person'
-            and item.arrived_at_store_at is None
-        )
-        if not is_pod_not_dropped:
-            flash("This item is live and cannot be edited. Contact support if you need changes.", "error")
-            return redirect(url_for('dashboard'))
+    # Picked-up items: sellers can submit edits for approval (no direct edit). Admins can edit directly.
+    # (No redirect here - we allow the form; on POST we set pending_valuation for re-approval)
     
     # Prevent editing sold items (non-admin sellers)
     if item.status == 'sold' and not current_user.is_admin:
@@ -2336,14 +2328,11 @@ def edit_item(item_id):
     categories = InventoryCategory.query.all()
     
     if request.method == 'POST' and request.form.get('withdraw_item') == '1':
-        # Seller withdraws/removes item (change of mind - no refund, taken off route)
-        # Pod items can be removed until marked as dropped off (arrived_at_store_at)
-        is_pod_not_dropped = (
-            item.status == 'available'
-            and item.collection_method == 'in_person'
-            and item.arrived_at_store_at is None
-        )
-        if item.status not in ('pending_valuation', 'pending_logistics', 'rejected') and not is_pod_not_dropped:
+        # Seller withdraws/removes item. Allowed only until item is picked up (in our possession).
+        if item_is_picked_up(item):
+            flash("This item can no longer be removed. Contact support if needed.", "error")
+            return redirect(url_for('edit_item', item_id=item_id))
+        if item.status not in ('pending_valuation', 'pending_logistics', 'rejected', 'available'):
             flash("This item can no longer be removed. Contact support if needed.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
         if current_user.is_admin:
@@ -2434,8 +2423,11 @@ def edit_item(item_id):
                         flash("Error processing image. Please try again.", "error")
                         return redirect(url_for('edit_item', item_id=item_id))
         
-        # Re-approval: when seller edits pending_logistics or rejected, send back to approval queue
-        needs_reapproval = not current_user.is_admin and item.status in ('pending_logistics', 'rejected')
+        # Re-approval: when seller edits pending_logistics, rejected, or picked-up items, send back to approval queue
+        needs_reapproval = (
+            not current_user.is_admin
+            and (item.status in ('pending_logistics', 'rejected') or item_is_picked_up(item))
+        )
         if needs_reapproval:
             item.status = 'pending_valuation'
         
@@ -3070,21 +3062,15 @@ def dashboard():
     available_items = [item for item in my_items if item.status == 'available']
     sold_items = [item for item in my_items if item.status == 'sold']
 
-    # Items actually visible in inventory (matches inventory route logic)
-    # Online: has_paid. In_person/free: arrived_at_store_at (no payment required).
-    live_items = [
-        i for i in available_items
-        if (i.collection_method == 'online' and current_user.has_paid)
-        or (i.collection_method == 'in_person' and i.arrived_at_store_at)
-        or (i.collection_method == 'free' and i.arrived_at_store_at)
-    ]
+    # Items visible in inventory (matches inventory route: approved items show on shop)
+    live_items = available_items
 
     # Earnings subtext: shows highest applicable payout rate
     has_any_pickup = any(i.collection_method == 'online' for i in available_items)
     has_any_pod = any(i.collection_method == 'in_person' for i in available_items)
     has_any_free = any(i.collection_method == 'free' for i in available_items)
     if has_any_pickup:
-        earnings_subtext = "Based on 50% cut (priority pickup)"
+        earnings_subtext = "Based on 50% cut (pro user)"
     elif has_any_pod:
         earnings_subtext = "Based on 33% cut (pod drop-off)"
     elif has_any_free:
@@ -3518,7 +3504,7 @@ def onboard():
                 ~InventoryItem.status.in_(['rejected'])
             ).count()
             if existing_free >= FREE_TIER_MAX_ITEMS:
-                flash(f"The free plan allows up to {FREE_TIER_MAX_ITEMS} items. Upgrade to Priority Pickup to add more.", "error")
+                flash(f"The free plan allows up to {FREE_TIER_MAX_ITEMS} items. Upgrade to Pro User to add more.", "error")
                 return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
         # Create the item (reuse add_item logic)

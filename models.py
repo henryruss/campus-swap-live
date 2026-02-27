@@ -126,6 +126,14 @@ class ItemPhoto(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     photo_url = db.Column(db.String(200), nullable=False)
 
+
+class ItemReservation(db.Model):
+    """Non-binding reservation before April 20 (reserve-only mode). No payment."""
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class UploadSession(db.Model):
     """Temporary session for QR code mobile-to-desktop photo uploads. user_id is None for guest sessions."""
     id = db.Column(db.Integer, primary_key=True)

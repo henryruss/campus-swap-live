@@ -314,6 +314,15 @@
         box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     }
     .tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+    .tier-notice {
+        margin-top: 20px;
+        padding: 14px 18px;
+        background: rgba(6, 78, 59, 0.06);
+        border-radius: 12px;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
     @media (max-width: 560px) {
         .tier-grid { grid-template-columns: 1fr; }
         .tier-card { min-height: auto; }
@@ -369,12 +378,14 @@
     .btn-back:hover { color: var(--primary); }
 
     @media (max-width: 768px) {
-        #qr-block { display: none !important; }
-        .photos-side-by-side { grid-template-columns: 1fr; }
         .category-card:active, .condition-btn:active {
             transform: scale(0.98);
             opacity: 0.9;
         }
+    }
+    @media (max-width: 480px) {
+        #qr-block { display: none !important; }
+        .photos-side-by-side { grid-template-columns: 1fr; }
     }
     @media (max-width: 480px) {
         .onboard-wizard .wizard-container { padding: 20px 16px 60px; }
@@ -538,7 +549,7 @@
         <!-- Step 7: Service Tier (moved before address) -->
         <div class="wizard-step" id="step-7" data-step="7">
             <h2 class="step-title">How do you want to sell?</h2>
-            <p class="step-sub">Choose the plan that works best for you. You can always upgrade later.</p>
+            <p class="step-sub">Both plans include the Campus Swap pickup service. Choose what works best for you. You can always upgrade later.</p>
             <div class="tier-hero-img-wrap">
                 <img src="{{ url_for('static', filename='campusSwapPickup.png') }}" alt="Campus Swap Movers" class="tier-hero-img">
             </div>
@@ -554,7 +565,7 @@
                         </div>
                         <ul class="tier-list">
                             <li>Upload up to {{ free_tier_max_items }} items.</li>
-                            <li>We confirm by April 20th if we have room. Paid users get priority pickup.</li>
+                            <li>We confirm by April 20th if we have room. Pro users get pro pickup.</li>
                         </ul>
                     </div>
                 </div>
@@ -563,18 +574,19 @@
                     <span class="tier-badge" style="background:#b45309;">★ Recommended</span>
                     <div class="tier-card recommended" id="tier-pickup" data-tier="online" style="border-color:#d97706;">
                         <h4 style="color:#92400e;">Pro Plan</h4>
-                        <p class="tier-sub">Guaranteed pickup &amp; the best payout.</p>
+                        <p class="tier-sub">Same pickup service with guaranteed retail space and better payout.</p>
                         <div class="tier-fee-callout" style="background:#fffbeb;">
                             <span class="payout-hero" style="color:#92400e;">50% of sale price</span>
                             <span class="payout-sub">$15 one-time pickup fee</span>
                         </div>
                         <ul class="tier-list plus">
-                            <li>We drive to you — guaranteed.</li>
+                            <li>Guaranteed retail space for your items.</li>
                             <li>Unlimited items per pickup.</li>
                         </ul>
                     </div>
                 </div>
             </div>
+            <p class="tier-notice">We try to serve every student, but our store has limited capacity. Pro users get pro pickup.</p>
             <input type="hidden" name="collection_method" id="collection-method-input" value="online">
         </div>
 
@@ -604,7 +616,7 @@
                 <p id="review-tier"></p>
             </div>
             <button type="button" class="btn btn-primary" style="width:100%;padding:18px;font-size:1.1rem;" id="publish-btn">
-                <i class="fas fa-check"></i> {% if is_guest %}Continue{% else %}Submit Listing for Approval{% endif %}
+                <i class="fas fa-check"></i> Submit for Approval
             </button>
         </div>
     </form>
@@ -1183,7 +1195,7 @@
 
     // QR upload (works for both logged-in and guest users)
     async function loadQr() {
-        if (window.innerWidth <= 768) return; /* Skip on mobile - user taps upload zone for camera/gallery */
+        if (window.innerWidth <= 480) return; /* Skip on phone - user taps upload zone for camera/gallery */
         try {
             const fd = new FormData();
             fd.append('csrf_token', form.querySelector('input[name="csrf_token"]').value);
@@ -1241,7 +1253,7 @@
         if (isGuest) {
             const btn = this;
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
             try {
                 const fd = new FormData(form);
                 const r = await fetch('{{ url_for("onboard_guest_save") }}', {
@@ -1259,7 +1271,7 @@
                 showValidationError('Something went wrong. Please try again.');
             }
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-check"></i> Continue';
+            btn.innerHTML = '<i class="fas fa-check"></i> Submit for Approval';
         } else {
             form.submit();
         }

@@ -71,6 +71,9 @@ POD_LOCATIONS = [
 POD_CHANGE_DEADLINE = (4, 20)  # April 20th
 POD_CHANGE_DEADLINE_DISPLAY = 'April 20th'
 
+# Reserve-only mode: before this date (month, day), items are reserve-only (no Stripe charges)
+RESERVE_ONLY_DEADLINE = (4, 20)  # April 20th
+
 # Recommended price ranges by category (min, max) in dollars.
 # Keys match category names (case-insensitive, partial match).
 PRICE_RANGES = {

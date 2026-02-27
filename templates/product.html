@@ -172,7 +172,11 @@
                     {{ item.long_description or "No detailed description provided." }}
                 </p>
 
-                {% if item.status == 'available' %}
+                {% if item.status == 'sold' %}
+                    <button class="btn" style="width: 100%; padding: 18px; background: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>
+                        Item Sold
+                    </button>
+                {% elif item.status in ('available', 'pending_logistics') %}
                     <!-- Delivery Method Section -->
                     <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 25px; background: #f8fafc;">
                         <h4 style="margin-bottom: 15px; font-size: 1rem; color: var(--text-main);">Delivery Method</h4>
@@ -189,18 +193,29 @@
                             We don't support shipping yet. All items must be picked up in person at our store.
                         </p>
                     </div>
-                    
-                    <a href="/buy_item/{{ item.id }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                    {% if is_reserve_only_mode() %}
+                    <a href="{{ url_for('reserve_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
                         Reserve Item <i class="fas fa-calendar-check"></i>
                     </a>
                     <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
-                        <i class="fas fa-lock"></i> Secure payment via Stripe<br>
-                        <span style="font-size: 0.8rem;">Reserving secures this item. You'll pick it up at our store.</span>
+                        No payment required. We'll start accepting payments after April 20th.
                     </p>
-                {% else %}
-                    <button class="btn" style="width: 100%; padding: 18px; background: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>
-                        Item Sold
-                    </button>
+                    {% elif item_is_picked_up(item) %}
+                    <a href="{{ url_for('buy_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                        Buy Now <i class="fas fa-shopping-cart"></i>
+                    </a>
+                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                        <i class="fas fa-lock"></i> Secure payment via Stripe<br>
+                        <span style="font-size: 0.8rem;">Item is in store. Complete your purchase to pick it up.</span>
+                    </p>
+                    {% else %}
+                    <a href="{{ url_for('reserve_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                        Reserve Item <i class="fas fa-calendar-check"></i>
+                    </a>
+                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                        Item not yet picked up. Reserve now (no payment). We'll notify you when it's ready for purchase.
+                    </p>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>
