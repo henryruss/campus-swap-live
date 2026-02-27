@@ -429,7 +429,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
         padding: 40px 20px;
     }
     .timeline-line {
-        left: 30px;
+        display: none; /* Line overlaps centered text on mobile */
     }
     .timeline-section > div,
     .timeline-inner {
@@ -503,6 +503,15 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
         font-size: 0.9rem;
         width: 100%;
         justify-content: center;
+    }
+    .wizard-nav .btn,
+    .wizard-nav .btn-primary {
+        width: auto;
+        flex: 0 0 auto;
+    }
+    .wizard-nav {
+        gap: 12px;
+        flex-wrap: nowrap;
     }
     
     /* Forms */
@@ -762,31 +771,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     .dashboard-receipt-header, .dashboard-receipt-body { padding: 20px; }
 }
 
-/* Share card button (inventory) - 44px min tap target for mobile */
-.inventory-card-photo { position: relative; }
-.share-card-btn {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(0, 0, 0, 0.5);
-    color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.95rem;
-    transition: background 0.2s;
-    z-index: 5;
-}
-.share-card-btn:hover {
-    background: rgba(0, 0, 0, 0.7);
-}
-
-/* Share modal */
+/* Share modal (product page) */
 .share-modal-overlay {
     position: fixed;
     inset: 0;

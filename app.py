@@ -1015,8 +1015,8 @@ def product_detail(item_id):
                 return redirect(url_for('inventory'))
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
-    # Preserve search and filter parameters for "Back" link
-    return render_template('product.html', item=item, current_store=store_name, store_info=store_info)
+    is_shareable = _is_item_shareable(item)
+    return render_template('product.html', item=item, current_store=store_name, store_info=store_info, is_shareable=is_shareable)
 
 # --- SHARE CARD IMAGE GENERATION ---
 def _is_item_shareable(item):
@@ -1136,6 +1136,22 @@ def _generate_share_card_png(item):
         lw, lh = logo_img.size
         base.paste(logo_img, (CARD_W - lw - 30, CARD_H - lh - 30), logo_img)
 
+    # SOLD overlay when applicable
+    if item.status == 'sold':
+        sold_overlay = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+        draw_sold = ImageDraw.Draw(sold_overlay)
+        sold_font = _share_card_font(120, bold=True)
+        sold_text = "SOLD"
+        bbox = draw_sold.textbbox((0, 0), sold_text, font=sold_font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        cx, cy = CARD_W // 2 - tw // 2, CARD_H // 2 - th // 2
+        for dx, dy in [(3, 3), (-3, -3), (3, -3), (-3, 3)]:
+            draw_sold.text((cx + dx, cy + dy), sold_text, fill=(0, 0, 0, 180), font=sold_font)
+        draw_sold.text((cx, cy), sold_text, fill=(220, 38, 38, 255), font=sold_font)
+        base = base.convert("RGBA")
+        base = Image.alpha_composite(base, sold_overlay)
+
     buf = BytesIO()
     base.save(buf, "PNG", optimize=True)
     return buf.getvalue()
@@ -1143,10 +1159,8 @@ def _generate_share_card_png(item):
 
 @app.route('/share/item/<int:item_id>/card.png')
 def share_card_image(item_id):
-    """Serve shareable card PNG for live inventory items."""
+    """Serve share card PNG for any item (used for link preview og:image)."""
     item = InventoryItem.query.get_or_404(item_id)
-    if not _is_item_shareable(item):
-        return "This item cannot be shared.", 403
     png_bytes = _generate_share_card_png(item)
     if not png_bytes:
         return "Failed to generate share card.", 500

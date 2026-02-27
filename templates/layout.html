@@ -11,18 +11,34 @@
     <meta name="keywords" content="campus swap, sustainable furniture, college furniture, dorm essentials, circular economy, buy used furniture, sell furniture, move-out sale, landfill diversion, UNC Chapel Hill, Davidson College, student marketplace">
     
     <!-- Open Graph / Facebook -->
+    {% if item is defined and item %}
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ url_for('product_detail', item_id=item.id, _external=True) }}">
+    <meta property="og:title" content="{{ (item.description or 'Item')[:60] }} - Campus Swap">
+    <meta property="og:description" content="{{ (item.description or '')[:150] }}{% if item.price %} - ${{ "%.0f"|format(item.price) }}{% endif %}">
+    <meta property="og:image" content="{{ url_for('share_card_image', item_id=item.id, _external=True) }}">
+    {% else %}
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://usecampusswap.com/">
     <meta property="og:title" content="Campus Swap - Buy & Sell College Furniture">
     <meta property="og:description" content="The sustainable way to buy and sell college furniture. We pick up at move-out, resell at our store, and pay sellers 50%. Fewer landfills, more cash for students.">
     <meta property="og:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
+    {% endif %}
     
     <!-- Twitter -->
+    {% if item is defined and item %}
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="{{ url_for('product_detail', item_id=item.id, _external=True) }}">
+    <meta property="twitter:title" content="{{ (item.description or 'Item')[:60] }} - Campus Swap">
+    <meta property="twitter:description" content="{{ (item.description or '')[:150] }}{% if item.price %} - ${{ "%.0f"|format(item.price) }}{% endif %}">
+    <meta property="twitter:image" content="{{ url_for('share_card_image', item_id=item.id, _external=True) }}">
+    {% else %}
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://usecampusswap.com/">
     <meta property="twitter:title" content="Campus Swap - Buy & Sell College Furniture">
     <meta property="twitter:description" content="The sustainable way to buy and sell college furniture. We pick up at move-out, resell at our store, and pay sellers 50%. Fewer landfills, more cash for students.">
     <meta property="twitter:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
+    {% endif %}
     
     <!-- Favicon - Square PNG for Google search results (min 48x48 required) -->
     <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon.png', _external=True) }}">

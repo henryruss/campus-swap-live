@@ -318,6 +318,14 @@
         .interactive-room-headline .calculator-subtitle { font-size: 1rem; }
         .interactive-room-headline .profit-label { font-size: 1.1rem; }
         .interactive-room-headline .total-amount { font-size: 3rem; }
+        .room-receipt-list li {
+            grid-template-columns: minmax(0, 1fr) minmax(60px, 1fr) minmax(60px, 1fr);
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+        .room-receipt-list li > span:first-child {
+            word-break: break-word;
+        }
     }
 </style>
 
@@ -462,6 +470,13 @@
                 }
                 @media (max-width: 480px) {
                     #join { padding: 40px 24px !important; }
+                    #why-fee > div[style*="grid-template-columns: 1fr 1fr"] > div {
+                        padding: 28px 24px;
+                        min-height: auto;
+                    }
+                    #why-fee > div[style*="grid-template-columns: 1fr 1fr"] > div a {
+                        margin-top: auto;
+                    }
                 }
             </style>
         </div>
@@ -519,7 +534,7 @@
                     Create your account and get started.
                 </p>
             </div>
-            <a href="{{ url_for('login') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">
+            <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">
                 Start Selling
             </a>
         </div>

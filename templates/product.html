@@ -141,7 +141,7 @@
 
         <div>
             <div class="card no-hover" style="position: sticky; top: 100px;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
                     <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">
                         ID: #{{ item.id }}
                     </span>
@@ -149,6 +149,11 @@
                         <span class="badge bg-red" style="font-size: 1rem;">SOLD</span>
                     {% else %}
                         <span class="badge bg-green" style="font-size: 1rem;">Available</span>
+                    {% endif %}
+                    {% if is_shareable %}
+                    <button type="button" class="btn btn-outline" onclick="openShareModal()" style="padding: 8px 16px; font-size: 0.9rem;">
+                        <i class="fas fa-share-nodes"></i> Share
+                    </button>
                     {% endif %}
                 </div>
 
@@ -207,6 +212,34 @@
     <img id="lightbox-img" src="">
 </div>
 
+{# Share Modal - link only, no image file #}
+{% if is_shareable %}
+<div id="shareModal" class="share-modal-overlay" style="display: none;" aria-hidden="true">
+    <div class="share-modal" onclick="event.stopPropagation()">
+        <div class="share-modal-header">
+            <h3 style="margin: 0; font-size: 1.2rem;">Share Item</h3>
+            <button type="button" class="share-modal-close" onclick="closeShareModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="share-modal-body">
+            <div id="shareModalPreview" class="share-modal-preview">
+                <div id="shareModalLoading" class="share-modal-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+                <img id="shareModalImg" src="" alt="Link preview" style="display: none; max-width: 100%; border-radius: 12px;">
+                <div id="shareModalError" class="share-modal-error" style="display: none;">Could not load preview.</div>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px;">Share this link. The preview will show the item card.</p>
+            <div class="share-modal-actions">
+                <button type="button" id="shareModalShareBtn" class="btn btn-primary" style="display: none;">
+                    <i class="fas fa-share-nodes"></i> Send
+                </button>
+                <button type="button" class="btn btn-outline" onclick="copyShareLink()" id="shareModalCopyBtn" style="display: none;">
+                    <i class="fas fa-link"></i> Copy link
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <script>
     // 1. Switch Main Photo when thumbnail clicked
     function switchPhoto(thumb, src) {
@@ -234,8 +267,72 @@
     document.addEventListener('keydown', function(event) {
         if (event.key === "Escape") {
             closeLightbox();
+            if (typeof closeShareModal === 'function') closeShareModal();
         }
     });
+
+    {% if is_shareable %}
+    var currentShareUrl = window.location.href;
+    function openShareModal() {
+        var modal = document.getElementById('shareModal');
+        if (!modal) return;
+        var loading = document.getElementById('shareModalLoading');
+        var img = document.getElementById('shareModalImg');
+        var err = document.getElementById('shareModalError');
+        var shareBtn = document.getElementById('shareModalShareBtn');
+        var copyBtn = document.getElementById('shareModalCopyBtn');
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        currentShareUrl = window.location.href;
+        if (loading) loading.style.display = 'block';
+        if (img) { img.style.display = 'none'; img.src = ''; }
+        if (err) err.style.display = 'none';
+        if (shareBtn) shareBtn.style.display = 'none';
+        if (copyBtn) copyBtn.style.display = 'none';
+        var cardUrl = '/share/item/{{ item.id }}/card.png';
+        fetch(cardUrl).then(function(r) {
+            if (!r.ok) throw new Error();
+            return r.blob();
+        }).then(function(blob) {
+            var url = URL.createObjectURL(blob);
+            if (img) { img.src = url; img.style.display = 'block'; }
+            if (loading) loading.style.display = 'none';
+            if (shareBtn) shareBtn.style.display = 'inline-flex';
+            if (copyBtn) copyBtn.style.display = 'inline-flex';
+        }).catch(function() {
+            if (loading) loading.style.display = 'none';
+            if (err) err.style.display = 'block';
+            if (copyBtn) copyBtn.style.display = 'inline-flex';
+        });
+    }
+    function closeShareModal() {
+        var modal = document.getElementById('shareModal');
+        var img = document.getElementById('shareModalImg');
+        if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+        document.body.style.overflow = '';
+        if (img && img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+    }
+    function copyShareLink() {
+        if (!currentShareUrl) return;
+        navigator.clipboard.writeText(currentShareUrl).then(function() {
+            var btn = document.getElementById('shareModalCopyBtn');
+            if (btn) { var o = btn.innerHTML; btn.innerHTML = '<i class="fas fa-check"></i> Copied!'; setTimeout(function() { btn.innerHTML = o; }, 2000); }
+        });
+    }
+    document.getElementById('shareModal') && document.getElementById('shareModal').addEventListener('click', function(e) { if (e.target === this) closeShareModal(); });
+    document.getElementById('shareModalShareBtn') && document.getElementById('shareModalShareBtn').addEventListener('click', function() {
+        if (navigator.share) {
+            navigator.share({
+                title: {{ (item.description or "Item")|tojson }},
+                text: {{ ((item.description or "Check out this item") ~ (" - $" ~ ("%.0f"|format(item.price) if item.price else "")))|tojson }},
+                url: currentShareUrl
+            }).then(function() { closeShareModal(); }).catch(function() {});
+        } else {
+            copyShareLink();
+        }
+    });
+    {% endif %}
 </script>
 
 {% endblock %}
