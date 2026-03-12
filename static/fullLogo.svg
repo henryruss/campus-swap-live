@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120">
+  <rect width="520" height="120" fill="#FFFFFF"/>
+  <g transform="translate(40, 10) scale(1.18)">
+    <svg width="55" height="85" viewBox="0 0 55 85" fill="none">
+      <path d="M42 12 C42 12, 48 8, 44 18 C38 32, 10 28, 10 44 C10 60, 40 58, 44 70 C46 78, 12 80, 12 80"
+            stroke="#1A3D1A" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    </svg>
+  </g>
+  <text x="122" y="72"
+    font-family="'DM Sans', 'Helvetica Neue', Arial, sans-serif"
+    font-size="46" font-weight="300" fill="#1A3D1A" letter-spacing="-0.5">campus swap</text>
+</svg>

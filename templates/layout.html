@@ -40,11 +40,15 @@
     <meta property="twitter:image" content="{{ url_for('static', filename='logo.jpg', _external=True) }}">
     {% endif %}
     
-    <!-- Favicon - Square PNG for Google search results (min 48x48 required) -->
-    <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
-    <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
-    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.png', _external=True) }}">
+    <!-- Favicon - SVG icon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='faviconNew.svg') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='faviconNew.svg') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='faviconNew.svg') }}">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&display=swap" rel="stylesheet">
     
     <!-- Stylesheets -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -152,11 +156,10 @@
 
     <header class="site-header">
         <div class="header-left">
-            <a href="/" class="logo" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit;">
-                <img src="{{ url_for('static', filename='logo.jpg') }}" 
-                     alt="Campus Swap" 
-                     style="height: 45px; width: auto; display: block; mix-blend-mode: multiply;">
-                <span style="font-size: 1.25rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em;">Campus Swap</span>
+            <a href="/" class="logo" style="display: flex; align-items: center; text-decoration: none; color: inherit;">
+                <img src="{{ url_for('static', filename='fullLogo.svg') }}"
+                     alt="Campus Swap"
+                     style="height: 40px; width: auto; display: block;">
             </a>
             <a href="/about" class="nav-item nav-desktop" aria-label="About Campus Swap">About Us</a>
         </div>
