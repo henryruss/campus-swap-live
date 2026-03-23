@@ -114,6 +114,7 @@ class InventoryItem(db.Model):
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
     photo_url = db.Column(db.String(200), nullable=True)
+    video_url = db.Column(db.String(200), nullable=True)  # Demo video filename (electronics required, others optional)
     gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True, cascade='all, delete-orphan')
 
     # Price transparency: True when seller has acknowledged that we changed their suggested price

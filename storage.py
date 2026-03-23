@@ -1,5 +1,5 @@
 """
-Storage abstraction for Campus Swap photo uploads.
+Storage abstraction for Campus Swap photo and video uploads.
 Supports AWS S3 (production) and local disk (development).
 """
 import os
@@ -13,6 +13,19 @@ logger = logging.getLogger(__name__)
 # Image processing constants (match constants.py)
 IMAGE_QUALITY = 80
 MAX_DIMENSION = 2000
+
+# Video content type mapping by extension
+_VIDEO_CONTENT_TYPES = {
+    'mp4': 'video/mp4',
+    'mov': 'video/quicktime',
+    'webm': 'video/webm',
+}
+
+
+def _video_content_type(key: str) -> str:
+    """Return the video MIME type based on file extension."""
+    ext = key.rsplit('.', 1)[-1].lower() if '.' in key else 'mp4'
+    return _VIDEO_CONTENT_TYPES.get(ext, 'video/mp4')
 
 
 def _process_image(file_obj) -> bytes:
@@ -100,6 +113,22 @@ class LocalStorage:
         with open(path, "rb") as f:
             return f.read()
 
+    def save_video(self, file_obj, key: str) -> str:
+        """Save video to disk (raw bytes, no processing). Returns key."""
+        path = os.path.join(self.upload_folder, key)
+        with open(path, "wb") as f:
+            file_obj.seek(0)
+            while chunk := file_obj.read(8192):
+                f.write(chunk)
+        return key
+
+    def save_video_from_path(self, src_path: str, key: str) -> str:
+        """Copy video file from src_path to storage. Returns key."""
+        import shutil
+        dst_path = os.path.join(self.upload_folder, key)
+        shutil.copy2(src_path, dst_path)
+        return key
+
 
 class S3Storage:
     """Store photos in AWS S3."""
@@ -185,6 +214,30 @@ class S3Storage:
         except Exception as e:
             logger.error(f"Failed to get S3 object {key}: {e}", exc_info=True)
             return None
+
+    def save_video(self, file_obj, key: str) -> str:
+        """Save video to S3 (raw bytes, no processing). Returns key."""
+        s3_key = self._key(key)
+        file_obj.seek(0)
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=s3_key,
+            Body=file_obj.read(),
+            ContentType=_video_content_type(key),
+        )
+        return key
+
+    def save_video_from_path(self, src_path: str, key: str) -> str:
+        """Upload video from local path to S3. Returns key."""
+        s3_key = self._key(key)
+        with open(src_path, "rb") as f:
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=s3_key,
+                Body=f.read(),
+                ContentType=_video_content_type(key),
+            )
+        return key
 
 
 def get_storage():

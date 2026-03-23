@@ -102,6 +102,30 @@
                 <i class="fas fa-info-circle"></i> New photos will be added to the gallery when you save.
             </p>
 
+            <!-- Video Section -->
+            <label style="font-weight: bold; margin-top: 20px; display: block;">Demo Video</label>
+            {% if item.video_url %}
+            <div style="margin-top: 10px;">
+                <video controls playsinline style="width:100%;max-height:250px;border-radius:12px;background:#000;" src="{{ url_for('uploaded_file', filename=item.video_url) }}"></video>
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <label for="new-video-input" style="padding:8px 16px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;color:var(--primary);font-weight:600;cursor:pointer;font-size:0.85rem;"><i class="fas fa-sync-alt"></i> Replace</label>
+                    <label style="padding:8px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#dc2626;font-weight:600;cursor:pointer;font-size:0.85rem;">
+                        <input type="checkbox" name="remove_video" value="1" style="display:none;" onchange="this.closest('label').style.opacity=this.checked?'0.5':'1'">
+                        <i class="fas fa-trash"></i> Remove
+                    </label>
+                </div>
+            </div>
+            {% else %}
+            <div style="border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; background: #f8fafc; margin-top: 10px;">
+                <label for="new-video-input" style="cursor: pointer; display: inline-block;">
+                    <i class="fas fa-video" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px; display: block;"></i>
+                    <span style="color: var(--primary); font-weight: 600;">Click to Add Video</span>
+                    <span style="display:block;font-size:0.85rem;color:var(--text-muted);margin-top:4px;">MP4, MOV, or WebM • Max 30 seconds, 50MB</span>
+                </label>
+            </div>
+            {% endif %}
+            <input type="file" name="new_video" id="new-video-input" accept="video/mp4,video/quicktime,video/webm" style="display:none;">
+
             {% if item_is_picked_up(item) and not current_user.is_admin %}
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;"><i class="fas fa-info-circle"></i> Your changes will be submitted for admin approval. The item will be temporarily removed from the shop until approved.</p>
             {% endif %}
