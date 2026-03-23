@@ -1,0 +1,24 @@
+Collecting posthog
+  Downloading posthog-7.9.12-py3-none-any.whl.metadata (6.5 kB)
+Requirement already satisfied: requests<3.0,>=2.7 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from posthog) (2.32.5)
+Collecting six>=1.5 (from posthog)
+  Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting python-dateutil>=2.2 (from posthog)
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting backoff>=1.10.0 (from posthog)
+  Downloading backoff-2.2.1-py3-none-any.whl.metadata (14 kB)
+Collecting distro>=1.5.0 (from posthog)
+  Using cached distro-1.9.0-py3-none-any.whl.metadata (6.8 kB)
+Requirement already satisfied: typing-extensions>=4.2.0 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from posthog) (4.15.0)
+Requirement already satisfied: charset_normalizer<4,>=2 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from requests<3.0,>=2.7->posthog) (3.4.4)
+Requirement already satisfied: idna<4,>=2.5 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from requests<3.0,>=2.7->posthog) (3.11)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from requests<3.0,>=2.7->posthog) (2.6.3)
+Requirement already satisfied: certifi>=2017.4.17 in /Users/henryrussell/Documents/Documents - Henry’s MacBook Air/campusSwap/realWebsite/venv/lib/python3.13/site-packages (from requests<3.0,>=2.7->posthog) (2026.1.4)
+Downloading posthog-7.9.12-py3-none-any.whl (202 kB)
+Downloading backoff-2.2.1-py3-none-any.whl (15 kB)
+Using cached distro-1.9.0-py3-none-any.whl (20 kB)
+Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Installing collected packages: six, distro, backoff, python-dateutil, posthog
+
+Successfully installed backoff-2.2.1 distro-1.9.0 posthog-7.9.12 python-dateutil-2.9.0.post0 six-1.17.0

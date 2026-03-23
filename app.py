@@ -24,6 +24,9 @@ from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import or_, and_, func, nulls_last
 
+# PostHog analytics
+import posthog
+
 # Import Models
 from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail
 
@@ -221,6 +224,17 @@ if _carousel_cdn_base:
 @app.context_processor
 def inject_carousel_cdn():
     return {'carousel_image_base': _carousel_cdn_base}
+
+# PostHog initialization
+posthog.api_key = os.environ.get('POSTHOG_API_KEY', '')
+posthog.host = os.environ.get('POSTHOG_HOST', 'https://us.i.posthog.com')
+if not posthog.api_key:
+    posthog.disabled = True
+
+# PostHog context processor
+@app.context_processor
+def inject_posthog():
+    return {'posthog_api_key': os.environ.get('POSTHOG_API_KEY', '')}
 
 
 def get_user_dashboard():
@@ -595,8 +609,14 @@ def quality_label_filter(quality):
 @app.errorhandler(404)
 def not_found_error(error):
     logger.warning(f"404 error: {request.url}")
-    return render_template('error.html', 
-                         error_code=404, 
+    # PostHog error tracking
+    posthog.capture('anonymous', 'backend_error', {
+        'error_type': '404',
+        'route': request.path,
+        'method': request.method
+    })
+    return render_template('error.html',
+                         error_code=404,
                          error_message="Page not found"), 404
 
 
@@ -604,6 +624,16 @@ def not_found_error(error):
 def internal_error(error):
     logger.error(f"500 error: {error}", exc_info=True)
     db.session.rollback()
+    # PostHog error tracking
+    posthog.capture(
+        str(current_user.id) if current_user.is_authenticated else 'anonymous',
+        'backend_error',
+        {
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'route': request.path
+        }
+    )
     return render_template('error.html',
                          error_code=500,
                          error_message="An internal error occurred. Please try again later."), 500
@@ -1505,6 +1535,12 @@ def webhook():
                     if item.category and item.category.count_in_stock > 0:
                         item.category.count_in_stock -= 1
                     db.session.commit()
+                    # PostHog: item sold via Stripe webhook
+                    posthog.capture(str(item.seller_id), 'item_sold', {
+                        'item_id': item.id,
+                        'category': item.category.name if item.category else None,
+                        'price': float(item.price) if item.price else None,
+                    })
                     logger.info(f"WEBHOOK: Item {item_id} marked as sold")
                     
                     # 2. Email Seller (with payout details)
@@ -1890,6 +1926,11 @@ def admin_panel():
             if item and item.status == 'sold':
                 item.payout_sent = True
                 db.session.commit()
+                # PostHog: admin marked payout as sent
+                posthog.capture(str(current_user.id), 'payout_marked_sent', {
+                    'item_id': item.id,
+                    'is_admin': True
+                })
                 if is_ajax:
                     return jsonify({'success': True, 'message': f"Payout marked as sent for {item.description}.", 'reload': True})
                 flash(f"Payout marked as sent for {item.description}.", "success")
@@ -2112,6 +2153,13 @@ def admin_approve():
                 logger.error(f"Failed to send approval email: {e}")
         
         db.session.commit()
+        # PostHog: admin approved item
+        posthog.capture(str(current_user.id), 'item_approved', {
+            'item_id': item.id,
+            'category': item.category.name if item.category else None,
+            'price': float(item.price) if item.price else None,
+            'is_admin': True
+        })
         flash(f"Approved '{item.description}' at ${item.price:.2f}.", "success")
         return redirect(url_for('admin_approve', sort=sort_val))
     
@@ -2803,6 +2851,8 @@ def register():
         new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
         db.session.add(new_user)
         db.session.commit()
+        # PostHog: new user registration
+        posthog.capture(str(new_user.id), 'seller_signed_up')
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
         login_user(new_user)
@@ -3396,6 +3446,8 @@ def payment_success():
                     current_user.payment_declined = False
                     current_user.has_paid = True  # Required for online items to go live
                     db.session.commit()
+                    # PostHog: seller upgraded from free to paid tier
+                    posthog.capture(str(current_user.id), 'seller_upgraded_to_paid')
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     flash("Upgraded to Campus Swap Pickup! Paid $15. All your items are now on our pickup route.", "success")
@@ -3574,6 +3626,11 @@ def onboard():
                 photo_index += 1
 
         db.session.commit()
+        # PostHog: item submitted for review
+        posthog.capture(str(current_user.id), 'item_submitted', {
+            'item_id': new_item.id,
+            'category': new_item.category.name if new_item.category else None,
+        })
 
         # No payment at onboarding - user pays after approval when confirming pickup
         try:
@@ -4065,6 +4122,8 @@ def upgrade_pickup_success():
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
                 db.session.commit()
+                # PostHog: seller upgraded from free to paid tier (pickup flow)
+                posthog.capture(str(current_user.id), 'seller_upgraded_to_paid')
     except Exception as e:
         logger.error(f"upgrade_pickup_success error: {e}", exc_info=True)
     flash("Upgraded to Campus Swap Pickup! Your items are now live. We'll pick up from you during your chosen week.", "success")
