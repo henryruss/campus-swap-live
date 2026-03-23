@@ -78,6 +78,24 @@
             </div>
             <div id="status"></div>
             <img id="preview" class="thumb" style="display: none;" alt="Preview">
+
+            <hr style="margin:20px 0;border:none;border-top:1px solid #e2e8f0;">
+            <h2 style="font-size:1.1rem;margin-bottom:8px;">Add Demo Video</h2>
+            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">Record a short video showing the item works. Max 30 seconds.</p>
+            <div class="btn-row">
+                <label class="file-input-wrap" for="video-input-camera">
+                    <span class="camera-icon"><i class="fas fa-video"></i></span>
+                    <span>Record a video</span>
+                    <input id="video-input-camera" type="file" name="video" accept="video/mp4,video/quicktime,video/webm" capture="environment">
+                </label>
+                <label class="file-input-wrap" for="video-input-library">
+                    <span class="gallery-icon"><i class="fas fa-film"></i></span>
+                    <span>Choose from library</span>
+                    <input id="video-input-library" type="file" name="video" accept="video/mp4,video/quicktime,video/webm">
+                </label>
+            </div>
+            <div id="video-status"></div>
+            <video id="video-preview" class="thumb" style="display:none;max-height:200px;" controls playsinline></video>
         </form>
         {% endif %}
     </div>
@@ -127,6 +145,55 @@
 
         inputCamera.addEventListener('change', function() { handleFileSelect(inputCamera); });
         inputLibrary.addEventListener('change', function() { handleFileSelect(inputLibrary); });
+
+        // Video upload
+        const videoInputCamera = document.getElementById('video-input-camera');
+        const videoInputLibrary = document.getElementById('video-input-library');
+        const videoStatus = document.getElementById('video-status');
+        const videoPreview = document.getElementById('video-preview');
+
+        function handleVideoSelect(input) {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            if (file.size > 50 * 1024 * 1024) {
+                videoStatus.textContent = 'Video is too large. Maximum size is 50MB.';
+                videoStatus.className = 'error';
+                return;
+            }
+            videoStatus.textContent = 'Uploading video...';
+            videoStatus.className = '';
+
+            const fd = new FormData();
+            fd.append('video', file);
+            fd.append('token', token);
+
+            fetch('/upload_video_from_phone?token=' + encodeURIComponent(token), {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    videoStatus.textContent = 'Video uploaded! Check your computer.';
+                    videoStatus.className = 'success-msg';
+                    videoPreview.src = data.url;
+                    videoPreview.style.display = 'block';
+                    videoInputCamera.value = '';
+                    videoInputLibrary.value = '';
+                } else {
+                    videoStatus.textContent = data.error || 'Upload failed';
+                    videoStatus.className = 'error';
+                }
+            })
+            .catch(() => {
+                videoStatus.textContent = 'Upload failed. Please try again.';
+                videoStatus.className = 'error';
+            });
+        }
+
+        videoInputCamera.addEventListener('change', function() { handleVideoSelect(videoInputCamera); });
+        videoInputLibrary.addEventListener('change', function() { handleVideoSelect(videoInputLibrary); });
     </script>
     {% endif %}
 </body>

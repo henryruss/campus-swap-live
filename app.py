@@ -36,6 +36,8 @@ from constants import (
     PAYOUT_PERCENTAGE_FREE,
     SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS, calc_pickup_fee_cents,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
+    MAX_VIDEO_SIZE, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_VIDEO_MIME_TYPES,
+    category_requires_video,
     IMAGE_QUALITY, THUMBNAIL_SIZE,
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
@@ -557,7 +559,34 @@ def validate_file_upload(file):
     mime_type = file.content_type
     if mime_type and mime_type.lower() not in ALLOWED_MIME_TYPES:
         return False, "Invalid file type"
-    
+
+    return True, None
+
+
+def validate_video_upload(file):
+    """Validate uploaded video file: size, extension, and MIME type."""
+    if not file or not file.filename:
+        return False, "No file provided"
+
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+
+    if file_size > MAX_VIDEO_SIZE:
+        return False, f"Video size exceeds {MAX_VIDEO_SIZE / (1024*1024):.0f}MB limit"
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return False, "Invalid filename"
+
+    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+    if ext not in ALLOWED_VIDEO_EXTENSIONS:
+        return False, f"Video type not allowed. Allowed types: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
+
+    mime_type = file.content_type
+    if mime_type and mime_type.lower() not in ALLOWED_VIDEO_MIME_TYPES:
+        return False, "Invalid video file type"
+
     return True, None
 
 
@@ -1309,6 +1338,51 @@ def upload_from_phone_post():
     })
 
 
+@app.route('/upload_video_from_phone', methods=['POST'])
+@csrf.exempt
+def upload_video_from_phone_post():
+    """Accept video upload from phone via QR session."""
+    token = request.form.get('token') or request.args.get('token', '')
+    session_obj = UploadSession.query.filter_by(session_token=token).first()
+    if not session_obj:
+        return jsonify({'success': False, 'error': 'Invalid or expired session'}), 400
+    if datetime.utcnow() - session_obj.created_at > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
+        return jsonify({'success': False, 'error': 'Session expired'}), 400
+
+    file = request.files.get('video')
+    if not file or not file.filename:
+        return jsonify({'success': False, 'error': 'No video provided'}), 400
+
+    is_valid, error_msg = validate_video_upload(file)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
+
+    safe_name = secure_filename(file.filename)
+    ext = safe_name.rsplit('.', 1)[1].lower() if '.' in safe_name else 'mp4'
+    safe_token = token.replace('/', '_').replace('+', '-')[:32]
+    filename = f"temp_video_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.{ext}"
+    save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
+    try:
+        file.seek(0)
+        with open(save_path, 'wb') as f:
+            while chunk := file.read(8192):
+                f.write(chunk)
+    except Exception as e:
+        logger.error(f"Error saving mobile video upload: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error saving video'}), 500
+
+    temp = TempUpload(session_token=token, filename=filename)
+    db.session.add(temp)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'filename': filename,
+        'url': url_for('uploaded_file', filename=filename, _external=True),
+        'is_video': True,
+    })
+
+
 @app.route('/api/upload_session/status')
 def upload_session_status():
     """Return list of temp uploads for the given token (for desktop polling)."""
@@ -1327,11 +1401,15 @@ def upload_session_status():
 
     uploads = TempUpload.query.filter_by(session_token=token).order_by(TempUpload.created_at).all()
     base_url = request.url_root.rstrip('/')
-    images = [
-        {'filename': u.filename, 'url': url_for('uploaded_file', filename=u.filename, _external=True)}
-        for u in uploads
-    ]
-    return jsonify({'images': images})
+    images = []
+    videos = []
+    for u in uploads:
+        entry = {'filename': u.filename, 'url': url_for('uploaded_file', filename=u.filename, _external=True)}
+        if u.filename.startswith('temp_video_'):
+            videos.append(entry)
+        else:
+            images.append(entry)
+    return jsonify({'images': images, 'videos': videos})
 
 
 @app.route('/api/item/<int:item_id>/acknowledge_price_change', methods=['POST'])
@@ -2471,6 +2549,31 @@ def edit_item(item_id):
                         flash("Error processing image. Please try again.", "error")
                         return redirect(url_for('edit_item', item_id=item_id))
         
+        # Handle video upload/replace
+        new_video = request.files.get('new_video')
+        if new_video and new_video.filename and new_video.filename != '':
+            is_valid, error_msg = validate_video_upload(new_video)
+            if not is_valid:
+                flash(f"Video upload error: {error_msg}", "error")
+                return redirect(url_for('edit_item', item_id=item_id))
+            safe_name = secure_filename(new_video.filename)
+            ext = safe_name.rsplit('.', 1)[1].lower() if '.' in safe_name else 'mp4'
+            video_key = f"video_{item.id}_{int(time.time())}.{ext}"
+            try:
+                photo_storage.save_video(new_video, video_key)
+                if item.video_url:
+                    photo_storage.delete_photo(item.video_url)
+                item.video_url = video_key
+            except Exception as vid_error:
+                logger.error(f"Video save error: {vid_error}", exc_info=True)
+                flash("Error saving video. Please try again.", "error")
+                return redirect(url_for('edit_item', item_id=item_id))
+
+        # Handle video removal
+        if request.form.get('remove_video') == '1' and item.video_url:
+            photo_storage.delete_photo(item.video_url)
+            item.video_url = None
+
         # Re-approval: when seller edits pending_logistics, rejected, or picked-up items, send back to approval queue
         needs_reapproval = (
             not current_user.is_admin
@@ -2745,6 +2848,35 @@ def process_pending_onboard(user):
                     db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
                     db.session.delete(temp_rec)
                     photo_index += 1
+
+    # --- VIDEO HANDLING (guest -> authenticated) ---
+    video_filename = pending.get('video_filename')
+    temp_video_id = pending.get('temp_video_id')
+    if video_filename:
+        old_path = os.path.join(temp_folder, video_filename)
+        if os.path.exists(old_path):
+            ext = video_filename.rsplit('.', 1)[1].lower() if '.' in video_filename else 'mp4'
+            video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+            try:
+                photo_storage.save_video_from_path(old_path, video_key)
+                new_item.video_url = video_key
+                os.remove(old_path)
+            except OSError:
+                pass
+    elif temp_video_id and guest_upload_token:
+        temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_video_id).first()
+        if temp_rec:
+            old_path = os.path.join(temp_folder, temp_video_id)
+            if os.path.exists(old_path):
+                ext = temp_video_id.rsplit('.', 1)[1].lower() if '.' in temp_video_id else 'mp4'
+                video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+                try:
+                    photo_storage.save_video_from_path(old_path, video_key)
+                    new_item.video_url = video_key
+                    os.remove(old_path)
+                except OSError:
+                    pass
+            db.session.delete(temp_rec)
 
     db.session.commit()
 
@@ -3625,6 +3757,54 @@ def onboard():
                 db.session.delete(temp_rec)
                 photo_index += 1
 
+        # --- VIDEO HANDLING ---
+        video_file = request.files.get('video')
+        temp_video_id = (request.form.get('temp_video_id') or '').strip()
+        has_video_file = video_file and video_file.filename and video_file.filename != ''
+        cat_obj = InventoryCategory.query.get(int(cat_id))
+        cat_name = cat_obj.name if cat_obj else ''
+
+        if has_video_file:
+            is_valid, error_msg = validate_video_upload(video_file)
+            if not is_valid:
+                db.session.rollback()
+                flash(f"Video upload error: {error_msg}", "error")
+                return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
+            safe_name = secure_filename(video_file.filename)
+            ext = safe_name.rsplit('.', 1)[1].lower() if '.' in safe_name else 'mp4'
+            video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+            try:
+                photo_storage.save_video(video_file, video_key)
+                new_item.video_url = video_key
+            except Exception as vid_error:
+                db.session.rollback()
+                logger.error(f"Video save error: {vid_error}", exc_info=True)
+                flash("Error saving video. Please try again.", "error")
+                return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
+        elif temp_video_id:
+            temp_rec = TempUpload.query.filter(
+                TempUpload.filename == temp_video_id,
+                TempUpload.session_token.in_(
+                    db.session.query(UploadSession.session_token).filter(UploadSession.user_id == current_user.id)
+                )
+            ).first()
+            if temp_rec:
+                old_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], temp_video_id)
+                if os.path.exists(old_path):
+                    ext = temp_video_id.rsplit('.', 1)[1].lower() if '.' in temp_video_id else 'mp4'
+                    video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+                    try:
+                        photo_storage.save_video_from_path(old_path, video_key)
+                        new_item.video_url = video_key
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+                db.session.delete(temp_rec)
+        elif category_requires_video(cat_name):
+            db.session.rollback()
+            flash("Electronics items require a demo video showing the item works.", "error")
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
+
         db.session.commit()
         # PostHog: item submitted for review
         posthog.capture(str(current_user.id), 'item_submitted', {
@@ -3764,6 +3944,36 @@ def onboard_guest_save():
             if not os.path.exists(old_path):
                 return _err("Photo from phone no longer available. Please re-upload.")
 
+    # --- VIDEO HANDLING (guest) ---
+    video_file = request.files.get('video')
+    temp_video_id = (request.form.get('temp_video_id') or '').strip()
+    has_video_file = video_file and video_file.filename and video_file.filename != ''
+    guest_video_filename = None
+
+    cat_obj = InventoryCategory.query.get(int(cat_id))
+    cat_name = cat_obj.name if cat_obj else ''
+
+    if has_video_file:
+        is_valid, error_msg = validate_video_upload(video_file)
+        if not is_valid:
+            return _err(f"Video upload error: {error_msg}")
+        safe_name = secure_filename(video_file.filename)
+        ext = safe_name.rsplit('.', 1)[1].lower() if '.' in safe_name else 'mp4'
+        guest_video_filename = f"guest_temp_video_{int(time.time())}_{secrets.token_hex(4)}.{ext}"
+        save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], guest_video_filename)
+        try:
+            video_file.seek(0)
+            with open(save_path, 'wb') as f:
+                while chunk := video_file.read(8192):
+                    f.write(chunk)
+        except Exception as vid_error:
+            logger.error(f"Guest video save error: {vid_error}", exc_info=True)
+            return _err("Error saving video. Please try again.")
+    elif temp_video_id:
+        guest_video_filename = temp_video_id
+    elif category_requires_video(cat_name):
+        return _err("Electronics items require a demo video showing the item works.")
+
     session['pending_onboard'] = {
         'category_id': int(cat_id),
         'description': desc[:MAX_DESCRIPTION_LENGTH],
@@ -3784,6 +3994,8 @@ def onboard_guest_save():
         'photo_filenames': photo_filenames,
         'temp_photo_ids': temp_photo_ids,
         'guest_upload_token': guest_upload_token,
+        'video_filename': guest_video_filename,
+        'temp_video_id': temp_video_id,
     }
     return _ok()
 
@@ -4413,7 +4625,54 @@ def add_item():
                 db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
                 db.session.delete(temp_rec)
                 photo_index += 1
-        
+
+        # --- VIDEO HANDLING (add_item) ---
+        video_file = request.files.get('video')
+        temp_video_id = (request.form.get('temp_video_id') or '').strip()
+        has_video_file = video_file and video_file.filename and video_file.filename != ''
+        cat_name = category.name if category else ''
+
+        if has_video_file:
+            is_valid, error_msg = validate_video_upload(video_file)
+            if not is_valid:
+                db.session.rollback()
+                flash(f"Video upload error: {error_msg}", "error")
+                return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+            safe_name = secure_filename(video_file.filename)
+            ext = safe_name.rsplit('.', 1)[1].lower() if '.' in safe_name else 'mp4'
+            video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+            try:
+                photo_storage.save_video(video_file, video_key)
+                new_item.video_url = video_key
+            except Exception as vid_error:
+                db.session.rollback()
+                logger.error(f"Video save error: {vid_error}", exc_info=True)
+                flash("Error saving video. Please try again.", "error")
+                return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+        elif temp_video_id:
+            temp_rec = TempUpload.query.filter(
+                TempUpload.filename == temp_video_id,
+                TempUpload.session_token.in_(
+                    db.session.query(UploadSession.session_token).filter(UploadSession.user_id == current_user.id)
+                )
+            ).first()
+            if temp_rec:
+                old_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], temp_video_id)
+                if os.path.exists(old_path):
+                    ext = temp_video_id.rsplit('.', 1)[1].lower() if '.' in temp_video_id else 'mp4'
+                    video_key = f"video_{new_item.id}_{int(time.time())}.{ext}"
+                    try:
+                        photo_storage.save_video_from_path(old_path, video_key)
+                        new_item.video_url = video_key
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+                db.session.delete(temp_rec)
+        elif category_requires_video(cat_name):
+            db.session.rollback()
+            flash("Electronics items require a demo video showing the item works.", "error")
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+
         db.session.commit()
 
         # Send item submission confirmation email

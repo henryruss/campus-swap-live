@@ -348,6 +348,12 @@
             </div>
             {% endif %}
         </div>
+        {% if pending_item.video_url %}
+        <div style="margin-top:12px;">
+            <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:6px;"><i class="fas fa-video"></i> Demo Video</label>
+            <video controls playsinline style="width:100%;max-height:300px;border-radius:12px;background:#000;" src="{{ url_for('uploaded_file', filename=pending_item.video_url) }}"></video>
+        </div>
+        {% endif %}
         <div class="approve-body">
             <h2 class="approve-title">{{ pending_item.description }}</h2>
             <div class="approve-meta">

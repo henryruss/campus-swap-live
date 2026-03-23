@@ -32,6 +32,24 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/jpg', 'image/webp'}
 
+# Video Upload Configuration
+MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_VIDEO_DURATION_SECONDS = 30
+ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov', 'webm'}
+ALLOWED_VIDEO_MIME_TYPES = {'video/mp4', 'video/quicktime', 'video/webm'}
+
+# Categories that require video upload (matched case-insensitive, partial match)
+VIDEO_REQUIRED_CATEGORIES = {'tv', 'television', 'gaming', 'console', 'printer', 'electronic'}
+
+
+def category_requires_video(category_name: str) -> bool:
+    """Return True if the category requires a demo video upload."""
+    if not category_name:
+        return False
+    name_lower = category_name.lower()
+    return any(key in name_lower for key in VIDEO_REQUIRED_CATEGORIES)
+
+
 # Image Processing Configuration
 IMAGE_QUALITY = 80  # JPEG quality (0-100)
 THUMBNAIL_SIZE = (300, 300)  # Thumbnail dimensions
