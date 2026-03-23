@@ -153,6 +153,7 @@ def fetch_posthog():
     after = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
 
     ph = {}
+    print(f"[PostHog] Querying {base} ...")
     try:
         # Pageview count
         r = requests.get(
@@ -161,6 +162,9 @@ def fetch_posthog():
             params={"event": "$pageview", "after": after, "limit": 1},
             timeout=15,
         )
+        print(f"[PostHog] Events endpoint: {r.status_code}")
+        if not r.ok:
+            print(f"[PostHog] Response: {r.text[:500]}")
         if r.ok:
             # Use the count from the response if available, otherwise fallback
             data = r.json()
