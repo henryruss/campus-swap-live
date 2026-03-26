@@ -151,6 +151,15 @@
       ]
     }
     </script>
+    <!-- Google Analytics 4 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-T696XM5XN9"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-T696XM5XN9');
+    </script>
+
     {% if posthog_api_key %}
     <!-- PostHog analytics -->
     <script>
