@@ -708,7 +708,7 @@
                         <div style="font-weight: 700; font-size: 1rem;">{{ entry.user.full_name }}</div>
                         <div style="font-size: 0.85rem; color: var(--text-muted);">{{ entry.user.email }}</div>
                         <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px;">
-                            {% for item in entry.items %}
+                            {% for item in entry.user_items %}
                             <span style="background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 2px 8px; font-size: 0.8rem;">
                                 {{ item.description[:30] }}{% if item.description|length > 30 %}…{% endif %}
                                 {% if item.price %}<strong style="color: var(--primary);">${{ "%.0f"|format(item.price) }}</strong>{% endif %}

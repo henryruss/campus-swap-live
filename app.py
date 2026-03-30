@@ -2122,7 +2122,7 @@ def admin_panel():
             ).all()
             free_tier_users.append({
                 'user': user,
-                'items': user_items,
+                'user_items': user_items,
                 'total_value': row.total_value or 0,
                 'item_count': row.item_count,
                 'is_confirmed': user.id in free_confirmed_ids,
