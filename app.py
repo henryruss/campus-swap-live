@@ -13,7 +13,7 @@ from PIL import Image, ImageOps
 import stripe
 import resend
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
 import csv
 from io import StringIO, BytesIO
 from werkzeug.utils import secure_filename
@@ -639,7 +639,7 @@ def quality_label_filter(quality):
 def not_found_error(error):
     logger.warning(f"404 error: {request.url}")
     try:
-        posthog.capture('anonymous', event='backend_error', properties={
+        posthog.capture('backend_error', distinct_id='anonymous', properties={
             'error_type': '404',
             'route': request.path,
             'method': request.method
@@ -657,8 +657,8 @@ def internal_error(error):
     db.session.rollback()
     try:
         posthog.capture(
-            str(current_user.id) if current_user.is_authenticated else 'anonymous',
-            event='backend_error',
+            'backend_error',
+            distinct_id=str(current_user.id) if current_user.is_authenticated else 'anonymous',
             properties={
                 'error_type': type(error).__name__,
                 'error_message': str(error),
@@ -1618,7 +1618,7 @@ def webhook():
                         item.category.count_in_stock -= 1
                     db.session.commit()
                     # PostHog: item sold via Stripe webhook
-                    posthog.capture(str(item.seller_id), event='item_sold', properties={
+                    posthog.capture('item_sold', distinct_id=str(item.seller_id), properties={
                         'item_id': item.id,
                         'category': item.category.name if item.category else None,
                         'price': float(item.price) if item.price else None,
@@ -2009,7 +2009,7 @@ def admin_panel():
                 item.payout_sent = True
                 db.session.commit()
                 # PostHog: admin marked payout as sent
-                posthog.capture(str(current_user.id), event='payout_marked_sent', properties={
+                posthog.capture('payout_marked_sent', distinct_id=str(current_user.id), properties={
                     'item_id': item.id,
                     'is_admin': True
                 })
@@ -2236,12 +2236,15 @@ def admin_approve():
         
         db.session.commit()
         # PostHog: admin approved item
-        posthog.capture(str(current_user.id), event='item_approved', properties={
-            'item_id': item.id,
-            'category': item.category.name if item.category else None,
-            'price': float(item.price) if item.price else None,
-            'is_admin': True
-        })
+        try:
+            posthog.capture('item_approved', distinct_id=str(current_user.id), properties={
+                'item_id': item.id,
+                'category': item.category.name if item.category else None,
+                'price': float(item.price) if item.price else None,
+                'is_admin': True
+            })
+        except Exception:
+            pass
         flash(f"Approved '{item.description}' at ${item.price:.2f}.", "success")
         return redirect(url_for('admin_approve', sort=sort_val))
     
@@ -2988,7 +2991,7 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         # PostHog: new user registration
-        posthog.capture(str(new_user.id), event='seller_signed_up')
+        posthog.capture('seller_signed_up', distinct_id=str(new_user.id))
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
         login_user(new_user)
@@ -3583,7 +3586,7 @@ def payment_success():
                     current_user.has_paid = True  # Required for online items to go live
                     db.session.commit()
                     # PostHog: seller upgraded from free to paid tier
-                    posthog.capture(str(current_user.id), event='seller_upgraded_to_paid')
+                    posthog.capture('seller_upgraded_to_paid', distinct_id=str(current_user.id))
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     flash("Upgraded to Campus Swap Pickup! Paid $15. All your items are now on our pickup route.", "success")
@@ -3811,10 +3814,13 @@ def onboard():
 
         db.session.commit()
         # PostHog: item submitted for review
-        posthog.capture(str(current_user.id), event='item_submitted', properties={
-            'item_id': new_item.id,
-            'category': new_item.category.name if new_item.category else None,
-        })
+        try:
+            posthog.capture('item_submitted', distinct_id=str(current_user.id), properties={
+                'item_id': new_item.id,
+                'category': new_item.category.name if new_item.category else None,
+            })
+        except Exception:
+            pass
 
         # No payment at onboarding - user pays after approval when confirming pickup
         try:
@@ -4339,7 +4345,7 @@ def upgrade_pickup_success():
                 current_user.has_paid = True
                 db.session.commit()
                 # PostHog: seller upgraded from free to paid tier (pickup flow)
-                posthog.capture(str(current_user.id), event='seller_upgraded_to_paid')
+                posthog.capture('seller_upgraded_to_paid', distinct_id=str(current_user.id))
     except Exception as e:
         logger.error(f"upgrade_pickup_success error: {e}", exc_info=True)
     flash("Upgraded to Campus Swap Pickup! Your items are now live. We'll pick up from you during your chosen week.", "success")
@@ -4960,6 +4966,66 @@ def admin_delete_user(user_id):
         flash(f"Could not delete account: {str(e)}", "error")
 
     return redirect(url_for('admin_preview_users'))
+
+
+@app.route('/admin/item/<int:item_id>/delete', methods=['GET', 'POST'])
+@login_required
+def admin_delete_item_direct(item_id):
+    """Emergency standalone item delete page. Accessible without the main admin dashboard."""
+    if not current_user.is_authenticated or not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    item = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller)
+    ).get(item_id)
+    if not item:
+        flash("Item not found.", "error")
+        return redirect(url_for('admin_panel'))
+    if request.method == 'POST':
+        try:
+            item_desc = item.description
+            if item.status == 'available':
+                cat = InventoryCategory.query.get(item.category_id)
+                if cat and cat.count_in_stock > 0:
+                    cat.count_in_stock -= 1
+            for photo in item.gallery_photos[:]:
+                db.session.delete(photo)
+            db.session.delete(item)
+            db.session.commit()
+            flash(f"Item '{item_desc}' deleted.", "success")
+            return redirect(url_for('admin_panel'))
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error deleting item {item_id}: {e}", exc_info=True)
+            flash(f"Could not delete item: {str(e)}", "error")
+    return render_template_string("""
+<!DOCTYPE html><html><head><title>Delete Item</title>
+<style>body{font-family:sans-serif;max-width:500px;margin:60px auto;padding:20px;}
+.card{border:1px solid #e2e8f0;border-radius:12px;padding:24px;background:#fff;}
+h2{color:#166534;margin-bottom:16px;}
+.info{margin-bottom:8px;font-size:0.95rem;}
+.label{font-weight:600;color:#64748b;}
+.btn-delete{background:#dc2626;color:white;border:none;padding:12px 24px;border-radius:8px;font-size:1rem;cursor:pointer;margin-top:16px;}
+.btn-cancel{background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:12px 24px;border-radius:8px;font-size:1rem;cursor:pointer;margin-top:16px;margin-right:8px;text-decoration:none;display:inline-block;}
+.warning{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-top:16px;color:#991b1b;font-size:0.9rem;}
+</style></head><body>
+<div class="card">
+<h2>Delete Item</h2>
+<div class="info"><span class="label">ID:</span> {{ item.id }}</div>
+<div class="info"><span class="label">Description:</span> {{ item.description }}</div>
+<div class="info"><span class="label">Status:</span> {{ item.status }}</div>
+<div class="info"><span class="label">Category:</span> {{ item.category.name if item.category else 'N/A' }}</div>
+<div class="info"><span class="label">Seller:</span> {{ item.seller.email if item.seller else 'Admin' }}</div>
+<div class="info"><span class="label">Price:</span> {{ ('$%.2f' % item.price) if item.price else 'Not set' }}</div>
+<div class="warning">⚠ This will permanently delete the item and all its photos. This cannot be undone.</div>
+<form method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<a href="/admin" class="btn-cancel">Cancel</a>
+<button type="submit" class="btn-delete" onclick="return confirm('Delete this item permanently?')">Delete Item</button>
+</form>
+</div></body></html>
+""", item=item)
 
 
 @app.route('/admin/user/make-admin', methods=['POST'])
