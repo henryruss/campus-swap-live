@@ -638,12 +638,14 @@ def quality_label_filter(quality):
 @app.errorhandler(404)
 def not_found_error(error):
     logger.warning(f"404 error: {request.url}")
-    # PostHog error tracking
-    posthog.capture('anonymous', 'backend_error', {
-        'error_type': '404',
-        'route': request.path,
-        'method': request.method
-    })
+    try:
+        posthog.capture('anonymous', event='backend_error', properties={
+            'error_type': '404',
+            'route': request.path,
+            'method': request.method
+        })
+    except Exception:
+        pass
     return render_template('error.html',
                          error_code=404,
                          error_message="Page not found"), 404
@@ -653,16 +655,18 @@ def not_found_error(error):
 def internal_error(error):
     logger.error(f"500 error: {error}", exc_info=True)
     db.session.rollback()
-    # PostHog error tracking
-    posthog.capture(
-        str(current_user.id) if current_user.is_authenticated else 'anonymous',
-        'backend_error',
-        {
-            'error_type': type(error).__name__,
-            'error_message': str(error),
-            'route': request.path
-        }
-    )
+    try:
+        posthog.capture(
+            str(current_user.id) if current_user.is_authenticated else 'anonymous',
+            event='backend_error',
+            properties={
+                'error_type': type(error).__name__,
+                'error_message': str(error),
+                'route': request.path
+            }
+        )
+    except Exception:
+        pass
     return render_template('error.html',
                          error_code=500,
                          error_message="An internal error occurred. Please try again later."), 500
@@ -1614,7 +1618,7 @@ def webhook():
                         item.category.count_in_stock -= 1
                     db.session.commit()
                     # PostHog: item sold via Stripe webhook
-                    posthog.capture(str(item.seller_id), 'item_sold', {
+                    posthog.capture(str(item.seller_id), event='item_sold', properties={
                         'item_id': item.id,
                         'category': item.category.name if item.category else None,
                         'price': float(item.price) if item.price else None,
@@ -2005,7 +2009,7 @@ def admin_panel():
                 item.payout_sent = True
                 db.session.commit()
                 # PostHog: admin marked payout as sent
-                posthog.capture(str(current_user.id), 'payout_marked_sent', {
+                posthog.capture(str(current_user.id), event='payout_marked_sent', properties={
                     'item_id': item.id,
                     'is_admin': True
                 })
@@ -2232,7 +2236,7 @@ def admin_approve():
         
         db.session.commit()
         # PostHog: admin approved item
-        posthog.capture(str(current_user.id), 'item_approved', {
+        posthog.capture(str(current_user.id), event='item_approved', properties={
             'item_id': item.id,
             'category': item.category.name if item.category else None,
             'price': float(item.price) if item.price else None,
@@ -2984,7 +2988,7 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         # PostHog: new user registration
-        posthog.capture(str(new_user.id), 'seller_signed_up')
+        posthog.capture(str(new_user.id), event='seller_signed_up')
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
         login_user(new_user)
@@ -3579,7 +3583,7 @@ def payment_success():
                     current_user.has_paid = True  # Required for online items to go live
                     db.session.commit()
                     # PostHog: seller upgraded from free to paid tier
-                    posthog.capture(str(current_user.id), 'seller_upgraded_to_paid')
+                    posthog.capture(str(current_user.id), event='seller_upgraded_to_paid')
                     db.session.expire(current_user)
                     db.session.refresh(current_user)
                     flash("Upgraded to Campus Swap Pickup! Paid $15. All your items are now on our pickup route.", "success")
@@ -3807,7 +3811,7 @@ def onboard():
 
         db.session.commit()
         # PostHog: item submitted for review
-        posthog.capture(str(current_user.id), 'item_submitted', {
+        posthog.capture(str(current_user.id), event='item_submitted', properties={
             'item_id': new_item.id,
             'category': new_item.category.name if new_item.category else None,
         })
@@ -4335,7 +4339,7 @@ def upgrade_pickup_success():
                 current_user.has_paid = True
                 db.session.commit()
                 # PostHog: seller upgraded from free to paid tier (pickup flow)
-                posthog.capture(str(current_user.id), 'seller_upgraded_to_paid')
+                posthog.capture(str(current_user.id), event='seller_upgraded_to_paid')
     except Exception as e:
         logger.error(f"upgrade_pickup_success error: {e}", exc_info=True)
     flash("Upgraded to Campus Swap Pickup! Your items are now live. We'll pick up from you during your chosen week.", "success")
