@@ -94,7 +94,19 @@ def store_is_open():
     return _date.today() >= _date.fromisoformat(val)
 
 def store_open_date():
-    """Return the store open date string from settings."""
+    """Return the store open date as a human-readable string (e.g. 'June 1st')."""
+    from datetime import date as _date
+    val = AppSetting.get('store_open_date', '2026-06-01')
+    d = _date.fromisoformat(val)
+    day = d.day
+    if 11 <= day <= 13:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+    return d.strftime('%B ') + str(day) + suffix
+
+def store_open_date_raw():
+    """Return the store open date as ISO string (for form inputs)."""
     return AppSetting.get('store_open_date', '2026-06-01')
 
 def compute_expiry():
@@ -144,7 +156,8 @@ def inject_store_functions():
         is_reserve_only_mode=is_reserve_only_mode,
         item_is_picked_up=item_is_picked_up,
         store_is_open=store_is_open,
-        store_open_date=store_open_date
+        store_open_date=store_open_date,
+        store_open_date_raw=store_open_date_raw
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -333,11 +346,11 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
         is_marketing: Whether this is a marketing email (adds unsubscribe link)
     """
     try:
-        logo_url = url_for('static', filename='logo.jpg', _external=True)
+        logo_url = url_for('static', filename='faviconNew.svg', _external=True)
         site_url = url_for('index', _external=True)
     except Exception:
         base = os.environ.get('BASE_URL', 'https://usecampusswap.com')
-        logo_url = f"{base.rstrip('/')}/static/logo.jpg"
+        logo_url = f"{base.rstrip('/')}/static/faviconNew.svg"
         site_url = base
     logo_block = f"""
         <div style="text-align: center; margin-bottom: 28px;">
@@ -994,10 +1007,10 @@ def robots_txt():
 def favicon():
     """Serve favicon.png for Google search results and browser tabs."""
     try:
-        favicon_path = os.path.join('static', 'favicon.png')
+        favicon_path = os.path.join('static', 'faviconNew.png')
         if not os.path.exists(favicon_path):
             return Response('', mimetype='image/png'), 404
-        response = send_from_directory('static', 'favicon.png', mimetype='image/png')
+        response = send_from_directory('static', 'faviconNew.png', mimetype='image/png')
         response.headers['Cache-Control'] = 'public, max-age=31536000'
         return response
     except Exception as e:
@@ -1267,7 +1280,7 @@ def _generate_share_card_png(item):
     draw.text((40, bottom_y - 148), title, fill=WHITE, font=title_font)
 
     # Logo only - large, bottom-right corner
-    logo_path = os.path.join(app.static_folder, "logo.jpg")
+    logo_path = os.path.join(app.static_folder, "faviconNew.png")
     if os.path.exists(logo_path):
         logo_img = Image.open(logo_path)
         logo_img = logo_img.convert("RGBA")
