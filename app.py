@@ -860,6 +860,56 @@ def terms_conditions():
 def refund_policy():
     return render_template('refund_policy.html')
 
+@app.route('/contact', methods=['GET', 'POST'])
+def contact():
+    name = ''
+    subject = ''
+    message = ''
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        subject = request.form.get('subject', '').strip()
+        message = request.form.get('message', '').strip()
+
+        if not name or not subject or not message:
+            flash('Please fill in all fields.', 'error')
+            return render_template('contact.html', name=name, subject=subject, message=message)
+
+        if len(name) > 100 or len(subject) > 200 or len(message) > 5000:
+            flash('One of your fields is too long — please shorten it.', 'error')
+            return render_template('contact.html', name=name, subject=subject, message=message)
+
+        # Build email body
+        sender_email = current_user.email if current_user.is_authenticated else None
+        email_lines = [
+            f"<h2>New Contact Form Submission</h2>",
+            f"<p><strong>From:</strong> {html_module.escape(name)}</p>",
+            f"<p><strong>Email:</strong> {html_module.escape(sender_email) if sender_email else 'No account — guest submission'}</p>",
+            f"<p><strong>Subject:</strong> {html_module.escape(subject)}</p>",
+            f"<hr>",
+            f"<p>{html_module.escape(message).replace(chr(10), '<br>')}</p>",
+            f"<hr>",
+            f"<p style='color: #999; font-size: 0.85rem;'>Sent at {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>",
+        ]
+        html_body = '\n'.join(email_lines)
+        email_subject = f"[Campus Swap Contact] {subject}"
+
+        recipients = [
+            'Ben@UseCampusSwap.com',
+            'Henry@UseCampusSwap.com',
+            'Jack@UseCampusSwap.com',
+        ]
+        success = all(send_email(addr, email_subject, html_body) for addr in recipients)
+
+        if success:
+            flash("Message sent — we'll be in touch soon.", 'success')
+            return redirect(url_for('contact'))
+        else:
+            flash("Something went wrong — please email us directly at ben@usecampusswap.com.", 'error')
+            return render_template('contact.html', name=name, subject=subject, message=message)
+
+    return render_template('contact.html', name=name, subject=subject, message=message)
+
 @app.route('/become-a-seller', methods=['GET', 'POST'])
 @limiter.limit("10 per hour", methods=['POST']) if limiter else lambda f: f
 def become_a_seller():
@@ -1285,12 +1335,15 @@ def _generate_share_card_png(item):
     # Logo only - large, bottom-right corner
     logo_path = os.path.join(app.static_folder, "faviconNew.png")
     if os.path.exists(logo_path):
-        logo_img = Image.open(logo_path)
-        logo_img = logo_img.convert("RGBA")
-        logo_size = 120
-        logo_img.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
-        lw, lh = logo_img.size
-        base.paste(logo_img, (CARD_W - lw - 30, CARD_H - lh - 30), logo_img)
+        try:
+            logo_img = Image.open(logo_path)
+            logo_img = logo_img.convert("RGBA")
+            logo_size = 120
+            logo_img.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
+            lw, lh = logo_img.size
+            base.paste(logo_img, (CARD_W - lw - 30, CARD_H - lh - 30), logo_img)
+        except Exception:
+            pass  # Skip logo if file is corrupt/empty
 
     # SOLD overlay when applicable
     if item.status == 'sold':
