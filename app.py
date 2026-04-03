@@ -90,17 +90,17 @@ RESERVATION_HOLD_DAYS = 3
 def store_is_open():
     """True if today is on or after the configured store_open_date."""
     from datetime import date as _date
-    val = AppSetting.get('store_open_date', '2025-06-01')
+    val = AppSetting.get('store_open_date', '2026-06-01')
     return _date.today() >= _date.fromisoformat(val)
 
 def store_open_date():
     """Return the store open date string from settings."""
-    return AppSetting.get('store_open_date', '2025-06-01')
+    return AppSetting.get('store_open_date', '2026-06-01')
 
 def compute_expiry():
     """Compute reservation expiry: 3 days from store open or now, whichever is later."""
     from datetime import timedelta
-    store_open = datetime.fromisoformat(AppSetting.get('store_open_date', '2025-06-01'))
+    store_open = datetime.fromisoformat(AppSetting.get('store_open_date', '2026-06-01'))
     now = datetime.utcnow()
     start = max(now, store_open)
     return start + timedelta(days=RESERVATION_HOLD_DAYS)
@@ -1892,6 +1892,18 @@ def admin_panel():
         new_status = not current_status
         AppSetting.set('pickup_period_active', str(new_status))
         flash(f"Pickup period {'activated' if new_status else 'closed'}.", "success")
+
+    # Admin can update store open date (controls when reservations go live)
+    if request.method == 'POST' and 'update_store_open_date' in request.form:
+        new_date = request.form.get('store_open_date_value', '').strip()
+        if new_date:
+            try:
+                from datetime import date as _date
+                _date.fromisoformat(new_date)  # validate format
+                AppSetting.set('store_open_date', new_date)
+                flash(f"Store open date updated to {new_date}.", "success")
+            except ValueError:
+                flash("Invalid date format. Use YYYY-MM-DD.", "error")
 
     # 1. Update Category Counts (super admin only)
     if request.method == 'POST' and 'update_all_counts' in request.form:

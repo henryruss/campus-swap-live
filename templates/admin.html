@@ -228,7 +228,7 @@
             <h1 style="margin-bottom: 5px;">Manager Dashboard</h1>
             <p style="margin: 0; color: var(--text-muted);">Welcome back. Manage your inventory and gallery.</p>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
             <form method="POST" style="margin: 0;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="toggle_pickup_period" value="true"/>
@@ -236,6 +236,14 @@
                     <i class="fas fa-{% if pickup_period_active %}check-circle{% else %}times-circle{% endif %}"></i>
                     Pickup Period: {% if pickup_period_active %}OPEN{% else %}CLOSED{% endif %}
                 </button>
+            </form>
+            <form method="POST" style="margin: 0; display: flex; align-items: center; gap: 6px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="update_store_open_date" value="true"/>
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; white-space: nowrap;">Store opens:</label>
+                <input type="date" name="store_open_date_value" value="{{ store_open_date() }}"
+                       style="padding: 6px 10px; border: 2px solid {% if store_is_open() %}#bbf7d0{% else %}#fde68a{% endif %}; border-radius: 8px; font-size: 0.85rem; background: {% if store_is_open() %}#dcfce7{% else %}#fef9c3{% endif %};">
+                <button type="submit" class="btn" style="padding: 6px 12px; font-size: 0.8rem;">Save</button>
             </form>
             <a href="/" class="btn btn-outline">View Live Site &rarr;</a>
         </div>
@@ -1271,6 +1279,7 @@
                     form.action.includes('make-admin') ||
                     form.action.includes('revoke-admin') ||
                     form.querySelector('input[name="toggle_pickup_period"]') ||
+                    form.querySelector('input[name="update_store_open_date"]') ||
                     form.querySelector('input[name="run_pickup_charges"]') ||
                     form.id === 'admin-gallery-form') {
                     return;
