@@ -863,6 +863,7 @@ def refund_policy():
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
     name = ''
+    email = ''
     subject = ''
     message = ''
 
@@ -871,16 +872,19 @@ def contact():
         subject = request.form.get('subject', '').strip()
         message = request.form.get('message', '').strip()
 
-        if not name or not subject or not message:
+        if current_user.is_authenticated:
+            sender_email = current_user.email
+        else:
+            email = request.form.get('email', '').strip()
+            sender_email = email
+
+        if not name or not subject or not message or (not current_user.is_authenticated and not email):
             flash('Please fill in all fields.', 'error')
-            return render_template('contact.html', name=name, subject=subject, message=message)
+            return render_template('contact.html', name=name, email=email, subject=subject, message=message)
 
-        if len(name) > 100 or len(subject) > 200 or len(message) > 5000:
+        if len(name) > 100 or len(subject) > 200 or len(message) > 5000 or len(email) > 254:
             flash('One of your fields is too long — please shorten it.', 'error')
-            return render_template('contact.html', name=name, subject=subject, message=message)
-
-        # Build email body
-        sender_email = current_user.email if current_user.is_authenticated else None
+            return render_template('contact.html', name=name, email=email, subject=subject, message=message)
         email_lines = [
             f"<h2>New Contact Form Submission</h2>",
             f"<p><strong>From:</strong> {html_module.escape(name)}</p>",
@@ -905,10 +909,10 @@ def contact():
             flash("Message sent — we'll be in touch soon.", 'success')
             return redirect(url_for('contact'))
         else:
-            flash("Something went wrong — please email us directly at ben@usecampusswap.com.", 'error')
-            return render_template('contact.html', name=name, subject=subject, message=message)
+            flash("Something went wrong — please try again later.", 'error')
+            return render_template('contact.html', name=name, email=email, subject=subject, message=message)
 
-    return render_template('contact.html', name=name, subject=subject, message=message)
+    return render_template('contact.html', name=name, email=email, subject=subject, message=message)
 
 @app.route('/become-a-seller', methods=['GET', 'POST'])
 @limiter.limit("10 per hour", methods=['POST']) if limiter else lambda f: f
