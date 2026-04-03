@@ -625,8 +625,11 @@ def validate_video_upload(file):
     if ext not in ALLOWED_VIDEO_EXTENSIONS:
         return False, f"Video type not allowed. Allowed types: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
 
-    mime_type = file.content_type
-    if mime_type and mime_type.lower() not in ALLOWED_VIDEO_MIME_TYPES:
+    mime_type = (file.content_type or "").lower().strip()
+    # Some browsers (especially on Windows) send generic or empty MIME types
+    # for valid video files — trust the extension if MIME is missing/generic
+    generic_mimes = {"", "application/octet-stream", "application/x-unknown"}
+    if mime_type and mime_type not in generic_mimes and mime_type not in ALLOWED_VIDEO_MIME_TYPES:
         return False, "Invalid video file type"
 
     return True, None
@@ -741,7 +744,7 @@ _TICKER_FALLBACK_PRICES = [55, 40, 25, 40, 80, 70, 50, 90]  # From become-a-sell
 
 def _get_ticker_items():
     """Build ticker items from categories for the index hero slideshow. Uses same prices as become-a-seller page."""
-    ticker_cats = InventoryCategory.query.order_by(InventoryCategory.id).limit(8).all()
+    ticker_cats = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).limit(8).all()
     if ticker_cats:
         result = []
         for i, c in enumerate(ticker_cats):
