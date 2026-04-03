@@ -1,0 +1,143 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+    .contact-page { max-width: 640px; margin: 0 auto; padding: 40px 20px 60px; }
+    .contact-page h1 {
+        font-family: 'DM Serif Display', serif;
+        font-size: 2rem;
+        color: var(--primary);
+        margin-bottom: 8px;
+    }
+    .contact-page .subhead {
+        color: var(--text-muted);
+        font-size: 1rem;
+        margin-bottom: 32px;
+        line-height: 1.5;
+    }
+    .contact-card {
+        background: white;
+        border: 1px solid var(--card-border, #e2e8f0);
+        border-radius: 12px;
+        padding: 28px;
+        margin-bottom: 24px;
+    }
+    .urgent-callout {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+    }
+    .urgent-callout i.fa-phone {
+        font-size: 1.3rem;
+        color: var(--primary);
+        margin-top: 2px;
+    }
+    .urgent-callout .phone-number {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: var(--text-main);
+        text-decoration: none;
+    }
+    .urgent-callout .phone-number:hover { text-decoration: underline; }
+    .urgent-callout .phone-note {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+    .contact-form label {
+        display: block;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-main);
+        margin-bottom: 6px;
+    }
+    .contact-form input,
+    .contact-form textarea {
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid var(--card-border, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.95rem;
+        font-family: 'DM Sans', sans-serif;
+        color: var(--text-main);
+        background: var(--bg-cream, #faf9f6);
+        margin-bottom: 18px;
+        box-sizing: border-box;
+    }
+    .contact-form input:focus,
+    .contact-form textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 0,0,0), 0.08);
+    }
+    .contact-form textarea { resize: vertical; min-height: 140px; }
+    .contact-form .btn-submit {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--accent, #f59e0b);
+        color: white;
+        font-weight: 600;
+        font-size: 1rem;
+        padding: 12px 28px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .contact-form .btn-submit:hover { opacity: 0.9; }
+    .contact-emails {
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.88rem;
+        margin-top: 8px;
+    }
+    .contact-emails a { color: var(--primary); text-decoration: none; }
+    .contact-emails a:hover { text-decoration: underline; }
+    @media (max-width: 480px) {
+        .contact-page { padding: 24px 16px 48px; }
+        .contact-card { padding: 20px; }
+    }
+</style>
+
+<div class="contact-page">
+    <h1>Get in touch</h1>
+    <p class="subhead">We're here to help — usually respond within a few hours.</p>
+
+    <div class="contact-card">
+        <div class="urgent-callout">
+            <i class="fas fa-phone"></i>
+            <div>
+                <div>For urgent help, call or text:</div>
+                <a href="tel:+19195781764" class="phone-number">(919) 578-1764</a>
+                <div class="phone-note">Available during business hours</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="contact-card">
+        <form method="POST" action="{{ url_for('contact') }}" class="contact-form">
+            {{ csrf_token() }}
+
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" value="{{ name }}" required maxlength="100" placeholder="Your name">
+
+            <label for="subject">Subject</label>
+            <input type="text" id="subject" name="subject" value="{{ subject }}" required maxlength="200" placeholder="What's this about?">
+
+            <label for="message">Message</label>
+            <textarea id="message" name="message" required maxlength="5000" rows="6" placeholder="Tell us how we can help...">{{ message }}</textarea>
+
+            <button type="submit" class="btn-submit">
+                <i class="fas fa-paper-plane"></i> Send Message
+            </button>
+        </form>
+    </div>
+
+    <div class="contact-emails">
+        Or email us directly:
+        <a href="mailto:ben@usecampusswap.com">ben@usecampusswap.com</a> &middot;
+        <a href="mailto:henry@usecampusswap.com">henry@usecampusswap.com</a> &middot;
+        <a href="mailto:jack@usecampusswap.com">jack@usecampusswap.com</a>
+    </div>
+</div>
+{% endblock %}
