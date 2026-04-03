@@ -202,28 +202,61 @@
                             We don't support shipping yet. All items must be picked up in person at our store.
                         </p>
                     </div>
-                    {% if is_reserve_only_mode() %}
-                    <a href="{{ url_for('reserve_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
-                        Reserve Item <i class="fas fa-calendar-check"></i>
-                    </a>
-                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
-                        No payment required. We'll start accepting payments after April 20th.
-                    </p>
+
+                    {% if not store_is_open() %}
+                        {# Store not open yet — browse only #}
+                        <div style="padding: 16px 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; text-align: center;">
+                            <i class="fas fa-clock" style="color: var(--primary); margin-right: 6px;"></i>
+                            <span style="font-weight: 600; color: var(--text-main);">Reservations open {{ store_open_date() }}</span>
+                        </div>
+                    {% elif reservation and current_user.is_authenticated and reservation.user_id == current_user.id %}
+                        {# Reserved by current user #}
+                        <div style="padding: 16px 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: center; margin-bottom: 12px;">
+                            <i class="fas fa-check-circle" style="color: #16a34a; margin-right: 6px;"></i>
+                            <span style="font-weight: 600; color: #166534;">Reserved by you until {{ reservation.expires_at.strftime('%B %d, %Y') }}</span>
+                        </div>
+                        <form method="POST" action="{{ url_for('cancel_reservation', item_id=item.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline" style="width: 100%; padding: 14px; color: #dc2626; border-color: #fecaca;" onclick="return confirm('Cancel your reservation?')">
+                                Cancel Reservation
+                            </button>
+                        </form>
+                    {% elif reservation %}
+                        {# Reserved by someone else #}
+                        <div style="padding: 16px 20px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 10px; text-align: center;">
+                            <i class="fas fa-bookmark" style="color: #92400e; margin-right: 6px;"></i>
+                            <span style="font-weight: 600; color: #92400e;">Reserved</span>
+                        </div>
+                    {% elif is_reserve_only_mode() %}
+                        {# Store open, reserve-only mode — reserve button #}
+                        <form method="POST" action="{{ url_for('reserve_item', item_id=item.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem;">
+                                Reserve Item <i class="fas fa-calendar-check"></i>
+                            </button>
+                        </form>
+                        <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                            No payment required. Reserve it now before someone else does.
+                        </p>
                     {% elif item_is_picked_up(item) %}
-                    <a href="{{ url_for('buy_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
-                        Buy Now <i class="fas fa-shopping-cart"></i>
-                    </a>
-                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
-                        <i class="fas fa-lock"></i> Secure payment via Stripe<br>
-                        <span style="font-size: 0.8rem;">Item is in store. Complete your purchase to pick it up.</span>
-                    </p>
+                        {# Item in store — buy button + reserve fallback #}
+                        <a href="{{ url_for('buy_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
+                            Buy Now <i class="fas fa-shopping-cart"></i>
+                        </a>
+                        <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                            <i class="fas fa-lock"></i> Secure payment via Stripe
+                        </p>
                     {% else %}
-                    <a href="{{ url_for('reserve_item', item_id=item.id) }}?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
-                        Reserve Item <i class="fas fa-calendar-check"></i>
-                    </a>
-                    <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
-                        Item not yet picked up. Reserve now (no payment). We'll notify you when it's ready for purchase.
-                    </p>
+                        {# Item not yet in store — reserve button #}
+                        <form method="POST" action="{{ url_for('reserve_item', item_id=item.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem;">
+                                Reserve Item <i class="fas fa-calendar-check"></i>
+                            </button>
+                        </form>
+                        <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                            Item not yet picked up. Reserve now (no payment).
+                        </p>
                     {% endif %}
                 {% endif %}
             </div>

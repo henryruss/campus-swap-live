@@ -874,6 +874,7 @@
                             <th>Picked up</th>
                             <th>At store</th>
                             <th>Status</th>
+                            <th>Reservation</th>
                             <th>Payout</th>
                             <th style="text-align: right;">Actions</th>
                         </tr>
@@ -944,7 +945,18 @@
                                     <span class="badge bg-green">ACTIVE</span>
                                 {% endif %}
                             </td>
-                            
+
+                            <td style="font-size: 0.8rem; min-width: 120px;">
+                                {% if item.id in admin_reservations %}
+                                    {% set res = admin_reservations[item.id] %}
+                                    <span style="color: #92400e; font-weight: 600;">Reserved</span>
+                                    <div style="color: var(--text-muted); margin-top: 2px;">{{ res.user.full_name or res.user.email }}</div>
+                                    <div style="color: var(--text-muted); font-size: 0.75rem;">until {{ res.expires_at.strftime('%b %d') }}</div>
+                                {% else %}
+                                    <span style="color: #999;">—</span>
+                                {% endif %}
+                            </td>
+
                             <td>
                                 {% if item.status == 'sold' and item.seller %}
                                     {% if item.payout_sent %}
