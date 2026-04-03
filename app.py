@@ -85,6 +85,33 @@ def is_reserve_only_mode():
     month, day = RESERVE_ONLY_DEADLINE
     return (now.month, now.day) < (month, day)
 
+RESERVATION_HOLD_DAYS = 3
+
+def store_is_open():
+    """True if today is on or after the configured store_open_date."""
+    from datetime import date as _date
+    val = AppSetting.get('store_open_date', '2025-06-01')
+    return _date.today() >= _date.fromisoformat(val)
+
+def store_open_date():
+    """Return the store open date string from settings."""
+    return AppSetting.get('store_open_date', '2025-06-01')
+
+def compute_expiry():
+    """Compute reservation expiry: 3 days from store open or now, whichever is later."""
+    from datetime import timedelta
+    store_open = datetime.fromisoformat(AppSetting.get('store_open_date', '2025-06-01'))
+    now = datetime.utcnow()
+    start = max(now, store_open)
+    return start + timedelta(days=RESERVATION_HOLD_DAYS)
+
+def get_active_reservation(item_id):
+    """Return the active (non-expired, non-cancelled) reservation for an item, or None."""
+    return ItemReservation.query.filter_by(item_id=item_id).filter(
+        ItemReservation.expires_at > datetime.utcnow(),
+        ItemReservation.cancelled_at == None
+    ).first()
+
 def item_is_picked_up(item):
     """True if item is in Campus Swap's possession (picked up or arrived at store)."""
     return bool(item.picked_up_at or item.arrived_at_store_at)
@@ -115,7 +142,9 @@ def inject_store_functions():
         is_super_admin=is_super_admin,
         turnstile_site_key=os.environ.get('TURNSTILE_SITE_KEY', ''),
         is_reserve_only_mode=is_reserve_only_mode,
-        item_is_picked_up=item_is_picked_up
+        item_is_picked_up=item_is_picked_up,
+        store_is_open=store_is_open,
+        store_open_date=store_open_date
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -1050,7 +1079,44 @@ def inventory():
     
     items = pagination.items
     store_info = get_store_info(store_name)
-    
+
+    # Build active reservations dict (item_id → reservation) to avoid N+1 queries
+    item_ids = [i.id for i in items]
+    active_reservations = {}
+    if item_ids:
+        now = datetime.utcnow()
+        reservations = ItemReservation.query.filter(
+            ItemReservation.item_id.in_(item_ids),
+            ItemReservation.expires_at > now,
+            ItemReservation.cancelled_at == None
+        ).all()
+        active_reservations = {r.item_id: r for r in reservations}
+
+        # Check for newly expired reservations that need expiry emails
+        expired = ItemReservation.query.filter(
+            ItemReservation.item_id.in_(item_ids),
+            ItemReservation.expires_at <= now,
+            ItemReservation.cancelled_at == None,
+            ItemReservation.expiry_email_sent == False
+        ).all()
+        for exp in expired:
+            exp.expiry_email_sent = True
+            exp_user = User.query.get(exp.user_id)
+            exp_item = InventoryItem.query.get(exp.item_id)
+            if exp_user and exp_item:
+                item_url = url_for('product_detail', item_id=exp.item_id, _external=True)
+                send_email(
+                    to_email=exp_user.email,
+                    subject=f"Your reservation for {exp_item.description} expired",
+                    html_content=f"""
+                    <h2>Your reservation has expired</h2>
+                    <p>Your reservation for <strong>{exp_item.description}</strong> has expired and the item is now available again.</p>
+                    <p>Want it back? <a href="{item_url}" style="color: #2563eb;">Reserve it again</a> before someone else does.</p>
+                    """
+                )
+        if expired:
+            db.session.commit()
+
     return render_template('inventory.html',
                          commodities=commodities,
                          items=items,
@@ -1059,7 +1125,8 @@ def inventory():
                          active_cat=cat_id,
                          active_sub=sub_id,
                          current_store=store_name,
-                         store_info=store_info)
+                         store_info=store_info,
+                         active_reservations=active_reservations)
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
@@ -1072,7 +1139,35 @@ def product_detail(item_id):
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
     is_shareable = _is_item_shareable(item)
-    return render_template('product.html', item=item, current_store=store_name, store_info=store_info, is_shareable=is_shareable)
+
+    # Get active reservation for this item
+    reservation = get_active_reservation(item_id)
+
+    # Check for expired reservation needing email
+    if not reservation:
+        now = datetime.utcnow()
+        expired = ItemReservation.query.filter_by(item_id=item_id).filter(
+            ItemReservation.expires_at <= now,
+            ItemReservation.cancelled_at == None,
+            ItemReservation.expiry_email_sent == False
+        ).first()
+        if expired:
+            expired.expiry_email_sent = True
+            db.session.commit()
+            exp_user = User.query.get(expired.user_id)
+            if exp_user:
+                item_url = url_for('product_detail', item_id=item_id, _external=True)
+                send_email(
+                    to_email=exp_user.email,
+                    subject=f"Your reservation for {item.description} expired",
+                    html_content=f"""
+                    <h2>Your reservation has expired</h2>
+                    <p>Your reservation for <strong>{item.description}</strong> has expired and the item is now available again.</p>
+                    <p>Want it back? <a href="{item_url}" style="color: #2563eb;">Reserve it again</a> before someone else does.</p>
+                    """
+                )
+
+    return render_template('product.html', item=item, current_store=store_name, store_info=store_info, is_shareable=is_shareable, reservation=reservation)
 
 # --- SHARE CARD IMAGE GENERATION ---
 def _is_item_shareable(item):
@@ -1432,28 +1527,88 @@ def acknowledge_price_change(item_id):
     return jsonify({"ok": True})
 
 
-@app.route('/reserve_item/<int:item_id>')
+@app.route('/reserve_item/<int:item_id>', methods=['GET', 'POST'])
 @login_required
 def reserve_item(item_id):
-    """Non-binding reservation (no payment). Used before April 20 or for items not yet picked up."""
+    """Reserve an item. GET redirects to product page. POST creates reservation."""
     item = InventoryItem.query.get_or_404(item_id)
-    if item.status != 'available' and item.status != 'pending_logistics':
-        flash("This item is not available for reservation.", "error")
-        return redirect(url_for('inventory'))
-    if item.status == 'sold':
-        flash("This item has already been sold.", "error")
+
+    # GET requests just redirect to the product page (old bookmark compat)
+    if request.method == 'GET':
         return redirect(url_for('product_detail', item_id=item_id))
+
+    if not store_is_open():
+        flash("Reservations aren't open yet. Check back on " + store_open_date() + ".", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+
+    if item.status not in ('available', 'pending_logistics'):
+        flash("This item is not available for reservation.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+
     if not item.price or item.price <= 0:
         flash("This item is not available for reservation.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+
+    # Check if item already has an active reservation (any user)
+    existing_reservation = get_active_reservation(item_id)
+    if existing_reservation:
+        if existing_reservation.user_id == current_user.id:
+            flash("You've already reserved this item.", "error")
+        else:
+            flash("This item is already reserved.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+
+    # Check user's active reservation count (max 3)
+    active_count = ItemReservation.query.filter_by(user_id=current_user.id).filter(
+        ItemReservation.expires_at > datetime.utcnow(),
+        ItemReservation.cancelled_at == None
+    ).count()
+    if active_count >= 3:
+        flash("You can only reserve 3 items at a time.", "error")
+        return redirect(url_for('product_detail', item_id=item_id))
+
+    # Create reservation
+    expiry = compute_expiry()
+    r = ItemReservation(item_id=item_id, user_id=current_user.id, expires_at=expiry)
+    db.session.add(r)
+    db.session.commit()
+    logger.info(f"Reservation created for item {item_id} by user {current_user.id}, expires {expiry}")
+
+    # Send confirmation email
+    expiry_str = expiry.strftime('%B %d, %Y')
+    item_url = url_for('product_detail', item_id=item_id, _external=True)
+    send_email(
+        to_email=current_user.email,
+        subject=f"You reserved {item.description} — Campus Swap",
+        html_content=f"""
+        <h2>You reserved {item.description}!</h2>
+        <p>Your reservation is confirmed. The item is yours until <strong>{expiry_str}</strong>.</p>
+        <p>Come pick it up at our store before your reservation expires.</p>
+        <p><a href="{item_url}" style="color: #2563eb;">View item</a></p>
+        <p style="font-size: 0.9rem; color: #64748b;">Changed your mind? You can cancel anytime from the item page.</p>
+        """
+    )
+
+    flash(f"Item reserved! It's yours until {expiry_str}.", "success")
+    return redirect(url_for('product_detail', item_id=item_id))
+
+
+@app.route('/cancel_reservation/<int:item_id>', methods=['POST'])
+@login_required
+def cancel_reservation(item_id):
+    """Cancel the current user's active reservation on an item."""
+    reservation = ItemReservation.query.filter_by(item_id=item_id, user_id=current_user.id).filter(
+        ItemReservation.expires_at > datetime.utcnow(),
+        ItemReservation.cancelled_at == None
+    ).first()
+    if not reservation:
+        flash("No active reservation found.", "error")
         return redirect(url_for('inventory'))
-    # Create reservation record (idempotent - one per user per item)
-    existing = ItemReservation.query.filter_by(item_id=item_id, user_id=current_user.id).first()
-    if not existing:
-        r = ItemReservation(item_id=item_id, user_id=current_user.id)
-        db.session.add(r)
-        db.session.commit()
-        logger.info(f"Reservation created for item {item_id} by user {current_user.id}")
-    return render_template('reserve_success.html', item=item)
+    reservation.cancelled_at = datetime.utcnow()
+    db.session.commit()
+    logger.info(f"Reservation cancelled for item {item_id} by user {current_user.id}")
+    flash("Reservation cancelled. The item is now available again.", "success")
+    return redirect(url_for('inventory'))
 
 
 @app.route('/buy_item/<int:item_id>')
@@ -2133,6 +2288,20 @@ def admin_panel():
                 'is_rejected': user.id in free_rejected_ids,
             })
 
+    # Build active reservations dict for admin display
+    admin_item_ids = [i.id for i in gallery_items]
+    admin_reservations = {}
+    if admin_item_ids:
+        now = datetime.utcnow()
+        res_list = ItemReservation.query.options(
+            joinedload(ItemReservation.user)
+        ).filter(
+            ItemReservation.item_id.in_(admin_item_ids),
+            ItemReservation.expires_at > now,
+            ItemReservation.cancelled_at == None
+        ).all()
+        admin_reservations = {r.item_id: r for r in res_list}
+
     return render_template('admin.html', commodities=commodities, all_cats=all_cats,
                            pending_items=pending_items, gallery_items=gallery_items,
                            pickup_period_active=pickup_period_active,
@@ -2143,7 +2312,8 @@ def admin_panel():
                            free_confirmed_ids=free_confirmed_ids,
                            free_rejected_ids=free_rejected_ids,
                            warehouse_spots=get_warehouse_spots_remaining(),
-                           pod_spots=get_pod_spots_remaining())
+                           pod_spots=get_pod_spots_remaining(),
+                           admin_reservations=admin_reservations)
 
 
 @app.route('/admin/approve', methods=['GET', 'POST'])

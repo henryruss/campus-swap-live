@@ -136,11 +136,16 @@ class ItemPhoto(db.Model):
 
 
 class ItemReservation(db.Model):
-    """Non-binding reservation before April 20 (reserve-only mode). No payment."""
+    """Non-binding reservation with expiry. No payment required."""
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    expiry_email_sent = db.Column(db.Boolean, default=False)
+
+    user = db.relationship('User', backref='reservations', lazy=True)
 
 class UploadSession(db.Model):
     """Temporary session for QR code mobile-to-desktop photo uploads. user_id is None for guest sessions."""

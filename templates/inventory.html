@@ -28,6 +28,15 @@
 
 <div class="container">
 
+    {% if not store_is_open() %}
+    <div style="padding: 16px 20px; margin-bottom: 25px; background: linear-gradient(135deg, #eff6ff, #f0fdf4); border: 1px solid #bfdbfe; border-radius: 10px; display: flex; align-items: center; gap: 12px;">
+        <i class="fas fa-clock" style="color: var(--primary); font-size: 1.2rem;"></i>
+        <span style="font-size: 0.95rem; color: var(--text-main); line-height: 1.5;">
+            <strong>Reservations open {{ store_open_date() }}</strong> — Browse what's coming and be ready to grab your item the moment we open.
+        </span>
+    </div>
+    {% endif %}
+
     <!-- Subtle Store Indicator -->
     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 25px; padding: 10px 16px; background: #f8fafc; border-left: 3px solid var(--primary); border-radius: 6px;">
         <i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 0.9rem;"></i>
@@ -193,8 +202,11 @@
                 <div style="padding: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</span>
-                        {% if item.status != 'sold' %}
-                        <span class="badge bg-green">Available</span>
+                        {% if item.status == 'sold' %}
+                        {% elif item.id in active_reservations %}
+                            <span class="badge" style="background: #fef3c7; color: #92400e;">Reserved</span>
+                        {% else %}
+                            <span class="badge bg-green">Available</span>
                         {% endif %}
                     </div>
                     <p style="margin: 0; font-size: 0.95rem; color: var(--text-muted); font-weight: 500;">
