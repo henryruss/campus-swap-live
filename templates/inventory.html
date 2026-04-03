@@ -55,23 +55,53 @@
         </a>
 
         {% for item in commodities %}
-        <a href="/inventory?category_id={{ item.id }}" style="flex: 1 1 150px; text-decoration: none;">
-            <div class="card text-center no-hover" 
+        <a href="/inventory?category_id={{ item.id }}" style="flex: 1 1 150px; text-decoration: none;" class="inv-cat-link" data-cat-id="{{ item.id }}">
+            <div class="card text-center no-hover"
                  style="height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
                  {% if active_cat|int == item.id %}border: 2px solid var(--primary); background: white;{% endif %}">
-                
-                <i class="fas {{ item.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; color: {% if active_cat|int == item.id %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
-                
-                <div class="{% if item.count_in_stock == 0 %}text-red{% else %}text-green{% endif %}" 
-                     style="font-size: 1.8rem; font-weight: 800; line-height: 1; margin-bottom: 5px;">
-                    {{ item.count_in_stock }}
-                </div>
-                
+
+                <i class="fas {{ item.icon or item.image_url }}" style="font-size: 2.5rem; margin-bottom: 15px; color: {% if active_cat|int == item.id %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
+
                 <div style="font-weight: 700; color: var(--text-muted); font-size: 0.9rem;">{{ item.name }}</div>
             </div>
         </a>
         {% endfor %}
     </div>
+
+    <!-- Subcategory filter pills (shown when a parent category is selected) -->
+    {% if active_cat %}
+    <div id="inv-subcategory-pills" class="subcategory-pills" style="margin-top: -30px; margin-bottom: 30px;"></div>
+    <script>
+    (function() {
+        var catId = {{ active_cat }};
+        var activeSub = {{ active_sub|default('null') }};
+        fetch('/api/subcategories/' + catId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var container = document.getElementById('inv-subcategory-pills');
+                if (data.skip_subcategory || data.subcategories.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                }
+                // "All" pill
+                var allPill = document.createElement('a');
+                allPill.className = 'subcategory-pill' + (!activeSub ? ' selected' : '');
+                allPill.textContent = 'All';
+                allPill.href = '/inventory?category_id=' + catId;
+                container.appendChild(allPill);
+
+                data.subcategories.forEach(function(sub) {
+                    var pill = document.createElement('a');
+                    pill.className = 'subcategory-pill' + (activeSub === sub.id ? ' selected' : '');
+                    pill.textContent = sub.name;
+                    pill.href = '/inventory?category_id=' + catId + '&subcategory=' + sub.id;
+                    container.appendChild(pill);
+                });
+                container.style.display = 'flex';
+            });
+    })();
+    </script>
+    {% endif %}
 
     <!-- Search Box -->
     <div style="margin-bottom: 30px;">

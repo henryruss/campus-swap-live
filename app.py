@@ -1003,11 +1003,12 @@ def unsubscribe(token):
 def inventory():
     """Display inventory with pagination, search, and optimized queries"""
     cat_id = request.args.get('category_id', type=int)
+    sub_id = request.args.get('subcategory', type=int)
     store_name = request.args.get('store', get_current_store())
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
-    
-    commodities = InventoryCategory.query.all()
+
+    commodities = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     
     # Build query with eager loading to prevent N+1 queries
     # Items appear on shop once approved (pending_logistics or available or sold) - no wait for has_paid or arrived_at_store
@@ -1024,6 +1025,8 @@ def inventory():
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
     if cat_id:
         query = query.filter(InventoryItem.category_id == cat_id)
+    if sub_id:
+        query = query.filter(InventoryItem.subcategory_id == sub_id)
     
     # Apply search filter
     if search_query:
@@ -1048,13 +1051,14 @@ def inventory():
     items = pagination.items
     store_info = get_store_info(store_name)
     
-    return render_template('inventory.html', 
-                         commodities=commodities, 
+    return render_template('inventory.html',
+                         commodities=commodities,
                          items=items,
                          pagination=pagination,
                          search_query=search_query,
-                         active_cat=cat_id, 
-                         current_store=store_name, 
+                         active_cat=cat_id,
+                         active_sub=sub_id,
+                         current_store=store_name,
                          store_info=store_info)
 
 @app.route('/item/<int:item_id>')
@@ -2069,8 +2073,8 @@ def admin_panel():
                 flash(f"'{item.description}' unmarked from picked up.", "success")
 
     # Data Loading with optimized queries
-    commodities = InventoryCategory.query.all()
-    all_cats = InventoryCategory.query.all()
+    commodities = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+    all_cats = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     
     # Filter: Show all pending items (no payment gate; charge at pickup)
     pending_items = InventoryItem.query.options(
@@ -2153,8 +2157,8 @@ def admin_approve():
         flash("Item approval requires super admin access.", "error")
         return redirect(url_for('admin_panel'))
     
-    all_cats = InventoryCategory.query.all()
-    
+    all_cats = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+
     if request.method == 'POST':
         action = request.form.get('action')  # 'approve' or 'reject'
         item_id = request.form.get('item_id')
@@ -2199,6 +2203,14 @@ def admin_approve():
         if request.form.get('category_id'):
             try:
                 item.category_id = int(request.form['category_id'])
+            except (ValueError, TypeError):
+                pass
+        if request.form.get('subcategory_id'):
+            try:
+                new_sub = int(request.form['subcategory_id'])
+                sub_cat = InventoryCategory.query.get(new_sub)
+                if sub_cat and sub_cat.parent_id == item.category_id:
+                    item.subcategory_id = new_sub
             except (ValueError, TypeError):
                 pass
         if request.form.get('quality'):
@@ -2458,8 +2470,8 @@ def edit_item(item_id):
         flash("Sold items cannot be edited.", "error")
         return redirect(url_for('dashboard'))
     
-    categories = InventoryCategory.query.all()
-    
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+
     if request.method == 'POST' and request.form.get('withdraw_item') == '1':
         # Seller withdraws/removes item. Allowed only until item is picked up (in our possession).
         if item_is_picked_up(item):
@@ -2531,7 +2543,22 @@ def edit_item(item_id):
             except (ValueError, TypeError):
                 flash("Invalid category.", "error")
                 return render_template('edit_item.html', item=item, categories=categories)
-        
+
+        # Subcategory
+        sub_id_raw = request.form.get('subcategory_id', '')
+        if sub_id_raw:
+            try:
+                new_sub_id = int(sub_id_raw)
+                sub_cat = InventoryCategory.query.get(new_sub_id)
+                if sub_cat and sub_cat.parent_id == item.category_id:
+                    item.subcategory_id = new_sub_id
+                else:
+                    item.subcategory_id = None
+            except (ValueError, TypeError):
+                item.subcategory_id = None
+        else:
+            item.subcategory_id = None
+
         # Handle new photo uploads
         new_photos = request.files.getlist('new_photos')
         if new_photos and new_photos[0].filename != '':
@@ -2813,7 +2840,8 @@ def process_pending_onboard(user):
         long_description=long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
         quality=quality, status="pending_valuation", photo_url="",
         collection_method=collection_method,
-        suggested_price=suggested_price
+        suggested_price=suggested_price,
+        subcategory_id=pending.get('subcategory_id'),
     )
     db.session.add(new_item)
     db.session.flush()
@@ -3625,8 +3653,12 @@ def onboard():
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
         return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated, warehouse_spots=0, pod_spots=0, free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
-    categories = InventoryCategory.query.all()
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
+    # Also include subcategory price ranges for the JS price hint
+    all_subcats = InventoryCategory.query.filter(InventoryCategory.parent_id.isnot(None)).all()
+    for sc in all_subcats:
+        category_price_ranges[sc.id] = get_price_range_for_category(sc.name)
     dorms = RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {})
     google_maps_key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 
@@ -3698,13 +3730,26 @@ def onboard():
                 flash(f"The free plan allows up to {FREE_TIER_MAX_ITEMS} items. Upgrade to Pro User to add more.", "error")
                 return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, warehouse_spots=get_warehouse_spots_remaining(), pod_spots=get_pod_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
 
+        # Subcategory validation
+        sub_id = request.form.get('subcategory_id')
+        subcategory_id = None
+        if sub_id:
+            try:
+                subcategory_id = int(sub_id)
+                sub_cat = InventoryCategory.query.get(subcategory_id)
+                if not sub_cat or sub_cat.parent_id != int(cat_id):
+                    subcategory_id = None
+            except (ValueError, TypeError):
+                subcategory_id = None
+
         # Create the item (reuse add_item logic)
         new_item = InventoryItem(
             seller_id=current_user.id, category_id=int(cat_id), description=desc[:MAX_DESCRIPTION_LENGTH],
             long_description=long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
             quality=quality_value, status="pending_valuation", photo_url="",
             collection_method=collection_method,
-            suggested_price=suggested_price
+            suggested_price=suggested_price,
+            subcategory_id=subcategory_id,
         )
         db.session.add(new_item)
         db.session.flush()
@@ -3984,8 +4029,21 @@ def onboard_guest_save():
     elif category_requires_video(cat_name):
         return _err("Electronics items require a demo video showing the item works.")
 
+    # Subcategory from guest form
+    guest_sub_id = request.form.get('subcategory_id')
+    guest_subcategory_id = None
+    if guest_sub_id:
+        try:
+            guest_subcategory_id = int(guest_sub_id)
+            gsub = InventoryCategory.query.get(guest_subcategory_id)
+            if not gsub or gsub.parent_id != int(cat_id):
+                guest_subcategory_id = None
+        except (ValueError, TypeError):
+            guest_subcategory_id = None
+
     session['pending_onboard'] = {
         'category_id': int(cat_id),
+        'subcategory_id': guest_subcategory_id,
         'description': desc[:MAX_DESCRIPTION_LENGTH],
         'long_description': long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
         'quality': quality_value,
@@ -4497,8 +4555,10 @@ def add_item():
         flash("Your payment was declined. Please add a valid payment method to continue.", "error")
         return redirect(url_for('add_payment_method'))
     
-    categories = InventoryCategory.query.all()
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
+    for sc in InventoryCategory.query.filter(InventoryCategory.parent_id.isnot(None)).all():
+        category_price_ranges[sc.id] = get_price_range_for_category(sc.name)
 
     # Check if categories exist - if not, show error
     if not categories:
@@ -4564,6 +4624,18 @@ def add_item():
             except ValueError:
                 pass
 
+        # Subcategory validation
+        sub_id_raw = request.form.get('subcategory_id')
+        subcategory_id = None
+        if sub_id_raw:
+            try:
+                subcategory_id = int(sub_id_raw)
+                sub_cat = InventoryCategory.query.get(subcategory_id)
+                if not sub_cat or sub_cat.parent_id != cat_id:
+                    subcategory_id = None
+            except (ValueError, TypeError):
+                subcategory_id = None
+
         # Use same collection method as user's other items (from onboarding choice)
         existing = [i.collection_method for i in current_user.items if i.collection_method]
         collection_method = existing[-1] if existing else 'in_person'
@@ -4571,7 +4643,8 @@ def add_item():
             seller_id=current_user.id, category_id=cat_id, description=desc,
             long_description=long_desc, quality=quality_value, status="pending_valuation", photo_url="",
             collection_method=collection_method,
-            suggested_price=suggested_price
+            suggested_price=suggested_price,
+            subcategory_id=subcategory_id,
         )
         db.session.add(new_item)
         db.session.flush()
@@ -4900,6 +4973,120 @@ def admin_delete_category(cat_id):
     if is_ajax:
         return jsonify({'success': True, 'message': f"Category '{cat_name}' deleted successfully!", 'reload': True})
     flash(f"Category '{cat_name}' deleted successfully!", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+
+# =========================================================
+# SECTION: SUBCATEGORY API & ADMIN ROUTES
+# =========================================================
+
+@app.route('/api/subcategories/<int:parent_id>')
+def api_subcategories(parent_id):
+    """Return JSON list of subcategories for a parent category."""
+    parent = InventoryCategory.query.get_or_404(parent_id)
+    subs = InventoryCategory.query.filter_by(parent_id=parent_id).order_by(InventoryCategory.id).all()
+    skip = len(subs) == 0 or (len(subs) == 1)
+    return jsonify({
+        'subcategories': [{'id': s.id, 'name': s.name} for s in subs],
+        'skip_subcategory': skip,
+        'auto_select_id': subs[0].id if len(subs) == 1 else None,
+    })
+
+
+@app.route('/admin/category/add-subcategory', methods=['POST'])
+@login_required
+def admin_add_subcategory():
+    """Add a new subcategory under a parent (super admin only)."""
+    if (r := require_super_admin()):
+        return r
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    parent_id = request.form.get('parent_id', type=int)
+    name = request.form.get('name', '').strip()
+    if not parent_id or not name:
+        msg = "Parent category and name are required."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    parent = InventoryCategory.query.get(parent_id)
+    if not parent or parent.parent_id is not None:
+        msg = "Invalid parent category."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    existing = InventoryCategory.query.filter_by(name=name, parent_id=parent_id).first()
+    if existing:
+        msg = f"Subcategory '{name}' already exists under {parent.name}."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    sub = InventoryCategory(name=name, parent_id=parent_id, count_in_stock=0)
+    db.session.add(sub)
+    db.session.commit()
+    if is_ajax:
+        return jsonify({'success': True, 'message': f"Subcategory '{name}' added.", 'reload': True})
+    flash(f"Subcategory '{name}' added to {parent.name}.", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+
+@app.route('/admin/category/edit-subcategory/<int:sub_id>', methods=['POST'])
+@login_required
+def admin_edit_subcategory(sub_id):
+    """Rename a subcategory (super admin only)."""
+    if (r := require_super_admin()):
+        return r
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    sub = InventoryCategory.query.get_or_404(sub_id)
+    if sub.parent_id is None:
+        msg = "Not a subcategory."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    name = request.form.get('name', '').strip()
+    if not name:
+        msg = "Name is required."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    sub.name = name
+    db.session.commit()
+    if is_ajax:
+        return jsonify({'success': True, 'message': f"Subcategory renamed to '{name}'.", 'reload': True})
+    flash(f"Subcategory renamed to '{name}'.", "success")
+    return redirect(url_for('admin_panel') + '#categories')
+
+
+@app.route('/admin/category/delete-subcategory/<int:sub_id>', methods=['POST'])
+@login_required
+def admin_delete_subcategory(sub_id):
+    """Delete a subcategory if no items reference it (super admin only)."""
+    if (r := require_super_admin()):
+        return r
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    sub = InventoryCategory.query.get_or_404(sub_id)
+    if sub.parent_id is None:
+        msg = "Not a subcategory."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    item_count = InventoryItem.query.filter_by(subcategory_id=sub_id).count()
+    if item_count > 0:
+        msg = f"Cannot delete '{sub.name}' — {item_count} item(s) use it."
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg}), 400
+        flash(msg, "error")
+        return redirect(url_for('admin_panel') + '#categories')
+    sub_name = sub.name
+    db.session.delete(sub)
+    db.session.commit()
+    if is_ajax:
+        return jsonify({'success': True, 'message': f"Subcategory '{sub_name}' deleted.", 'reload': True})
+    flash(f"Subcategory '{sub_name}' deleted.", "success")
     return redirect(url_for('admin_panel') + '#categories')
 
 

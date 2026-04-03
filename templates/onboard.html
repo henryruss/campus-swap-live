@@ -892,10 +892,48 @@
         card.addEventListener('click', function() {
             document.querySelectorAll('.category-card').forEach(c => c.classList.remove('selected'));
             this.classList.add('selected');
-            document.getElementById('category-id-input').value = this.dataset.categoryId;
+            const catId = this.dataset.categoryId;
+            document.getElementById('category-id-input').value = catId;
+            document.getElementById('selected_subcategory_id').value = '';
             selectedCategoryName = this.dataset.categoryName || '';
             updateVideoBadge();
             hideValidationError();
+
+            // Fetch subcategories
+            fetch('/api/subcategories/' + catId)
+                .then(r => r.json())
+                .then(data => {
+                    const wrapper = document.getElementById('subcategory-wrapper');
+                    const container = document.getElementById('subcategory-container');
+                    const prompt = document.getElementById('subcategory-prompt');
+                    if (data.skip_subcategory) {
+                        wrapper.style.display = 'none';
+                        container.innerHTML = '';
+                        if (data.auto_select_id) {
+                            document.getElementById('selected_subcategory_id').value = data.auto_select_id;
+                        }
+                    } else {
+                        container.innerHTML = '';
+                        prompt.textContent = 'What kind of ' + (selectedCategoryName || 'item').toLowerCase() + '?';
+                        data.subcategories.forEach(sub => {
+                            const pill = document.createElement('button');
+                            pill.type = 'button';
+                            pill.className = 'subcategory-pill';
+                            pill.textContent = sub.name;
+                            pill.dataset.subId = sub.id;
+                            pill.addEventListener('click', function() {
+                                container.querySelectorAll('.subcategory-pill').forEach(p => p.classList.remove('selected'));
+                                this.classList.add('selected');
+                                document.getElementById('selected_subcategory_id').value = sub.id;
+                                selectedCategoryName = sub.name;
+                                updateVideoBadge();
+                                hideValidationError();
+                            });
+                            container.appendChild(pill);
+                        });
+                        wrapper.style.display = 'block';
+                    }
+                });
         });
     });
 
