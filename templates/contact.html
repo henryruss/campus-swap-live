@@ -116,7 +116,7 @@
 
     <div class="contact-card">
         <form method="POST" action="{{ url_for('contact') }}" class="contact-form">
-            {{ csrf_token() }}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <label for="name">Name</label>
             <input type="text" id="name" name="name" value="{{ name }}" required maxlength="100" placeholder="Your name">
@@ -133,11 +133,5 @@
         </form>
     </div>
 
-    <div class="contact-emails">
-        Or email us directly:
-        <a href="mailto:ben@usecampusswap.com">ben@usecampusswap.com</a> &middot;
-        <a href="mailto:henry@usecampusswap.com">henry@usecampusswap.com</a> &middot;
-        <a href="mailto:jack@usecampusswap.com">jack@usecampusswap.com</a>
-    </div>
 </div>
 {% endblock %}
