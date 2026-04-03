@@ -241,7 +241,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="update_store_open_date" value="true"/>
                 <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; white-space: nowrap;">Store opens:</label>
-                <input type="date" name="store_open_date_value" value="{{ store_open_date() }}"
+                <input type="date" name="store_open_date_value" value="{{ store_open_date_raw() }}"
                        style="padding: 6px 10px; border: 2px solid {% if store_is_open() %}#bbf7d0{% else %}#fde68a{% endif %}; border-radius: 8px; font-size: 0.85rem; background: {% if store_is_open() %}#dcfce7{% else %}#fef9c3{% endif %};">
                 <button type="submit" class="btn" style="padding: 6px 12px; font-size: 0.8rem;">Save</button>
             </form>
