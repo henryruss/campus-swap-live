@@ -327,9 +327,45 @@
         c.onclick = function() {
             document.querySelectorAll('.category-card').forEach(x => x.classList.remove('selected'));
             this.classList.add('selected');
-            document.getElementById('category-id-input').value = this.dataset.categoryId;
+            var catId = this.dataset.categoryId;
+            document.getElementById('category-id-input').value = catId;
+            document.getElementById('selected_subcategory_id').value = '';
             selectedCategoryName = this.dataset.categoryName || '';
             updateVideoBadge();
+
+            fetch('/api/subcategories/' + catId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var wrapper = document.getElementById('subcategory-wrapper');
+                    var container = document.getElementById('subcategory-container');
+                    var prompt = document.getElementById('subcategory-prompt');
+                    if (data.skip_subcategory) {
+                        wrapper.style.display = 'none';
+                        container.innerHTML = '';
+                        if (data.auto_select_id) {
+                            document.getElementById('selected_subcategory_id').value = data.auto_select_id;
+                        }
+                    } else {
+                        container.innerHTML = '';
+                        prompt.textContent = 'What kind of ' + (selectedCategoryName || 'item').toLowerCase() + '?';
+                        data.subcategories.forEach(function(sub) {
+                            var pill = document.createElement('button');
+                            pill.type = 'button';
+                            pill.className = 'subcategory-pill';
+                            pill.textContent = sub.name;
+                            pill.dataset.subId = sub.id;
+                            pill.onclick = function() {
+                                container.querySelectorAll('.subcategory-pill').forEach(function(p) { p.classList.remove('selected'); });
+                                pill.classList.add('selected');
+                                document.getElementById('selected_subcategory_id').value = sub.id;
+                                selectedCategoryName = sub.name;
+                                updateVideoBadge();
+                            };
+                            container.appendChild(pill);
+                        });
+                        wrapper.style.display = 'block';
+                    }
+                });
         };
     });
 

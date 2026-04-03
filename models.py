@@ -76,9 +76,13 @@ class User(UserMixin, db.Model):
 class InventoryCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    image_url = db.Column(db.String(200), nullable=True) 
+    image_url = db.Column(db.String(200), nullable=True)
+    icon = db.Column(db.String(64), nullable=True)  # e.g. 'fa-couch'
     count_in_stock = db.Column(db.Integer, default=0)
-    items = db.relationship('InventoryItem', backref='category', lazy=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
+
+    parent = db.relationship('InventoryCategory', remote_side='InventoryCategory.id', backref='subcategories')
+    items = db.relationship('InventoryItem', backref='category', lazy=True, foreign_keys='InventoryItem.category_id')
 
 class InventoryItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -111,7 +115,10 @@ class InventoryItem(db.Model):
     arrived_at_store_at = db.Column(db.DateTime, nullable=True)  # When item physically arrived at store
     
     category_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=False)
+    subcategory_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    subcategory = db.relationship('InventoryCategory', foreign_keys=[subcategory_id], backref='subcategory_items')
     
     photo_url = db.Column(db.String(200), nullable=True)
     video_url = db.Column(db.String(200), nullable=True)  # Demo video filename (electronics required, others optional)

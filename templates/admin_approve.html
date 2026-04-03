@@ -357,7 +357,7 @@
         <div class="approve-body">
             <h2 class="approve-title">{{ pending_item.description }}</h2>
             <div class="approve-meta">
-                {{ pending_item.category.name }} &middot; Condition: {{ pending_item.quality|quality_label }}
+                {{ pending_item.category.name }}{% if pending_item.subcategory %} / {{ pending_item.subcategory.name }}{% endif %} &middot; Condition: {{ pending_item.quality|quality_label }}
                 {% if pending_item.seller %}
                 &middot; {{ pending_item.seller.full_name }}
                 {% if pending_item.suggested_price %}
@@ -380,10 +380,16 @@
                     </div>
                     <div>
                         <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Category</label>
-                        <select name="category_id" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                        <select name="category_id" id="approve-category-select" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
                             {% for cat in all_cats %}
                             <option value="{{ cat.id }}" {% if pending_item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
                             {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Subcategory</label>
+                        <select name="subcategory_id" id="approve-subcategory-select" style="width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                            <option value="">— None —</option>
                         </select>
                     </div>
                     <div>
@@ -460,7 +466,7 @@
                             {% endif %}
                         </div>
                         <div class="card-meta">
-                            {{ item.category.name }} &middot; {{ item.quality|quality_label }}
+                            {{ item.category.name }}{% if item.subcategory %} / {{ item.subcategory.name }}{% endif %} &middot; {{ item.quality|quality_label }}
                             {% if item.seller %}&middot; {{ item.seller.full_name }}{% endif %}
                         </div>
                         <div class="card-actions">
@@ -494,5 +500,38 @@
             if (approveBtn) approveBtn.click();
         }
     });
+
+    // Subcategory dropdown logic for approval form
+    (function() {
+        var catSelect = document.getElementById('approve-category-select');
+        var subSelect = document.getElementById('approve-subcategory-select');
+        if (!catSelect || !subSelect) return;
+
+        var currentSubId = '{{ pending_item.subcategory_id if pending_item is defined and pending_item and pending_item.subcategory_id else "" }}';
+
+        function loadSubs(catId, preselectId) {
+            fetch('/api/subcategories/' + catId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    subSelect.innerHTML = '<option value="">— None —</option>';
+                    if (!data.skip_subcategory) {
+                        data.subcategories.forEach(function(s) {
+                            var opt = document.createElement('option');
+                            opt.value = s.id;
+                            opt.textContent = s.name;
+                            if (preselectId && String(s.id) === String(preselectId)) opt.selected = true;
+                            subSelect.appendChild(opt);
+                        });
+                    }
+                });
+        }
+
+        catSelect.addEventListener('change', function() {
+            loadSubs(this.value, null);
+        });
+
+        // Initial load
+        if (catSelect.value) loadSubs(catSelect.value, currentSubId);
+    })();
 </script>
 {% endblock %}
