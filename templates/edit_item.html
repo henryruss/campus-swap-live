@@ -141,7 +141,7 @@
                 </label>
             </div>
             {% endif %}
-            <input type="file" name="new_video" id="new-video-input" accept="video/mp4,video/quicktime,video/webm" style="display:none;">
+            <input type="file" name="new_video" id="new-video-input" accept="video/mp4,video/webm,.mp4,.mov,.webm" style="display:none;">
 
             {% if item_is_picked_up(item) and not current_user.is_admin %}
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;"><i class="fas fa-info-circle"></i> Your changes will be submitted for admin approval. The item will be temporarily removed from the shop until approved.</p>
