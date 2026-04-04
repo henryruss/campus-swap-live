@@ -132,6 +132,17 @@
             <label for="message">Message</label>
             <textarea id="message" name="message" required maxlength="5000" rows="6" placeholder="Tell us how we can help...">{{ message }}</textarea>
 
+            <!-- Honeypot field - hidden from real users, bots will fill it -->
+            <div style="position: absolute; left: -9999px;" aria-hidden="true">
+                <label for="website">Website</label>
+                <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+            </div>
+
+            {% if turnstile_site_key %}
+            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 0 0 18px;"></div>
+            {% endif %}
+
             <button type="submit" class="btn-submit">
                 <i class="fas fa-paper-plane"></i> Send Message
             </button>

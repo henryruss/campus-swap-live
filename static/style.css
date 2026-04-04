@@ -728,7 +728,6 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
     border: 2px solid #f59e0b;
 }
-.claim-space-card.pod { background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-color: var(--primary); }
 
 /* Receipt modal */
 .dashboard-modal-overlay {
@@ -759,7 +758,6 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 }
 .pickup-week-card input { position: absolute; opacity: 0; pointer-events: none; }
 .pickup-week-label { font-weight: 600; font-size: 1rem; }
-.pod-selection-card { padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 12px; }
 
 .guest-mode-card { background: #fffbeb; border: 2px solid #f59e0b; color: #92400e; }
 @media (max-width: 480px) {

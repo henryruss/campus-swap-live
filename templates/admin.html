@@ -436,19 +436,19 @@
     <details id="add-item" class="admin-section" open style="margin-bottom: 40px;">
         <summary class="section-summary">
             <h3 style="display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0;">
-                <i class="fas fa-plus-circle"></i> Quick Add Item (In-Person Drop-off)
+                <i class="fas fa-plus-circle"></i> Quick Add Item
             </h3>
             <i class="fas fa-chevron-down summary-chevron"></i>
         </summary>
         <div class="card no-hover" style="margin-top: 20px; background: rgba(255,255,255,0.9);">
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
-                Use this form when receiving items at the POD. Price will be set later in pending items.
+                Use this form to quickly add items. Price will be set later in pending items.
             </p>
-            
+
             <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="add_item" value="true">
-                <input type="hidden" name="collection_method" value="in_person">
+                <input type="hidden" name="collection_method" value="online">
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                     <div>
@@ -745,11 +745,6 @@
                     <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">Warehouse Remaining</div>
                     <div style="font-size: 1.5rem; font-weight: 800; color: {% if warehouse_spots < 200 %}#dc2626{% elif warehouse_spots < 400 %}#d97706{% else %}#166534{% endif %};">{{ warehouse_spots }}</div>
                 </div>
-                <div style="width: 1px; height: 40px; background: #e2e8f0;"></div>
-                <div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">POD Remaining</div>
-                    <div style="font-size: 1.5rem; font-weight: 800; color: {% if pod_spots < 20 %}#dc2626{% elif pod_spots < 50 %}#d97706{% else %}#166534{% endif %};">{{ pod_spots }}</div>
-                </div>
                 <div style="margin-left: auto;">
                     <form method="POST" action="{{ url_for('admin_free_notify_all') }}" style="margin: 0;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -914,8 +909,6 @@
                                 {% endif %}
                                 {% if item.collection_method == 'free' %}
                                 <span style="display: inline-block; margin-top: 4px; background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; border-radius: 4px; padding: 1px 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Free Tier</span>
-                                {% elif item.collection_method == 'in_person' %}
-                                <span style="display: inline-block; margin-top: 4px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 4px; padding: 1px 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">POD</span>
                                 {% endif %}
                             </td>
 
@@ -925,7 +918,7 @@
                                     <button type="button" class="lifecycle-undo" data-action="unmark_picked_up" data-id="{{ item.id }}" data-confirm="Undo picked up? This will also unmark at store." title="Undo">Undo</button>
                                 {% elif item.status != 'pending_valuation' %}
                                     <label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="{{ item.id }}" data-confirm="Mark as picked up / in POD?">
+                                        <input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="{{ item.id }}" data-confirm="Mark as picked up?">
                                         <i class="fas fa-truck"></i>
                                     </label>
                                 {% else %}-{% endif %}
@@ -1172,7 +1165,7 @@
                 if (data.success) {
                     if (typeof showFlashMessage === 'function') showFlashMessage(data.message, 'success');
                     if (action === 'unmark_picked_up') {
-                        pickedCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="' + id + '" data-confirm="Mark as picked up / in POD?"><i class="fas fa-truck"></i></label>';
+                        pickedCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_picked_up" data-id="' + id + '" data-confirm="Mark as picked up?"><i class="fas fa-truck"></i></label>';
                         storeCell.innerHTML = '-';
                     } else {
                         storeCell.innerHTML = '<label class="lifecycle-checkbox-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="lifecycle-cb" data-action="mark_at_store" data-id="' + id + '" data-confirm="Mark as arrived at store?"><i class="fas fa-store"></i></label>';
