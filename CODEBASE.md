@@ -74,12 +74,12 @@ id, description, long_description
 price, suggested_price, quality (1-5 int)
 status: 'pending_valuation' | 'approved' | 'available' | 'sold' | 'rejected'
 date_added
-collection_method: 'online' | 'in_person'
+collection_method: 'online' | 'free'
 is_large (bool) — set by admin at approval
 oversize_included_in_service_fee (bool)
 oversize_fee_paid (bool)
 pickup_week: 'week1' (Apr 26–May 2) | 'week2' (May 3–May 9)
-dropoff_pod: 'greek_row' | 'apartment'
+dropoff_pod: deprecated (pod option removed)
 sold_at, payout_sent (bool)
 picked_up_at, arrived_at_store_at
 category_id, seller_id
@@ -178,7 +178,6 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `GET /upgrade_pickup_success` | `upgrade_pickup_success` | |
 | `GET/POST /pay_oversize_fee/<id>` | `pay_oversize_fee` | Pay $10 oversize fee |
 | `GET /pay_oversize_fee_success` | `pay_oversize_fee_success` | |
-| `POST /confirm_dropoff` | `confirm_dropoff` | Self drop-off confirmation |
 
 ### Buyer
 | Route | Function | Notes |
@@ -271,7 +270,7 @@ upload.html          — Upload page
 upload_from_phone.html
 become_a_seller.html — Seller landing page
 confirm_pickup.html  — Seller confirms pickup logistics
-upgrade_pickup.html  — Upgrade from drop-off to valet
+upgrade_pickup.html  — Upgrade from free to valet
 pay_oversize_fee.html
 pay_oversize_fee_blocked.html
 account_settings.html
@@ -303,7 +302,7 @@ pending_valuation → (admin approves) → approved → (seller confirms logisti
 ### Service Tiers
 - **Valet Pickup** (premium): $15 upfront service fee, 50% payout to seller
 - **Self Drop-off** (free): $0 upfront, 33% payout to seller
-- Sellers can upgrade from drop-off to valet from dashboard
+- Sellers can upgrade from free tier to valet from dashboard
 
 ### Oversize Fee
 - Admin marks `is_large = True` at approval

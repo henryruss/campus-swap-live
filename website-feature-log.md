@@ -1,8 +1,64 @@
 # Campus Swap — Website Feature Log
 
-> **Purpose:** User-facing audit of what the site currently does. Every page, every form field, every email, every data point displayed. Use this to audit metrics gaps and suggest features.
+> **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-02
+> **Last updated:** 2026-04-03
+
+---
+
+## Table of Contents
+1. [Global Layout & Navigation](#global-layout--navigation)
+2. [Buyer Experience](#buyer-experience)
+3. [Seller Experience](#seller-experience)
+4. [Account Management](#account-management)
+5. [Admin Features](#admin-features)
+6. [Support & Contact](#support--contact)
+7. [Auth Flows](#auth-flows)
+8. [Emails Sent](#emails-sent)
+9. [Analytics & Tracking](#analytics--tracking)
+10. [Payments & Stripe Integration](#payments--stripe-integration)
+11. [Data Collected Summary](#data-collected-summary)
+12. [Item Lifecycle & Status Transitions](#item-lifecycle--status-transitions)
+13. [Seller Activation Flows](#seller-activation-flows)
+14. [Configuration & Constants](#configuration--constants)
+15. [SEO & Structured Data](#seo--structured-data)
+16. [Static / Legal Pages](#static--legal-pages)
+17. [API Endpoints](#api-endpoints)
+18. [Infrastructure & Error Handling](#infrastructure--error-handling)
+
+---
+
+## Global Layout & Navigation
+
+**Base template:** `layout.html` — all pages extend this.
+
+### Header (Desktop)
+- Logo (SVG, links to `/`)
+- "About Us" link
+- Store selector dropdown (currently only "UNC Chapel Hill") — stores selection in `sessionStorage`, redirects to `/inventory?store=` on change
+- "Become a Seller" link
+- "Shop The Drop" link
+- **Logged in:** Dashboard link, user icon dropdown (Admin Panel if admin, Dashboard if not, Account Settings, Logout)
+- **Logged out:** Sign In icon
+
+### Header (Mobile)
+- Logo + hamburger menu
+- Slide-in menu with: About Us, Become a Seller, Shop The Drop, store selector, and auth-conditional items (Dashboard, Account Settings, Admin Panel, Logout / Sign In)
+
+### Footer
+- Links: Shop, Become a Seller, About Us, FAQ, Login, Privacy Policy, Terms & Conditions, Refund Policy, Contact Us
+- Store location placeholder
+- Copyright 2026
+
+### Global JavaScript Behaviors
+- Form submit buttons auto-disable with spinner animation (10s timeout to re-enable)
+- Flash messages auto-dismiss after 5 seconds with fade-out
+- Click-outside-to-close for all dropdowns
+
+### Flash Message System
+- Success: green background, checkmark icon
+- Error: red background, exclamation icon
+- Auto-fade after 5 seconds
 
 ---
 
@@ -27,7 +83,7 @@
 - If pickup period active + user exists without password → auto-login
 - If pickup period active + new user → create account, auto-login
 - If pickup period closed → create guest account, show "period ended" message
-- Source tracking via query parameter stored in session
+- Source tracking via `?src=` query parameter stored in session → saved to `user.referral_source`
 
 ---
 
@@ -35,43 +91,47 @@
 **What buyers see:**
 - Store indicator: "Showing items from [STORE NAME]"
 - Banner with opening date if store not yet open
-- Category cards grid with "View All" option
-- Subcategory filter pills (dynamic, appear when category selected)
-- Search box
+- Category cards grid (from `_category_grid.html` partial) with "View All" option
+- Subcategory filter pills (dynamic, appear when category selected — fetched via AJAX from `/api/subcategories/<parent_id>`)
+- Search box (searches `description` + `long_description`)
 - Item count: "(X items total)"
-- Product card grid showing: thumbnail, video badge, price, status badge (Available/Reserved/SOLD), description
-- Pagination controls
+- Product card grid showing: thumbnail, video badge (camera icon), price, status badge (Available/Reserved/SOLD), description
+- Pagination controls (24 items per page)
 
-**Filters available:** Category, subcategory, search (searches description + long_description)
+**Filters available:** Category, subcategory, search text
 
 **Sort order:** Available items first, then newest first
 
-**Data NOT shown to buyers:** Seller info, suggested price, quality score number, collection method
+**Data NOT shown to buyers:** Seller info, suggested price, quality score number, collection method, pickup logistics
 
 ---
 
 ### Product Detail (`/item/<id>`)
 **What buyers see:**
 - Photo gallery with main image + thumbnails + lightbox zoom
-- Video (if uploaded)
+- Video player (if uploaded)
 - Item ID badge (#123)
 - Status badge (Available / Reserved / Sold)
 - Item title and long description
 - Price (large, prominent)
-- Condition label + quality rating (Like New / Good / Fair)
+- Condition label + quality rating (Like New / Good / Fair) — mapped from integer: 5=Like New, 4=Good, 3=Fair
 - Delivery method: "In-Store Pickup" (no shipping)
-- Share button with card preview + copy link
+- Share button with card preview + copy link (generates OG share card image via `/share/item/<id>/card.png`)
 
 **Action buttons (conditional):**
-- Item sold → disabled "Item Sold" button
-- Store not open → "Reservations open [DATE]"
-- Already reserved by this user → "Cancel Reservation" button
-- Reserved by someone else → "Reserved" badge (no action)
-- Reserve-only mode → "Reserve Item"
-- Item in store → "Buy Now"
-- Item not yet in store → "Reserve Item"
+| Condition | Button Shown |
+|---|---|
+| Item sold | Disabled "Item Sold" button |
+| Store not open yet | "Reservations open [DATE]" |
+| Already reserved by this user | "Cancel Reservation" |
+| Reserved by someone else | "Reserved" badge (no action) |
+| Reserve-only mode ON | "Reserve Item" |
+| Item physically in store | "Buy Now" (Stripe checkout) |
+| Item approved but not in store | "Reserve Item" |
 
-**Data NOT shown to buyers:** Seller name/contact, pickup logistics, admin notes, suggested price vs. final price
+**Data NOT shown to buyers:** Seller name/contact, pickup logistics, admin notes, suggested price vs. final price, collection method
+
+**OG Meta Tags:** Product pages inject item-specific OpenGraph and Twitter Card meta tags in `layout.html` for social sharing (title, description, price, share card image).
 
 ---
 
@@ -89,7 +149,7 @@
 ### Post-Reservation (`/reserve_success`)
 **What buyers see:**
 - "Item Reserved!" confirmation with item thumbnail, description, price
-- Info box explaining reservation is non-binding
+- Info box explaining reservation is non-binding and has an expiry
 - "Back to Shop" button
 
 ---
@@ -99,12 +159,12 @@
 ### Seller Landing Page (`/become-a-seller`)
 **What sellers see:**
 - Interactive dorm room calculator: click items → receipt builds → shows total earnings
-- Item values used: Mini-fridge $55, Rug $40, Microwave $25, Headboard $40, Mattress $80, Couch $70, AC Unit $50, TV $90
+  - Item values: Mini-fridge $55, Rug $40, Microwave $25, Headboard $40, Mattress $80, Couch $70, AC Unit $50, TV $90
 - How It Works timeline (5 steps): Sign Up → Items Approved → Secure Spot → Pickup → Get Paid
 - Plan comparison side-by-side:
   - **Free Plan:** 20% of sale price, $0 fee, no guaranteed pickup, max 3 items
   - **Pro Plan:** 50% of sale price, $15 one-time fee, guaranteed pickup, unlimited items
-- 6-item FAQ accordion
+- 6-item FAQ accordion (anchor target: `/become-a-seller#faq`)
 - CTAs: "Start Selling", "Get Started" (Pro), "Start Free"
 
 **No form fields on this page** — all CTAs link to `/onboard`
@@ -115,34 +175,42 @@
 
 **Step 1: Category Selection**
 - Fields: `category_id`, `selected_subcategory_id`
-- UI: Visual category cards + optional subcategory selection
+- UI: Visual category cards + optional subcategory selection (subcategories load via AJAX)
 
 **Step 2: Condition**
 - Fields: `quality` (3=Fair, 4=Good, 5=Like New)
 - UI: Radio buttons with descriptions
 
 **Step 3: Photos & Video**
-- Fields: `photos` (multiple images), `video` (optional, max 30s/50MB)
-- Features: Add, remove, crop, reorder, set cover photo, QR code phone upload flow
-- Formats: JPEG, PNG, WebP for photos; MP4, MOV, WebM for video
+- Fields: `photos` (multiple images), `video` (optional or required depending on category)
+- Features: Add, remove, crop (via Cropper.js), reorder, set cover photo
+- QR code phone upload flow: generates session token → shows QR code → phone visits `/upload_from_phone?token=...` → uploads photos → desktop polls `/api/upload_session/status` for new images
+- Formats: JPEG, PNG, WebP for photos (max 10MB each); MP4, MOV, WebM for video (max 50MB, 30s)
+- **Video required for categories:** TV, Television, Gaming, Console, Printer, Electronic
 
 **Step 4: Item Title**
 - Fields: `description` (max 200 chars)
 
 **Step 5: Long Description**
-- Fields: `long_description` (textarea)
+- Fields: `long_description` (textarea, max 2000 chars)
 
 **Step 6: Suggested Price**
-- Fields: `suggested_price` (decimal)
+- Fields: `suggested_price` (decimal, $0.01–$10,000)
 - Note shown: "This is just a recommendation. We review each item..."
+- Recommended price ranges shown based on category (e.g., Couch $50-150, Mini Fridge $40-80)
 
 **Step 7: Service Tier**
 - Fields: `collection_method` ("online" for Pro, "free" for Free)
 - UI: Two tier cards with pricing breakdown
+  - Pro: $15 fee, 50% payout, guaranteed pickup, unlimited items
+  - Free: $0 fee, 20% payout, space-permitting pickup, max 3 items
 
 **Step 8: Payout Method**
 - Fields: `payout_method` (Venmo/PayPal/Zelle), `payout_handle`, `payout_handle_confirm`
-- Dynamic UI: prefix and placeholder change per method (@username for Venmo, email for PayPal, email/phone for Zelle)
+- Dynamic UI: prefix and placeholder change per method
+  - Venmo: @username
+  - PayPal: email
+  - Zelle: email or phone
 
 **Step 9: Review & Submit**
 - Display-only summary of all entered data
@@ -151,106 +219,240 @@
 **Steps 10-11 (Guests Only): Account Creation**
 - Fields: `full_name`, `email`, `password` (min 6 chars)
 - Google OAuth option, Cloudflare Turnstile captcha
+- Guest save progress: POST to `/onboard/guest/save` stores session data
+
+**Post-onboard routes:**
+- `/onboard_complete` — redirect destination on success
+- `/onboard_cancel` — cancel button destination
+- `/onboard/complete_account` — separate page for completing account setup after onboarding
 
 ---
 
 ### Add Additional Item (`/add_item`) — 7 Steps
-Same as onboarding steps 1-6 + review, minus tier selection, payout, and account creation. Uses seller's existing preferences.
+Same as onboarding steps 1-6 + review, minus tier selection, payout, and account creation. Uses seller's existing preferences. Only available to users who are already sellers.
 
 ---
 
 ### Edit Item (`/edit_item/<id>`)
 **Fields:**
 - `description` (title), `category_id`, subcategory, `quality` (dropdown), `long_description`
-- `price` — editable for drafts, read-only after admin approval
-- Photo management: view existing, delete individual, add new
+- `price` — editable for drafts (`pending_valuation`), read-only after admin approval
+- Photo management: view existing, delete individual (DELETE `/delete_photo/<id>`), add new
 - Video management: view, replace, remove
 - "Remove from Campus Swap" option (if not yet picked up) with confirmation modal
+
+**Price change acknowledgment:** If admin changed the price from seller's suggested price, a badge appears until seller clicks acknowledge (POST `/api/item/<id>/acknowledge_price_change`).
 
 ---
 
 ### Seller Dashboard (`/dashboard`) — "Seller Studio"
 
 **Stats bar (4 columns):**
-1. **Potential Earnings** — dollar amount or "—" with "Updates once items are approved"
-2. **Paid Out** — amount already sent
+1. **Potential Earnings** — dollar amount based on approved items × payout percentage, or "—" with "Updates once items are approved"
+2. **Paid Out** — amount already sent via payout
 3. **Items** — "X live, Y sold" + pending count in orange
-4. **Pickup Window** — varies by plan status (week selected, pod location, or "pending")
+4. **Pickup Window** — varies by plan status (week selected or "pending")
 
-**Plan badge:** Free Plan / Drop-off / Awaiting Payment / Pro User
+**Plan badge:** Free Plan / Awaiting Payment / Pro User
 
 **Action cards (conditional):**
-- Awaiting Payment: orange card + link to pay $15
-- Free Plan: reminder card + upgrade option
-- Guest Mode: "Save Your Progress" with password input
-- Free Tier Status: awaiting confirmation / approved / rejected messaging
+| Condition | Card Shown |
+|---|---|
+| Payment awaiting | Orange card + link to pay $15 (to `/add_payment_method` or `/confirm_pickup`) |
+| Free plan | Reminder card + upgrade option (link to `/upgrade_pickup`) |
+| Guest mode | "Save Your Progress" with inline password input (POST `/set_password`) |
+| Free tier awaiting confirmation | "Awaiting admin confirmation" messaging |
+| Free tier confirmed | "You're confirmed!" messaging |
+| Free tier rejected | Rejection message with alternative to upgrade to Pro |
 
 **Item grid — "My Shop":**
 Each item tile shows:
 - Thumbnail (100x100)
 - Price badge (top-right)
-- Title (2 lines)
+- Title (2 lines max)
 - Item type: Standard or Oversized
 - Status checklist with icons:
   - Pending approval / Approved
-  - Pod selected / Pickup confirmed / Pickup fee paid
+  - Pickup confirmed / Pickup fee paid
   - Oversize fee status (if applicable)
   - Picked up / Dropped off
+  - Arrived at store
 - Color-coded background: Red (rejected), Green (sold/complete), Yellow (in process)
+- Price change badge (if admin adjusted price, until acknowledged)
 
-**Actions:** "Add Another Item", item tiles link to edit, pod selection dropdown, upgrade buttons
+**Actions:** "Add Another Item" button, item tiles link to edit, upgrade buttons
 
 ---
 
 ### Confirm Pickup (`/confirm_pickup`) — 2-3 Step Wizard
+For Pro sellers who need to schedule their pickup.
 
 **Step 1: Pickup Week**
-- Fields: `pickup_week` (radio buttons with date ranges)
+- Fields: `pickup_week` (radio buttons)
+  - Week 1: April 26 – May 2
+  - Week 2: May 3 – May 9
 - Cannot be changed after confirmation
 
 **Step 2: Address & Phone** (skipped if location already saved)
 - `pickup_location_type`: on_campus or off_campus
-- On-campus: `pickup_dorm` (dropdown by area), `pickup_room`
-- Off-campus: `pickup_address` (Google Maps autocomplete), `pickup_lat`/`pickup_lng` (hidden), `pickup_note` (optional directions)
+- **On-campus:** `pickup_dorm` (dropdown grouped by area: North Campus / Mid-Campus / South Campus — 40+ dorms for UNC Chapel Hill), `pickup_room`
+- **Off-campus:** `pickup_address` (Google Maps autocomplete), `pickup_lat`/`pickup_lng` (hidden, auto-filled), `pickup_note` (optional directions)
 - `phone` (formatted as (XXX) XXX-XXXX) — "So we can text you when we're on the way"
 
 **Step 3: Review & Pay**
 - Summary of selections
 - Fee display: "$15.00 one-time pickup fee" (Pro) or free (Free plan)
 - Action: "Pay $15 & Confirm Pickup" or "Confirm Pickup"
+- Redirects to Stripe checkout → `/confirm_pickup_success` on success
 
 ---
 
 ### Upgrade Pickup (`/upgrade_pickup`)
+For Free-tier sellers upgrading to Pro.
 - Pickup week selection (radio)
 - Fee: $15 one-time
 - Action: "Pay $15 & Upgrade to Pickup"
+- Success page: `/upgrade_pickup_success`
 
 ### Pay Oversize Fee (`/pay_oversize_fee/<id>`)
 - Item thumbnail + title displayed
-- Fee: $10 per additional oversized item
+- Fee: $10 per additional oversized item (first oversized included in $15 service fee)
 - Action: "Pay $10"
+- Success page: `/pay_oversize_fee_success`
+
+### Pay Oversize Fee Blocked (`/pay_oversize_fee_blocked/<id>`)
+- Shown when seller tries to pay oversize fee before paying the base $15 service fee
+- Warning card with CTA to go to `/confirm_pickup` first
 
 ### Add Payment Method (`/add_payment_method`)
-- Stripe Elements card form
+- Stripe Elements card form (SetupIntent flow — card saved for deferred charge)
 - Messaging: "You won't be charged until pickup week"
 - Fee breakdown: $15 one-time, +$10 per additional oversized
+- Success page: `/payment_method_success`
 
 ---
 
+## Account Management
+
 ### Account Settings (`/account_settings`)
+
 **Card 1: Change Password**
-- `current_password` (optional if no existing password), `new_password`, `confirm_password`
+- `current_password` (optional if user has no existing password — e.g., OAuth or guest accounts)
+- `new_password`, `confirm_password`
+- POST to `/change_password`
 
 **Card 2: Account Info**
 - `full_name`, `phone`
-- `email` (read-only, cannot be changed)
+- `email` (read-only, displayed but cannot be changed)
+- POST to `/update_account_info`
 
 **Card 3: Pickup Location**
-- Same dorm/address form as confirm_pickup
+- Same dorm/address form as confirm_pickup (on_campus: dorm dropdown + room; off_campus: Google Maps autocomplete + lat/lng + note)
+- POST to `/update_profile`
 
-**Card 4: Payout Info** (if payout set)
-- `payout_method` (dropdown), `payout_handle`, `payout_handle_confirm`
+**Card 4: Payout Info** (only shown if payout method previously set)
+- `payout_method` (dropdown: Venmo/PayPal/Zelle), `payout_handle`, `payout_handle_confirm`
+- POST to `/update_payout`
+
+---
+
+## Admin Features
+
+### Role Hierarchy
+- **Super Admin:** Full access — user management, database reset, mass email, category management, approvals, exports
+- **Admin (Helper):** Approvals, item management, free-tier selection, quick add
+- **Pre-approved via `AdminEmail` table** — role assigned automatically at signup when email matches
+
+### Admin Dashboard (`/admin`)
+
+**Overview Stats:**
+- Total users, total items, sold items, pending items, available items
+- Pickup Period toggle (OPEN/CLOSED) — sets `AppSetting('pickup_period_active')`
+- Store open date (editable) — sets `AppSetting('store_open_date')`
+- Reserve-only mode toggle — sets `AppSetting('reserve_only_mode')`
+
+**Item Lifecycle Table:**
+- Filterable by: category, seller email, item title
+- Columns: Item thumbnail, subcategory, seller, picked up (timestamp), at store (timestamp), status, reservation info, payout status, actions
+- Per-item actions: mark sold, mark payout sent, edit, delete, undo mark-sold
+- Bulk actions available
+
+**Free Tier Management:**
+- Warehouse capacity counter (color-coded: green/yellow/red vs. 2000 limit)
+- Ranked list of free-tier sellers by total approved item value
+- Per user: name, email, item count + prices, total value, status badge
+- Actions: Confirm (grants pickup), Reject (sends upgrade notice), Bulk notify all unconfirmed
+
+**Quick Add Item (Admin Helper):**
+- For quickly adding items at events
+- Fields: category, condition, description, long description, photo, seller name, seller email
+- Creates pending item; links to existing user if email matches, creates new user if not
+
+### Item Approval Queue (`/admin/approve`)
+- Card grid view or single-item detail view
+- Sort by: Price high/low, Date added oldest first
+- Per item, admin sets:
+  - `price` (final sale price — may differ from seller's `suggested_price`)
+  - `category_id` / `subcategory_id`
+  - `quality` (condition)
+  - `is_large` (oversized flag — triggers $10 fee for additional oversized items)
+- Approve or Reject (keyboard shortcuts: A=approve, R=reject)
+- Progress counter ("X of Y reviewed")
+
+### Category Management (Super Admin)
+- Add/edit/delete top-level categories with FontAwesome icons
+- Subcategory management (add/edit/delete under parent categories)
+- Essentials stock counts (Couch, Mattress, Mini-Fridge, Climate Control, TV) — `count_in_stock` field
+- Bulk update stock counts
+
+### User & Data Management (Super Admin)
+- **Grant/revoke admin access** by email (POST `/admin/user/make-admin`, `/admin/user/revoke-admin`)
+- **Delete user** + all their items (POST `/admin/user/delete/<id>`)
+- **Data preview** (view before download): Users, Items, Sales (GET `/admin/preview/users|items|sales` → renders `data_preview.html`)
+- **Data export** (CSV download): Users, Items, Sales (GET `/admin/export/users|items|sales`)
+  - Users CSV: email, full_name, phone, payout_method, items_count, total_items_value
+  - Items CSV: item_id, subcategory, seller, price, picked_up, at_store, status
+  - Sales CSV: item_id, seller, price, payout_percentage, payout_amount, payout_sent, sold_at
+- **Mass email** (POST `/admin/mass-email`): custom subject + HTML body, sent to all non-unsubscribed users, rate-limited at 0.55s/email
+- **Database reset** (POST `/admin/database/reset`): Super admin only, requires typing "reset database" to confirm
+
+---
+
+## Support & Contact
+
+### Contact Page (`/contact`)
+**What users see:**
+- "Get in touch" heading + "We're here to help — usually respond within a few hours."
+- **Urgent help callout:** Phone number (919) 578-1764 with "call or text" CTA, "Available during business hours"
+- Contact form
+
+**Form fields:**
+| Field | Type | Validation | Notes |
+|---|---|---|---|
+| `name` | text | required, max 100 chars | |
+| `email` | email | required, max 254 chars | **Hidden for logged-in users** (auto-filled from account) |
+| `subject` | text | required, max 200 chars | |
+| `message` | textarea | required, max 5000 chars | |
+| `website` | text (hidden) | honeypot — if filled, submission rejected | Anti-spam: hidden from real users via CSS |
+
+**Security:** Cloudflare Turnstile captcha + honeypot field
+**Rate limit:** 5 submissions per hour
+**On submit:** Email sent to Ben@UseCampusSwap.com, Henry@UseCampusSwap.com, Jack@UseCampusSwap.com
+**Success message:** "Message sent — we'll be in touch soon"
+
+---
+
+## Auth Flows
+
+| Flow | Fields Collected | Route | Notes |
+|------|-----------------|-------|-------|
+| Email Login | email, password | `/login` | Turnstile captcha |
+| Email Register | full_name, email, password | `/register` | Turnstile captcha |
+| Google OAuth | (from Google: email, profile) | `/auth/google` → `/auth/google/callback` | Scope: openid email profile. Auto-creates account if email new. Links to existing account if email matches. |
+| Homepage Signup | email | `/` (POST) | Creates guest account if new, auto-logs in during active period |
+| Guest → Full Account (Dashboard) | password | POST `/set_password` | Inline on dashboard "Save Your Progress" card |
+| Guest → Full Account (Onboard) | full_name, email, password | `/onboard/complete_account` | Post-onboarding completion flow |
+| Password Change | current_password, new_password, confirm_password | POST `/change_password` | current_password optional if no existing hash (OAuth/guest accounts) |
 
 ---
 
@@ -262,74 +464,31 @@ Each item tile shows:
 |---|---------|-----------|---------|-------------|
 | 1 | User reserves item | Buyer | "You reserved {item} — Campus Swap" | Reservation confirmation, expiry date, item link |
 | 2 | Reservation expires | Buyer | "Your reservation for {item} expired" | Expiry notice, item available again, re-reserve link |
-| 3 | Item purchased | Seller | "Your Item Has Sold! - Campus Swap" | Item, sale price, payout amount + % (50%/33%/20%), payout method/handle |
-| 4 | Admin approves item | Seller | "Your Item Has Been Approved - Campus Swap" | Item details, final price, next steps by tier, fee breakdown, dashboard link |
+| 3 | Item purchased | Seller | "Your Item Has Sold! - Campus Swap" | Item, sale price, payout amount + % (50%/20%), payout method/handle |
+| 4 | Admin approves item | Seller | "Your Item Has Been Approved - Campus Swap" | Item details, final price (may differ from suggested), next steps by tier, fee breakdown, dashboard link |
 | 5 | Item submitted (onboard/dashboard) | Seller | "Item Submitted - Campus Swap" | Submission confirmation, review timeline, dashboard link |
 | 6 | Item submitted (guest signup flow) | Seller | "Item Submitted for Review - Campus Swap" | Submission + activation requirement note |
 | 7 | Seller completes payment (webhook) | Seller | "Seller Activation Complete - Campus Swap" | Activation confirmed, pickup week selection info, dashboard link |
 | 8 | Admin confirms free-tier pickup | Seller | "You're Confirmed for Pickup — Campus Swap" | Free pickup confirmed, add address + choose week, dashboard link |
-| 9 | Admin rejects free-tier pickup | Seller | "Update on Your Free Plan Pickup — Campus Swap" | Capacity full, alternatives: POD drop-off (33%) or upgrade to Pro ($15/50%) |
+| 9 | Admin rejects free-tier pickup | Seller | "Update on Your Free Plan Pickup — Campus Swap" | Capacity full, alternative: upgrade to Pro ($15/50%) |
 | 10 | Admin bulk notifies free-tier users | Sellers | "Our Warehouse Is at Capacity — Campus Swap" | Same as #9, sent to all unconfirmed free-tier users |
 | 11 | New account created | User | "Welcome to Campus Swap!" | Platform overview, quick start guide, dashboard link |
+
+### Internal (1 type)
+
+| # | Trigger | Recipient | Subject | Key Content |
+|---|---------|-----------|---------|-------------|
+| 12 | Contact form submitted | Ben@, Henry@, Jack@UseCampusSwap.com | "Contact: {subject}" | Sender name, email, message body |
 
 ### Marketing (1 type)
 
 | # | Trigger | Recipient | Subject | Key Content |
 |---|---------|-----------|---------|-------------|
-| 12 | Super admin sends mass email | All non-unsubscribed users | Custom subject | Custom HTML content, auto-added unsubscribe link, rate-limited at 0.55s/email |
+| 13 | Super admin sends mass email | All non-unsubscribed users | Custom subject | Custom HTML content, auto-added unsubscribe link, rate-limited at 0.55s/email |
 
 **Email infrastructure:** Resend API, all emails wrapped in branded template (logo + footer), marketing emails include List-Unsubscribe headers, unsubscribed users automatically excluded.
 
----
-
-## Admin Features
-
-### Admin Dashboard (`/admin`)
-
-**Role hierarchy:**
-- **Super Admin:** Full access (user mgmt, database, mass email, categories)
-- **Admin (Helper):** Approvals, item management, free-tier selection, quick add
-
-### Overview Stats
-- Total users, total items, sold items, pending items, available items
-- Pickup Period toggle (OPEN/CLOSED)
-- Store open date (editable)
-
-### Item Approval Queue (`/admin/approve`)
-- Card grid or single-item detail view
-- Sort by: Price high/low, Date added oldest first
-- Per item: set price, category/subcategory, condition, oversized flag
-- Approve or Reject (keyboard shortcuts: A=approve, R=reject)
-- Progress counter
-
-### Item Lifecycle Table
-- Filterable by: category, seller email, item title
-- Columns: Item thumbnail, subcategory, seller, picked up, at store, status, reservation, payout, actions
-- Per-item: mark sold, mark payout sent, edit, delete, undo
-
-### Free Tier Management
-- Warehouse + POD spot counters (color-coded)
-- Ranked list by total approved item value
-- Per user: name, email, items + prices, total value, status badge
-- Actions: Confirm, Reject, Bulk notify all
-
-### Category Management (Super Admin)
-- Add/edit/delete categories with FontAwesome icons
-- Subcategory management
-- Essentials stock counts (Couch, Mattress, Mini-Fridge, Climate Control, TV)
-- Bulk update
-
-### User & Data Management (Super Admin)
-- Grant/revoke admin access by email
-- Data export: Users, Items, Sales (CSV)
-- Preview before download
-- Mass email
-- Database reset (requires typing "reset database")
-
-### Quick Add Item (Admin Helper)
-- For in-person POD drop-offs
-- Fields: category, condition, description, long description, photo, seller name, seller email
-- Creates pending item; links to user if email exists, creates user if not
+**Unsubscribe flow:** One-click via `/unsubscribe/<token>` (unique per user) → confirmation page → success page noting transactional emails continue.
 
 ---
 
@@ -346,55 +505,277 @@ Each item tile shows:
 | `seller_upgraded_to_paid` | Seller upgrades to Pro | (user ID only) |
 | `item_submitted` | Seller submits item | category, collection_method |
 
+### PostHog (Frontend)
+- Loaded on all pages via `layout.html` (if `posthog_api_key` configured)
+- `person_profiles: 'identified_only'`
+- No custom frontend events configured — relies on autocapture
+
 ### Google Analytics
 - GA4 tag (G-T696XM5XN9) on all pages via layout.html
 - Standard pageview + automatic event tracking only
 - No custom GA events configured
 
----
-
-## Static / Legal Pages
-| Page | Route | Notes |
-|------|-------|-------|
-| About | `/about` | Problem/solution narrative, store address |
-| Privacy Policy | `/privacy-policy` | Data collected, third parties (Google, Stripe, Resend, PostHog) |
-| Terms & Conditions | `/terms-and-conditions` | |
-| Refund Policy | `/refund-policy` | |
-| Unsubscribe Confirm | `/unsubscribe/<token>` | One-click marketing unsubscribe |
-| Unsubscribe Success | (after confirm) | Confirms unsubscribe, notes transactional emails continue |
-| Director | `/director` | Internal ops — jobs@campusswap.com recruiting page |
+### Referral Source Tracking
+- `?src=` query parameter on any URL → stored in session → saved to `user.referral_source` at account creation
+- Default value: `'direct'`
 
 ---
 
-## Auth Flows
-| Flow | Fields Collected | Notes |
-|------|-----------------|-------|
-| Email Login | email, password | |
-| Email Register | full_name, email, password | Turnstile captcha |
-| Google OAuth | (from Google) | email + profile info |
-| Guest → Full Account | password (via dashboard) | Or full_name + email + password via onboard_complete_account |
-| Password Change | current_password, new_password, confirm_password | current_password optional if no existing hash |
+## Payments & Stripe Integration
+
+### Payment Flows
+
+| Flow | Stripe Method | Route | Amount | When |
+|------|--------------|-------|--------|------|
+| Item purchase (buyer) | Checkout Session | POST `/create_checkout_session` → `/item_success` | Item price | Buyer clicks "Buy Now" |
+| Pro seller activation fee | Checkout Session | POST `/upgrade_checkout` or via confirm_pickup | $15 | Onboarding or confirm pickup |
+| Oversize fee | Checkout Session | `/pay_oversize_fee/<id>` | $10 | Per additional oversized item |
+| Pickup upgrade (Free→Pro) | Checkout Session | `/upgrade_pickup` | $15 | Seller upgrades from dashboard |
+| Save payment method | SetupIntent | POST `/create_setup_intent` → `/add_payment_method` | $0 (deferred) | Card saved for later charge |
+
+### Webhook (`/webhook`)
+Handles:
+- `checkout.session.completed` — marks item sold, activates seller, processes oversize fee
+- `setup_intent.succeeded` — saves payment method to user (`stripe_payment_method_id`)
+- Updates `has_paid`, `payment_declined` flags accordingly
+
+### Success Pages
+| Route | After |
+|---|---|
+| `/item_success` | Buyer purchases item |
+| `/success` | Generic payment success (seller activation, upgrade) — context-specific flash message |
+| `/confirm_pickup_success` | Seller confirms pickup week |
+| `/upgrade_pickup_success` | Seller upgrades to Pro |
+| `/pay_oversize_fee_success` | Oversize fee paid |
+| `/payment_method_success` | Payment method saved |
 
 ---
 
 ## Data Collected Summary
 
 ### From Buyers
-- Email, full name, password (or Google OAuth)
-- Reservation history (item_id, timestamp)
-- Purchase history (via Stripe)
+- Email, full name, password (or Google OAuth credentials)
+- Reservation history: item_id, timestamp, expiry, cancellation
+- Purchase history (via Stripe checkout sessions)
 
 ### From Sellers (all of the above, plus)
 - Phone number
-- Pickup location: type (on/off campus), dorm + room OR address + lat/lng + notes
+- Pickup location: type (on/off campus), dorm + room OR street address + lat/lng + directions note
 - Payout method (Venmo/PayPal/Zelle) + handle
 - Service tier choice (Free/Pro)
 - Pickup week preference
-- Per item: category, subcategory, condition, title, long description, suggested price, photos, video
-- Stripe customer ID + payment method ID
+- Per item: category, subcategory, condition (1-5), title, long description, suggested price, photos (multiple), video (optional/required)
+- Stripe customer ID + payment method ID (for deferred charges)
 - Referral source
 
 ### From Admin Actions
-- Item approval with final price, category, condition, oversized flag
+- Item approval: final price, category/subcategory, condition, oversized flag
 - Payout sent timestamps
 - Free-tier confirm/reject decisions
+- User admin role grants/revocations
+
+---
+
+## Item Lifecycle & Status Transitions
+
+```
+seller submits item
+    ↓
+pending_valuation
+    ↓ admin approves (sets price, category, oversized flag)
+    ↓                                  ↘ admin rejects → item hidden, seller notified
+pending_logistics
+    ↓
+    ├─ Pro seller: confirm_pickup → select week → pay $15 → available
+    └─ Free seller: admin confirms capacity → available (or rejects → upgrade offered)
+                                           ↓
+                                       available
+                                           ↓ buyer purchases (Stripe)
+                                         sold
+                                           ↓ admin marks payout sent
+                                       payout_sent=True
+```
+
+### Operational Milestones (tracked separately, don't affect item status)
+- `picked_up_at` — when item was collected from seller
+- `arrived_at_store_at` — when item physically arrived at warehouse/store
+
+### Reservations
+- **Not a status** — tracked via separate `ItemReservation` model
+- Non-binding, has expiry timestamp (`expires_at`)
+- One active reservation per item at a time
+- Buyer can cancel; reservation can expire automatically
+- `expiry_email_sent` tracks whether expiry notification was sent
+
+---
+
+## Seller Activation Flows
+
+### Pro Seller (`collection_method='online'`)
+1. Submit item → `pending_valuation`
+2. Admin approves → `pending_logistics`, seller emailed with final price
+3. Seller goes to `/confirm_pickup` → selects pickup week → enters address/phone
+4. Pay $15 via Stripe → `has_paid=True`
+5. Webhook confirms → items become `available`
+6. Additional oversized items: $10 each via `/pay_oversize_fee/<id>` (first oversized included in $15)
+
+### Free Tier Seller (`collection_method='free'`)
+1. Submit item (max 3 items) → `pending_valuation`
+2. Admin approves → `pending_logistics`
+3. Admin reviews capacity → Confirm or Reject
+4. **Confirmed:** seller picks up week + address → items `available`, 20% payout
+5. **Rejected:** seller offered alternative to upgrade to Pro ($15/50%)
+
+### Guest Account Flow
+- Guests can begin onboarding without an account
+- Progress saved via session + `/onboard/guest/save`
+- Account created at step 10-11 (or via Google OAuth)
+- Guest can also set password later from dashboard (`/set_password`)
+
+---
+
+## Configuration & Constants
+
+### Payout Rates
+| Tier | `collection_method` | Payout % | Fee |
+|------|-------------------|----------|-----|
+| Pro (Valet Pickup) | `online` | 50% | $15 one-time |
+| Free (Space-Permitting) | `free` | 20% | $0 |
+
+### Capacity Limits
+- Warehouse: 2,000 items
+
+### Fee Structure
+- Service fee (Pro): $15 (1500 cents) — includes first oversized item
+- Additional oversized: $10 (1000 cents) each
+
+### Key Deadlines (Configurable)
+- `RESERVE_ONLY_DEADLINE`: April 20 — before this date, items are reserve-only (no Stripe charges); after, "Buy Now" enabled
+- Pickup weeks: Week 1 (April 26 – May 2), Week 2 (May 3 – May 9)
+
+### File Upload Limits
+- Photos: 10MB max, formats: JPG/JPEG/PNG/WebP
+- Video: 50MB max, 30 seconds max, formats: MP4/MOV/WebM
+- Image quality: 80 (JPEG compression)
+- Thumbnails: 300×300
+
+### Input Validation
+- Price: $0.01 – $10,000
+- Quality: 1–5 integer
+- Description: max 200 chars
+- Long description: max 2,000 chars
+- Email: max 120 chars
+- Name: max 100 chars
+
+### Rate Limits
+| Route | Limit |
+|---|---|
+| Login | 5 per minute |
+| Register | 3 per hour |
+| Admin routes | 100 per minute |
+| Email-sending routes | 10 per hour |
+| Contact form | 5 per hour |
+
+### Runtime Feature Flags (`AppSetting`)
+| Key | Values | Effect |
+|-----|--------|--------|
+| `reserve_only_mode` | `'true'`/`'false'` | Hides "Buy Now", shows "Reserve" only |
+| `pickup_period_active` | `'true'`/`'false'` | Enables pickup scheduling for sellers |
+| `current_store` | store name string | Displayed in header + inventory filter |
+| `store_open_date` | date string | Shown on inventory banner when store not yet open |
+
+### Recommended Price Ranges (shown during onboarding)
+| Category | Min | Max |
+|----------|-----|-----|
+| Couch/Sofa | $50 | $150 |
+| Headboard | $25 | $80 |
+| Mattress | $40 | $120 |
+| Rug | $20 | $60 |
+| TV/Television | $50 | $150 |
+| Gaming/Console | $80 | $250 |
+| Printer | $15 | $40 |
+| Mini Fridge | $40 | $80 |
+| Microwave | $15 | $35 |
+| Air Fryer | $15 | $40 |
+| AC Unit/Heater | $15–30 | $40–80 |
+| Fallback (other) | $20 | $100 |
+
+### Residence Halls (UNC Chapel Hill)
+Grouped by area for on-campus pickup dropdown:
+- **North Campus:** 20 dorms (Alderman, Alexander, Cobb, Connor, Everett, Graham, Grimes, Joyner, Kenan, Lewis, Mangum, Manly, McClinton, McIver, Old East, Old West, Ruffin Jr, Spencer, Stacy, Winston)
+- **Mid-Campus:** 4 dorms (Avery, Carmichael, Parker, Teague)
+- **South Campus:** 21 dorms (Baity Hill complex ×8, Craige, Craige North, Ehringhaus, Hardin, Hinton James, Horton, Koury, Morrison, Ram Village ×4, Taylor Hall)
+
+---
+
+## SEO & Structured Data
+
+### Meta Tags
+- Primary: title, description, keywords
+- OpenGraph + Twitter Card: dynamic for product pages (title, description, price, share card image), static for other pages
+
+### Structured Data (JSON-LD)
+1. **Organization** — name, URL, logo, search action
+2. **LocalBusiness** — store address (dynamic from `get_store_info()`), area served
+3. **WebSite** — search action target: `/inventory?search={query}`
+4. **BreadcrumbList** — Home → Become a Seller → Shop The Drop → About Us
+
+### Technical SEO
+- `/sitemap.xml` — dynamic sitemap (all public routes + product pages)
+- `/robots.txt` — robots exclusion file
+- Favicon: SVG (`faviconNew.svg`) served as icon, apple-touch-icon, and shortcut icon
+
+---
+
+## Static / Legal Pages
+
+| Page | Route | Notes |
+|------|-------|-------|
+| About | `/about` | Problem/solution narrative, store address, team info |
+| Privacy Policy | `/privacy-policy` | Data collected, third parties (Google, Stripe, Resend, PostHog) |
+| Terms & Conditions | `/terms-and-conditions` | |
+| Refund Policy | `/refund-policy` | |
+| Director | `/director` | Internal ops — "Become a Campus Director" recruiting page, links to jobs@campusswap.com |
+| Unsubscribe Confirm | `/unsubscribe/<token>` | One-click marketing unsubscribe, unique token per user |
+| Unsubscribe Success | (after confirm) | Confirms unsubscribe, notes transactional emails continue |
+
+---
+
+## API Endpoints
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| GET | `/api/subcategories/<parent_id>` | Returns subcategories as JSON for AJAX category dropdowns | None |
+| POST | `/api/item/<id>/acknowledge_price_change` | Seller dismisses price-change badge | Login required |
+| POST | `/api/upload_session/create` | Create QR session token for phone photo upload | Login required |
+| GET | `/api/upload_session/status` | Poll for new photos uploaded from phone | Login required |
+| GET/POST | `/upload_from_phone` | Mobile upload page (accessed via QR code) | Token-based |
+| POST | `/upload_video_from_phone` | Video upload from phone | Token-based |
+
+### QR Code Phone Upload Flow
+1. Desktop: POST `/api/upload_session/create` → gets `session_token`
+2. Desktop: generates QR code pointing to `/upload_from_phone?token=<session_token>`
+3. Phone: opens QR link → uploads photos/video
+4. Desktop: polls `/api/upload_session/status` → sees new `TempUpload` entries → displays them
+5. Photos stored as `TempUpload` records until onboarding/add_item form submitted
+
+---
+
+## Infrastructure & Error Handling
+
+### Error Pages (`/error`)
+- **404:** Search icon + "Error 404" + "Go Home" + "Browse Items" buttons
+- **500:** Warning icon + "Error 500" + same buttons
+- **413:** Payload too large (file upload exceeds limit)
+
+### Health Check (`/health`)
+- JSON response: `status` (healthy/unhealthy), `database` (connected), `stripe` (configured), `resend` (configured), `timestamp`
+- Used by Render for monitoring/load balancer
+
+### File Serving
+- `/uploads/<filename>` — serves uploaded files from `/var/data/` (production) or `static/uploads/` (local)
+
+### Share Card Image (`/share/item/<id>/card.png`)
+- Dynamically generates PNG share card via PIL/Pillow
+- Card includes: item photo, title, price, condition, quality rating
+- Used as OG image for social sharing

@@ -4,12 +4,11 @@ Application-wide constants for Campus Swap
 
 # Payout Configuration (by collection method)
 PAYOUT_PERCENTAGE_ONLINE = 0.50   # Sellers receive 50% when submitting through site
-PAYOUT_PERCENTAGE_IN_PERSON = 0.33  # Sellers receive 33% for in-person drop-offs (Campus Swap takes 67%)
+# PAYOUT_PERCENTAGE_IN_PERSON removed — pod drop-off option discontinued
 PAYOUT_PERCENTAGE = 0.50  # Legacy alias; use PAYOUT_PERCENTAGE_ONLINE
 
 # Capacity Limits
 WAREHOUSE_CAPACITY = 2000   # Total items we can physically store and sell at our warehouse
-POD_CAPACITY = 250          # Total items that can be held across all campus PODs at once
 
 # Free Tier Configuration
 PAYOUT_PERCENTAGE_FREE = 0.20  # Free-tier sellers receive 20% (space-permitting pickup)
@@ -78,16 +77,6 @@ PICKUP_WEEKS = [
     ('week1', 'April 26 – May 2'),
     ('week2', 'May 3 – May 9'),
 ]
-
-# Pod locations (pod users select after approval)
-POD_LOCATIONS = [
-    ('greek_row', 'Greek row pod'),
-    ('apartment', 'Apartment pod'),
-]
-
-# Pod change deadline: users can change their drop-off pod until this date (month, day)
-POD_CHANGE_DEADLINE = (4, 20)  # April 20th
-POD_CHANGE_DEADLINE_DISPLAY = 'April 20th'
 
 # Reserve-only mode: before this date (month, day), items are reserve-only (no Stripe charges)
 RESERVE_ONLY_DEADLINE = (4, 20)  # April 20th
