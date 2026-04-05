@@ -46,6 +46,10 @@ class User(UserMixin, db.Model):
     oauth_provider = db.Column(db.String(20), nullable=True)
     oauth_id = db.Column(db.String(120), nullable=True)
     
+    # PICKUP SCHEDULING
+    pickup_time_preference = db.Column(db.String(20), nullable=True)  # 'morning' | 'afternoon' | 'evening'
+    moveout_date = db.Column(db.Date, nullable=True)  # Seller's exact move-out date (optional)
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 
@@ -103,7 +107,7 @@ class InventoryItem(db.Model):
     oversize_fee_paid = db.Column(db.Boolean, default=False)  # True when seller paid $10 (additional oversized)
     
     # LOGISTICS (set when seller confirms after approval)
-    pickup_week = db.Column(db.String(20), nullable=True)   # 'week1' (Apr 26-May 2) or 'week2' (May 3-May 9)
+    pickup_week = db.Column(db.String(20), nullable=True)   # 'week1' (Apr 27-May 3) or 'week2' (May 4-May 10)
     dropoff_pod = db.Column(db.String(40), nullable=True)  # 'greek_row' or 'apartment'
     
     # PAYOUT TRACKING
@@ -191,3 +195,30 @@ class AppSetting(db.Model):
             setting = AppSetting(key=key, value=str(value))
             db.session.add(setting)
         db.session.commit()
+
+
+class SellerAlert(db.Model):
+    """Generic alert/notification for sellers. Designed for reuse across features
+    (needs_info, pickup_reminder, custom admin messages, etc.)."""
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    alert_type = db.Column(db.String(30), nullable=False, default='needs_info')  # 'needs_info' | 'pickup_reminder' | 'custom'
+    reasons = db.Column(db.Text, nullable=True)  # JSON-encoded list of preset reason strings
+    custom_note = db.Column(db.Text, nullable=True)
+    resolved = db.Column(db.Boolean, default=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    item = db.relationship('InventoryItem', backref=db.backref('alerts', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('seller_alerts', lazy='dynamic'))
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+
+class DigestLog(db.Model):
+    """Tracks when approval digest emails were sent."""
+    id = db.Column(db.Integer, primary_key=True)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    item_count = db.Column(db.Integer, nullable=False)
+    recipient_count = db.Column(db.Integer, nullable=False)

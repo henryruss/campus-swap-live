@@ -353,13 +353,21 @@
             <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:6px;"><i class="fas fa-video"></i> Demo Video</label>
             <video controls playsinline style="width:100%;max-height:300px;border-radius:12px;background:#000;" src="{{ url_for('uploaded_file', filename=pending_item.video_url) }}"></video>
         </div>
+        {% elif category_requires_video(pending_item.category.name if pending_item.category else '', pending_item.subcategory.name if pending_item.subcategory else '') %}
+        <div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-left:3px solid var(--accent);border-radius:6px;">
+            <p style="margin:0;font-size:0.85rem;color:#92400e;"><i class="fas fa-exclamation-triangle" style="margin-right:4px;"></i>This category typically requires a video — none was uploaded.</p>
+        </div>
         {% endif %}
         <div class="approve-body">
-            <h2 class="approve-title">{{ pending_item.description }}</h2>
+            <h2 class="approve-title">{{ pending_item.description }}
+                {% if pending_item.id in resubmitted_item_ids %}
+                <span style="background:#dbeafe;color:#1e40af;font-size:0.7rem;font-weight:700;padding:3px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Resubmitted</span>
+                {% endif %}
+            </h2>
             <div class="approve-meta">
                 {{ pending_item.category.name }}{% if pending_item.subcategory %} / {{ pending_item.subcategory.name }}{% endif %} &middot; Condition: {{ pending_item.quality|quality_label }}
                 {% if pending_item.seller %}
-                &middot; {{ pending_item.seller.full_name }}
+                &middot; <a href="#" class="seller-panel-trigger" data-user-id="{{ pending_item.seller_id }}">{{ pending_item.seller.full_name }}</a>
                 {% if pending_item.suggested_price %}
                 &middot; Suggested ${{ '%.2f'|format(pending_item.suggested_price) }}
                 {% endif %}
@@ -418,11 +426,49 @@
                             onclick="return confirm('Reject this item?');">
                         <i class="fas fa-times"></i> Reject
                     </button>
+                    <button type="button" class="approve-btn" style="background: #f59e0b; color: white;" onclick="document.getElementById('info-modal').style.display='flex';">
+                        <i class="fas fa-question-circle"></i> More Info Needed
+                    </button>
                     <button type="submit" name="action" value="approve" class="approve-btn approve-btn-approve">
                         <i class="fas fa-check"></i> Approve
                     </button>
                 </div>
             </form>
+
+            <!-- More Info Needed Modal -->
+            <div id="info-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center;padding:16px;">
+                <div style="background:white;border-radius:16px;padding:28px;max-width:480px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+                    <h3 style="margin:0 0 16px;font-size:1.1rem;"><i class="fas fa-question-circle" style="color:#f59e0b;"></i> Request More Info</h3>
+                    <form method="POST" action="{{ url_for('admin_request_info', item_id=pending_item.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:14px;">Select the reason(s) — the seller will see these on their dashboard.</p>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
+                                <input type="checkbox" name="reasons" value="Better photos needed — current photos are unclear or low quality" style="margin-top:3px;">
+                                Better photos needed
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
+                                <input type="checkbox" name="reasons" value="Video required — please upload a video showing the item powers on" style="margin-top:3px;">
+                                Video required
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
+                                <input type="checkbox" name="reasons" value="Better description needed — please add more detail about the item's condition" style="margin-top:3px;">
+                                Better description needed
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
+                                <input type="checkbox" name="reasons" value="Different angle needed — please photograph a specific part of the item" style="margin-top:3px;">
+                                Different angle needed
+                            </label>
+                        </div>
+                        <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:6px;">Custom note (optional)</label>
+                        <textarea name="custom_note" rows="3" maxlength="500" placeholder="Add a specific note to the seller..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;resize:vertical;"></textarea>
+                        <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-outline" onclick="document.getElementById('info-modal').style.display='none';">Cancel</button>
+                            <button type="submit" class="btn" style="background:#f59e0b;color:white;border:none;padding:10px 20px;border-radius:8px;font-weight:600;cursor:pointer;">Send Request</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -467,7 +513,10 @@
                         </div>
                         <div class="card-meta">
                             {{ item.category.name }}{% if item.subcategory %} / {{ item.subcategory.name }}{% endif %} &middot; {{ item.quality|quality_label }}
-                            {% if item.seller %}&middot; {{ item.seller.full_name }}{% endif %}
+                            {% if item.seller %}&middot; <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller_id }}">{{ item.seller.full_name }}</a>{% endif %}
+                            {% if item.id in resubmitted_item_ids %}
+                            <span style="background:#dbeafe;color:#1e40af;font-size:0.7rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:4px;">Resubmitted</span>
+                            {% endif %}
                         </div>
                         <div class="card-actions">
                             <a href="{{ url_for('admin_approve', item=item.id, sort=sort) }}" class="btn-approve">
@@ -492,12 +541,16 @@
 <script>
     document.addEventListener('keydown', function(e) {
         if (!document.getElementById('approve-form')) return;
+        var modal = document.getElementById('info-modal');
+        if (modal && modal.style.display === 'flex') return;
         if (e.key === 'r' || e.key === 'R') {
             const rejectBtn = document.querySelector('button[value="reject"]');
             if (rejectBtn && confirm('Reject this item?')) rejectBtn.click();
         } else if (e.key === 'a' || e.key === 'A') {
             const approveBtn = document.querySelector('button[value="approve"]');
             if (approveBtn) approveBtn.click();
+        } else if (e.key === 'i' || e.key === 'I') {
+            if (modal) modal.style.display = 'flex';
         }
     });
 
@@ -532,6 +585,51 @@
 
         // Initial load
         if (catSelect.value) loadSubs(catSelect.value, currentSubId);
+    })();
+
+    // Seller Profile Panel
+    (function() {
+        var panelHTML = '<div id="seller-panel" class="seller-panel seller-panel--closed">' +
+            '<div class="seller-panel__overlay"></div>' +
+            '<div class="seller-panel__drawer">' +
+            '<button class="seller-panel__close">&times;</button>' +
+            '<div id="seller-panel__content"></div>' +
+            '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', panelHTML);
+
+        var panel = document.getElementById('seller-panel');
+        var content = document.getElementById('seller-panel__content');
+        var overlay = panel.querySelector('.seller-panel__overlay');
+        var closeBtn = panel.querySelector('.seller-panel__close');
+
+        function openPanel(userId) {
+            content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;"></i></div>';
+            panel.classList.remove('seller-panel--closed');
+            panel.classList.add('seller-panel--open');
+            fetch('/admin/seller/' + userId + '/panel')
+                .then(function(r) { return r.text(); })
+                .then(function(html) { content.innerHTML = html; })
+                .catch(function() { content.innerHTML = '<div style="padding:24px;color:#991b1b;">Failed to load seller profile.</div>'; });
+        }
+
+        function closePanel() {
+            panel.classList.remove('seller-panel--open');
+            panel.classList.add('seller-panel--closed');
+        }
+
+        closeBtn.addEventListener('click', closePanel);
+        overlay.addEventListener('click', closePanel);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && panel.classList.contains('seller-panel--open')) closePanel();
+        });
+
+        document.addEventListener('click', function(e) {
+            var trigger = e.target.closest('.seller-panel-trigger');
+            if (trigger) {
+                e.preventDefault();
+                openPanel(trigger.dataset.userId);
+            }
+        });
     })();
 </script>
 {% endblock %}

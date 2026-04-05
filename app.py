@@ -28,7 +28,7 @@ from sqlalchemy import or_, and_, func, nulls_last
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog
 
 # Import Constants
 from constants import (
@@ -37,13 +37,13 @@ from constants import (
     SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS, calc_pickup_fee_cents,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     MAX_VIDEO_SIZE, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_VIDEO_MIME_TYPES,
-    category_requires_video,
+    category_requires_video, VIDEO_REQUIRED_CATEGORIES,
     IMAGE_QUALITY, THUMBNAIL_SIZE,
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
-    PICKUP_WEEKS,
+    PICKUP_WEEKS, PICKUP_WEEK_DATE_RANGES, PICKUP_TIME_OPTIONS,
     RESERVE_ONLY_DEADLINE,
     WAREHOUSE_CAPACITY, FREE_TIER_MAX_ITEMS,
     get_price_range_for_category
@@ -157,7 +157,9 @@ def inject_store_functions():
         item_is_picked_up=item_is_picked_up,
         store_is_open=store_is_open,
         store_open_date=store_open_date,
-        store_open_date_raw=store_open_date_raw
+        store_open_date_raw=store_open_date_raw,
+        category_requires_video=category_requires_video,
+        video_required_keywords=VIDEO_REQUIRED_CATEGORIES
     )
 
 # SECURITY: This secret key enables sessions. 
@@ -274,6 +276,7 @@ posthog.api_key = os.environ.get('POSTHOG_API_KEY', '')
 posthog.host = os.environ.get('POSTHOG_HOST', 'https://us.i.posthog.com')
 if not posthog.api_key:
     posthog.disabled = True
+    posthog.api_key = 'disabled'  # prevent ValueError on capture() when no key set
 
 # PostHog context processor
 @app.context_processor
@@ -666,6 +669,16 @@ def quality_to_label(quality):
 def quality_label_filter(quality):
     """Jinja filter: map numeric quality to rubric label."""
     return quality_to_label(quality)
+
+
+@app.template_filter('fromjson')
+def fromjson_filter(value):
+    """Jinja filter: parse a JSON string into a Python object."""
+    import json
+    try:
+        return json.loads(value) if value else []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 # --- ERROR HANDLERS ---
@@ -1885,6 +1898,10 @@ def webhook():
                 user = User.query.get(user_id)
                 if user:
                     user.has_paid = True
+                    # Auto-resolve pickup reminder alerts
+                    for pa in SellerAlert.query.filter_by(user_id=int(user_id), alert_type='pickup_reminder', resolved=False).all():
+                        pa.resolved = True
+                        pa.resolved_at = datetime.utcnow()
                 db.session.commit()
                 logger.info(f"WEBHOOK: Confirm pickup - items {item_ids} set to available")
 
@@ -2382,6 +2399,40 @@ def admin_panel():
         ).all()
         admin_reservations = {r.item_id: r for r in res_list}
 
+    # Pickup nudge: sellers with approved/available items but no pickup_week on any item
+    nudge_sellers_raw = User.query.filter(
+        User.is_seller == True,
+        User.items.any(InventoryItem.status.in_(['approved', 'available']))
+    ).all()
+    nudge_sellers = []
+    for u in nudge_sellers_raw:
+        # Skip if any item already has pickup_week set
+        if any(i.pickup_week for i in u.items):
+            continue
+        # Skip rejected free-tier sellers
+        if u.id in free_rejected_ids:
+            continue
+        # Free-tier sellers must be confirmed to appear
+        free_items = [i for i in u.items if i.collection_method == 'free']
+        if free_items and u.id not in free_confirmed_ids:
+            continue
+        approved_items = [i for i in u.items if i.status in ('approved', 'available')]
+        if not approved_items:
+            continue
+        earliest_approved = min((i.date_added for i in approved_items), default=None)
+        days_since = (datetime.utcnow() - earliest_approved).days if earliest_approved else 0
+        last_nudge = SellerAlert.query.filter_by(
+            user_id=u.id, alert_type='pickup_reminder'
+        ).order_by(SellerAlert.created_at.desc()).first()
+        nudge_sellers.append({
+            'user': u,
+            'approved_count': len(approved_items),
+            'days_since_approval': days_since,
+            'last_nudged': last_nudge.created_at.strftime('%b %d') if last_nudge else 'Never',
+            'tier': 'Free' if free_items else 'Pro',
+        })
+    nudge_sellers.sort(key=lambda x: (-x['days_since_approval'], (x['user'].full_name or '').lower()))
+
     return render_template('admin.html', commodities=commodities, all_cats=all_cats,
                            pending_items=pending_items, gallery_items=gallery_items,
                            pickup_period_active=pickup_period_active,
@@ -2392,7 +2443,8 @@ def admin_panel():
                            free_confirmed_ids=free_confirmed_ids,
                            free_rejected_ids=free_rejected_ids,
                            warehouse_spots=get_warehouse_spots_remaining(),
-                                                      admin_reservations=admin_reservations)
+                           admin_reservations=admin_reservations,
+                           nudge_sellers=nudge_sellers)
 
 
 @app.route('/admin/approve', methods=['GET', 'POST'])
@@ -2423,10 +2475,16 @@ def admin_approve():
             joinedload(InventoryItem.seller)
         ).get(item_id)
         
-        if not item or item.status != 'pending_valuation':
+        if not item or item.status not in ('pending_valuation', 'needs_info'):
             flash("Item not found or already processed.", "error")
             return redirect(url_for('admin_approve', sort=sort_val))
-        
+
+        # If approving/rejecting a needs_info item, auto-resolve any outstanding alerts
+        if item.status == 'needs_info':
+            for a in SellerAlert.query.filter_by(item_id=item.id, resolved=False).all():
+                a.resolved = True
+                a.resolved_at = datetime.utcnow()
+
         if action == 'reject':
             desc = item.description
             item.status = 'rejected'
@@ -2536,13 +2594,320 @@ def admin_approve():
         except (ValueError, TypeError):
             pass
 
+    # Find items that were previously sent back (have resolved needs_info alerts)
+    resubmitted_item_ids = set()
+    if pending_items:
+        pids = [i.id for i in pending_items]
+        resubmitted_alerts = SellerAlert.query.filter(
+            SellerAlert.item_id.in_(pids),
+            SellerAlert.alert_type == 'needs_info',
+            SellerAlert.resolved == True
+        ).all()
+        resubmitted_item_ids = {a.item_id for a in resubmitted_alerts}
+
     return render_template('admin_approve.html',
         pending_item=pending_item,
         pending_items=pending_items,
         all_cats=all_cats,
         total_pending=total_pending,
-        sort=sort_param
+        sort=sort_param,
+        resubmitted_item_ids=resubmitted_item_ids
     )
+
+
+@app.route('/admin/item/<int:item_id>/request_info', methods=['POST'])
+@login_required
+def admin_request_info(item_id):
+    """Admin sends a 'more info needed' request to the seller."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status != 'pending_valuation':
+        flash("This item is not in the approval queue.", "error")
+        return redirect(url_for('admin_approve'))
+
+    reasons = request.form.getlist('reasons')
+    custom_note = (request.form.get('custom_note') or '').strip()[:500]
+    if not reasons and not custom_note:
+        flash("Please select at least one reason or add a note.", "error")
+        return redirect(url_for('admin_approve', item=item_id))
+
+    import json
+    item.status = 'needs_info'
+    alert = SellerAlert(
+        item_id=item.id,
+        user_id=item.seller_id,
+        created_by_id=current_user.id,
+        alert_type='needs_info',
+        reasons=json.dumps(reasons),
+        custom_note=custom_note or None
+    )
+    db.session.add(alert)
+    db.session.commit()
+    flash(f"Request sent for '{item.description}'. Item moved to 'Needs Info' status.", "success")
+    return redirect(url_for('admin_approve'))
+
+
+@app.route('/admin/item/<int:item_id>/cancel_request', methods=['POST'])
+@login_required
+def admin_cancel_info_request(item_id):
+    """Admin cancels an outstanding info request, returning item to approval queue."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status != 'needs_info':
+        flash("Item is not in 'needs info' status.", "error")
+        return redirect(url_for('admin_panel'))
+
+    item.status = 'pending_valuation'
+    alerts = SellerAlert.query.filter_by(item_id=item.id, resolved=False).all()
+    for a in alerts:
+        a.resolved = True
+        a.resolved_at = datetime.utcnow()
+    db.session.commit()
+    flash(f"Request cancelled. '{item.description}' returned to approval queue.", "success")
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/item/<int:item_id>/resubmit', methods=['POST'])
+@login_required
+def resubmit_item(item_id):
+    """Seller resubmits item after addressing admin feedback."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.seller_id != current_user.id:
+        flash("You cannot modify this item.", "error")
+        return redirect(url_for('dashboard'))
+    if item.status != 'needs_info':
+        flash("This item cannot be resubmitted.", "error")
+        return redirect(url_for('dashboard'))
+
+    item.status = 'pending_valuation'
+    alerts = SellerAlert.query.filter_by(item_id=item.id, resolved=False).all()
+    for a in alerts:
+        a.resolved = True
+        a.resolved_at = datetime.utcnow()
+    db.session.commit()
+    flash("Item resubmitted for review. We'll be in touch soon.", "success")
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/admin/seller/<int:user_id>/panel')
+@login_required
+def admin_seller_panel(user_id):
+    """Returns HTML partial for seller profile slide-out panel."""
+    if not current_user.is_admin:
+        abort(403)
+    user = User.query.get_or_404(user_id)
+    items = InventoryItem.query.filter_by(seller_id=user.id).order_by(InventoryItem.date_added.desc()).all()
+    unresolved_count = SellerAlert.query.filter_by(user_id=user.id, resolved=False).count()
+    return render_template('admin_seller_panel.html', seller=user, seller_items=items, unresolved_alert_count=unresolved_count)
+
+
+@app.route('/admin/seller/<int:user_id>/send_alert', methods=['POST'])
+@login_required
+def admin_send_seller_alert(user_id):
+    """Admin sends an alert/message to a seller from the profile panel."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied.'}), 403
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+
+    alert_type = request.form.get('alert_type', 'custom')
+    preset_reason = request.form.get('preset_reason', '').strip()
+    custom_note = request.form.get('custom_note', '').strip()
+    item_id = request.form.get('item_id', type=int) or None
+
+    if alert_type == 'preset' and not preset_reason:
+        return jsonify({'success': False, 'message': 'Please select a preset reason.'}), 400
+    if alert_type == 'custom' and not custom_note:
+        return jsonify({'success': False, 'message': 'Please enter a message.'}), 400
+    if len(custom_note) > 500:
+        return jsonify({'success': False, 'message': 'Custom note must be 500 characters or less.'}), 400
+
+    reasons = json.dumps([preset_reason]) if preset_reason else None
+    note = custom_note if custom_note else None
+
+    alert = SellerAlert(
+        item_id=item_id,
+        user_id=user.id,
+        created_by_id=current_user.id,
+        alert_type=alert_type,
+        reasons=reasons,
+        custom_note=note,
+        resolved=False
+    )
+    db.session.add(alert)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Alert sent.'})
+
+
+@app.route('/admin/pickup-nudge/send', methods=['POST'])
+@login_required
+def admin_send_pickup_nudge():
+    """Send pickup reminder alerts to sellers missing pickup week."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied.'}), 403
+
+    user_ids_raw = request.form.getlist('user_ids')
+    send_all = not user_ids_raw or 'all' in user_ids_raw
+
+    if send_all:
+        # Re-query eligible sellers at send time
+        free_confirmed_str = AppSetting.get('free_confirmed_user_ids') or ''
+        free_confirmed_ids = set(int(x) for x in free_confirmed_str.split(',') if x.strip().isdigit())
+        free_rejected_str = AppSetting.get('free_rejected_user_ids') or ''
+        free_rejected_ids = set(int(x) for x in free_rejected_str.split(',') if x.strip().isdigit())
+
+        candidates = User.query.filter(
+            User.is_seller == True,
+            User.items.any(InventoryItem.status.in_(['approved', 'available']))
+        ).all()
+        target_users = []
+        for u in candidates:
+            if any(i.pickup_week for i in u.items):
+                continue
+            if u.id in free_rejected_ids:
+                continue
+            free_items = [i for i in u.items if i.collection_method == 'free']
+            if free_items and u.id not in free_confirmed_ids:
+                continue
+            target_users.append(u)
+    else:
+        target_ids = [int(x) for x in user_ids_raw if x.isdigit()]
+        target_users = User.query.filter(User.id.in_(target_ids)).all() if target_ids else []
+
+    sent_count = 0
+    for u in target_users:
+        # Deduplication: skip if unresolved pickup_reminder already exists
+        existing = SellerAlert.query.filter_by(
+            user_id=u.id, alert_type='pickup_reminder', resolved=False
+        ).first()
+        if existing:
+            continue
+        alert = SellerAlert(
+            user_id=u.id,
+            created_by_id=current_user.id,
+            alert_type='pickup_reminder',
+            reasons=json.dumps(['Please select your pickup week']),
+            resolved=False
+        )
+        db.session.add(alert)
+        sent_count += 1
+    db.session.commit()
+    return jsonify({'success': True, 'message': f"Reminder sent to {sent_count} seller{'s' if sent_count != 1 else ''}.", 'reload': True})
+
+
+def _run_approval_digest():
+    """Core digest logic. Returns (success: bool, message: str)."""
+    from datetime import timedelta
+    now = datetime.utcnow()
+
+    # Determine cutoff: last digest sent_at, or 1 hour ago
+    last_digest = DigestLog.query.order_by(DigestLog.sent_at.desc()).first()
+    cutoff = last_digest.sent_at if last_digest else (now - timedelta(hours=1))
+
+    # Query new pending items since cutoff
+    new_items = InventoryItem.query.filter(
+        InventoryItem.status == 'pending_valuation',
+        InventoryItem.date_added > cutoff
+    ).all()
+
+    if not new_items:
+        return True, "No new items since last digest."
+
+    # Build category breakdown
+    cat_counts = {}
+    for item in new_items:
+        cat_name = item.category.name if item.category else 'Uncategorized'
+        cat_counts[cat_name] = cat_counts.get(cat_name, 0) + 1
+    # Sort by count desc, cap at 8
+    sorted_cats = sorted(cat_counts.items(), key=lambda x: -x[1])
+    overflow = len(sorted_cats) - 8
+    display_cats = sorted_cats[:8]
+
+    breakdown_html = ''.join(
+        f'<li style="margin-bottom: 4px;">{count} &times; {name}</li>'
+        for name, count in display_cats
+    )
+    if overflow > 0:
+        breakdown_html += f'<li style="margin-bottom: 4px; color: #64748b;">+ {overflow} more</li>'
+
+    count = len(new_items)
+    approve_url = url_for('admin_approve', _external=True)
+
+    email_body = f'''
+    <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+        <h2 style="color: #1a3d1a; margin-bottom: 8px;">Items Pending Approval</h2>
+        <p style="font-size: 1rem; color: #333;">You have <strong>{count}</strong> item{"s" if count != 1 else ""} waiting for review in the approval queue.</p>
+        <ul style="list-style: none; padding: 0; margin: 16px 0;">{breakdown_html}</ul>
+        <div style="margin: 24px 0;">
+            <a href="{approve_url}" style="background: #d97706; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 1rem; display: inline-block;">Review Items &rarr;</a>
+        </div>
+        <p style="font-size: 0.85rem; color: #64748b; margin-top: 20px;">You're receiving this because you're an admin at Campus Swap.</p>
+    </div>
+    '''
+    subject = f"{count} item{'s' if count != 1 else ''} waiting for approval — Campus Swap"
+
+    # Send to all admins who haven't unsubscribed
+    admins = User.query.filter(
+        (User.is_admin == True) | (User.is_super_admin == True),
+        User.unsubscribed == False
+    ).all()
+
+    if not admins:
+        logger.warning("Digest: no eligible admin recipients found.")
+        return True, "No admin recipients."
+
+    sent = 0
+    for admin in admins:
+        try:
+            send_email(admin.email, subject, email_body)
+            sent += 1
+        except Exception as e:
+            logger.error(f"Digest email failed for {admin.email}: {e}")
+
+    # Log the digest
+    log = DigestLog(sent_at=now, item_count=count, recipient_count=sent)
+    db.session.add(log)
+    db.session.commit()
+
+    msg = f"Digest sent: {count} items to {sent} admin(s)."
+    logger.info(msg)
+    return True, msg
+
+
+@app.route('/admin/digest/trigger', methods=['POST'])
+def digest_trigger():
+    """Endpoint for Render Cron Job. Authenticated via DIGEST_CRON_SECRET."""
+    secret = os.environ.get('DIGEST_CRON_SECRET', '')
+    provided = request.headers.get('X-Cron-Secret') or request.args.get('secret', '')
+    if not secret or provided != secret:
+        return jsonify({'success': False, 'message': 'Unauthorized.'}), 403
+    try:
+        success, msg = _run_approval_digest()
+        return jsonify({'success': success, 'message': msg})
+    except Exception as e:
+        logger.error(f"Digest trigger error: {e}", exc_info=True)
+        posthog.capture('backend_error', properties={'error': str(e), 'source': 'digest_trigger'})
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/admin/digest/send', methods=['POST'])
+@login_required
+def send_approval_digest():
+    """Super admin manual trigger for testing the digest."""
+    if (r := require_super_admin()):
+        return r
+    try:
+        success, msg = _run_approval_digest()
+        flash(msg, 'success' if success else 'error')
+    except Exception as e:
+        logger.error(f"Manual digest error: {e}", exc_info=True)
+        flash(f"Digest error: {e}", 'error')
+    return redirect(url_for('admin_panel'))
 
 
 @app.route('/admin/free/confirm/<int:user_id>', methods=['POST'])
@@ -2746,7 +3111,8 @@ def edit_item(item_id):
         description = request.form.get('description', '').strip()
         if not description or len(description) > MAX_DESCRIPTION_LENGTH:
             flash(f"Description is required and must be under {MAX_DESCRIPTION_LENGTH} characters.", "error")
-            return render_template('edit_item.html', item=item, categories=categories)
+            return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
         
         item.description = description
         
@@ -2758,7 +3124,8 @@ def edit_item(item_id):
                 price_valid, price_result = validate_price(request.form['price'])
                 if not price_valid:
                     flash(f"Invalid price: {price_result}", "error")
-                    return render_template('edit_item.html', item=item, categories=categories)
+                    return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
                 if item.price != price_result:
                     item.price = price_result
                     item.price_updated_at = datetime.utcnow()
@@ -2768,13 +3135,15 @@ def edit_item(item_id):
         quality_valid, quality_value = validate_quality(request.form.get('quality', item.quality))
         if not quality_valid:
             flash(f"Invalid quality: {quality_value}", "error")
-            return render_template('edit_item.html', item=item, categories=categories)
+            return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
         item.quality = quality_value
         
         long_description = request.form.get('long_description', '').strip()
         if long_description and len(long_description) > MAX_LONG_DESCRIPTION_LENGTH:
             flash(f"Long description is too long (max {MAX_LONG_DESCRIPTION_LENGTH} characters).", "error")
-            return render_template('edit_item.html', item=item, categories=categories)
+            return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
         item.long_description = long_description
         
         if request.form.get('category_id'):
@@ -2782,7 +3151,8 @@ def edit_item(item_id):
                 item.category_id = int(request.form['category_id'])
             except (ValueError, TypeError):
                 flash("Invalid category.", "error")
-                return render_template('edit_item.html', item=item, categories=categories)
+                return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
 
         # Subcategory
         sub_id_raw = request.form.get('subcategory_id', '')
@@ -2849,6 +3219,7 @@ def edit_item(item_id):
             item.video_url = None
 
         # Re-approval: when seller edits pending_logistics, rejected, or picked-up items, send back to approval queue
+        # (needs_info items go through the resubmit route instead)
         needs_reapproval = (
             not current_user.is_admin
             and (item.status in ('pending_logistics', 'rejected') or item_is_picked_up(item))
@@ -2867,7 +3238,8 @@ def edit_item(item_id):
             return redirect(url_for('admin_panel'))
         return redirect(get_user_dashboard())
         
-    return render_template('edit_item.html', item=item, categories=categories)
+    return render_template('edit_item.html', item=item, categories=categories,
+                               item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
 
 
 @app.route('/delete_photo/<int:photo_id>')
@@ -3037,7 +3409,26 @@ def update_account_info():
         db.session.commit()
         logger.info(f"User {current_user.id} updated account info")
         flash("Account information updated successfully!", "success")
-    
+
+    # Update pickup preferences if provided (only if seller has a pickup week set)
+    time_pref = request.form.get('pickup_time_preference')
+    moveout_raw = request.form.get('moveout_date', '').strip()
+    has_pickup_items = any(i.pickup_week for i in current_user.items)
+    if has_pickup_items and time_pref is not None:
+        if time_pref in PICKUP_TIME_OPTIONS:
+            current_user.pickup_time_preference = time_pref
+        elif time_pref == '':
+            current_user.pickup_time_preference = None
+        if moveout_raw:
+            try:
+                from datetime import date as _date
+                current_user.moveout_date = _date.fromisoformat(moveout_raw)
+            except ValueError:
+                pass
+        else:
+            current_user.moveout_date = None
+        db.session.commit()
+
     return redirect(url_for('account_settings'))
 
 
@@ -3562,7 +3953,13 @@ def dashboard():
     item_with_week = next((i for i in my_items if i.pickup_week), None)
     if item_with_week:
         pickup_method_type = 'week'
-        pickup_method_label = dict(PICKUP_WEEKS).get(item_with_week.pickup_week, item_with_week.pickup_week)
+        week_label = dict(PICKUP_WEEKS).get(item_with_week.pickup_week, item_with_week.pickup_week)
+        week_short = 'Wk 1' if item_with_week.pickup_week == 'week1' else 'Wk 2'
+        time_labels = {'morning': 'Morning', 'afternoon': 'Afternoon', 'evening': 'Evening'}
+        if current_user.pickup_time_preference:
+            pickup_method_label = f"{week_short} · {time_labels.get(current_user.pickup_time_preference, '')}"
+        else:
+            pickup_method_label = week_label
     elif pending_pickup:
         pickup_method_type = 'needs_pickup'
     elif has_free_items:
@@ -3573,8 +3970,14 @@ def dashboard():
         else:
             pickup_method_type = 'free_waiting'
 
+    # Unresolved seller alerts (for "Action Needed" banners)
+    unresolved_alerts = SellerAlert.query.filter_by(
+        user_id=current_user.id, resolved=False
+    ).order_by(SellerAlert.created_at.desc()).all()
+
     return render_template('dashboard.html',
                           my_items=my_items,
+                          unresolved_alerts=unresolved_alerts,
                           has_online_items=has_online_items,
                           has_approved_free_items=has_approved_free_items,
                           estimated_payout=estimated_payout,
@@ -4019,6 +4422,7 @@ def onboard():
         has_video_file = video_file and video_file.filename and video_file.filename != ''
         cat_obj = InventoryCategory.query.get(int(cat_id))
         cat_name = cat_obj.name if cat_obj else ''
+        sub_cat_name = sub_cat.name if subcategory_id and sub_cat else ''
 
         if has_video_file:
             is_valid, error_msg = validate_video_upload(video_file)
@@ -4056,9 +4460,9 @@ def onboard():
                     except OSError:
                         pass
                 db.session.delete(temp_rec)
-        elif category_requires_video(cat_name):
+        elif category_requires_video(cat_name, sub_cat_name):
             db.session.rollback()
-            flash("Electronics items require a demo video showing the item works.", "error")
+            flash("A video is required for this item category.", "error")
             return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False)
 
         db.session.commit()
@@ -4211,6 +4615,21 @@ def onboard_guest_save():
     cat_obj = InventoryCategory.query.get(int(cat_id))
     cat_name = cat_obj.name if cat_obj else ''
 
+    # Resolve subcategory name for video requirement check
+    guest_sub_id = request.form.get('subcategory_id')
+    guest_subcategory_id = None
+    guest_sub_cat_name = ''
+    if guest_sub_id:
+        try:
+            guest_subcategory_id = int(guest_sub_id)
+            gsub = InventoryCategory.query.get(guest_subcategory_id)
+            if gsub and gsub.parent_id == int(cat_id):
+                guest_sub_cat_name = gsub.name
+            else:
+                guest_subcategory_id = None
+        except (ValueError, TypeError):
+            guest_subcategory_id = None
+
     if has_video_file:
         is_valid, error_msg = validate_video_upload(video_file)
         if not is_valid:
@@ -4229,20 +4648,8 @@ def onboard_guest_save():
             return _err("Error saving video. Please try again.")
     elif temp_video_id:
         guest_video_filename = temp_video_id
-    elif category_requires_video(cat_name):
-        return _err("Electronics items require a demo video showing the item works.")
-
-    # Subcategory from guest form
-    guest_sub_id = request.form.get('subcategory_id')
-    guest_subcategory_id = None
-    if guest_sub_id:
-        try:
-            guest_subcategory_id = int(guest_sub_id)
-            gsub = InventoryCategory.query.get(guest_subcategory_id)
-            if not gsub or gsub.parent_id != int(cat_id):
-                guest_subcategory_id = None
-        except (ValueError, TypeError):
-            guest_subcategory_id = None
+    elif category_requires_video(cat_name, guest_sub_cat_name):
+        return _err("A video is required for this item category.")
 
     session['pending_onboard'] = {
         'category_id': int(cat_id),
@@ -4312,6 +4719,30 @@ def confirm_pickup():
                 flash("Please select a pickup week.", "error")
                 return redirect(url_for('confirm_pickup'))
 
+            # Validate time preference (required)
+            pickup_time = request.form.get('pickup_time_preference')
+            if pickup_time not in PICKUP_TIME_OPTIONS:
+                flash("Please select a preferred time of day.", "error")
+                return redirect(url_for('confirm_pickup'))
+
+            # Validate moveout date (optional)
+            moveout_raw = request.form.get('moveout_date', '').strip()
+            moveout_date = None
+            if moveout_raw:
+                try:
+                    from datetime import date as _date
+                    moveout_date = _date.fromisoformat(moveout_raw)
+                    week_start, week_end = PICKUP_WEEK_DATE_RANGES[pickup_week]
+                    if not (_date.fromisoformat(week_start) <= moveout_date <= _date.fromisoformat(week_end)):
+                        flash("Move-out date must fall within your selected pickup week.", "error")
+                        return redirect(url_for('confirm_pickup'))
+                except (ValueError, KeyError):
+                    flash("Invalid move-out date.", "error")
+                    return redirect(url_for('confirm_pickup'))
+
+            current_user.pickup_time_preference = pickup_time
+            current_user.moveout_date = moveout_date
+
             # Collect address if not already on file
             location_type = request.form.get('pickup_location_type')
             if not current_user.pickup_location_type:
@@ -4354,6 +4785,10 @@ def confirm_pickup():
                 item.status = 'available'
                 if item.category:
                     item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
+            # Auto-resolve any pickup reminder alerts
+            for pa in SellerAlert.query.filter_by(user_id=current_user.id, alert_type='pickup_reminder', resolved=False).all():
+                pa.resolved = True
+                pa.resolved_at = datetime.utcnow()
             db.session.commit()
             flash("Pickup confirmed! Your items are now live in our inventory.", "success")
             return redirect(url_for('dashboard'))
@@ -4381,6 +4816,30 @@ def confirm_pickup():
         if pickup_week not in dict(PICKUP_WEEKS):
             flash("Please select a pickup week.", "error")
             return redirect(url_for('confirm_pickup'))
+
+        # Validate time preference (required)
+        pickup_time = request.form.get('pickup_time_preference')
+        if pickup_time not in PICKUP_TIME_OPTIONS:
+            flash("Please select a preferred time of day.", "error")
+            return redirect(url_for('confirm_pickup'))
+
+        # Validate moveout date (optional)
+        moveout_raw = request.form.get('moveout_date', '').strip()
+        moveout_date = None
+        if moveout_raw:
+            try:
+                from datetime import date as _date
+                moveout_date = _date.fromisoformat(moveout_raw)
+                week_start, week_end = PICKUP_WEEK_DATE_RANGES[pickup_week]
+                if not (_date.fromisoformat(week_start) <= moveout_date <= _date.fromisoformat(week_end)):
+                    flash("Move-out date must fall within your selected pickup week.", "error")
+                    return redirect(url_for('confirm_pickup'))
+            except (ValueError, KeyError):
+                flash("Invalid move-out date.", "error")
+                return redirect(url_for('confirm_pickup'))
+
+        current_user.pickup_time_preference = pickup_time
+        current_user.moveout_date = moveout_date
 
         # Save address if not already on file
         if not current_user.has_pickup_location:
@@ -4494,6 +4953,10 @@ def confirm_pickup_success():
                     if item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
+                # Auto-resolve pickup reminder alerts
+                for pa in SellerAlert.query.filter_by(user_id=current_user.id, alert_type='pickup_reminder', resolved=False).all():
+                    pa.resolved = True
+                    pa.resolved_at = datetime.utcnow()
                 db.session.commit()
     except Exception as e:
         logger.error(f"confirm_pickup_success error: {e}", exc_info=True)
@@ -4522,6 +4985,31 @@ def upgrade_pickup():
         if pickup_week not in ('week1', 'week2'):
             flash("Please select a pickup week.", "error")
             return redirect(url_for('upgrade_pickup'))
+
+        # Validate time preference (required)
+        pickup_time = request.form.get('pickup_time_preference')
+        if pickup_time not in PICKUP_TIME_OPTIONS:
+            flash("Please select a preferred time of day.", "error")
+            return redirect(url_for('upgrade_pickup'))
+
+        # Validate moveout date (optional)
+        moveout_raw = request.form.get('moveout_date', '').strip()
+        moveout_date = None
+        if moveout_raw:
+            try:
+                from datetime import date as _date
+                moveout_date = _date.fromisoformat(moveout_raw)
+                week_start, week_end = PICKUP_WEEK_DATE_RANGES[pickup_week]
+                if not (_date.fromisoformat(week_start) <= moveout_date <= _date.fromisoformat(week_end)):
+                    flash("Move-out date must fall within your selected pickup week.", "error")
+                    return redirect(url_for('upgrade_pickup'))
+            except (ValueError, KeyError):
+                flash("Invalid move-out date.", "error")
+                return redirect(url_for('upgrade_pickup'))
+
+        current_user.pickup_time_preference = pickup_time
+        current_user.moveout_date = moveout_date
+        db.session.commit()
 
         if not stripe.api_key:
             flash("Payment is not configured. Please contact support.", "error")
@@ -4601,6 +5089,10 @@ def upgrade_pickup_success():
                     if item.id in pending_ids and item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
+                # Auto-resolve pickup reminder alerts
+                for pa in SellerAlert.query.filter_by(user_id=current_user.id, alert_type='pickup_reminder', resolved=False).all():
+                    pa.resolved = True
+                    pa.resolved_at = datetime.utcnow()
                 db.session.commit()
                 # PostHog: seller upgraded from free to paid tier (pickup flow)
                 posthog.capture('seller_upgraded_to_paid', distinct_id=str(current_user.id))
@@ -4863,6 +5355,7 @@ def add_item():
         temp_video_id = (request.form.get('temp_video_id') or '').strip()
         has_video_file = video_file and video_file.filename and video_file.filename != ''
         cat_name = category.name if category else ''
+        add_sub_cat_name = sub_cat.name if subcategory_id and sub_cat else ''
 
         if has_video_file:
             is_valid, error_msg = validate_video_upload(video_file)
@@ -4900,9 +5393,9 @@ def add_item():
                     except OSError:
                         pass
                 db.session.delete(temp_rec)
-        elif category_requires_video(cat_name):
+        elif category_requires_video(cat_name, add_sub_cat_name):
             db.session.rollback()
-            flash("Electronics items require a demo video showing the item works.", "error")
+            flash("A video is required for this item category.", "error")
             return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
         db.session.commit()
@@ -5456,13 +5949,14 @@ def admin_preview_users():
     users = User.query.order_by(User.date_joined.desc()).all()
     
     # Prepare data for template
-    headers = ['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle', 'Actions']
+    headers = ['Email', 'Full Name', 'Phone', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle', 'Actions']
     rows = []
     for user in users:
         rows.append({
             'id': user.id,
             'email': user.email,
             'full_name': user.full_name or '',
+            'phone': user.phone or '—',
             'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else '',
             'has_account': 'Yes' if user.password_hash else 'No (Guest Account)',
             'is_seller': 'Yes' if user.is_seller else 'No',
@@ -5478,7 +5972,7 @@ def admin_preview_users():
                          export_url='/admin/export/users',
                          headers=headers,
                          rows=rows,
-                         row_keys=['email', 'full_name', 'date_joined', 'has_account', 'is_seller', 'has_paid', 'is_admin', 'payout_method', 'payout_handle', 'actions'])
+                         row_keys=['email', 'full_name', 'phone', 'date_joined', 'has_account', 'is_seller', 'has_paid', 'is_admin', 'payout_method', 'payout_handle', 'actions'])
 
 @app.route('/admin/export/users')
 @login_required
@@ -5496,8 +5990,8 @@ def admin_export_users():
     writer = csv.writer(output)
     
     # Header row
-    writer.writerow(['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle'])
-    
+    writer.writerow(['Email', 'Full Name', 'Date Joined', 'Has Account', 'Is Seller', 'Has Paid', 'Is Admin', 'Payout Method', 'Payout Handle', 'Pickup Time Preference', 'Move-Out Date'])
+
     # Data rows
     for user in users:
         writer.writerow([
@@ -5509,7 +6003,9 @@ def admin_export_users():
             'Yes' if user.has_paid else 'No',
             'Yes' if user.is_admin else 'No',
             user.payout_method or '',
-            user.payout_handle or ''
+            user.payout_handle or '',
+            user.pickup_time_preference or '',
+            user.moveout_date.isoformat() if user.moveout_date else ''
         ])
     
     output.seek(0)

@@ -1,31 +1,31 @@
-from app import app, db
-from models import InventoryCategory
+"""
+Nuclear reset: wipe all categories + items, then re-seed from scratch.
 
-def reset_categories():
+Usage:
+    python3 reset_categories.py           # categories only
+    python3 reset_categories.py --items   # categories + dummy items
+"""
+
+import sys
+
+
+def reset(include_items=False):
+    from app import app, db
+    from models import InventoryCategory, InventoryItem, ItemPhoto
+
     with app.app_context():
-        # 1. Clear existing categories
-        db.session.query(InventoryCategory).delete()
+        # Wipe items and photos first (FK constraints)
+        ItemPhoto.query.delete()
+        InventoryItem.query.delete()
+        InventoryCategory.query.delete()
         db.session.commit()
-        
-        # 2. YOUR Specific Categories mapped to Icons
-        categories = [
-            {"name": "Couch/Sofa", "icon": "fa-couch"},
-            {"name": "Mattress", "icon": "fa-bed"}, 
-            {"name": "Mini-Fridge", "icon": "fa-snowflake"}, 
-            {"name": "Climate Control", "icon": "fa-wind"}, 
-            {"name": "Television", "icon": "fa-tv"},
-        ]
-        
-        # 3. Add them to DB
-        for item in categories:
-            new_cat = InventoryCategory(
-                name=item["name"],
-                image_url=item["icon"] 
-            )
-            db.session.add(new_cat)
-        
-        db.session.commit()
-        print("✅ Categories reset with FontAwesome icons!")
+        print("Cleared all categories, items, and photos.")
+
+    # Now re-seed using the shared seed script
+    from seed_categories import seed
+    seed(include_items=include_items)
+
 
 if __name__ == "__main__":
-    reset_categories()
+    include_items = "--items" in sys.argv
+    reset(include_items=include_items)

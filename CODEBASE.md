@@ -64,6 +64,8 @@ stripe_customer_id, stripe_payment_method_id
 referral_source, unsubscribed, unsubscribe_token
 oauth_provider, oauth_id
 date_joined
+pickup_time_preference ('morning'|'afternoon'|'evening'|null)
+moveout_date (Date, nullable)
 
 Properties: has_pickup_location, pickup_display, is_guest_account
 ```
@@ -72,13 +74,13 @@ Properties: has_pickup_location, pickup_display, is_guest_account
 ```
 id, description, long_description
 price, suggested_price, quality (1-5 int)
-status: 'pending_valuation' | 'approved' | 'available' | 'sold' | 'rejected'
+status: 'pending_valuation' | 'needs_info' | 'approved' | 'available' | 'sold' | 'rejected'
 date_added
 collection_method: 'online' | 'free'
 is_large (bool) — set by admin at approval
 oversize_included_in_service_fee (bool)
 oversize_fee_paid (bool)
-pickup_week: 'week1' (Apr 26–May 2) | 'week2' (May 3–May 9)
+pickup_week: 'week1' (Apr 27–May 3) | 'week2' (May 4–May 10)
 dropoff_pod: deprecated (pod option removed)
 sold_at, payout_sent (bool)
 picked_up_at, arrived_at_store_at
@@ -119,6 +121,26 @@ Pre-approved emails that get admin/super_admin on signup.
 id, email, is_super_admin, created_at
 ```
 
+### SellerAlert
+```
+Reusable alert system for seller dashboard notifications.
+id, item_id (FK to InventoryItem, nullable), user_id (FK to User)
+created_by_id (FK to User, nullable — admin who created it)
+alert_type: 'needs_info' | 'pickup_reminder' | 'custom' | 'preset'
+reasons (Text, JSON-encoded list of preset reason strings)
+custom_note (Text, nullable)
+resolved (Boolean, default False), resolved_at (DateTime, nullable)
+created_at (DateTime, default utcnow)
+Relationships: item, user (backref seller_alerts), created_by
+```
+
+### DigestLog
+```
+Tracks admin approval digest email sends for deduplication.
+id, sent_at (DateTime, default utcnow)
+item_count (Integer), recipient_count (Integer)
+```
+
 ### AppSetting
 ```
 Key-value store for runtime flags.
@@ -128,7 +150,7 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 
 ---
 
-## Route Map (`app.py` — 5,400+ lines)
+## Route Map (`app.py` — 6,300+ lines)
 
 ### Public
 | Route | Function | Notes |
@@ -172,6 +194,7 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `GET/POST /add_item` | `add_item` | Upload item (photo + details) |
 | `GET/POST /edit_item/<id>` | `edit_item` | Edit existing item |
 | `DELETE /delete_photo/<id>` | `delete_photo` | Delete gallery photo |
+| `POST /item/<id>/resubmit` | `resubmit_item` | Seller resubmits item after addressing "needs info" feedback |
 | `POST /confirm_pickup` | `confirm_pickup` | Seller confirms pickup logistics |
 | `GET /confirm_pickup_success` | `confirm_pickup_success` | |
 | `GET/POST /upgrade_pickup` | `upgrade_pickup` | Upgrade from free to valet |
@@ -228,6 +251,13 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `GET /admin/export/items` | `admin_export_items` | CSV download |
 | `GET /admin/preview/sales` | `admin_preview_sales` | |
 | `GET /admin/export/sales` | `admin_export_sales` | CSV download |
+| `POST /admin/item/<id>/request_info` | `admin_request_info` | "More Info Needed" — sets item to needs_info, creates SellerAlert |
+| `POST /admin/item/<id>/cancel_request` | `admin_cancel_info_request` | Cancel outstanding info request, returns item to pending_valuation |
+| `GET /admin/seller/<user_id>/panel` | `admin_seller_panel` | Returns HTML partial for slide-out seller profile panel |
+| `POST /admin/seller/<user_id>/send_alert` | `admin_send_seller_alert` | Creates SellerAlert (preset or custom) from seller panel |
+| `POST /admin/pickup-nudge/send` | `admin_send_pickup_nudge` | Sends pickup reminder alerts to selected or all eligible sellers |
+| `POST /admin/digest/trigger` | `digest_trigger` | Cron job endpoint for hourly approval digest email (auth via DIGEST_CRON_SECRET) |
+| `POST /admin/digest/send` | `send_approval_digest` | Super admin manual trigger for digest email |
 | `POST /admin/mass-email` | `admin_mass_email` | |
 | `POST /admin/database/reset` | `admin_database_reset` | Super admin only |
 
@@ -258,6 +288,7 @@ product.html         — Product detail page (gallery, buy button)
 dashboard.html       — Seller dashboard (items, status, upgrade prompts)
 admin.html           — Admin panel (bulk edit, mark sold, exports)
 admin_approve.html   — Item approval queue
+admin_seller_panel.html — Slide-out seller profile panel partial (no layout extends)
 admin_sidebar.html   — Admin nav sidebar partial
 login.html
 register.html
@@ -297,6 +328,8 @@ dashboard_pickup_form.html — Pickup form partial
 ```
 pending_valuation → (admin approves) → approved → (seller confirms logistics) → available → (sold) → sold
                   → (admin rejects) → rejected
+                  → (admin requests info) → needs_info → (seller resubmits) → pending_valuation
+                                                       → (admin cancels request) → pending_valuation
 ```
 
 ### Service Tiers
@@ -345,6 +378,14 @@ pending_valuation → (admin approves) → approved → (seller confirms logisti
 7. **Photo uploads** — use `validate_file_upload()` helper. Store to `/var/data/` (Render) or `static/uploads/` (local). Serve via `url_for('uploaded_file', filename=...)`.
 
 8. **Email** — use `send_email(to, subject, html)`. Wrap HTML with `wrap_email_template()` for consistent styling.
+
+9. **SellerAlert system** — reusable alert model for dashboard notifications. Types: `needs_info` (item-specific, from approval queue), `pickup_reminder` (account-level, from nudge), `preset` / `custom` (from seller profile panel). Alerts auto-resolve when the seller takes the required action (resubmit item, select pickup week, etc.).
+
+10. **Seller profile panel** — slide-out drawer (480px right-side) fetched as HTML partial via `/admin/seller/<id>/panel`. Used on admin.html and admin_approve.html. Triggered by clicking seller names.
+
+11. **Constants** — shared constants in `constants.py`: `VIDEO_REQUIRED_CATEGORIES`, `category_requires_video()`, `PICKUP_WEEKS`, `PICKUP_WEEK_DATE_RANGES`, `PICKUP_TIME_OPTIONS`. Import into `app.py` and use via context processor for templates.
+
+12. **Cron jobs** — digest email triggered via POST `/admin/digest/trigger` with `X-Cron-Secret` header or `?secret=` query param matching `DIGEST_CRON_SECRET` env var. Set up as Render cron job.
 
 ---
 

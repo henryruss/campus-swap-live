@@ -1,0 +1,270 @@
+{# HTML partial — rendered inside slide-out drawer, no layout extends #}
+<div style="padding: 24px;">
+
+    {# Section 1 — Seller Identity #}
+    <div style="margin-bottom: 24px;">
+        <h2 style="margin: 0 0 4px; font-size: 1.25rem; color: var(--text-main);">{{ seller.full_name or 'Unnamed User' }}</h2>
+        <a href="mailto:{{ seller.email }}" style="color: var(--primary); font-size: 0.9rem;">{{ seller.email }}</a>
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
+            <i class="fas fa-phone" style="width: 16px;"></i> {{ seller.phone or '—' }}
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">
+            <i class="fas fa-calendar" style="width: 16px;"></i> Joined {{ seller.date_joined.strftime('%b %d, %Y') if seller.date_joined else '—' }}
+        </div>
+        <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
+            {% if seller.is_guest_account %}
+                <span class="badge" style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1;">Guest</span>
+            {% else %}
+                <span class="badge" style="background: #dbeafe; color: #1e40af;">Full Account</span>
+            {% endif %}
+            {% if seller.is_admin %}
+                <span class="badge" style="background: var(--primary); color: white;">Admin</span>
+            {% endif %}
+            {% if seller.is_super_admin %}
+                <span class="badge" style="background: #7c3aed; color: white;">Super Admin</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">
+
+    {# Section 2 — Seller Status #}
+    <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Seller Status</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9rem;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">Service Tier</div>
+                <div style="font-weight: 600;">
+                    {% if seller.has_paid %}Pro (Valet Pickup)
+                    {% elif seller.is_seller %}Free Plan
+                    {% else %}—{% endif %}
+                </div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">Payment</div>
+                <div style="font-weight: 600;">
+                    {% if seller.has_paid %}<span style="color: #15803d;">Has Paid</span>
+                    {% elif seller.is_seller %}Awaiting Payment
+                    {% else %}N/A{% endif %}
+                </div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">Payout</div>
+                <div style="font-weight: 600;">
+                    {% if seller.payout_method %}{{ seller.payout_method|capitalize }}: {{ seller.payout_handle }}
+                    {% else %}—{% endif %}
+                </div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">Referral</div>
+                <div style="font-weight: 600;">{{ seller.referral_source or '—' }}</div>
+            </div>
+        </div>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">
+
+    {# Section 3 — Pickup Info #}
+    <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Pickup Info</h3>
+        {% if seller.is_seller %}
+        <div style="font-size: 0.9rem; line-height: 1.8;">
+            <div>
+                <strong>Location:</strong>
+                {% if seller.pickup_location_type == 'on_campus' %}
+                    On-Campus — {{ seller.pickup_dorm or '?' }}, Room {{ seller.pickup_room or '?' }}
+                {% elif seller.pickup_location_type == 'off_campus' or seller.pickup_address %}
+                    Off-Campus — {{ seller.pickup_address or '—' }}
+                    {% if seller.pickup_note %}<div style="font-size: 0.85rem; color: var(--text-muted); margin-left: 16px;">Note: {{ seller.pickup_note }}</div>{% endif %}
+                {% else %}
+                    <span style="color: var(--accent);">Not set</span>
+                {% endif %}
+            </div>
+            <div>
+                <strong>Pickup Week:</strong>
+                {% if seller.pickup_week == 'week1' %}Week 1 (4/27–5/3)
+                {% elif seller.pickup_week == 'week2' %}Week 2 (5/4–5/10)
+                {% else %}<span style="color: var(--accent);">Not selected</span>{% endif %}
+            </div>
+            <div>
+                <strong>Time Preference:</strong>
+                {% if seller.pickup_time_preference %}{{ seller.pickup_time_preference|capitalize }}
+                {% else %}Not selected{% endif %}
+            </div>
+            <div>
+                <strong>Move-out Date:</strong>
+                {% if seller.moveout_date %}{{ seller.moveout_date.strftime('%a, %b %d') }}
+                {% else %}Not provided{% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">Not a seller</p>
+        {% endif %}
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">
+
+    {# Section 4 — Items #}
+    <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Items ({{ seller_items|length }})</h3>
+        {% if seller_items %}
+        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
+            {% for item in seller_items %}
+            <div style="display: flex; gap: 10px; align-items: center; padding: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
+                {% if item.photo_url %}
+                <img src="/static/uploads/{{ item.photo_url }}" alt="" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">
+                {% else %}
+                <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><i class="fas fa-image" style="color: #cbd5e1;"></i></div>
+                {% endif %}
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.description }}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">
+                        {{ item.category.name if item.category else '—' }}
+                        {% if item.price %} · ${{ '%.2f'|format(item.price) }}{% elif item.suggested_price %} · ~${{ '%.2f'|format(item.suggested_price) }}{% endif %}
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    {% if item.status == 'pending_valuation' %}
+                        <span class="badge" style="background: #fef3c7; color: #92400e; font-size: 0.7rem;">Pending</span>
+                    {% elif item.status == 'needs_info' %}
+                        <span class="badge" style="background: #f59e0b; color: white; font-size: 0.7rem;">Needs Info</span>
+                    {% elif item.status == 'approved' or item.status == 'available' %}
+                        <span class="badge" style="background: #dcfce7; color: #166534; font-size: 0.7rem;">{{ item.status|capitalize }}</span>
+                    {% elif item.status == 'sold' %}
+                        <span class="badge" style="background: #fee2e2; color: #991b1b; font-size: 0.7rem;">Sold</span>
+                    {% elif item.status == 'rejected' %}
+                        <span class="badge" style="background: #fef2f2; color: #dc2626; font-size: 0.7rem;">Rejected</span>
+                    {% else %}
+                        <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.7rem;">{{ item.status }}</span>
+                    {% endif %}
+                    <a href="{{ url_for('edit_item', item_id=item.id) }}" style="color: var(--primary); font-size: 0.75rem; font-weight: 600;">View</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">No items submitted yet</p>
+        {% endif %}
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">
+
+    {# Section 5 — Send Alert / Message #}
+    <div>
+        <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 4px;">Send Alert</h3>
+        {% if unresolved_alert_count > 0 %}
+        <p style="font-size: 0.8rem; color: #92400e; margin: 0 0 10px;"><i class="fas fa-bell"></i> {{ unresolved_alert_count }} active alert{{ 's' if unresolved_alert_count != 1 else '' }}</p>
+        {% endif %}
+
+        <form id="panel-alert-form" style="font-size: 0.9rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer;">
+                    <input type="radio" name="alert_type" value="preset" checked onchange="togglePanelAlertType()"> Preset alert
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer;">
+                    <input type="radio" name="alert_type" value="custom" onchange="togglePanelAlertType()"> Custom message
+                </label>
+            </div>
+
+            <div id="panel-preset-section">
+                <select name="preset_reason" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; margin-bottom: 8px;">
+                    <option value="">Select a reason...</option>
+                    <option value="Please upload better photos for your item">Better photos needed</option>
+                    <option value="A video is required for your item — please show it powering on">Video required</option>
+                    <option value="Please select your pickup week">Select pickup week</option>
+                    <option value="Please confirm your pickup address">Confirm pickup address</option>
+                    <option value="Please set up your payout method">Set up payout method</option>
+                </select>
+                <div id="panel-item-select-wrapper" style="display: none; margin-bottom: 8px;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Which item?</label>
+                    <select name="item_id" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem;">
+                        <option value="">No specific item</option>
+                        {% for item in seller_items %}
+                        <option value="{{ item.id }}">{{ item.description[:50] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div id="panel-custom-section" style="display: none;">
+                <textarea name="custom_note" maxlength="500" rows="3" placeholder="Type a message to the seller..." style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; resize: vertical;"></textarea>
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-align: right; margin-top: 2px;">Max 500 characters</div>
+            </div>
+
+            <div id="panel-alert-success" style="display: none; padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; color: #166534; font-size: 0.85rem; margin-bottom: 8px;">
+                <i class="fas fa-check-circle"></i> Alert sent.
+            </div>
+            <div id="panel-alert-error" style="display: none; padding: 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; color: #991b1b; font-size: 0.85rem; margin-bottom: 8px;"></div>
+            <div id="panel-alert-dupe-warning" style="display: none; padding: 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; color: #92400e; font-size: 0.85rem; margin-bottom: 8px;">
+                <i class="fas fa-exclamation-triangle"></i> An alert of this type is already pending for this seller. <a href="#" id="panel-send-anyway" style="color: #92400e; font-weight: 600;">Send anyway</a>
+            </div>
+
+            <button type="submit" id="panel-send-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 0.9rem;">
+                <i class="fas fa-paper-plane"></i> Send Alert
+            </button>
+        </form>
+    </div>
+
+</div>
+
+<script>
+function togglePanelAlertType() {
+    var type = document.querySelector('#panel-alert-form input[name="alert_type"]:checked').value;
+    document.getElementById('panel-preset-section').style.display = type === 'preset' ? '' : 'none';
+    document.getElementById('panel-custom-section').style.display = type === 'custom' ? '' : 'none';
+}
+
+// Show item dropdown for item-specific presets
+(function() {
+    var presetSelect = document.querySelector('#panel-alert-form select[name="preset_reason"]');
+    if (presetSelect) {
+        presetSelect.addEventListener('change', function() {
+            var val = this.value;
+            var isItemSpecific = val.indexOf('photos') >= 0 || val.indexOf('video') >= 0;
+            document.getElementById('panel-item-select-wrapper').style.display = isItemSpecific ? '' : 'none';
+        });
+    }
+})();
+
+// Form submission
+(function() {
+    var form = document.getElementById('panel-alert-form');
+    if (!form) return;
+    var sellerId = {{ seller.id }};
+    var successEl = document.getElementById('panel-alert-success');
+    var errorEl = document.getElementById('panel-alert-error');
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        successEl.style.display = 'none';
+        errorEl.style.display = 'none';
+
+        var fd = new FormData(form);
+        var btn = document.getElementById('panel-send-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+        fetch('/admin/seller/' + sellerId + '/send_alert', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Alert';
+                if (data.success) {
+                    successEl.style.display = '';
+                    setTimeout(function() { successEl.style.display = 'none'; }, 4000);
+                } else {
+                    errorEl.textContent = data.message || 'Error sending alert.';
+                    errorEl.style.display = '';
+                }
+            })
+            .catch(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Alert';
+                errorEl.textContent = 'Request failed. Please try again.';
+                errorEl.style.display = '';
+            });
+    });
+})();
+</script>
