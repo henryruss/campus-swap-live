@@ -441,23 +441,37 @@
                     <h3 style="margin:0 0 16px;font-size:1.1rem;"><i class="fas fa-question-circle" style="color:#f59e0b;"></i> Request More Info</h3>
                     <form method="POST" action="{{ url_for('admin_request_info', item_id=pending_item.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <style>
+                            .info-reason-btn { display:flex; flex-direction:column; align-items:center; text-align:center; padding:20px 16px; border:2px solid #e2e8f0; border-radius:16px; cursor:pointer; transition:all 0.25s; font-family:inherit; }
+                            .info-reason-btn:hover { border-color:#cbd5e1; background:#f8fafc; }
+                            .info-reason-btn input { position:absolute; opacity:0; }
+                            .info-reason-btn:has(input:checked) { border-color:#f59e0b; background:#fffbeb; box-shadow:0 0 0 3px rgba(245,158,11,0.15); }
+                            .info-reason-btn strong { font-size:1rem; margin-bottom:4px; font-weight:600; }
+                            .info-reason-btn span { font-size:0.82rem; color:var(--text-muted); line-height:1.4; }
+                            .info-reason-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+                            @media (max-width:560px) { .info-reason-grid { grid-template-columns:1fr; } }
+                        </style>
                         <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:14px;">Select the reason(s) — the seller will see these on their dashboard.</p>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
-                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
-                                <input type="checkbox" name="reasons" value="Better photos needed — current photos are unclear or low quality" style="margin-top:3px;">
-                                Better photos needed
+                        <div class="info-reason-grid" style="margin-bottom:16px;">
+                            <label class="info-reason-btn">
+                                <input type="checkbox" name="reasons" value="Better photos needed — current photos are unclear or low quality">
+                                <strong><i class="fas fa-camera" style="margin-bottom:6px;color:#f59e0b;"></i><br>Better photos</strong>
+                                <span>Current photos are unclear or low quality</span>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
-                                <input type="checkbox" name="reasons" value="Video required — please upload a video showing the item powers on" style="margin-top:3px;">
-                                Video required
+                            <label class="info-reason-btn">
+                                <input type="checkbox" name="reasons" value="Video required — please upload a video showing the item powers on">
+                                <strong><i class="fas fa-video" style="margin-bottom:6px;color:#f59e0b;"></i><br>Video required</strong>
+                                <span>Show the item powers on</span>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
-                                <input type="checkbox" name="reasons" value="Better description needed — please add more detail about the item's condition" style="margin-top:3px;">
-                                Better description needed
+                            <label class="info-reason-btn">
+                                <input type="checkbox" name="reasons" value="Better description needed — please add more detail about the item's condition">
+                                <strong><i class="fas fa-align-left" style="margin-bottom:6px;color:#f59e0b;"></i><br>Better description</strong>
+                                <span>Add more detail about condition</span>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.9rem;">
-                                <input type="checkbox" name="reasons" value="Different angle needed — please photograph a specific part of the item" style="margin-top:3px;">
-                                Different angle needed
+                            <label class="info-reason-btn">
+                                <input type="checkbox" name="reasons" value="Different angle needed — please photograph a specific part of the item">
+                                <strong><i class="fas fa-sync-alt" style="margin-bottom:6px;color:#f59e0b;"></i><br>Different angle</strong>
+                                <span>Photograph a specific part of the item</span>
                             </label>
                         </div>
                         <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:6px;">Custom note (optional)</label>
