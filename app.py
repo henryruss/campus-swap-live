@@ -2874,6 +2874,7 @@ def _run_approval_digest():
 
 
 @app.route('/admin/digest/trigger', methods=['POST'])
+@csrf.exempt  # Cron job sends raw POST; authenticated via DIGEST_CRON_SECRET header
 def digest_trigger():
     """Endpoint for Render Cron Job. Authenticated via DIGEST_CRON_SECRET."""
     secret = os.environ.get('DIGEST_CRON_SECRET', '')
