@@ -2836,7 +2836,7 @@ def _run_approval_digest():
         breakdown_html += f'<li style="margin-bottom: 4px; color: #64748b;">+ {overflow} more</li>'
 
     count = len(new_items)
-    approve_url = url_for('admin_approve', _external=True)
+    approve_url = os.environ.get('BASE_URL', 'https://usecampusswap.com').rstrip('/') + '/admin/approve'
 
     email_body = f'''
     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
