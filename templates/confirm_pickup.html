@@ -44,7 +44,7 @@
         <input type="hidden" name="pickup_location_type" value="skip">
         {% endif %}
 
-        <!-- Step 1: Pickup Week -->
+        <!-- Step 1: Pickup Week + Time Preference + Move-Out Date -->
         <div class="wizard-step active" id="step-week" data-step="1">
             <h2 class="step-title" style="font-size: 1.2rem; font-weight: 700; margin-bottom: 8px;">When should we pick up?</h2>
             <p class="step-sub" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">Select your pickup week. This choice cannot be changed after confirmation.</p>
@@ -55,6 +55,31 @@
                     <span class="pickup-week-label">{{ label }}</span>
                 </label>
                 {% endfor %}
+            </div>
+
+            <div style="margin-top: 28px;">
+                <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">Preferred time of day</h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px;">We'll do our best to match your preference.</p>
+                <div class="pickup-week-grid">
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="morning" required>
+                        <span class="pickup-week-label">Morning <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
+                    </label>
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="afternoon">
+                        <span class="pickup-week-label">Afternoon <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
+                    </label>
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="evening">
+                        <span class="pickup-week-label">Evening <span style="font-weight: 400; color: var(--text-muted);">— 5pm to 9pm</span></span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="margin-top: 28px;">
+                <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">Move-out date <span style="font-weight: 400; font-size: 0.85rem; color: var(--text-muted);">(optional)</span></h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px;">If you know your exact move-out date, enter it here. Leave blank if you're not sure.</p>
+                <input type="date" name="moveout_date" id="moveout-date-input" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
             </div>
         </div>
 
@@ -118,6 +143,14 @@
             <div id="review-week" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
                 <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Pickup week</div>
                 <div id="review-week-value" style="font-weight: 600; font-size: 1rem;">—</div>
+            </div>
+            <div class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Preferred time</div>
+                <div id="review-time-value" style="font-weight: 600; font-size: 1rem;">—</div>
+            </div>
+            <div id="review-moveout-block" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; display: none;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Move-out date</div>
+                <div id="review-moveout-value" style="font-weight: 600; font-size: 1rem;">—</div>
             </div>
             <div id="review-address-block" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
                 <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Pickup location</div>
@@ -285,10 +318,28 @@
         window.scrollTo(0, 0);
     }
 
+    var weekDateRanges = { 'week1': ['2026-04-27', '2026-05-03'], 'week2': ['2026-05-04', '2026-05-10'] };
+
+    // Constrain moveout date picker when week changes
+    var weekRadios = form.querySelectorAll('input[name="pickup_week"]');
+    var moveoutInput = document.getElementById('moveout-date-input');
+    weekRadios.forEach(function(r) {
+        r.addEventListener('change', function() {
+            var range = weekDateRanges[this.value];
+            if (range && moveoutInput) {
+                moveoutInput.min = range[0];
+                moveoutInput.max = range[1];
+                moveoutInput.value = '';
+            }
+        });
+    });
+
     function validateStep(step) {
         if (step === 1) {
             var week = form.querySelector('input[name="pickup_week"]:checked');
             if (!week) { showError('Please select a pickup week.'); return false; }
+            var timePref = form.querySelector('input[name="pickup_time_preference"]:checked');
+            if (!timePref) { showError('Please select a preferred time of day.'); return false; }
         }
         if (step === 2 && !hasLocation) {
             var locType = form.querySelector('input[name="pickup_location_type"]:checked');
@@ -331,6 +382,24 @@
         if (weekVal && weekRadio) {
             var weekLabels = { {% for value, label in pickup_weeks %}'{{ value }}': '{{ label }}'{% if not loop.last %}, {% endif %}{% endfor %} };
             weekVal.textContent = weekLabels[weekRadio.value] || weekRadio.value;
+        }
+        var timeRadio = form.querySelector('input[name="pickup_time_preference"]:checked');
+        var timeVal = document.getElementById('review-time-value');
+        if (timeVal && timeRadio) {
+            var timeLabels = { 'morning': 'Morning (9am–1pm)', 'afternoon': 'Afternoon (1pm–5pm)', 'evening': 'Evening (5pm–9pm)' };
+            timeVal.textContent = timeLabels[timeRadio.value] || timeRadio.value;
+        }
+        var moveoutBlock = document.getElementById('review-moveout-block');
+        var moveoutVal = document.getElementById('review-moveout-value');
+        var moveoutDate = moveoutInput ? moveoutInput.value : '';
+        if (moveoutBlock && moveoutVal) {
+            if (moveoutDate) {
+                var d = new Date(moveoutDate + 'T12:00:00');
+                moveoutVal.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                moveoutBlock.style.display = 'block';
+            } else {
+                moveoutBlock.style.display = 'none';
+            }
         }
         var addrBlock = document.getElementById('review-address-block');
         var addrVal = document.getElementById('review-address-value');

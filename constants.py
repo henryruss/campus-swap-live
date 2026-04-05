@@ -38,15 +38,19 @@ ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov', 'webm'}
 ALLOWED_VIDEO_MIME_TYPES = {'video/mp4', 'video/quicktime', 'video/webm'}
 
 # Categories that require video upload (matched case-insensitive, partial match)
-VIDEO_REQUIRED_CATEGORIES = {'tv', 'television', 'gaming', 'console', 'printer', 'electronic'}
+VIDEO_REQUIRED_CATEGORIES = [
+    'tv', 'television', 'gaming', 'console', 'printer', 'electronic',
+    'mini fridge', 'fridge', 'microwave', 'heater', 'ac', 'air conditioner',
+    'blender', 'scooter', 'air fryer'
+]
 
 
-def category_requires_video(category_name: str) -> bool:
-    """Return True if the category requires a demo video upload."""
-    if not category_name:
+def category_requires_video(category_name: str, subcategory_name: str = '') -> bool:
+    """Return True if the category or subcategory requires a demo video upload."""
+    names = ' '.join(n for n in (category_name, subcategory_name) if n).lower()
+    if not names:
         return False
-    name_lower = category_name.lower()
-    return any(key in name_lower for key in VIDEO_REQUIRED_CATEGORIES)
+    return any(key in names for key in VIDEO_REQUIRED_CATEGORIES)
 
 
 # Image Processing Configuration
@@ -74,9 +78,18 @@ RATE_LIMIT_EMAIL = "10 per hour"
 
 # Pickup weeks (pickup users select after approval - decision is final)
 PICKUP_WEEKS = [
-    ('week1', 'April 26 – May 2'),
-    ('week2', 'May 3 – May 9'),
+    ('week1', 'April 27 – May 3'),
+    ('week2', 'May 4 – May 10'),
 ]
+
+# Date ranges for each pickup week (used for moveout_date validation)
+PICKUP_WEEK_DATE_RANGES = {
+    'week1': ('2026-04-27', '2026-05-03'),
+    'week2': ('2026-05-04', '2026-05-10'),
+}
+
+# Time-of-day options for pickup preference
+PICKUP_TIME_OPTIONS = ['morning', 'afternoon', 'evening']
 
 # Reserve-only mode: before this date (month, day), items are reserve-only (no Stripe charges)
 RESERVE_ONLY_DEADLINE = (4, 20)  # April 20th

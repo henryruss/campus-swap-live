@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-03
+> **Last updated:** 2026-04-04
 
 ---
 
@@ -72,6 +72,7 @@
 - 3 value proposition cards
 - 3 student testimonials (name, college, year, quote, headshot)
 - CTA sections: "Start Selling" and "Shop Great Deals"
+- Minimum item value notice: "$50 minimum" callout near the seller CTA (cream background, muted text, informational tone)
 
 **Form fields collected:**
 - Email address (for account creation or waitlist)
@@ -186,7 +187,9 @@
 - Features: Add, remove, crop (via Cropper.js), reorder, set cover photo
 - QR code phone upload flow: generates session token → shows QR code → phone visits `/upload_from_phone?token=...` → uploads photos → desktop polls `/api/upload_session/status` for new images
 - Formats: JPEG, PNG, WebP for photos (max 10MB each); MP4, MOV, WebM for video (max 50MB, 30s)
-- **Video required for categories:** TV, Television, Gaming, Console, Printer, Electronic
+- **Video required for categories:** TV, Television, Gaming, Console, Printer, Electronic, Mini Fridge, Fridge, Microwave, Heater, AC, Air Conditioner, Blender, Scooter, Air Fryer
+- Video required banner shown when category matches (amber left-border callout)
+- Backend enforcement: submission rejected without video for required categories
 
 **Step 4: Item Title**
 - Fields: `description` (max 200 chars)
@@ -243,15 +246,26 @@ Same as onboarding steps 1-6 + review, minus tier selection, payout, and account
 
 **Price change acknowledgment:** If admin changed the price from seller's suggested price, a badge appears until seller clicks acknowledge (POST `/api/item/<id>/acknowledge_price_change`).
 
+**"Needs Info" feedback flow:** When item status is `needs_info`:
+- Feedback banner at top shows admin's reasons and custom note (from SellerAlert)
+- "Resubmit for Review" button at bottom (POSTs to `/item/<id>/resubmit`) — returns item to `pending_valuation` and resolves the alert
+- Soft video reminder banner shown for video-required categories without video (no hard block)
+
 ---
 
 ### Seller Dashboard (`/dashboard`) — "Seller Studio"
+
+**Alert Banners (top of page):**
+- Unresolved `SellerAlert` records rendered as amber cards above item grid
+- `needs_info` alerts: lists admin's reasons + custom note, "Update Item" button → `/edit_item/<id>`
+- `pickup_reminder` alerts: "Action needed: Please select your pickup week" + "Select Pickup Week" button → `/confirm_pickup`
+- `preset` / `custom` alerts: from admin seller profile panel, message content shown directly
 
 **Stats bar (4 columns):**
 1. **Potential Earnings** — dollar amount based on approved items × payout percentage, or "—" with "Updates once items are approved"
 2. **Paid Out** — amount already sent via payout
 3. **Items** — "X live, Y sold" + pending count in orange
-4. **Pickup Window** — varies by plan status (week selected or "pending")
+4. **Pickup Window** — shows "Wk 1 · Morning" format when both week + time preference set; week only for legacy sellers; "Not scheduled" (amber) if neither
 
 **Plan badge:** Free Plan / Awaiting Payment / Pro User
 
@@ -277,7 +291,7 @@ Each item tile shows:
   - Oversize fee status (if applicable)
   - Picked up / Dropped off
   - Arrived at store
-- Color-coded background: Red (rejected), Green (sold/complete), Yellow (in process)
+- Color-coded background: Red (rejected), Green (sold/complete), Yellow (in process), Amber (needs_info / action needed)
 - Price change badge (if admin adjusted price, until acknowledged)
 
 **Actions:** "Add Another Item" button, item tiles link to edit, upgrade buttons
@@ -287,11 +301,13 @@ Each item tile shows:
 ### Confirm Pickup (`/confirm_pickup`) — 2-3 Step Wizard
 For Pro sellers who need to schedule their pickup.
 
-**Step 1: Pickup Week**
+**Step 1: Pickup Week + Preferences**
 - Fields: `pickup_week` (radio buttons)
-  - Week 1: April 26 – May 2
-  - Week 2: May 3 – May 9
-- Cannot be changed after confirmation
+  - Week 1: April 27 – May 3
+  - Week 2: May 4 – May 10
+- `pickup_time_preference` (radio buttons, required): Morning (9am–1pm), Afternoon (1pm–5pm), Evening (5pm–9pm) — subtext: "We'll do our best to match your preference."
+- `moveout_date` (date picker, optional): constrained to selected week's date range, resets on week change
+- Cannot be changed after confirmation (week locked; time preference and moveout date editable from Account Settings)
 
 **Step 2: Address & Phone** (skipped if location already saved)
 - `pickup_location_type`: on_campus or off_campus
@@ -309,7 +325,9 @@ For Pro sellers who need to schedule their pickup.
 
 ### Upgrade Pickup (`/upgrade_pickup`)
 For Free-tier sellers upgrading to Pro.
-- Pickup week selection (radio)
+- Pickup week selection (radio): Week 1 (April 27 – May 3), Week 2 (May 4 – May 10)
+- Time-of-day preference (radio, required): Morning / Afternoon / Evening
+- Move-out date (date picker, optional)
 - Fee: $15 one-time
 - Action: "Pay $15 & Upgrade to Pickup"
 - Success page: `/upgrade_pickup_success`
@@ -350,7 +368,13 @@ For Free-tier sellers upgrading to Pro.
 - Same dorm/address form as confirm_pickup (on_campus: dorm dropdown + room; off_campus: Google Maps autocomplete + lat/lng + note)
 - POST to `/update_profile`
 
-**Card 4: Payout Info** (only shown if payout method previously set)
+**Card 4: Pickup Preferences** (only shown if seller has items with pickup week set)
+- Pickup week (read-only display)
+- `pickup_time_preference` (dropdown: Morning/Afternoon/Evening, editable)
+- `moveout_date` (date picker, editable, constrained to pickup week range)
+- POST to `/update_account_info`
+
+**Card 5: Payout Info** (only shown if payout method previously set)
 - `payout_method` (dropdown: Venmo/PayPal/Zelle), `payout_handle`, `payout_handle_confirm`
 - POST to `/update_payout`
 
@@ -373,15 +397,37 @@ For Free-tier sellers upgrading to Pro.
 
 **Item Lifecycle Table:**
 - Filterable by: category, seller email, item title
-- Columns: Item thumbnail, subcategory, seller, picked up (timestamp), at store (timestamp), status, reservation info, payout status, actions
-- Per-item actions: mark sold, mark payout sent, edit, delete, undo mark-sold
+- Columns: Item thumbnail, subcategory, seller (clickable → profile panel), picked up (timestamp), at store (timestamp), status, reservation info, payout status, actions
+- Status badges include: `needs_info` → "Awaiting Seller" (amber)
+- Per-item actions: mark sold, mark payout sent, edit, delete, undo mark-sold, "Cancel Request" (for needs_info items → returns to pending_valuation)
 - Bulk actions available
+- Seller names are clickable → opens slide-out seller profile panel
 
 **Free Tier Management:**
 - Warehouse capacity counter (color-coded: green/yellow/red vs. 2000 limit)
 - Ranked list of free-tier sellers by total approved item value
 - Per user: name, email, item count + prices, total value, status badge
 - Actions: Confirm (grants pickup), Reject (sends upgrade notice), Bulk notify all unconfirmed
+
+**Pickup Nudge Section (collapsible, collapsed by default):**
+- Header: "Pickup Week Not Selected (X sellers)" — amber badge if X > 0
+- Table: checkbox, seller name (panel trigger), email, phone, tier badge (Free/Pro), approved item count, days since approval (color-coded: >7d red, >3d amber), last nudged date
+- "Remind All" button: sends pickup_reminder SellerAlert to all eligible sellers (re-queries at send time, deduplicates)
+- "Remind Selected" button: sends to checked sellers only
+- Select/deselect all checkbox
+- AJAX updates: "Last nudged" column updates inline on send success
+- Sellers disappear from list only when they actually select a pickup week
+
+**Seller Profile Panel (slide-out drawer):**
+- 480px right-side drawer, opened by clicking seller names anywhere in admin views
+- Fetched as HTML partial via GET `/admin/seller/<id>/panel`
+- 5 sections:
+  1. **Identity:** name, email (mailto), phone, date joined, account type badges
+  2. **Seller Status:** service tier, payment status, payout method/handle, referral source
+  3. **Pickup Info:** location type, dorm/address, pickup week, time preference, moveout date
+  4. **Items:** scrollable list with thumbnails, title, category, price, status badges, "View" links
+  5. **Send Alert:** radio toggle (preset/custom), preset dropdown (5 options), item selector, custom textarea (500 chars), inline success/error
+- Close: X button, Escape key, overlay click
 
 **Quick Add Item (Admin Helper):**
 - For quickly adding items at events
@@ -396,7 +442,10 @@ For Free-tier sellers upgrading to Pro.
   - `category_id` / `subcategory_id`
   - `quality` (condition)
   - `is_large` (oversized flag — triggers $10 fee for additional oversized items)
-- Approve or Reject (keyboard shortcuts: A=approve, R=reject)
+- Approve, Reject, or **"More Info Needed"** (keyboard shortcuts: A=approve, R=reject, I=info needed)
+- "More Info Needed" opens modal with: 4 preset reason checkboxes (better photos, video required, better description, different angle) + custom note textarea (500 chars). Sends to `/admin/item/<id>/request_info` → sets item to `needs_info`, creates SellerAlert
+- "Resubmitted" badge (blue) shown on items that were previously sent back and resubmitted by seller
+- Seller names are clickable → opens slide-out seller profile panel
 - Progress counter ("X of Y reviewed")
 
 ### Category Management (Super Admin)
@@ -410,7 +459,7 @@ For Free-tier sellers upgrading to Pro.
 - **Delete user** + all their items (POST `/admin/user/delete/<id>`)
 - **Data preview** (view before download): Users, Items, Sales (GET `/admin/preview/users|items|sales` → renders `data_preview.html`)
 - **Data export** (CSV download): Users, Items, Sales (GET `/admin/export/users|items|sales`)
-  - Users CSV: email, full_name, phone, payout_method, items_count, total_items_value
+  - Users CSV: email, full_name, phone, payout_method, items_count, total_items_value, pickup_time_preference, moveout_date
   - Items CSV: item_id, subcategory, seller, price, picked_up, at_store, status
   - Sales CSV: item_id, seller, price, payout_percentage, payout_amount, payout_sent, sold_at
 - **Mass email** (POST `/admin/mass-email`): custom subject + HTML body, sent to all non-unsubscribed users, rate-limited at 0.55s/email
@@ -474,11 +523,12 @@ For Free-tier sellers upgrading to Pro.
 | 10 | Admin bulk notifies free-tier users | Sellers | "Our Warehouse Is at Capacity — Campus Swap" | Same as #9, sent to all unconfirmed free-tier users |
 | 11 | New account created | User | "Welcome to Campus Swap!" | Platform overview, quick start guide, dashboard link |
 
-### Internal (1 type)
+### Internal (2 types)
 
 | # | Trigger | Recipient | Subject | Key Content |
 |---|---------|-----------|---------|-------------|
 | 12 | Contact form submitted | Ben@, Henry@, Jack@UseCampusSwap.com | "Contact: {subject}" | Sender name, email, message body |
+| 14 | Hourly cron job or manual trigger | All admins/super admins (non-unsubscribed) | "X items waiting for approval — Campus Swap" | New pending items since last digest, category breakdown (top 8), amber CTA → `/admin/approve`. Tracked in `DigestLog` model. Triggered via POST `/admin/digest/trigger` (cron, `DIGEST_CRON_SECRET` auth) or `/admin/digest/send` (super admin manual). |
 
 ### Marketing (1 type)
 
@@ -563,13 +613,16 @@ Handles:
 - Pickup location: type (on/off campus), dorm + room OR street address + lat/lng + directions note
 - Payout method (Venmo/PayPal/Zelle) + handle
 - Service tier choice (Free/Pro)
-- Pickup week preference
+- Pickup week preference, time-of-day preference, move-out date (optional)
 - Per item: category, subcategory, condition (1-5), title, long description, suggested price, photos (multiple), video (optional/required)
 - Stripe customer ID + payment method ID (for deferred charges)
 - Referral source
 
 ### From Admin Actions
 - Item approval: final price, category/subcategory, condition, oversized flag
+- "More Info Needed" requests: preset reasons + custom note → stored as SellerAlert
+- Pickup nudge reminders → stored as SellerAlert
+- Custom/preset alerts via seller profile panel → stored as SellerAlert
 - Payout sent timestamps
 - Free-tier confirm/reject decisions
 - User admin role grants/revocations
@@ -584,6 +637,9 @@ seller submits item
 pending_valuation
     ↓ admin approves (sets price, category, oversized flag)
     ↓                                  ↘ admin rejects → item hidden, seller notified
+    ↓                                  ↘ admin requests info → needs_info (seller sees alert)
+    ↓                                      → seller resubmits → back to pending_valuation
+    ↓                                      → admin cancels → back to pending_valuation
 pending_logistics
     ↓
     ├─ Pro seller: confirm_pickup → select week → pay $15 → available
@@ -651,7 +707,9 @@ pending_logistics
 
 ### Key Deadlines (Configurable)
 - `RESERVE_ONLY_DEADLINE`: April 20 — before this date, items are reserve-only (no Stripe charges); after, "Buy Now" enabled
-- Pickup weeks: Week 1 (April 26 – May 2), Week 2 (May 3 – May 9)
+- Pickup weeks: Week 1 (April 27 – May 3), Week 2 (May 4 – May 10)
+- Pickup time options: Morning (9am–1pm), Afternoon (1pm–5pm), Evening (5pm–9pm)
+- Video required category keywords (15): tv, television, gaming, console, printer, electronic, mini fridge, fridge, microwave, heater, ac, air conditioner, blender, scooter, air fryer
 
 ### File Upload Limits
 - Photos: 10MB max, formats: JPG/JPEG/PNG/WebP
@@ -751,6 +809,19 @@ Grouped by area for on-campus pickup dropdown:
 | GET | `/api/upload_session/status` | Poll for new photos uploaded from phone | Login required |
 | GET/POST | `/upload_from_phone` | Mobile upload page (accessed via QR code) | Token-based |
 | POST | `/upload_video_from_phone` | Video upload from phone | Token-based |
+
+### Admin API Routes (added April 2026)
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| POST | `/admin/item/<id>/request_info` | "More Info Needed" — creates SellerAlert, sets item to needs_info | Admin |
+| POST | `/admin/item/<id>/cancel_request` | Cancel info request, return item to pending_valuation | Admin |
+| POST | `/item/<id>/resubmit` | Seller resubmits item after addressing feedback | Login (item owner) |
+| GET | `/admin/seller/<user_id>/panel` | HTML partial for seller profile slide-out panel | Admin |
+| POST | `/admin/seller/<user_id>/send_alert` | Create SellerAlert from profile panel | Admin |
+| POST | `/admin/pickup-nudge/send` | Send pickup reminder alerts | Admin |
+| POST | `/admin/digest/trigger` | Cron endpoint for approval digest email | Token (`DIGEST_CRON_SECRET`) |
+| POST | `/admin/digest/send` | Manual trigger for approval digest | Super admin |
 
 ### QR Code Phone Upload Flow
 1. Desktop: POST `/api/upload_session/create` → gets `session_token`

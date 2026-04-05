@@ -30,6 +30,32 @@
                 </label>
                 {% endfor %}
             </div>
+
+            <div style="margin-top: 24px;">
+                <label style="font-weight: 600; margin-bottom: 8px; display: block;">Preferred time of day</label>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">We'll do our best to match your preference.</p>
+                <div class="pickup-week-grid">
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="morning" required>
+                        <span class="pickup-week-label">Morning <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
+                    </label>
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="afternoon">
+                        <span class="pickup-week-label">Afternoon <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
+                    </label>
+                    <label class="pickup-week-card">
+                        <input type="radio" name="pickup_time_preference" value="evening">
+                        <span class="pickup-week-label">Evening <span style="font-weight: 400; color: var(--text-muted);">— 5pm to 9pm</span></span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="margin-top: 24px;">
+                <label style="font-weight: 600; margin-bottom: 8px; display: block;">Move-out date <span style="font-weight: 400; font-size: 0.85rem; color: var(--text-muted);">(optional)</span></label>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">If you know your exact move-out date, enter it here. Leave blank if you're not sure.</p>
+                <input type="date" name="moveout_date" id="moveout-date-input" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
+            </div>
+
             <p style="font-size: 0.9rem; color: var(--text-muted); margin: 20px 0;">
                 <button type="button" onclick="toggleRouteMessage()" aria-label="More info" style="background: none; border: none; padding: 0; cursor: pointer; color: var(--text-muted); margin-right: 4px; vertical-align: middle;">
                     <i class="fas fa-info-circle"></i>
@@ -68,5 +94,19 @@ function toggleRouteMessage() {
     var el = document.getElementById('route-message');
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
+(function() {
+    var weekDateRanges = { 'week1': ['2026-04-27', '2026-05-03'], 'week2': ['2026-05-04', '2026-05-10'] };
+    var moveoutInput = document.getElementById('moveout-date-input');
+    document.querySelectorAll('input[name="pickup_week"]').forEach(function(r) {
+        r.addEventListener('change', function() {
+            var range = weekDateRanges[this.value];
+            if (range && moveoutInput) {
+                moveoutInput.min = range[0];
+                moveoutInput.max = range[1];
+                moveoutInput.value = '';
+            }
+        });
+    });
+})();
 </script>
 {% endblock %}
