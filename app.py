@@ -2802,21 +2802,15 @@ def admin_send_pickup_nudge():
 
 def _run_approval_digest():
     """Core digest logic. Returns (success: bool, message: str)."""
-    from datetime import timedelta
     now = datetime.utcnow()
 
-    # Determine cutoff: last digest sent_at, or 1 hour ago
-    last_digest = DigestLog.query.order_by(DigestLog.sent_at.desc()).first()
-    cutoff = last_digest.sent_at if last_digest else (now - timedelta(hours=1))
-
-    # Query new pending items since cutoff
+    # Query all items currently pending approval
     new_items = InventoryItem.query.filter(
-        InventoryItem.status == 'pending_valuation',
-        InventoryItem.date_added > cutoff
+        InventoryItem.status == 'pending_valuation'
     ).all()
 
     if not new_items:
-        return True, "No new items since last digest."
+        return True, "No items pending approval."
 
     # Build category breakdown
     cat_counts = {}
