@@ -374,11 +374,67 @@
                 {% endif %}
             </div>
             
+            <!-- AI Research Panel -->
+            <div id="ai-panel" class="ai-panel{% if ai_result and ai_result.status == 'pending' %} ai-panel--pending{% elif not ai_result or ai_result.status in ('unknown', 'error') %} ai-panel--unknown{% endif %}" data-item-id="{{ pending_item.id }}">
+                <div class="ai-panel__header">
+                    <span class="ai-panel__title"><i class="fas fa-robot"></i> AI Research</span>
+                    <button type="button" class="ai-panel__rerun" id="ai-rerun-btn" title="Re-run AI lookup">
+                        <i class="fas fa-redo"></i> Re-run
+                    </button>
+                </div>
+                <div id="ai-panel-content">
+                {% if ai_result and ai_result.status == 'pending' %}
+                    <div class="ai-panel__muted"><i class="fas fa-spinner fa-spin"></i> AI research in progress...</div>
+                {% elif ai_result and ai_result.status == 'found' %}
+                    <div class="ai-panel__label">Product</div>
+                    <div class="ai-panel__value">{{ ai_result.product_name }}</div>
+                    <div class="ai-panel__label">Retail Price</div>
+                    <div class="ai-panel__value">
+                        ${{ '%.2f'|format(ai_result.retail_price) }}
+                        {% if ai_result.retail_price_source %}
+                        <a href="{{ ai_result.retail_price_source }}" target="_blank" rel="noopener" style="margin-left:6px;font-size:0.85rem;color:var(--primary);">View source <i class="fas fa-external-link-alt" style="font-size:0.7rem;"></i></a>
+                        {% endif %}
+                    </div>
+                    <div class="ai-panel__label">Suggested Resale Price</div>
+                    <div class="ai-panel__value" style="font-size:1.1rem;font-weight:700;color:var(--primary);">${{ '%.2f'|format(ai_result.suggested_price) }}</div>
+                    {% if ai_result.pricing_rationale %}
+                    <div class="ai-panel__value" style="font-size:0.85rem;color:var(--text-muted);font-style:italic;margin-top:-8px;">"{{ ai_result.pricing_rationale }}"</div>
+                    {% endif %}
+                    <button type="button" class="ai-panel__use-btn" id="ai-use-price-btn" data-price="{{ ai_result.suggested_price }}">
+                        <i class="fas fa-arrow-right"></i> Use this price
+                    </button>
+                {% else %}
+                    <div class="ai-panel__muted">Could not identify product. Price and description not available.</div>
+                {% endif %}
+                </div>
+            </div>
+
+            {% if ai_result and ai_result.status == 'found' and ai_result.ai_description %}
+            <div class="description-columns" id="ai-desc-columns">
+                <div class="description-columns__col">
+                    <h4>Seller's Description</h4>
+                    <p>{{ pending_item.long_description or pending_item.description or '(none)' }}</p>
+                </div>
+                <div class="description-columns__col">
+                    <h4>AI Description</h4>
+                    <p>{{ ai_result.ai_description }}</p>
+                    <button type="button" class="ai-panel__use-btn" id="ai-use-desc-btn" data-desc="{{ ai_result.ai_description }}" style="margin-top:10px;font-size:0.8rem;">
+                        <i class="fas fa-arrow-right"></i> Use this
+                    </button>
+                </div>
+            </div>
+            {% elif pending_item.long_description %}
+            <div style="margin-top:16px;">
+                <div class="ai-panel__label">Seller's Description</div>
+                <div class="ai-panel__value">{{ pending_item.long_description }}</div>
+            </div>
+            {% endif %}
+
             <form method="POST" action="{{ url_for('admin_approve') }}" id="approve-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="item_id" value="{{ pending_item.id }}">
                 <input type="hidden" name="sort" value="{{ sort }}">
-                
+
                 <div class="approve-form-grid">
                     <div>
                         <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Price ($)</label>
@@ -644,6 +700,143 @@
                 openPanel(trigger.dataset.userId);
             }
         });
+    })();
+
+    // AI Research Panel logic
+    (function() {
+        var aiPanel = document.getElementById('ai-panel');
+        if (!aiPanel) return;
+        var itemId = aiPanel.dataset.itemId;
+        var contentEl = document.getElementById('ai-panel-content');
+        var rerunBtn = document.getElementById('ai-rerun-btn');
+        var csrfToken = document.querySelector('input[name="csrf_token"]');
+
+        function renderResult(data) {
+            aiPanel.classList.remove('ai-panel--pending', 'ai-panel--unknown');
+            if (data.status === 'found') {
+                var html = '<div class="ai-panel__label">Product</div>' +
+                    '<div class="ai-panel__value">' + (data.product_name || '') + '</div>' +
+                    '<div class="ai-panel__label">Retail Price</div>' +
+                    '<div class="ai-panel__value">$' + (data.retail_price ? data.retail_price.toFixed(2) : '?');
+                if (data.retail_price_source) {
+                    html += ' <a href="' + data.retail_price_source + '" target="_blank" rel="noopener" style="margin-left:6px;font-size:0.85rem;color:var(--primary);">View source <i class="fas fa-external-link-alt" style="font-size:0.7rem;"></i></a>';
+                }
+                html += '</div><div class="ai-panel__label">Suggested Resale Price</div>' +
+                    '<div class="ai-panel__value" style="font-size:1.1rem;font-weight:700;color:var(--primary);">$' + (data.suggested_price ? data.suggested_price.toFixed(2) : '?') + '</div>';
+                if (data.pricing_rationale) {
+                    html += '<div class="ai-panel__value" style="font-size:0.85rem;color:var(--text-muted);font-style:italic;margin-top:-8px;">"' + data.pricing_rationale + '"</div>';
+                }
+                html += '<button type="button" class="ai-panel__use-btn" id="ai-use-price-btn" data-price="' + (data.suggested_price || '') + '"><i class="fas fa-arrow-right"></i> Use this price</button>';
+                contentEl.innerHTML = html;
+                bindUsePrice();
+
+                // Update description columns
+                var descCols = document.getElementById('ai-desc-columns');
+                if (data.ai_description) {
+                    if (!descCols) {
+                        descCols = document.createElement('div');
+                        descCols.className = 'description-columns';
+                        descCols.id = 'ai-desc-columns';
+                        aiPanel.insertAdjacentElement('afterend', descCols);
+                    }
+                    var sellerDesc = '{{ (pending_item.long_description or pending_item.description or "(none)")|e }}';
+                    descCols.innerHTML = '<div class="description-columns__col"><h4>Seller\'s Description</h4><p>' + sellerDesc + '</p></div>' +
+                        '<div class="description-columns__col"><h4>AI Description</h4><p>' + data.ai_description + '</p>' +
+                        '<button type="button" class="ai-panel__use-btn" id="ai-use-desc-btn" style="margin-top:10px;font-size:0.8rem;"><i class="fas fa-arrow-right"></i> Use this</button></div>';
+                    bindUseDesc(data.ai_description);
+                }
+            } else {
+                aiPanel.classList.add('ai-panel--unknown');
+                contentEl.innerHTML = '<div class="ai-panel__muted">Could not identify product. Price and description not available.</div>';
+            }
+        }
+
+        function bindUsePrice() {
+            var btn = document.getElementById('ai-use-price-btn');
+            if (btn) {
+                btn.addEventListener('click', function() {
+                    var priceInput = document.querySelector('input[name="price"]');
+                    if (priceInput) {
+                        priceInput.value = parseFloat(this.dataset.price).toFixed(2);
+                        priceInput.focus();
+                    }
+                });
+            }
+        }
+
+        function bindUseDesc(descText) {
+            var btn = document.getElementById('ai-use-desc-btn');
+            if (btn) {
+                btn.addEventListener('click', function() {
+                    var descField = document.querySelector('textarea[name="long_description"]');
+                    if (descField) {
+                        descField.value = descText || this.dataset.desc;
+                    }
+                });
+            }
+        }
+
+        // Bind initial buttons
+        bindUsePrice();
+        var initDescBtn = document.getElementById('ai-use-desc-btn');
+        if (initDescBtn) bindUseDesc(initDescBtn.dataset.desc);
+
+        // Re-run button
+        if (rerunBtn) {
+            rerunBtn.addEventListener('click', function() {
+                rerunBtn.disabled = true;
+                rerunBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running...';
+                aiPanel.classList.remove('ai-panel--unknown');
+                aiPanel.classList.add('ai-panel--pending');
+                contentEl.innerHTML = '<div class="ai-panel__muted"><i class="fas fa-spinner fa-spin"></i> AI research in progress...</div>';
+                fetch('/admin/item/' + itemId + '/ai-lookup', {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': csrfToken ? csrfToken.value : '', 'Content-Type': 'application/json'}
+                }).then(function() {
+                    startPolling();
+                }).catch(function() {
+                    contentEl.innerHTML = '<div class="ai-panel__muted">Re-run failed. Try again.</div>';
+                    rerunBtn.disabled = false;
+                    rerunBtn.innerHTML = '<i class="fas fa-redo"></i> Re-run';
+                });
+            });
+        }
+
+        // Polling logic
+        var pollTimer = null;
+        var pollStart = null;
+        var POLL_INTERVAL = 3000;
+        var POLL_TIMEOUT = 60000;
+
+        function startPolling() {
+            pollStart = Date.now();
+            pollTimer = setInterval(function() {
+                if (Date.now() - pollStart > POLL_TIMEOUT) {
+                    clearInterval(pollTimer);
+                    aiPanel.classList.remove('ai-panel--pending');
+                    aiPanel.classList.add('ai-panel--unknown');
+                    contentEl.innerHTML = '<div class="ai-panel__muted">AI lookup timed out. Try re-running.</div>';
+                    rerunBtn.disabled = false;
+                    rerunBtn.innerHTML = '<i class="fas fa-redo"></i> Re-run';
+                    return;
+                }
+                fetch('/admin/item/' + itemId + '/ai-result')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.status !== 'pending') {
+                            clearInterval(pollTimer);
+                            rerunBtn.disabled = false;
+                            rerunBtn.innerHTML = '<i class="fas fa-redo"></i> Re-run';
+                            renderResult(data);
+                        }
+                    });
+            }, POLL_INTERVAL);
+        }
+
+        // Auto-start polling if status is pending
+        if (aiPanel.classList.contains('ai-panel--pending')) {
+            startPolling();
+        }
     })();
 </script>
 {% endblock %}

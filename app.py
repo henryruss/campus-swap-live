@@ -6,6 +6,8 @@ import logging
 import re
 import secrets
 import html as html_module
+import threading
+import base64
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 
@@ -28,7 +30,7 @@ from sqlalchemy import or_, and_, func, nulls_last
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult
 
 # Import Constants
 from constants import (
@@ -725,6 +727,219 @@ def request_entity_too_large(error):
     logger.warning(f"413 error: File too large")
     flash("File is too large. Maximum size is 10MB.", "error")
     return redirect(request.url), 413
+
+
+# =========================================================
+# AI ITEM LOOKUP (background thread)
+# =========================================================
+
+AI_SYSTEM_PROMPT = """You are a product research assistant for a college student consignment marketplace. \
+You will be shown photos of a used item along with its category, condition rating, \
+and the seller's description.
+
+Your job is to:
+1. Identify the exact product (brand, model name, model number if visible)
+2. Search the web to find its current retail price from a major retailer
+3. Suggest a fair resale price based on retail price, condition, and any visible wear in the photos
+4. Write a clean, accurate 2-3 sentence product description suitable for a resale listing
+5. Provide a brief 1-2 sentence rationale for your suggested price
+
+Respond ONLY with a JSON object in this exact format:
+{
+  "identified": true,
+  "product_name": "Full product name and model",
+  "retail_price": 129.99,
+  "retail_price_source": "https://www.amazon.com/...",
+  "suggested_price": 58.00,
+  "pricing_rationale": "Retails for $130 new. Condition rated Good with minor scuffs visible on left panel. Suggested at 45% of retail.",
+  "description": "Frigidaire 3.2 cu ft compact refrigerator in good condition. Features a small freezer compartment and adjustable shelving. Minor cosmetic wear on exterior."
+}
+
+If you cannot confidently identify the specific product or find a retail listing for it, respond with:
+{
+  "identified": false
+}
+
+Do not guess. Only return identified: true if you are confident in the product match and have a real retail URL to provide."""
+
+
+def run_ai_item_lookup(item_id):
+    """Run AI lookup for an item in a background thread. Must be called with app context."""
+    try:
+        import anthropic
+    except ImportError:
+        logger.error("anthropic package not installed — AI lookup skipped")
+        result = ItemAIResult.query.filter_by(item_id=item_id).first()
+        if result:
+            result.status = 'error'
+            result.raw_response = 'anthropic package not installed'
+            db.session.commit()
+        return
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        logger.error("ANTHROPIC_API_KEY not set — AI lookup skipped")
+        result = ItemAIResult.query.filter_by(item_id=item_id).first()
+        if result:
+            result.status = 'error'
+            result.raw_response = 'ANTHROPIC_API_KEY not set'
+            db.session.commit()
+        return
+
+    try:
+        item = InventoryItem.query.options(
+            joinedload(InventoryItem.category),
+            joinedload(InventoryItem.gallery_photos)
+        ).get(item_id)
+        if not item:
+            return
+
+        result = ItemAIResult.query.filter_by(item_id=item_id).first()
+        if not result:
+            return
+
+        # Collect photos (cover + up to 3 gallery, max 4 total)
+        photo_keys = []
+        if item.photo_url:
+            photo_keys.append(item.photo_url)
+        for gp in (item.gallery_photos or []):
+            if gp.photo_url and gp.photo_url != item.photo_url:
+                photo_keys.append(gp.photo_url)
+            if len(photo_keys) >= 4:
+                break
+
+        if not photo_keys:
+            result.status = 'unknown'
+            result.updated_at = datetime.utcnow()
+            db.session.commit()
+            return
+
+        # Build image content blocks
+        image_content = []
+        for key in photo_keys:
+            photo_bytes = photo_storage.get_photo_bytes(key)
+            if not photo_bytes:
+                continue
+            ext = key.rsplit('.', 1)[-1].lower() if '.' in key else 'jpeg'
+            media_type = 'image/png' if ext == 'png' else 'image/jpeg'
+            b64 = base64.standard_b64encode(photo_bytes).decode('utf-8')
+            image_content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": b64
+                }
+            })
+
+        if not image_content:
+            result.status = 'unknown'
+            result.updated_at = datetime.utcnow()
+            db.session.commit()
+            return
+
+        # Build text context
+        category_name = item.category.name if item.category else 'Unknown'
+        condition_map = {5: 'Like New', 4: 'Good', 3: 'Fair', 2: 'Fair', 1: 'Fair'}
+        condition = condition_map.get(item.quality, 'Unknown')
+        seller_desc = item.long_description or item.description or ''
+
+        text_block = {
+            "type": "text",
+            "text": f"Category: {category_name}\nCondition: {condition}\nSeller's description: {seller_desc}"
+        }
+
+        # Call Anthropic API
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            system=AI_SYSTEM_PROMPT,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+            messages=[{
+                "role": "user",
+                "content": image_content + [text_block]
+            }]
+        )
+
+        # Extract text from response
+        raw_text = ""
+        for block in response.content:
+            if hasattr(block, 'text'):
+                raw_text += block.text
+
+        result.raw_response = raw_text
+
+        # Strip markdown code fences before parsing
+        json_text = raw_text.strip()
+        if json_text.startswith("```"):
+            lines = json_text.split('\n')
+            # Remove first line (```json or ```) and last line (```)
+            if lines[-1].strip() == '```':
+                lines = lines[1:-1]
+            else:
+                lines = lines[1:]
+            json_text = '\n'.join(lines).strip()
+
+        parsed = json.loads(json_text)
+
+        if parsed.get('identified'):
+            result.status = 'found'
+            result.product_name = str(parsed.get('product_name', ''))[:500]
+            result.retail_price = parsed.get('retail_price')
+            result.retail_price_source = str(parsed.get('retail_price_source', ''))[:500] if parsed.get('retail_price_source') else None
+            result.suggested_price = parsed.get('suggested_price')
+            result.pricing_rationale = parsed.get('pricing_rationale')
+            result.ai_description = parsed.get('description')
+        else:
+            result.status = 'unknown'
+
+        result.updated_at = datetime.utcnow()
+        db.session.commit()
+
+    except json.JSONDecodeError as e:
+        logger.error(f"AI lookup JSON parse error for item {item_id}: {e}")
+        result = ItemAIResult.query.filter_by(item_id=item_id).first()
+        if result:
+            result.status = 'error'
+            result.updated_at = datetime.utcnow()
+            db.session.commit()
+    except Exception as e:
+        logger.error(f"AI lookup failed for item {item_id}: {e}", exc_info=True)
+        try:
+            result = ItemAIResult.query.filter_by(item_id=item_id).first()
+            if result:
+                result.status = 'error'
+                result.updated_at = datetime.utcnow()
+                db.session.commit()
+        except Exception:
+            pass
+
+
+def trigger_ai_lookup(item_id):
+    """Create ItemAIResult record and start background thread for AI lookup."""
+    existing = ItemAIResult.query.filter_by(item_id=item_id).first()
+    if not existing:
+        existing = ItemAIResult(item_id=item_id, status='pending')
+        db.session.add(existing)
+    else:
+        existing.status = 'pending'
+        existing.product_name = None
+        existing.retail_price = None
+        existing.retail_price_source = None
+        existing.suggested_price = None
+        existing.pricing_rationale = None
+        existing.ai_description = None
+        existing.raw_response = None
+        existing.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    def _run_in_context(app_obj, iid):
+        with app_obj.app_context():
+            run_ai_item_lookup(iid)
+
+    thread = threading.Thread(target=_run_in_context, args=(app, item_id), daemon=True)
+    thread.start()
 
 
 # =========================================================
@@ -1434,6 +1649,17 @@ def create_upload_session():
 
     token = secrets.token_urlsafe(16)
     upload_url = url_for('upload_from_phone', token=token, _external=True)
+    # For local dev: replace localhost/127.0.0.1 with LAN IP so phones can connect
+    if app.debug:
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            upload_url = upload_url.replace('://127.0.0.1', f'://{local_ip}').replace('://localhost', f'://{local_ip}')
+        except Exception:
+            pass
 
     user_id = current_user.id if current_user.is_authenticated else None
     session_obj = UploadSession(session_token=token, user_id=user_id)
@@ -1446,7 +1672,7 @@ def create_upload_session():
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=8, border=2)
     qr.add_data(upload_url)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="#000", back_color="#fff")
+    img = qr.make_image(fill_color="#1A3D1A", back_color="#fff")
     buf = BytesIO()
     img.save(buf, format="PNG")
     qr_base64 = base64.b64encode(buf.getvalue()).decode()
@@ -2605,13 +2831,19 @@ def admin_approve():
         ).all()
         resubmitted_item_ids = {a.item_id for a in resubmitted_alerts}
 
+    # Load AI result for the selected item (if viewing single item)
+    ai_result = None
+    if pending_item:
+        ai_result = ItemAIResult.query.filter_by(item_id=pending_item.id).first()
+
     return render_template('admin_approve.html',
         pending_item=pending_item,
         pending_items=pending_items,
         all_cats=all_cats,
         total_pending=total_pending,
         sort=sort_param,
-        resubmitted_item_ids=resubmitted_item_ids
+        resubmitted_item_ids=resubmitted_item_ids,
+        ai_result=ai_result
     )
 
 
@@ -2669,6 +2901,40 @@ def admin_cancel_info_request(item_id):
     db.session.commit()
     flash(f"Request cancelled. '{item.description}' returned to approval queue.", "success")
     return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/item/<int:item_id>/ai-lookup', methods=['POST'])
+@login_required
+def admin_trigger_ai_lookup(item_id):
+    """Manually re-run AI lookup for an item. Admin only. Returns JSON."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    item = InventoryItem.query.get(item_id)
+    if not item:
+        return jsonify({'error': 'Item not found'}), 404
+    trigger_ai_lookup(item_id)
+    return jsonify({'status': 'pending', 'message': 'AI lookup started'})
+
+
+@app.route('/admin/item/<int:item_id>/ai-result')
+@login_required
+def admin_get_ai_result(item_id):
+    """Return current AI result for an item as JSON. Admin only. Used for polling."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    result = ItemAIResult.query.filter_by(item_id=item_id).first()
+    if not result:
+        return jsonify({'status': 'none'})
+    data = {
+        'status': result.status,
+        'product_name': result.product_name,
+        'retail_price': float(result.retail_price) if result.retail_price else None,
+        'retail_price_source': result.retail_price_source,
+        'suggested_price': float(result.suggested_price) if result.suggested_price else None,
+        'pricing_rationale': result.pricing_rationale,
+        'ai_description': result.ai_description,
+    }
+    return jsonify(data)
 
 
 @app.route('/item/<int:item_id>/resubmit', methods=['POST'])
@@ -4470,6 +4736,12 @@ def onboard():
         except Exception:
             pass
 
+        # Trigger AI lookup in background (after commit, never blocks response)
+        try:
+            trigger_ai_lookup(new_item.id)
+        except Exception:
+            logger.error(f"Failed to trigger AI lookup for item {new_item.id}", exc_info=True)
+
         # No payment at onboarding - user pays after approval when confirming pickup
         try:
             submission_content = f"""
@@ -5394,6 +5666,12 @@ def add_item():
             return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
         db.session.commit()
+
+        # Trigger AI lookup in background (after commit, never blocks response)
+        try:
+            trigger_ai_lookup(new_item.id)
+        except Exception:
+            logger.error(f"Failed to trigger AI lookup for item {new_item.id}", exc_info=True)
 
         # Send item submission confirmation email
         try:

@@ -39,7 +39,7 @@ ALLOWED_VIDEO_MIME_TYPES = {'video/mp4', 'video/quicktime', 'video/webm'}
 
 # Categories that require video upload (matched case-insensitive, partial match)
 VIDEO_REQUIRED_CATEGORIES = [
-    'tv', 'television', 'gaming', 'console', 'printer', 'electronic',
+    'tv', 'television', 'gaming console', 'printer', 'electronic',
     'mini fridge', 'fridge', 'microwave', 'heater', 'ac', 'air conditioner',
     'blender', 'scooter', 'air fryer'
 ]
