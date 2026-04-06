@@ -29,6 +29,18 @@
     .photos-block { min-height: 200px; }
     .upload-zone { border: 2px dashed #cbd5e1; border-radius: 20px; padding: 48px 24px; text-align: center; background: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.25s; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .upload-zone:hover, .upload-zone.dragover { border-color: var(--primary); background: rgba(240, 253, 244, 0.6); }
+    /* Upload method tabs */
+    .upload-tabs { display: flex; border: 2px solid #e2e8f0; border-radius: 14px; overflow: hidden; margin-bottom: 20px; background: #f8fafc; }
+    .upload-tab { flex: 1; padding: 14px 16px; text-align: center; cursor: pointer; font-weight: 600; font-size: 0.95rem; color: var(--text-muted); transition: all 0.25s; border: none; background: transparent; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .upload-tab:first-child { border-right: 2px solid #e2e8f0; }
+    .upload-tab.active { background: white; color: var(--primary); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .upload-tab:hover:not(.active) { background: rgba(255,255,255,0.5); }
+    .upload-tab-content { display: none; }
+    .upload-tab-content.active { display: block; }
+    .qr-phone-zone { border: 2px dashed rgba(6,78,59,0.3); border-radius: 20px; padding: 40px 24px; text-align: center; background: linear-gradient(135deg,#f0fdf4 0%,#ecfdf5 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; }
+    .qr-phone-zone h4 { color: var(--primary); margin: 0 0 4px; font-size: 1.05rem; }
+    .qr-phone-zone p { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 16px; }
+    .qr-phone-zone img { border-radius: 12px; }
     .preview-container { display: none; }
     .preview-container.visible { display: block; }
     .preview-carousel { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -132,20 +144,30 @@
 
         <div class="wizard-step" id="step-3" data-step="3">
             <h2 class="step-title">Add photos</h2>
-            <p class="step-sub">Show off your item. Make sure to capture any wear or tear! We recommend taking at least two photos.</p>
-            <div class="photos-side-by-side">
-                <div id="upload-from-computer" class="upload-zone photos-block">
-                    <i class="fas fa-camera"></i>
-                    <h4>Click to upload photos</h4>
-                    <p>or drag and drop • JPG, PNG, or WebP</p>
+            <p class="step-sub">Show off your item. We recommend at least two photos — capture any wear or tear.</p>
+
+            <div class="upload-tabs">
+                <button type="button" class="upload-tab active" data-tab="computer"><i class="fas fa-upload"></i> From computer</button>
+                <button type="button" class="upload-tab" data-tab="phone"><i class="fas fa-mobile-alt"></i> From phone</button>
+            </div>
+
+            <div class="upload-tab-content active" id="tab-computer">
+                <div id="upload-from-computer" class="upload-zone" style="min-height:180px;">
+                    <i class="fas fa-camera" style="font-size:1.8rem;color:var(--primary);margin-bottom:10px;"></i>
+                    <h4 style="margin:0 0 4px;">Click to upload photos</h4>
+                    <p style="font-size:0.9rem;color:var(--text-muted);margin:0;">or drag and drop &bull; JPG, PNG, or WebP</p>
                 </div>
-                <div id="qr-block" class="upload-zone photos-block" style="background:linear-gradient(135deg,#f0fdf4 0%,#ecfdf5 100%);border-color:rgba(6,78,59,0.3);">
-                    <i class="fas fa-qrcode" style="color:var(--primary);font-size:1.5rem;margin-bottom:8px;"></i>
-                    <h4 style="color:var(--primary);">Upload with your phone</h4>
-                    <p style="margin-bottom:12px;">Scan with your camera</p>
+            </div>
+
+            <div class="upload-tab-content" id="tab-phone">
+                <div class="qr-phone-zone" id="qr-block">
+                    <i class="fas fa-qrcode" style="color:var(--primary);font-size:2rem;margin-bottom:10px;"></i>
+                    <h4>Scan to upload from your phone</h4>
+                    <p>Photos and videos will appear here automatically</p>
                     <div id="qr-container" style="min-height:140px;display:flex;align-items:center;justify-content:center;"></div>
                 </div>
             </div>
+
             <div class="preview-container" id="preview-container">
                 <div class="preview-carousel">
                     <button type="button" class="carousel-nav" id="prev-btn"><i class="fas fa-chevron-left"></i></button>
@@ -157,28 +179,28 @@
                     <button type="button" class="carousel-nav" id="next-btn"><i class="fas fa-chevron-right"></i></button>
                 </div>
                 <div class="preview-thumbnails" id="thumbnails"></div>
-                <p style="font-size:0.9rem;color:var(--text-muted);margin:12px 0 0;"><i class="fas fa-images"></i> <span id="file-count-text">0 photos</span> • Star your cover by clicking a thumbnail</p>
+                <p style="font-size:0.9rem;color:var(--text-muted);margin:12px 0 0;"><i class="fas fa-images"></i> <span id="file-count-text">0 photos</span> &bull; Star your cover by clicking a thumbnail</p>
                 <button type="button" id="add-more-btn" style="margin-top:12px;padding:10px 20px;background:#f8fafc;border:2px dashed #cbd5e1;border-radius:10px;color:var(--primary);font-weight:600;cursor:pointer;font-size:0.9rem;"><i class="fas fa-plus"></i> Add more</button>
             </div>
 
-            <!-- Video Upload Zone -->
-            <div id="video-upload-section" style="margin-top:24px;">
-                <div id="video-required-banner" style="display:none;padding:12px 16px;margin-bottom:12px;background:#fffbeb;border-left:4px solid var(--accent);border-radius:8px;">
+            <!-- Video Upload Section -->
+            <div id="video-upload-section" style="margin-top:28px;padding-top:24px;border-top:1px solid #e2e8f0;">
+                <div id="video-required-banner" style="display:none;padding:12px 16px;margin-bottom:14px;background:#fffbeb;border-left:4px solid var(--accent);border-radius:8px;">
                     <p style="margin:0;font-size:0.9rem;color:var(--text-main);line-height:1.5;"><i class="fas fa-video" style="color:var(--accent);margin-right:6px;"></i><strong>Video required:</strong> Show the item powering on — this helps buyers feel confident and helps us price it accurately.</p>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                    <h3 style="font-size:1rem;font-weight:600;margin:0;">Add a demo video</h3>
-                    <span id="video-badge" style="font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:6px;background:#dcfce7;color:#166534;">Optional</span>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <h3 style="font-size:1.05rem;font-weight:700;margin:0;">Demo video</h3>
+                    <span id="video-badge" style="font-size:0.7rem;font-weight:700;padding:3px 10px;border-radius:99px;background:#dcfce7;color:#166534;letter-spacing:0.02em;">Optional</span>
                 </div>
-                <p id="video-hint" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;">Optionally add a video to boost your listing&#8217;s engagement. Max 30 seconds, 50MB.</p>
-                <div id="video-upload-zone" class="upload-zone" style="cursor:pointer;padding:24px;text-align:center;border:2px dashed #cbd5e1;border-radius:12px;background:#f8fafc;">
+                <p id="video-hint" style="font-size:0.88rem;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">Add a short video to boost your listing. Max 30 seconds, 50MB.</p>
+                <div id="video-upload-zone" class="upload-zone" style="cursor:pointer;padding:28px 24px;min-height:auto;border-radius:16px;">
                     <i class="fas fa-video" style="font-size:1.5rem;color:var(--primary);margin-bottom:8px;"></i>
                     <h4 style="margin:0 0 4px;">Click to upload video</h4>
                     <p style="font-size:0.85rem;color:var(--text-muted);margin:0;">MP4, MOV, or WebM</p>
                 </div>
                 <div id="video-preview-container" style="display:none;margin-top:12px;">
-                    <video id="video-preview" controls playsinline style="width:100%;max-height:300px;border-radius:12px;background:#000;"></video>
-                    <div style="display:flex;gap:8px;margin-top:8px;">
+                    <video id="video-preview" controls playsinline style="width:100%;max-height:280px;border-radius:12px;background:#000;"></video>
+                    <div style="display:flex;gap:8px;margin-top:10px;">
                         <button type="button" id="video-replace-btn" style="padding:8px 16px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;color:var(--primary);font-weight:600;cursor:pointer;font-size:0.85rem;"><i class="fas fa-sync-alt"></i> Replace</button>
                         <button type="button" id="video-remove-btn" style="padding:8px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#dc2626;font-weight:600;cursor:pointer;font-size:0.85rem;"><i class="fas fa-trash"></i> Remove</button>
                     </div>
@@ -277,7 +299,7 @@
         document.getElementById('progress-fill').style.width = (step / TOTAL_STEPS * 100) + '%';
         currentStep = step;
         document.getElementById('btn-back').style.visibility = step > 1 ? 'visible' : 'hidden';
-        if (step === 3 && !uploadSessionToken) loadQr();
+        if (step === 3 && !uploadSessionToken && document.querySelector('.upload-tab[data-tab="phone"].active')) loadQr();
         if (step === TOTAL_STEPS) {
             document.getElementById('btn-next').style.display = 'none';
             populateReview();
@@ -611,6 +633,17 @@
         }
     };
 
+    // Upload method tab switching
+    document.querySelectorAll('.upload-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.upload-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.upload-tab-content').forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById('tab-' + this.dataset.tab).classList.add('active');
+            if (this.dataset.tab === 'phone' && !uploadSessionToken) loadQr();
+        });
+    });
+
     uploadZone.onclick = () => fileInput.click();
     uploadZone.ondragover = e => { e.preventDefault(); uploadZone.classList.add('dragover'); };
     uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
@@ -660,6 +693,17 @@
                         const s = await fetch('/api/upload_session/status?token='+encodeURIComponent(uploadSessionToken));
                         const j = await s.json();
                         if (j.images && j.images.length) addTemp(j.images.map(i => i.filename), j.images.map(i => i.url));
+                        if (j.videos && j.videos.length && !tempVideoFilename) {
+                            const v = j.videos[j.videos.length - 1];
+                            tempVideoFilename = v.filename;
+                            document.getElementById('temp-video-id').value = v.filename;
+                            const vPreview = document.getElementById('video-preview');
+                            const vContainer = document.getElementById('video-preview-container');
+                            const vZone = document.getElementById('video-upload-zone');
+                            vPreview.src = v.url;
+                            vContainer.style.display = 'block';
+                            vZone.style.display = 'none';
+                        }
                     } catch(e){}
                 }, 2500);
             }

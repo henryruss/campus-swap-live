@@ -3,116 +3,252 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Upload Photo - Campus Swap</title>
+    <title>Upload - Campus Swap</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; }
+        :root {
+            --primary: #1A3D1A;
+            --primary-light: #2E5C2E;
+            --accent: #C8832A;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f0fdf4;
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(160deg, #f0fdf4 0%, #ecfdf5 40%, #f8fafc 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            padding: 24px 16px;
+            -webkit-font-smoothing: antialiased;
         }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--primary);
+            letter-spacing: -0.02em;
+        }
+        .brand i { font-size: 1.2rem; }
         .card {
             background: white;
-            border-radius: 16px;
-            padding: 24px;
+            border-radius: 20px;
+            padding: 28px 24px;
             max-width: 400px;
             width: 100%;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
         }
-        h1 { font-size: 1.5rem; margin: 0 0 8px; color: #166534; }
-        p { color: #64748b; margin: 0 0 16px; line-height: 1.5; font-size: 0.95rem; }
-        .error { color: #dc2626; background: #fef2f2; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
-        .file-input-wrap {
+        .card-header { margin-bottom: 20px; }
+        .card-header h1 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 4px;
+            letter-spacing: -0.02em;
+        }
+        .card-header p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+        .error-banner {
+            color: #dc2626;
+            background: #fef2f2;
+            padding: 14px 16px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-divider {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 22px 0;
+        }
+        .section-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 12px;
+        }
+        .upload-btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: 100%;
+            padding: 16px 18px;
+            border: 2px solid #e2e8f0;
+            border-radius: 14px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+            font-family: inherit;
+        }
+        .upload-btn:active { transform: scale(0.98); background: #f8fafc; }
+        .upload-btn:hover { border-color: var(--primary); background: #f0fdf4; }
+        .upload-btn + .upload-btn { margin-top: 10px; }
+        .upload-btn .icon-wrap {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: rgba(26, 61, 26, 0.08);
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 16px;
-            border-left: 4px solid #e2e8f0;
-            border-right: 4px solid #e2e8f0;
-            border-radius: 0;
-            padding: 24px 24px;
-            text-align: left;
-            background: #f8fafc;
-            margin: 16px 0;
-            cursor: pointer;
+            color: var(--primary);
+            font-size: 1.15rem;
+            flex-shrink: 0;
         }
-        .file-input-wrap:active { background: #f1f5f9; }
-        .btn-row { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
-        .file-input-wrap { margin: 0; }
+        .upload-btn .label { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
+        .upload-btn .sublabel { font-size: 0.8rem; color: var(--text-muted); margin-top: 1px; }
         input[type="file"] { display: none; }
-        .camera-icon { font-size: 2.5rem; color: #64748b; flex-shrink: 0; }
-        .gallery-icon { font-size: 2.5rem; color: #64748b; flex-shrink: 0; }
-        .success-msg { color: #16a34a; font-weight: 600; margin-top: 12px; }
-        .success-msg::before { content: "✓ "; }
-        .thumb { max-width: 100%; border-radius: 8px; margin-top: 12px; max-height: 200px; object-fit: contain; }
+        .status-msg {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 14px;
+            animation: slideUp 0.3s ease;
+        }
+        .status-msg.success {
+            display: flex;
+            background: #f0fdf4;
+            color: var(--primary);
+            border: 1px solid rgba(26, 61, 26, 0.15);
+        }
+        .status-msg.uploading {
+            display: flex;
+            background: #f8fafc;
+            color: var(--text-muted);
+            border: 1px solid #e2e8f0;
+        }
+        .status-msg.error {
+            display: flex;
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .thumb-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+        .thumb {
+            width: 64px;
+            height: 64px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 2px solid #e2e8f0;
+            animation: fadeIn 0.3s ease;
+        }
+        .video-thumb {
+            width: 100%;
+            max-height: 180px;
+            border-radius: 12px;
+            margin-top: 12px;
+            background: #000;
+            animation: fadeIn 0.3s ease;
+        }
+        .upload-count {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--primary);
+            background: #f0fdf4;
+            padding: 4px 10px;
+            border-radius: 99px;
+            margin-top: 10px;
+        }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e2e8f0; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h1>Add Photo from Phone</h1>
-        <p>Take a photo or choose from your gallery. It will appear on your computer.</p>
+    <div class="brand"><i class="fas fa-exchange-alt"></i> Campus Swap</div>
 
+    <div class="card">
         {% if error %}
-        <div class="error">{{ error }}</div>
+        <div class="error-banner"><i class="fas fa-exclamation-circle"></i> {{ error }}</div>
         {% else %}
+        <div class="card-header">
+            <h1>Upload from phone</h1>
+            <p>Take photos or record a video. They'll appear on your computer instantly.</p>
+        </div>
+
         <form id="upload-form">
             <input type="hidden" name="token" value="{{ token }}">
-            <div class="btn-row">
-                <label class="file-input-wrap" for="photo-input-camera">
-                    <span class="camera-icon"><i class="fas fa-camera"></i></span>
-                    <span>Take a new photo</span>
-                    <input id="photo-input-camera" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
-                </label>
-                <label class="file-input-wrap" for="photo-input-library">
-                    <span class="gallery-icon"><i class="fas fa-images"></i></span>
-                    <span>Choose from photo library</span>
-                    <input id="photo-input-library" type="file" name="photo" accept="image/jpeg,image/png,image/webp">
-                </label>
-            </div>
-            <div id="status"></div>
-            <img id="preview" class="thumb" style="display: none;" alt="Preview">
 
-            <hr style="margin:20px 0;border:none;border-top:1px solid #e2e8f0;">
-            <h2 style="font-size:1.1rem;margin-bottom:8px;">Add Demo Video</h2>
-            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">Record a short video showing the item works. Max 30 seconds.</p>
-            <div class="btn-row">
-                <label class="file-input-wrap" for="video-input-camera">
-                    <span class="camera-icon"><i class="fas fa-video"></i></span>
-                    <span>Record a video</span>
-                    <input id="video-input-camera" type="file" name="video" accept="video/mp4,video/webm,.mp4,.mov,.webm" capture="environment">
-                </label>
-                <label class="file-input-wrap" for="video-input-library">
-                    <span class="gallery-icon"><i class="fas fa-film"></i></span>
-                    <span>Choose from library</span>
-                    <input id="video-input-library" type="file" name="video" accept="video/mp4,video/webm,.mp4,.mov,.webm">
-                </label>
-            </div>
-            <div id="video-status"></div>
-            <video id="video-preview" class="thumb" style="display:none;max-height:200px;" controls playsinline></video>
+            <div class="section-label">Photos</div>
+            <label class="upload-btn" for="photo-input-camera">
+                <div class="icon-wrap"><i class="fas fa-camera"></i></div>
+                <div><div class="label">Take a photo</div><div class="sublabel">Opens your camera</div></div>
+                <input id="photo-input-camera" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
+            </label>
+            <label class="upload-btn" for="photo-input-library">
+                <div class="icon-wrap"><i class="fas fa-images"></i></div>
+                <div><div class="label">Choose from library</div><div class="sublabel">Select existing photos</div></div>
+                <input id="photo-input-library" type="file" name="photo" accept="image/jpeg,image/png,image/webp">
+            </label>
+            <div id="photo-status" class="status-msg"></div>
+            <div id="photo-thumbs" class="thumb-row"></div>
+            <div id="photo-count" class="upload-count" style="display:none;"><i class="fas fa-check-circle"></i> <span id="photo-count-text">0 uploaded</span></div>
+
+            <hr class="section-divider">
+
+            <div class="section-label">Demo video</div>
+            <label class="upload-btn" for="video-input-camera">
+                <div class="icon-wrap"><i class="fas fa-video"></i></div>
+                <div><div class="label">Record a video</div><div class="sublabel">Max 30 seconds</div></div>
+                <input id="video-input-camera" type="file" name="video" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" capture="environment">
+            </label>
+            <label class="upload-btn" for="video-input-library">
+                <div class="icon-wrap"><i class="fas fa-film"></i></div>
+                <div><div class="label">Choose from library</div><div class="sublabel">Select an existing video</div></div>
+                <input id="video-input-library" type="file" name="video" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm">
+            </label>
+            <div id="video-status" class="status-msg"></div>
+            <video id="video-preview" class="video-thumb" style="display:none;" controls playsinline></video>
         </form>
         {% endif %}
     </div>
 
     {% if not error %}
     <script>
-        const inputCamera = document.getElementById('photo-input-camera');
-        const inputLibrary = document.getElementById('photo-input-library');
-        const status = document.getElementById('status');
-        const preview = document.getElementById('preview');
         const token = '{{ token }}';
+        let photoCount = 0;
 
-        function handleFileSelect(input) {
+        function setStatus(el, state, text) {
+            el.className = 'status-msg ' + state;
+            if (state === 'uploading') {
+                el.innerHTML = '<span class="spinner"></span> ' + text;
+            } else if (state === 'success') {
+                el.innerHTML = '<i class="fas fa-check-circle"></i> ' + text;
+            } else {
+                el.innerHTML = '<i class="fas fa-exclamation-circle"></i> ' + text;
+            }
+        }
+
+        function handlePhotoSelect(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
-            status.textContent = 'Uploading...';
-            status.className = '';
+            const status = document.getElementById('photo-status');
+            setStatus(status, 'uploading', 'Uploading photo\u2026');
 
             const fd = new FormData();
             fd.append('photo', file);
@@ -126,42 +262,32 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    status.textContent = 'Photo uploaded! Check your computer.';
-                    status.className = 'success-msg';
-                    preview.src = data.url;
-                    preview.style.display = 'block';
-                    inputCamera.value = '';
-                    inputLibrary.value = '';
+                    photoCount++;
+                    setStatus(status, 'success', 'Photo uploaded!');
+                    const img = document.createElement('img');
+                    img.src = data.url;
+                    img.className = 'thumb';
+                    document.getElementById('photo-thumbs').appendChild(img);
+                    const countEl = document.getElementById('photo-count');
+                    countEl.style.display = 'inline-flex';
+                    document.getElementById('photo-count-text').textContent = photoCount + ' uploaded';
+                    input.value = '';
                 } else {
-                    status.textContent = data.error || 'Upload failed';
-                    status.className = 'error';
+                    setStatus(status, 'error', data.error || 'Upload failed');
                 }
             })
-            .catch(() => {
-                status.textContent = 'Upload failed. Please try again.';
-                status.className = 'error';
-            });
+            .catch(() => setStatus(status, 'error', 'Upload failed. Try again.'));
         }
-
-        inputCamera.addEventListener('change', function() { handleFileSelect(inputCamera); });
-        inputLibrary.addEventListener('change', function() { handleFileSelect(inputLibrary); });
-
-        // Video upload
-        const videoInputCamera = document.getElementById('video-input-camera');
-        const videoInputLibrary = document.getElementById('video-input-library');
-        const videoStatus = document.getElementById('video-status');
-        const videoPreview = document.getElementById('video-preview');
 
         function handleVideoSelect(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
+            const status = document.getElementById('video-status');
             if (file.size > 50 * 1024 * 1024) {
-                videoStatus.textContent = 'Video is too large. Maximum size is 50MB.';
-                videoStatus.className = 'error';
+                setStatus(status, 'error', 'Video too large. Max 50MB.');
                 return;
             }
-            videoStatus.textContent = 'Uploading video...';
-            videoStatus.className = '';
+            setStatus(status, 'uploading', 'Uploading video\u2026');
 
             const fd = new FormData();
             fd.append('video', file);
@@ -175,25 +301,22 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    videoStatus.textContent = 'Video uploaded! Check your computer.';
-                    videoStatus.className = 'success-msg';
-                    videoPreview.src = data.url;
-                    videoPreview.style.display = 'block';
-                    videoInputCamera.value = '';
-                    videoInputLibrary.value = '';
+                    setStatus(status, 'success', 'Video uploaded!');
+                    const vp = document.getElementById('video-preview');
+                    vp.src = data.url;
+                    vp.style.display = 'block';
+                    input.value = '';
                 } else {
-                    videoStatus.textContent = data.error || 'Upload failed';
-                    videoStatus.className = 'error';
+                    setStatus(status, 'error', data.error || 'Upload failed');
                 }
             })
-            .catch(() => {
-                videoStatus.textContent = 'Upload failed. Please try again.';
-                videoStatus.className = 'error';
-            });
+            .catch(() => setStatus(status, 'error', 'Upload failed. Try again.'));
         }
 
-        videoInputCamera.addEventListener('change', function() { handleVideoSelect(videoInputCamera); });
-        videoInputLibrary.addEventListener('change', function() { handleVideoSelect(videoInputLibrary); });
+        document.getElementById('photo-input-camera').addEventListener('change', function() { handlePhotoSelect(this); });
+        document.getElementById('photo-input-library').addEventListener('change', function() { handlePhotoSelect(this); });
+        document.getElementById('video-input-camera').addEventListener('change', function() { handleVideoSelect(this); });
+        document.getElementById('video-input-library').addEventListener('change', function() { handleVideoSelect(this); });
     </script>
     {% endif %}
 </body>
