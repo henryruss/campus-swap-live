@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .avail-page-wrap {
+    max-width: 520px;
+    margin: 0 auto 60px;
+    padding-top: 48px;
+  }
+  .avail-page-wrap h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 8px;
+  }
+  .deadline-banner {
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 0.9rem;
+    color: #92400e;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .locked-banner {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 0.9rem;
+    color: #0369a1;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .avail-form-card {
+    background: white;
+    border: var(--card-border);
+    border-radius: 14px;
+    padding: 32px;
+  }
+</style>
+
+<div class="container">
+  <div class="avail-page-wrap">
+    <h1>Weekly Availability</h1>
+    <p style="color: var(--text-muted); margin: 0 0 24px; font-size: 0.95rem;">
+      Submit your availability for the upcoming work week. Deadline: Tuesday at midnight.
+    </p>
+
+    {% if window_open %}
+    <div class="deadline-banner">
+      <i class="fas fa-bell"></i>
+      <span>Availability window is open — submit by <strong>Tuesday at midnight</strong>. Schedule posts by Thursday.</span>
+    </div>
+    {% else %}
+    <div class="locked-banner">
+      <i class="fas fa-lock"></i>
+      <span>Availability submitted — your schedule will be posted by Thursday.</span>
+    </div>
+    {% endif %}
+
+    <div class="avail-form-card">
+      {% if window_open %}
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0 0 20px;">
+        Green = available. Tap any slot you <strong>cannot</strong> work to black it out.
+        Pre-filled from your last submission — only change what's different.
+      </p>
+      <form method="POST" action="{{ url_for('crew_availability') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        {% include 'crew/_availability_grid.html' %}
+        <div style="margin-top: 28px;">
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 13px; font-size: 1rem;">
+            Save Availability
+          </button>
+        </div>
+      </form>
+      {% else %}
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0 0 16px;">
+        Your current availability (read-only until next submission window opens Sunday):
+      </p>
+      <div style="pointer-events: none;">
+        {% include 'crew/_availability_grid.html' %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="text-align: center; margin-top: 20px;">
+      <a href="{{ url_for('crew_dashboard') }}" style="color: var(--text-muted); font-size: 0.875rem;">
+        <i class="fas fa-arrow-left"></i> Back to Crew Portal
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

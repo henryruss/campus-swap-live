@@ -54,6 +54,24 @@ flag later.
 
 ---
 
+### Decision: .edu enforcement disabled through full roadmap completion
+**Date:** 2026-04-06 (Spec #1 sign-off)
+**Context:** The `.edu` check in `crew_apply()` was commented out during
+development to allow testing with non-.edu emails (e.g. Gmail).
+
+**Decision:** Leave the check disabled until the entire ops roadmap (Specs 1–9)
+is complete and the system is ready for real applicants.
+
+**Reasoning:** Re-enabling mid-development would require maintaining a separate
+test email domain or constant toggling of `AppSetting('crew_allowed_email_domain')`.
+Not worth the friction while the system is still being built out.
+
+**Re-enable before launch:** Uncomment the `_is_edu_email(email)` check in the
+`crew_apply()` POST handler in `app.py`. The domain validation logic and
+AppSetting key are already in place — it's a one-line uncomment.
+
+---
+
 ### Decision: Availability is strictly honored, no admin override of blackouts
 **Date:** Confirmed during planning
 **Options considered:**
@@ -148,6 +166,49 @@ configurable without a deploy.
 
 ## Seller Experience
 
+### Decision: All new sellers start on free tier; tier selection removed from onboarding
+**Date:** April 2026
+**Options considered:**
+- Keep tier selection at step 7 of onboarding (old behavior)
+- Remove tier step; everyone starts free; upgrade is a deliberate dashboard action
+
+**Decision:** Remove tier selection from onboarding. `collection_method = 'free'` hardcoded on item creation.
+
+**Reasoning:** The tier step was creating unnecessary friction and prematurely asking sellers to commit $15 before they'd even seen their items approved. The upgrade decision is better made from the dashboard once they understand the value — not during a first-time wizard where they're still figuring out the product. The upgrade path (`/upgrade_pickup`) is unchanged.
+
+**Tradeoff accepted:** Sellers default to 20% payout. Any seller who would have chosen Pro upfront now needs a second action. The Upgrade card on the dashboard is the nudge.
+
+---
+
+### Decision: Pickup week moved from InventoryItem to User (per-user preference)
+**Date:** April 2026
+**Options considered:**
+- Keep `pickup_week` on `InventoryItem` (old behavior, set at confirm_pickup time)
+- Move it to `User` as a stated preference
+
+**Decision:** Add `User.pickup_week`. Keep `InventoryItem.pickup_week` in place (for ops/admin use, can be set per-item if needed). Dashboard and onboarding use `User.pickup_week`.
+
+**Reasoning:** Pickup week is a scheduling preference about the seller, not the item. A seller with 5 items needs one week assignment, not 5. The old approach required confirm_pickup to set week on each item separately. Per-user is the right conceptual model. Admin retains the ability to override per-item if logistics require it.
+
+---
+
+### Decision: /confirm_pickup deprecated in favor of dashboard modal
+**Date:** April 2026
+**Old behavior:** Separate page with week selection + address + phone collection.
+**New behavior:** Route immediately redirects to `/dashboard` with info flash. Pickup week set via modal + AJAX endpoint (`/api/user/set_pickup_week`).
+
+**Reasoning:** Moving pickup week selection to a modal on the dashboard eliminates a separate page navigation, keeps the seller in context, and allows them to change their preference anytime without a dedicated flow. Phone is now collected at account creation. Address is in account settings. Confirm_pickup was only needed because those were missing — they no longer are.
+
+**Code preserved:** `confirm_pickup.html` and the legacy function body are kept (unreachable, behind the early redirect). Remove when ops team confirms no sellers are actively mid-flow.
+
+---
+
+### Decision: Phone required at all account creation touchpoints
+**Date:** April 2026
+**Reasoning:** Phone is operationally critical — we text sellers about pickup. Making it optional was a mistake that required chasing it down in confirm_pickup. Now collected at: email registration, onboarding guest step 11, and via `/complete_profile` after Google OAuth. Existing users without phone see a non-dismissible nag banner on the dashboard.
+
+---
+
 ### Decision: Progress tracker uses existing model fields where possible
 **Date:** During feature ideation
 **Existing fields that map to pipeline stages:**
@@ -187,6 +248,50 @@ they applied. Starting from full availability means most workers only need
 to tap a handful of cells. Starting from empty means everyone has to tap
 10+ cells just to say they're generally available. Fewer taps = better
 mobile experience = higher completion rate.
+
+---
+
+---
+
+## Shift Scheduling (Spec #2)
+
+### Decision: Greedy optimizer with in-memory tracking, not SQL queries mid-loop
+**Date:** 2026-04-06
+**Problem:** Original optimizer queried `ShiftAssignment` table mid-loop to detect same-day assignments. SQLAlchemy's unflushed session caused those queries to miss in-session objects, breaking double-shift deprioritization.
+**Decision:** Pre-cache all availability at loop start. Track `worker_load` and `worker_day_assigned` in-memory dicts throughout the run. No DB reads inside the shift loop.
+**Tradeoff accepted:** Optimizer holds all worker availability in Python memory. With ≤50 workers this is negligible.
+
+---
+
+### Decision: Three-tier sort key for optimizer: (already_doubled, flexible, load)
+**Date:** 2026-04-06
+**Spec said:** Sort by (already_doubled, load). Prefer workers not already on same day.
+**Added:** Middle tier — `flexible` = worker is available for the OTHER slot on this day. Workers who can ONLY do the current slot sort before workers who can do both.
+**Reasoning:** Without this, fully-available workers get assigned to AM slots first, depleting the pool for PM. The "flexible" tier saves swing workers for whichever slot needs them. Measurably reduced avoidable double-shifts during testing.
+
+---
+
+### Decision: Draft vs published have different editing UIs
+**Date:** 2026-04-06
+**Draft state:** Full-slot dropdowns — admin can freely replace any worker.
+**Published state:** Worker name badges; clicking a badge reveals a swap form that POSTs to `/admin/schedule/shift/<id>/swap` and sends notification emails.
+**Reasoning:** The swap route exists specifically to send emails on published changes. Using it for draft editing would spam workers during normal schedule-building. Keeping two UIs enforces the right behavior at the right time.
+
+---
+
+### Decision: HTML5 `form=` attribute to avoid nested forms
+**Date:** 2026-04-06
+**Problem:** Published state needs both a "Save Changes" form (trucks + empty slots) and per-worker "Swap" forms inside the same shift card. HTML forbids nested `<form>` elements.
+**Decision:** Save form has a unique `id="save-shift-<id>"`. Trucks input and empty-slot dropdowns reference it via `form="save-shift-<id>"` attribute, allowing them to live outside the form element in the DOM.
+**Alternative considered:** Single form with JS to intercept and route to correct endpoint. Rejected — adds JS complexity and breaks the server-rendered-only rule.
+
+---
+
+### Decision: `_get_current_published_week()` shows upcoming weeks before they start
+**Date:** 2026-04-06
+**Spec said:** Return published week where `week_start <= today`.
+**Changed to:** Active running week → nearest upcoming published week → most recent past.
+**Reasoning:** Schedules are published Thursday for the following Monday. Workers need to see their schedule for 3–4 days before the week starts. The spec's strict `<= today` would hide the schedule until Monday morning — effectively zero notice. The new logic matches real operational intent.
 
 ---
 

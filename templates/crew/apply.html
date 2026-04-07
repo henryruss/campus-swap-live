@@ -1,0 +1,249 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .crew-apply-hero {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 48px 0 40px;
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .crew-apply-hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.4rem;
+    color: var(--primary);
+    margin: 0 0 12px;
+  }
+  .crew-apply-hero p {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .role-cards {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 28px 0 0;
+  }
+  .role-card {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 20px 24px;
+    max-width: 220px;
+    text-align: left;
+  }
+  .role-card strong { display: block; color: var(--primary); margin-bottom: 6px; font-size: 1rem; }
+  .role-card p { font-size: 0.875rem; color: var(--text-muted); margin: 0; }
+  .form-card {
+    max-width: 560px;
+    margin: 0 auto 60px;
+    background: white;
+    border: var(--card-border);
+    border-radius: 16px;
+    padding: 36px;
+  }
+  .form-group { margin-bottom: 20px; }
+  .form-group label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    margin-bottom: 6px;
+  }
+  .form-group label .required { color: #dc2626; margin-left: 2px; }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    box-sizing: border-box;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+  .form-group input.field-error { border-color: #dc2626; }
+  .field-error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 4px; display: none; }
+  .form-group textarea { resize: vertical; min-height: 90px; }
+  .char-count { font-size: 0.78rem; color: var(--text-muted); text-align: right; margin-top: 4px; }
+  .form-divider {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 28px 0;
+  }
+  .prefill-notice {
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+  .submit-row { margin-top: 28px; }
+  .already-have-account {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+  .already-have-account a { color: var(--primary); }
+</style>
+
+<div class="crew-apply-hero">
+  <div class="container">
+    <h1>Join the Campus Swap Crew</h1>
+    <p>Help us make move-out season sustainable. Pick up items, keep them out of landfills, and earn $130 per shift during the ~3-week season.</p>
+    <div class="role-cards">
+      <div class="role-card">
+        <strong><i class="fas fa-truck"></i> Driver</strong>
+        <p>Ride in the truck and execute pickups at seller addresses across campus.</p>
+      </div>
+      <div class="role-card">
+        <strong><i class="fas fa-warehouse"></i> Organizer</strong>
+        <p>Stay at the storage unit, receive incoming items, and tag them for inventory.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="form-card">
+    <h2 style="font-family: 'DM Serif Display', serif; color: var(--primary); margin: 0 0 24px; font-size: 1.6rem;">Apply Now</h2>
+
+    {% if false and current_user.is_authenticated and not current_user.email.endswith('.edu') %}
+    <div class="prefill-notice">
+      <i class="fas fa-info-circle"></i>
+      Your current account uses a non-.edu email. Applications require a .edu address.
+      <a href="{{ url_for('logout') }}?next=/crew/apply" style="color: var(--primary); font-weight: 600;">Sign out</a> and apply with your student email.
+    </div>
+    {% else %}
+
+    <form method="POST" action="{{ url_for('crew_apply') }}" id="apply-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+      {% if current_user.is_authenticated %}
+      <div class="prefill-notice">
+        <i class="fas fa-check-circle" style="color: #166534;"></i>
+        Applying as <strong>{{ current_user.full_name }}</strong> ({{ current_user.email }})
+      </div>
+      <input type="hidden" name="full_name" value="{{ current_user.full_name }}">
+      <input type="hidden" name="email" value="{{ current_user.email }}">
+      <input type="hidden" name="phone" value="{{ current_user.phone or '' }}">
+      {% else %}
+      <div class="form-group">
+        <label for="full_name">Full Name <span class="required">*</span></label>
+        <input type="text" id="full_name" name="full_name"
+               value="{{ form_data.full_name if form_data else '' }}"
+               placeholder="Jane Smith" required>
+      </div>
+      <div class="form-group">
+        <label for="email">UNC Email (unc.edu) <span class="required">*</span></label>
+        <input type="email" id="email" name="email"
+               value="{{ form_data.email if form_data else '' }}"
+               placeholder="jsmith@unc.edu" required>
+        <div class="field-error-msg" id="email-error">Must be a UNC Chapel Hill email (unc.edu).</div>
+      </div>
+      <div class="form-group">
+        <label for="phone">Phone <span class="required">*</span></label>
+        <input type="tel" id="phone" name="phone"
+               value="{{ form_data.phone if form_data else '' }}"
+               placeholder="(919) 555-1234" required>
+      </div>
+      {% endif %}
+
+      <div class="form-group">
+        <label for="unc_year">Year <span class="required">*</span></label>
+        <select id="unc_year" name="unc_year" required>
+          <option value="" disabled {% if not (form_data and form_data.unc_year) %}selected{% endif %}>Select your year</option>
+          {% for yr in ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate'] %}
+          <option value="{{ yr }}" {% if form_data and form_data.unc_year == yr %}selected{% endif %}>{{ yr }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="role_pref">Role Preference <span class="required">*</span></label>
+        <select id="role_pref" name="role_pref" required>
+          <option value="" disabled {% if not (form_data and form_data.role_pref) %}selected{% endif %}>Select a role</option>
+          <option value="driver" {% if form_data and form_data.role_pref == 'driver' %}selected{% endif %}>Driver — in the field</option>
+          <option value="organizer" {% if form_data and form_data.role_pref == 'organizer' %}selected{% endif %}>Organizer — at the storage unit</option>
+          <option value="both" {% if form_data and form_data.role_pref == 'both' %}selected{% endif %}>Either — flexible</option>
+        </select>
+      </div>
+
+      <hr class="form-divider">
+
+      <h3 style="font-size: 1rem; font-weight: 700; color: var(--text-main); margin: 0 0 6px;">Weekly Availability</h3>
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0 0 16px;">
+        All slots start green (available). Tap any cell you <strong>cannot</strong> work to black it out.
+        Blackouts are strictly honored — you'll never be scheduled into a slot you've marked off.
+      </p>
+
+      {% set avail = form_data_avail if form_data_avail is defined else none %}
+      {% include 'crew/_availability_grid.html' %}
+
+      <hr class="form-divider">
+
+      <div class="form-group">
+        <label for="why_blurb">Anything else we should know? <span style="font-weight: 400; color: var(--text-muted);">(optional)</span></label>
+        <textarea id="why_blurb" name="why_blurb" maxlength="500"
+                  placeholder="Prior experience, scheduling constraints, etc.">{{ form_data.why_blurb if form_data else '' }}</textarea>
+        <div class="char-count"><span id="blurb-count">0</span>/500</div>
+      </div>
+
+      <div class="submit-row">
+        <button type="submit" class="btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
+          Submit Application
+        </button>
+      </div>
+    </form>
+
+    <div class="already-have-account">
+      Already have an account? <a href="{{ url_for('login', next='/crew/apply') }}">Sign in first</a> to pre-fill your info.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+// .edu client-side validation
+var emailInput = document.getElementById('email');
+var emailError = document.getElementById('email-error');
+if (emailInput) {
+  emailInput.addEventListener('blur', function() {
+    var val = emailInput.value.trim().toLowerCase();
+    var domain = val.split('@').pop();
+    if (val && domain !== 'unc.edu' && !domain.endsWith('.unc.edu')) {
+      emailInput.classList.add('field-error');
+      if (emailError) emailError.style.display = 'block';
+    } else {
+      emailInput.classList.remove('field-error');
+      if (emailError) emailError.style.display = 'none';
+    }
+  });
+}
+
+// Character counter for blurb
+var blurbArea = document.getElementById('why_blurb');
+var blurbCount = document.getElementById('blurb-count');
+if (blurbArea && blurbCount) {
+  blurbCount.textContent = blurbArea.value.length;
+  blurbArea.addEventListener('input', function() {
+    blurbCount.textContent = blurbArea.value.length;
+  });
+}
+</script>
+{% endblock %}

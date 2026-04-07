@@ -416,7 +416,16 @@
 </style>
 
 <div class="wizard-container" data-is-guest="{{ 'true' if is_guest else 'false' }}">
-    {% if pickup_ended %}
+    {% if no_categories %}
+    <div class="wizard-header">
+        <h1>Store Not Configured</h1>
+        <p class="sub">No item categories have been set up yet.</p>
+    </div>
+    <div style="text-align: center; padding: 40px 24px;">
+        <p style="color: var(--text-muted); margin-bottom: 24px;">An admin needs to add categories before sellers can list items.</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px;">Back to Home</a>
+    </div>
+    {% elif pickup_ended %}
     <div class="wizard-header">
         <h1>Pickup Period Has Ended</h1>
         <p class="sub">Check back next year when signups open for the new season.</p>
@@ -594,48 +603,43 @@
             <p id="payout-hint" class="payout-hint" style="font-size:0.85rem;color:var(--text-muted);margin-top:8px;">Venmo username (without @)</p>
         </div>
 
-        <!-- Step 7: Service Tier (moved before address) -->
+        <!-- Step 7: Pickup Week (optional) -->
         <div class="wizard-step" id="step-7" data-step="7">
-            <h2 class="step-title">How do you want to sell?</h2>
-            <p class="step-sub">Both plans include the Campus Swap pickup service. Choose what works best for you. You can always upgrade later.</p>
-            <div class="tier-hero-img-wrap">
-                <img src="{{ url_for('static', filename='campusSwapPickup.png') }}" alt="Campus Swap Movers" class="tier-hero-img">
+            <h2 class="step-title">When are you moving out?</h2>
+            <p class="step-sub">Pick the week that works best. We'll assign a specific time closer to pickup.</p>
+
+            <div class="pickup-week-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+                <label class="onboard-week-card" id="onboard-week-1" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
+                    <input type="radio" name="onboard_pickup_week" value="week1" style="display:none;">
+                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 1</span>
+                    <span style="font-size:0.88rem;color:var(--text-muted);">April 27 – May 3</span>
+                </label>
+                <label class="onboard-week-card" id="onboard-week-2" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
+                    <input type="radio" name="onboard_pickup_week" value="week2" style="display:none;">
+                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 2</span>
+                    <span style="font-size:0.88rem;color:var(--text-muted);">May 4 – May 10</span>
+                </label>
             </div>
-            <div class="tier-grid" style="grid-template-columns: 1fr 1fr;">
-                <!-- Free Tier -->
-                <div class="tier-card-wrapper">
-                    <div class="tier-card" id="tier-free" data-tier="free" style="border-color: #cbd5e1;">
-                        <h4 style="color:#475569;">Free Plan</h4>
-                        <p class="tier-sub">Free moveout, lower cut.</p>
-                        <div class="tier-fee-callout" style="background:#f8fafc;">
-                            <span class="payout-hero" style="color:#475569;">20% of sale price</span>
-                            <span class="payout-sub">$0 — no fee ever</span>
-                        </div>
-                        <ul class="tier-list">
-                            <li>Upload up to {{ free_tier_max_items }} items.</li>
-                            <li>We confirm by April 20th if we have room. Pro users get pro pickup.</li>
-                        </ul>
-                    </div>
-                </div>
-                <!-- Campus Swap Pickup -->
-                <div class="tier-card-wrapper">
-                    <span class="tier-badge" style="background:#b45309;">★ Recommended</span>
-                    <div class="tier-card recommended" id="tier-pickup" data-tier="online" style="border-color:#d97706;">
-                        <h4 style="color:#92400e;">Pro Plan</h4>
-                        <p class="tier-sub">Same pickup service with guaranteed retail space and better payout.</p>
-                        <div class="tier-fee-callout" style="background:#fffbeb;">
-                            <span class="payout-hero" style="color:#92400e;">50% of sale price</span>
-                            <span class="payout-sub">$15 one-time pickup fee</span>
-                        </div>
-                        <ul class="tier-list plus">
-                            <li>Guaranteed retail space for your items.</li>
-                            <li>Unlimited items per pickup.</li>
-                        </ul>
-                    </div>
+
+            <div id="onboard-time-pref-section" style="display:none;margin-bottom:20px;">
+                <p style="font-size:0.9rem;font-weight:600;color:var(--text-main);margin-bottom:10px;">Preferred time of day</p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <label class="onboard-time-card" id="onboard-time-morning" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
+                        <input type="radio" name="onboard_time_preference" value="morning" style="display:none;">
+                        Morning <span style="font-weight:400;font-size:0.82rem;">(9am–1pm)</span>
+                    </label>
+                    <label class="onboard-time-card" id="onboard-time-afternoon" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
+                        <input type="radio" name="onboard_time_preference" value="afternoon" style="display:none;">
+                        Afternoon <span style="font-weight:400;font-size:0.82rem;">(1pm–5pm)</span>
+                    </label>
+                    <label class="onboard-time-card" id="onboard-time-evening" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
+                        <input type="radio" name="onboard_time_preference" value="evening" style="display:none;">
+                        Evening <span style="font-weight:400;font-size:0.82rem;">(5pm–9pm)</span>
+                    </label>
                 </div>
             </div>
-            <p class="tier-notice">We try to serve every student, but our store has limited capacity. Pro users get pro pickup.</p>
-            <input type="hidden" name="collection_method" id="collection-method-input" value="online">
+
+            <input type="hidden" name="collection_method" value="free">
         </div>
 
         <!-- Step 9: Review -->
@@ -660,8 +664,8 @@
                 <p id="review-venmo"></p>
             </div>
             <div class="review-block">
-                <h5>Service</h5>
-                <p id="review-tier"></p>
+                <h5>Pickup week</h5>
+                <p id="review-pickup-week" style="color:var(--text-muted);font-size:0.9rem;"></p>
             </div>
             <button type="button" class="btn btn-primary" style="width:100%;padding:18px;font-size:1.1rem;" id="publish-btn">
                 <i class="fas fa-check"></i> Submit for Approval
@@ -691,6 +695,11 @@
                 <div style="margin-bottom: 15px;">
                     <label style="font-weight: 500; font-size: 0.9rem;">Email Address</label>
                     <input type="email" name="email" placeholder="your@email.com" required style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Phone number</label>
+                    <input type="tel" name="phone" placeholder="(555) 123-4567" required style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;">
+                    <p style="font-size:0.82rem;color:var(--text-muted);margin:6px 0 0;">We'll text you updates about your pickup — nothing else.</p>
                 </div>
                 <div style="margin-bottom: 20px;">
                     <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
@@ -722,7 +731,7 @@
     {% endif %}
 </div>
 
-{% if not pickup_ended %}
+{% if not pickup_ended and not no_categories %}
 <!-- Crop modal -->
 <div id="crop-modal-overlay" class="crop-modal-overlay">
     <div class="crop-modal">
@@ -822,6 +831,32 @@
         validationErrorEl.classList.remove('visible');
     }
 
+    // Skip button for step 7
+    let skipBtn = null;
+    function getOrCreateSkipBtn() {
+        if (!skipBtn) {
+            skipBtn = document.createElement('button');
+            skipBtn.type = 'button';
+            skipBtn.className = 'btn-back';
+            skipBtn.id = 'btn-skip-week';
+            skipBtn.innerHTML = 'Skip for now';
+            skipBtn.style.visibility = 'visible';
+            skipBtn.addEventListener('click', function() {
+                // Clear any week/time selections before skipping
+                form.querySelectorAll('input[name="onboard_pickup_week"]').forEach(r => r.checked = false);
+                form.querySelectorAll('input[name="onboard_time_preference"]').forEach(r => r.checked = false);
+                updateWeekCardStyles();
+                updateTimeCardStyles();
+                if (timePrefSection) timePrefSection.style.display = 'none';
+                hideValidationError();
+                goStep(currentStep + 1);
+            });
+            const navRow = document.getElementById('wizard-nav');
+            navRow.insertBefore(skipBtn, btnNext);
+        }
+        return skipBtn;
+    }
+
     function goStep(step) {
         hideValidationError();
         document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
@@ -833,12 +868,15 @@
         if (step === 3 && !uploadSessionToken && document.querySelector('.upload-tab[data-tab="phone"].active')) {
             loadQr();
         }
+        // Show/hide skip button on step 7
+        const sb = getOrCreateSkipBtn();
+        sb.style.display = step === 7 ? 'inline-flex' : 'none';
         if (step >= 9) {
             btnNext.style.display = 'none';
             if (step === 9) populateReview();
         } else {
             btnNext.style.display = 'flex';
-            btnNext.textContent = 'Next';
+            btnNext.textContent = step === 7 ? 'Confirm week' : 'Next';
         }
         window.scrollTo(0, 0);
     }
@@ -866,9 +904,13 @@
             if (!desc) { showValidationError('Please give your item a name before continuing.'); return false; }
         }
         if (step === 7) {
-            // Tier selection validation
-            const tierMethod = document.getElementById('collection-method-input').value;
-            if (!tierMethod) { showValidationError('Please select a plan before continuing.'); return false; }
+            // Pickup week is optional — but if a week is selected, time preference is required
+            const selectedWeek = form.querySelector('input[name="onboard_pickup_week"]:checked');
+            const selectedTime = form.querySelector('input[name="onboard_time_preference"]:checked');
+            if (selectedWeek && !selectedTime) {
+                showValidationError('Please select a preferred time of day before continuing.');
+                return false;
+            }
         }
         if (step === 8) {
             const method = form.querySelector('input[name="payout_method"]:checked');
@@ -886,6 +928,9 @@
         }
         return true;
     }
+
+    // Initialize skip button (hidden) immediately so it exists in DOM
+    getOrCreateSkipBtn().style.display = 'none';
 
     btnNext.addEventListener('click', function() {
         if (!validateStep(currentStep)) return;
@@ -1018,16 +1063,56 @@
         }
     });
 
-    // Tier selection
-    document.querySelectorAll('.tier-card').forEach(card => {
+    // Step 7: Pickup week selection
+    const weekCards = document.querySelectorAll('.onboard-week-card');
+    const timePrefSection = document.getElementById('onboard-time-pref-section');
+
+    function updateWeekCardStyles() {
+        weekCards.forEach(card => {
+            const radio = card.querySelector('input[type="radio"]');
+            if (radio && radio.checked) {
+                card.style.borderColor = 'var(--primary)';
+                card.style.background = '#f0fdf4';
+            } else {
+                card.style.borderColor = '#e2e8f0';
+                card.style.background = '';
+            }
+        });
+    }
+
+    function updateTimeCardStyles() {
+        document.querySelectorAll('.onboard-time-card').forEach(card => {
+            const radio = card.querySelector('input[type="radio"]');
+            if (radio && radio.checked) {
+                card.style.borderColor = 'var(--primary)';
+                card.style.color = 'var(--primary)';
+                card.style.background = '#f0fdf4';
+            } else {
+                card.style.borderColor = '#e2e8f0';
+                card.style.color = 'var(--text-muted)';
+                card.style.background = '';
+            }
+        });
+    }
+
+    weekCards.forEach(card => {
         card.addEventListener('click', function() {
-            document.querySelectorAll('.tier-card').forEach(c => c.classList.remove('selected'));
-            this.classList.add('selected');
-            document.getElementById('collection-method-input').value = this.dataset.tier;
+            const radio = this.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+            updateWeekCardStyles();
+            timePrefSection.style.display = 'block';
             hideValidationError();
         });
     });
-    document.getElementById('tier-pickup').classList.add('selected');
+
+    document.querySelectorAll('.onboard-time-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const radio = this.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+            updateTimeCardStyles();
+            hideValidationError();
+        });
+    });
 
 
 
@@ -1115,12 +1200,21 @@
         const ph = form.querySelector('input[name="payout_handle"]').value.replace('@','').trim();
         const payoutText = pm && ph ? (pm.value === 'Venmo' ? 'Venmo: @' + ph : pm.value + ': ' + ph) : '';
         document.getElementById('review-venmo').textContent = payoutText;
-        const tier = document.getElementById('collection-method-input').value;
-        const tierLabel = tier === 'online' ? 'Pro Plan (50%)' : 'Free Plan (20%)';
-        document.getElementById('review-tier').textContent = tierLabel;
-        // Show/hide location in review based on tier
+        // Pickup week summary
+        const weekEl = document.getElementById('review-pickup-week');
+        const selectedWeekR = form.querySelector('input[name="onboard_pickup_week"]:checked');
+        const selectedTimeR = form.querySelector('input[name="onboard_time_preference"]:checked');
+        const weekLabels = {week1: 'Week 1 (Apr 27–May 3)', week2: 'Week 2 (May 4–May 10)'};
+        if (selectedWeekR) {
+            const timeText = selectedTimeR ? ' · ' + selectedTimeR.value.charAt(0).toUpperCase() + selectedTimeR.value.slice(1) : '';
+            weekEl.textContent = (weekLabels[selectedWeekR.value] || selectedWeekR.value) + timeText;
+        } else {
+            weekEl.textContent = 'Not set — you can add from dashboard';
+            weekEl.style.color = 'var(--text-muted)';
+        }
+        // Hide old location review block if present
         const reviewLocBlock = document.getElementById('review-loc-block');
-        if (reviewLocBlock) reviewLocBlock.style.display = (tier === 'online') ? '' : 'none';
+        if (reviewLocBlock) reviewLocBlock.style.display = 'none';
     }
 
     // Photo upload - preserve add_item logic

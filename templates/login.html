@@ -61,6 +61,12 @@
                     <input type="email" name="email" id="signup-email-input" value="{{ prefill_email or '' }}" placeholder="your@email.com" required>
                 </div>
                 
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 500; font-size: 0.9rem;">Phone Number</label>
+                    <input type="tel" name="phone" placeholder="(555) 123-4567" required>
+                    <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 0;">We'll text you updates about your pickup — nothing else.</p>
+                </div>
+
                 <div style="margin-bottom: 20px;">
                     <label style="font-weight: 500; font-size: 0.9rem;">Password</label>
                     <input type="password" name="password" placeholder="Choose a password (min 6 characters)" required minlength="6">

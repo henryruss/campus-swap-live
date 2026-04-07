@@ -464,17 +464,6 @@
                             <option value="3" {% if pending_item.quality in (1, 2, 3) %}selected{% endif %}>Fair – Visible wear, but still usable</option>
                         </select>
                     </div>
-                    <div style="display: flex; align-items: flex-end; padding-bottom: 4px;">
-                        {% if pending_item.collection_method == 'online' %}
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600;">
-                            <input type="checkbox" name="is_large" value="1" {% if pending_item.is_large %}checked{% endif %}
-                                   style="width: 20px; height: 20px;">
-                            Oversized (+$10)
-                        </label>
-                        {% else %}
-                        <span style="color: var(--text-muted);">In-person (no oversize fee)</span>
-                        {% endif %}
-                    </div>
                 </div>
                 
                 <div class="approve-actions">

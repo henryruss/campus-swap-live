@@ -1,0 +1,212 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .schedule-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 40px 0 32px;
+    margin-bottom: 36px;
+  }
+  .schedule-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .weeks-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .weeks-table th {
+    text-align: left; padding: 12px 16px; color: var(--text-muted);
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--rule);
+  }
+  .weeks-table td { padding: 14px 16px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  .status-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .badge-draft { background: #f1f5f9; color: #64748b; }
+  .badge-published { background: #dcfce7; color: #166534; }
+
+  /* Slot toggle grid */
+  .slot-grid {
+    display: grid;
+    grid-template-columns: 80px repeat(7, 1fr);
+    gap: 6px;
+    align-items: center;
+    margin: 12px 0;
+  }
+  .slot-grid .day-header {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    color: var(--text-muted); text-align: center;
+  }
+  .slot-grid .slot-label {
+    font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+  }
+  .slot-grid input[type="checkbox"] { display: none; }
+  .slot-toggle {
+    display: block; text-align: center; padding: 8px 4px;
+    border-radius: 8px; cursor: pointer; font-size: 0.75rem; font-weight: 600;
+    border: 1px solid var(--rule);
+    background: #f1f5f9; color: #64748b;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .slot-grid input[type="checkbox"]:checked + .slot-toggle {
+    background: var(--primary); color: white; border-color: var(--primary);
+  }
+  /* No hover lift on any card on this page */
+  .card, .card:hover {
+    transform: none !important;
+    box-shadow: var(--glass-shadow) !important;
+    cursor: default;
+  }
+  .create-card { max-width: 700px; }
+  .btn-create-week {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: white;
+    border: none; border-radius: 10px;
+    padding: 13px 28px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.01em;
+    box-shadow: 0 4px 14px -3px rgba(200, 131, 42, 0.45);
+    transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+  }
+  .btn-create-week:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 6px 18px -3px rgba(200, 131, 42, 0.55);
+    transform: translateY(-1px);
+  }
+  .btn-create-week:active { transform: translateY(0); box-shadow: none; }
+</style>
+
+<div class="schedule-header">
+  <div class="container">
+    <h1>Shift Schedules</h1>
+    <p style="color: var(--text-muted); margin: 0;">Create and manage weekly shift schedules for Campus Swap crew.</p>
+  </div>
+</div>
+
+<div class="container" style="max-width: 900px; margin-bottom: 80px;">
+
+  <!-- Create new week form -->
+  <div class="card create-card" style="margin-bottom: 36px;">
+    <h2 style="font-family: 'DM Serif Display', serif; font-size: 1.3rem; margin: 0 0 20px; color: var(--primary);">Create New Week</h2>
+    <form method="POST" action="{{ url_for('admin_schedule_create') }}" id="create-week-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+      <div style="margin-bottom: 18px;">
+        <label style="display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Pick any day — snaps to that Monday</label>
+        <input type="date" name="week_start" id="week-start-input" required
+               style="padding: 10px 14px; border: 1px solid var(--rule); border-radius: 8px; font-size: 1rem; width: 220px;">
+        <p id="week-range-preview" style="font-size: 0.85rem; margin: 6px 0 0;"></p>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin: 0 0 10px;">Active Slots <span style="font-weight: 400;">(toggle off days that won't run)</span></p>
+        <div class="slot-grid">
+          <div></div>
+          {% for day_label in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+            <div class="day-header">{{ day_label }}</div>
+          {% endfor %}
+
+          {% for slot, slot_label in [('am', 'AM'), ('pm', 'PM')] %}
+            <div class="slot-label">{{ slot_label }}</div>
+            {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
+              <div>
+                <input type="checkbox" name="slot_{{ day }}_{{ slot }}" id="slot_{{ day }}_{{ slot }}" checked>
+                <label class="slot-toggle" for="slot_{{ day }}_{{ slot }}">ON</label>
+              </div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <button type="submit" class="btn-create-week">
+        <i class="fas fa-calendar-plus"></i> Create Week
+      </button>
+    </form>
+  </div>
+
+  <!-- Existing weeks -->
+  {% if weeks %}
+  <div class="card" style="padding: 0; overflow: hidden; transform: none !important; box-shadow: var(--glass-shadow) !important; cursor: default;">
+    <table class="weeks-table">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for week in weeks %}
+        <tr>
+          <td style="font-weight: 600;">
+            {{ week.week_start.strftime('%b %-d') }} – {{ (week.week_start + timedelta(days=6)).strftime('%b %-d, %Y') }}
+          </td>
+          <td>
+            <span class="status-badge badge-{{ week.status }}">{{ week.status }}</span>
+          </td>
+          <td style="color: var(--text-muted); font-size: 0.875rem;">
+            {{ week.created_at.strftime('%b %-d') }}{% if week.created_by %} by {{ week.created_by.full_name }}{% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('admin_schedule_week', week_id=week.id) }}" class="btn-outline" style="font-size: 0.85rem; padding: 6px 14px;">Manage</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color: var(--text-muted); text-align: center; padding: 40px 0;">No weeks created yet.</p>
+  {% endif %}
+
+</div>
+
+<script>
+// Show Mon-Sun range preview when date picked
+const weekInput = document.getElementById('week-start-input');
+const preview = document.getElementById('week-range-preview');
+
+function toMonday(d) {
+  // Snap any date back to the Monday of its week (Mon=1 … Sun=0)
+  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = day === 0 ? -6 : 1 - day; // days to subtract to reach Monday
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  return mon;
+}
+
+function toInputValue(d) {
+  // Format date as YYYY-MM-DD for the input value
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+weekInput.addEventListener('change', function () {
+  const val = this.value;
+  if (!val) { preview.textContent = ''; return; }
+  const d = new Date(val + 'T00:00:00');
+  const mon = toMonday(d);
+  // Snap input to Monday if user picked a different day
+  this.value = toInputValue(mon);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  preview.textContent = fmt(mon) + ' – ' + fmt(sun);
+  preview.style.color = 'var(--text-muted)';
+});
+
+// Toggle label text ON/OFF
+document.querySelectorAll('.slot-grid input[type="checkbox"]').forEach(function (cb) {
+  const lbl = cb.nextElementSibling;
+  lbl.textContent = cb.checked ? 'ON' : 'OFF';
+  cb.addEventListener('change', function () {
+    lbl.textContent = this.checked ? 'ON' : 'OFF';
+  });
+});
+</script>
+{% endblock %}

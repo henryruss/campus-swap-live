@@ -1,0 +1,266 @@
+<!-- Full crew calendar — rendered inside modal, no layout.html -->
+{% set days       = ['mon','tue','wed','thu','fri','sat','sun'] %}
+{% set day_labels = {'mon':'Mon','tue':'Tue','wed':'Wed','thu':'Thu','fri':'Fri','sat':'Sat','sun':'Sun'} %}
+{% set day_full   = {'mon':'Monday','tue':'Tuesday','wed':'Wednesday','thu':'Thursday','fri':'Friday','sat':'Saturday','sun':'Sunday'} %}
+
+{# Build date for each column: week_start + offset #}
+{% set dates = {} %}
+{% for i in range(7) %}
+  {% set _ = dates.update({days[i]: week.week_start + timedelta(days=i)}) %}
+{% endfor %}
+
+{# Build shift_map[(day, slot)] → shift #}
+{% set shift_map = {} %}
+{% for shift in shifts %}
+  {% set _ = shift_map.update({(shift.day_of_week, shift.slot): shift}) %}
+{% endfor %}
+
+{# Which days does the current user work? #}
+{% set my_days = [] %}
+{% for shift in shifts %}
+  {% for a in shift.assignments %}
+    {% if a.worker_id == current_user.id and shift.day_of_week not in my_days %}
+      {% set _ = my_days.append(shift.day_of_week) %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+
+<style>
+  /* ── Modal chrome ── */
+  .cal-header {
+    background: var(--primary);
+    color: white;
+    padding: 22px 28px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .cal-header-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.4rem; margin: 0 0 2px;
+  }
+  .cal-header-sub { font-size: 0.85rem; opacity: 0.75; margin: 0; }
+  .cal-close-btn {
+    background: rgba(255,255,255,0.15); border: none; color: white;
+    width: 36px; height: 36px; border-radius: 50%; font-size: 1.1rem;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s; flex-shrink: 0;
+  }
+  .cal-close-btn:hover { background: rgba(255,255,255,0.3); }
+
+  /* ── Legend bar ── */
+  .cal-legend-bar {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 10px 28px;
+    display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  }
+  .cal-legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: var(--text-muted); font-weight: 500;
+  }
+  .legend-swatch {
+    width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0;
+  }
+
+  /* ── Calendar grid ── */
+  .cal-body { padding: 20px 20px 28px; overflow-x: auto; }
+  .cal-grid {
+    display: grid;
+    grid-template-columns: 52px repeat(7, 1fr);
+    gap: 6px;
+    min-width: 620px;
+  }
+
+  /* Corner */
+  .cal-corner { }
+
+  /* Day column headers */
+  .cal-day-col {
+    border-radius: 10px 10px 0 0;
+    overflow: hidden;
+  }
+  .cal-day-head {
+    text-align: center;
+    padding: 10px 6px 8px;
+    background: var(--bg-cream);
+    border-radius: 10px 10px 0 0;
+  }
+  .cal-day-name {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--text-muted); display: block;
+    margin-bottom: 4px;
+  }
+  .cal-day-date {
+    font-size: 1.2rem; font-weight: 800; color: var(--primary);
+    font-family: 'DM Serif Display', serif; line-height: 1;
+    display: block;
+  }
+  .cal-day-head.is-mine { background: #fff7ed; }
+  .cal-day-head.is-mine .cal-day-name { color: var(--accent); }
+  .cal-day-head.is-mine .cal-day-date { color: var(--accent); }
+
+  /* Slot row label */
+  .cal-row-label {
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 8px; padding-top: 8px;
+    font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+  }
+
+  /* Shift cells */
+  .cal-cell {
+    background: var(--bg-cream);
+    border-radius: 8px;
+    padding: 8px 9px;
+    min-height: 80px;
+    border: 2px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .cal-cell.is-mine {
+    background: #fff7ed;
+    border-color: var(--accent);
+  }
+  .cal-cell.inactive {
+    background: #f5f5f5;
+    min-height: 80px;
+  }
+
+  /* Worker rows inside cells */
+  .cal-worker-row {
+    display: flex; align-items: baseline; gap: 4px;
+    padding: 2px 0;
+    font-size: 0.78rem;
+    color: var(--text-main);
+    white-space: nowrap; overflow: hidden;
+  }
+  .cal-worker-row.is-me {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .cal-worker-name {
+    overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
+  }
+  .cal-role-tag {
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; flex-shrink: 0;
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .tag-driver   { background: #dbeafe; color: #1e40af; }
+  .tag-organizer { background: #f0fdf4; color: #166534; }
+  .tag-driver.is-me   { background: #fed7aa; color: #92400e; }
+  .tag-organizer.is-me { background: #fed7aa; color: #92400e; }
+
+  .cal-empty-cell {
+    color: var(--text-muted); font-size: 0.75rem;
+    font-style: italic; padding-top: 4px;
+  }
+
+  /* Divider between AM and PM rows */
+  .cal-divider {
+    grid-column: 1 / -1;
+    height: 8px;
+  }
+</style>
+
+<!-- Modal header -->
+<div class="cal-header">
+  <div>
+    <p class="cal-header-title">Crew Schedule</p>
+    <p class="cal-header-sub">
+      Week of {{ week.week_start.strftime('%B %-d') }} –
+      {{ (week.week_start + timedelta(days=6)).strftime('%B %-d, %Y') }}
+    </p>
+  </div>
+  <button class="cal-close-btn" onclick="closeCalModal()" title="Close">
+    <i class="fas fa-times"></i>
+  </button>
+</div>
+
+<!-- Legend -->
+<div class="cal-legend-bar">
+  <div class="cal-legend-item">
+    <div class="legend-swatch" style="background:#fff7ed; border:2px solid var(--accent);"></div>
+    Your shift
+  </div>
+  <div class="cal-legend-item">
+    <div class="legend-swatch" style="background:#dbeafe;"></div>
+    Driver
+  </div>
+  <div class="cal-legend-item">
+    <div class="legend-swatch" style="background:#f0fdf4;"></div>
+    Organizer
+  </div>
+  <div class="cal-legend-item" style="margin-left:auto; color:var(--accent); font-weight:700;">
+    {{ current_user.full_name.split()[0] }} = you
+  </div>
+</div>
+
+<!-- Calendar body -->
+<div class="cal-body">
+  <div class="cal-grid">
+
+    {# ── Column headers ── #}
+    <div class="cal-corner"></div>
+    {% for day in days %}
+    <div class="cal-day-head {% if day in my_days %}is-mine{% endif %}">
+      <span class="cal-day-name">{{ day_labels[day] }}</span>
+      <span class="cal-day-date">{{ dates[day].day }}</span>
+    </div>
+    {% endfor %}
+
+    {# ── AM row ── #}
+    <div class="cal-row-label">AM</div>
+    {% for day in days %}
+      {% set shift = shift_map.get((day, 'am')) %}
+      {% if shift %}
+        {% set i_am_here = false %}
+        {% for a in shift.assignments %}{% if a.worker_id == current_user.id %}{% set i_am_here = true %}{% endif %}{% endfor %}
+        <div class="cal-cell {% if i_am_here %}is-mine{% endif %}">
+          {% if shift.assignments %}
+            {% for a in shift.assignments %}
+            <div class="cal-worker-row {% if a.worker_id == current_user.id %}is-me{% endif %}">
+              <span class="cal-worker-name">{{ a.worker.full_name.split()[0] }}</span>
+              <span class="cal-role-tag {% if a.role_on_shift == 'driver' %}tag-driver{% else %}tag-organizer{% endif %} {% if a.worker_id == current_user.id %}is-me{% endif %}">
+                {{ 'D' if a.role_on_shift == 'driver' else 'O' }}
+              </span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <span class="cal-empty-cell">No workers</span>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="cal-cell inactive"></div>
+      {% endif %}
+    {% endfor %}
+
+    {# gap between AM and PM #}
+    <div class="cal-divider"></div>
+
+    {# ── PM row ── #}
+    <div class="cal-row-label">PM</div>
+    {% for day in days %}
+      {% set shift = shift_map.get((day, 'pm')) %}
+      {% if shift %}
+        {% set i_am_here = false %}
+        {% for a in shift.assignments %}{% if a.worker_id == current_user.id %}{% set i_am_here = true %}{% endif %}{% endfor %}
+        <div class="cal-cell {% if i_am_here %}is-mine{% endif %}">
+          {% if shift.assignments %}
+            {% for a in shift.assignments %}
+            <div class="cal-worker-row {% if a.worker_id == current_user.id %}is-me{% endif %}">
+              <span class="cal-worker-name">{{ a.worker.full_name.split()[0] }}</span>
+              <span class="cal-role-tag {% if a.role_on_shift == 'driver' %}tag-driver{% else %}tag-organizer{% endif %} {% if a.worker_id == current_user.id %}is-me{% endif %}">
+                {{ 'D' if a.role_on_shift == 'driver' else 'O' }}
+              </span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <span class="cal-empty-cell">No workers</span>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="cal-cell inactive"></div>
+      {% endif %}
+    {% endfor %}
+
+  </div>{# end grid #}
+</div>

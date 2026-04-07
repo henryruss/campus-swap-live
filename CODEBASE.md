@@ -64,8 +64,10 @@ stripe_customer_id, stripe_payment_method_id
 referral_source, unsubscribed, unsubscribe_token
 oauth_provider, oauth_id
 date_joined
+pickup_week: 'week1' | 'week2' | None  — seller's stated preference (per-user, not per-item)
 pickup_time_preference ('morning'|'afternoon'|'evening'|null)
 moveout_date (Date, nullable)
+is_worker (bool), worker_status (None|'pending'|'approved'|'rejected'), worker_role (None|'driver'|'organizer'|'both')
 
 Properties: has_pickup_location, pickup_display, is_guest_account
 ```
@@ -76,10 +78,7 @@ id, description, long_description
 price, suggested_price, quality (1-5 int)
 status: 'pending_valuation' | 'needs_info' | 'approved' | 'available' | 'sold' | 'rejected'
 date_added
-collection_method: 'online' | 'free'
-is_large (bool) — set by admin at approval
-oversize_included_in_service_fee (bool)
-oversize_fee_paid (bool)
+collection_method: 'online' (Pro) | 'free' (Free)
 pickup_week: 'week1' (Apr 27–May 3) | 'week2' (May 4–May 10)
 dropoff_pod: deprecated (pod option removed)
 sold_at, payout_sent (bool)
@@ -104,8 +103,9 @@ id, item_id, photo_url
 
 ### ItemReservation
 ```
-id, item_id, user_id, created_at
-Non-binding reservation (no payment) for pre-launch reserve-only mode.
+id, item_id, user_id, created_at, expires_at, expiry_email_sent
+Non-binding reservation (no payment). One active reservation per item at a time.
+Buyer can cancel; reservations expire automatically.
 ```
 
 ### UploadSession / TempUpload
@@ -145,7 +145,57 @@ item_count (Integer), recipient_count (Integer)
 ```
 Key-value store for runtime flags.
 AppSetting.get(key, default), AppSetting.set(key, value)
-Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store'
+Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store', 'store_open_date',
+'crew_applications_open', 'crew_allowed_email_domain', 'availability_deadline_day',
+'drivers_per_truck', 'organizers_per_truck', 'max_trucks_per_shift'
+```
+
+### WorkerApplication
+```
+One application per user. Stores role preference and availability blurb.
+id, user_id (FK, unique), unc_year, role_pref ('driver'|'organizer'|'both')
+why_blurb (Text, nullable), applied_at (DateTime)
+reviewed_at (DateTime, nullable), reviewed_by (FK to User, nullable)
+Relationships: user (backref worker_application, uselist=False), reviewer
+```
+
+### WorkerAvailability
+```
+One record per worker per week.
+week_start=NULL for initial application submission; Monday date for weekly updates.
+True = available, False = blacked out.
+id, user_id (FK), week_start (Date, nullable)
+Fields: mon_am, mon_pm, tue_am, tue_pm, wed_am, wed_pm, thu_am, thu_pm,
+        fri_am, fri_pm, sat_am, sat_pm, sun_am, sun_pm (all Boolean, default True)
+```
+
+### ShiftWeek
+```
+One record per work week.
+id, week_start (Date, unique — Monday of the work week)
+status: 'draft' | 'published'
+created_at, created_by_id (FK → User, nullable)
+Relationships: shifts → [Shift], created_by → User
+```
+
+### Shift
+```
+One AM or PM block per day within a ShiftWeek.
+id, week_id (FK), day_of_week ('mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun')
+slot: 'am' | 'pm'
+trucks (Integer, default 2), is_active (Boolean, default True)
+created_at
+Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
+Properties: label, sort_key, drivers_needed, organizers_needed,
+            driver_assignments, organizer_assignments, is_fully_staffed, status_label
+```
+
+### ShiftAssignment
+```
+One worker assigned to one shift in a specific role.
+id, shift_id (FK), worker_id (FK → User), role_on_shift ('driver'|'organizer')
+assigned_at, assigned_by_id (FK → User, nullable — NULL = optimizer)
+Relationships: shift → Shift, worker → User, assigned_by → User
 ```
 
 ---
@@ -157,6 +207,7 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 |---|---|---|
 | `GET /` | `index` | Homepage + waitlist signup form |
 | `GET /about` | `about` | About page |
+| `GET /contact` | `contact` | Contact form (name, email, subject, message + Turnstile captcha) |
 | `GET /privacy-policy` | `privacy_policy` | |
 | `GET /terms-and-conditions` | `terms_conditions` | |
 | `GET /refund-policy` | `refund_policy` | |
@@ -182,7 +233,7 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 ### Seller Onboarding
 | Route | Function | Notes |
 |---|---|---|
-| `GET/POST /onboard` | `onboard` | Main multi-step onboarding wizard |
+| `GET/POST /onboard` | `onboard` | Main multi-step onboarding wizard (all sellers start free) |
 | `POST /onboard/guest/save` | `onboard_guest_save` | Save guest onboard session |
 | `GET /onboard/complete_account` | `onboard_complete_account` | Post-onboard account setup |
 | `GET /onboard_complete` | `onboard_complete` | Success page |
@@ -195,13 +246,10 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `GET/POST /edit_item/<id>` | `edit_item` | Edit existing item |
 | `DELETE /delete_photo/<id>` | `delete_photo` | Delete gallery photo |
 | `POST /item/<id>/resubmit` | `resubmit_item` | Seller resubmits item after addressing "needs info" feedback |
-| `POST /confirm_pickup` | `confirm_pickup` | Seller confirms pickup logistics |
+| `GET/POST /confirm_pickup` | `confirm_pickup` | **Deprecated** — now redirects to `/dashboard`. Pickup week set via dashboard modal. |
 | `GET /confirm_pickup_success` | `confirm_pickup_success` | |
-| `GET/POST /upgrade_pickup` | `upgrade_pickup` | Upgrade from free to valet |
+| `GET/POST /upgrade_pickup` | `upgrade_pickup` | Upgrade from Free to Pro plan ($15) |
 | `GET /upgrade_pickup_success` | `upgrade_pickup_success` | |
-| `GET/POST /pay_oversize_fee/<id>` | `pay_oversize_fee` | Pay $10 oversize fee |
-| `GET /pay_oversize_fee_success` | `pay_oversize_fee_success` | |
-
 ### Buyer
 | Route | Function | Notes |
 |---|---|---|
@@ -229,6 +277,8 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `POST /update_payout` | `update_payout` | Venmo/Zelle handle |
 | `POST /update_account_info` | `update_account_info` | |
 | `POST /change_password` | `change_password` | |
+| `GET/POST /complete_profile` | `complete_profile` | Collect phone after Google OAuth (redirects to `next_after_profile` session key) |
+| `POST /api/user/set_pickup_week` | `api_set_pickup_week` | AJAX: save User.pickup_week + pickup_time_preference; returns JSON |
 
 ### Admin (requires is_admin or is_super_admin)
 | Route | Function | Notes |
@@ -260,6 +310,29 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 | `POST /admin/digest/send` | `send_approval_digest` | Super admin manual trigger for digest email |
 | `POST /admin/mass-email` | `admin_mass_email` | |
 | `POST /admin/database/reset` | `admin_database_reset` | Super admin only |
+| `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker application |
+| `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
+
+### Crew (Worker Accounts)
+| Route | Function | Notes |
+|---|---|---|
+| `GET/POST /crew/apply` | `crew_apply` | Worker application form |
+| `GET /crew/pending` | `crew_pending` | Pending approval holding page |
+| `GET /crew` | `crew_dashboard` | Approved worker dashboard — passes `my_shifts`, `current_week` |
+| `GET/POST /crew/availability` | `crew_availability` | Worker weekly availability update |
+| `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers only, published weeks only) |
+
+### Shift Scheduling (Admin)
+| Route | Function | Notes |
+|---|---|---|
+| `GET /admin/schedule` | `admin_schedule_index` | List all ShiftWeeks + creation form. Super admin only. |
+| `POST /admin/schedule/create` | `admin_schedule_create` | Create ShiftWeek + 14 Shift records from form. |
+| `GET /admin/schedule/<week_id>` | `admin_schedule_week` | Schedule builder. Draft = dropdowns, published = badge + swap UI. |
+| `POST /admin/schedule/<week_id>/optimize` | `admin_schedule_optimize` | Run greedy optimizer, clear + rewrite all ShiftAssignments. |
+| `POST /admin/schedule/<week_id>/publish` | `admin_schedule_publish` | Set status=published, email all assigned workers. |
+| `POST /admin/schedule/<week_id>/unpublish` | `admin_schedule_unpublish` | Return to draft. Silent. |
+| `POST /admin/schedule/shift/<shift_id>/update` | `admin_shift_update` | Save trucks count + all assignments for one shift. Redirects to `#shift-<id>`. |
+| `POST /admin/schedule/shift/<shift_id>/swap` | `admin_shift_swap` | Replace one worker on a published shift. Sends swap emails. |
 
 ### Upload / QR
 | Route | Function | Notes |
@@ -280,44 +353,51 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 ## Templates
 
 ```
-layout.html          — Base template (nav, footer, analytics)
-index.html           — Homepage (hero, waitlist form, interactive room)
+layout.html                    — Base template (nav, footer, analytics)
+index.html                     — Homepage (hero, waitlist form, interactive room)
 about.html
-inventory.html       — Shop front (category grid + item cards)
-product.html         — Product detail page (gallery, buy button)
-dashboard.html       — Seller dashboard (items, status, upgrade prompts)
-admin.html           — Admin panel (bulk edit, mark sold, exports)
-admin_approve.html   — Item approval queue
-admin_seller_panel.html — Slide-out seller profile panel partial (no layout extends)
-admin_sidebar.html   — Admin nav sidebar partial
+inventory.html                 — Shop front (category grid + item cards)
+product.html                   — Product detail page (gallery, buy button)
+dashboard.html                 — Seller dashboard (items, status, upgrade prompts)
+admin.html                     — Admin panel (bulk edit, mark sold, exports)
+admin_approve.html             — Item approval queue
+admin_seller_panel.html        — Slide-out seller profile panel partial (no layout extends)
+admin_sidebar.html             — Admin nav sidebar partial
 login.html
 register.html
-signup.html          — Waitlist signup
-onboard.html         — Multi-step seller onboarding wizard
+signup.html                    — Waitlist signup
+onboard.html                   — Multi-step seller onboarding wizard
 onboard_complete_account.html
-add_item.html        — Item upload form (QR upload, photo carousel)
-edit_item.html       — Edit existing item
-upload.html          — Upload page
+add_item.html                  — Item upload form (QR upload, photo carousel)
+edit_item.html                 — Edit existing item
+upload.html                    — Upload page
 upload_from_phone.html
-become_a_seller.html — Seller landing page
-confirm_pickup.html  — Seller confirms pickup logistics
-upgrade_pickup.html  — Upgrade from free to valet
-pay_oversize_fee.html
-pay_oversize_fee_blocked.html
+become_a_seller.html           — Seller landing page
+confirm_pickup.html            — Legacy (route now redirects to /dashboard)
+complete_profile.html          — Post-OAuth phone collection (new, minimal)
+upgrade_pickup.html            — Upgrade from Free to Pro plan
 account_settings.html
 add_payment_method.html
 reserve_success.html
-item_success.html    — Post-purchase success
+item_success.html              — Post-purchase success
 error.html
 privacy_policy.html
 refund_policy.html
 terms_conditions.html
 unsubscribe_confirm.html
 unsubscribe_success.html
-data_preview.html    — Admin data preview
-director.html        — Internal ops view
-_category_grid.html  — Category grid partial
-dashboard_pickup_form.html — Pickup form partial
+data_preview.html              — Admin data preview
+director.html                  — Internal ops view
+_category_grid.html            — Category grid partial
+dashboard_pickup_form.html     — Pickup form partial
+crew/apply.html                — Worker application form
+crew/pending.html              — Application submitted / awaiting approval
+crew/dashboard.html            — Approved worker dashboard (my shifts list + full-schedule modal trigger)
+crew/availability.html         — Weekly availability update form
+crew/_availability_grid.html   — Availability grid partial
+crew/schedule_week_partial.html — Full crew calendar injected into modal via fetch(); no layout.html
+admin/schedule_index.html      — Week list + 7×2 slot toggle creation form
+admin/schedule_week.html       — Schedule builder (draft dropdowns / published badge+swap UI)
 ```
 
 ---
@@ -330,32 +410,45 @@ pending_valuation → (admin approves) → approved → (seller confirms logisti
                   → (admin rejects) → rejected
                   → (admin requests info) → needs_info → (seller resubmits) → pending_valuation
                                                        → (admin cancels request) → pending_valuation
+
+Operational milestones (don't change status):
+  picked_up_at       — item collected from seller
+  arrived_at_store_at — item physically arrived at warehouse
 ```
 
 ### Service Tiers
-- **Valet Pickup** (premium): $15 upfront service fee, 50% payout to seller
-- **Self Drop-off** (free): $0 upfront, 33% payout to seller
-- Sellers can upgrade from free tier to valet from dashboard
+Both tiers include free pickup — the difference is the revenue split and guarantee level.
 
-### Oversize Fee
-- Admin marks `is_large = True` at approval
-- First oversized item: included in $15 service fee (`oversize_included_in_service_fee`)
-- Additional oversized items: $10 fee (`oversize_fee_paid`)
+| Tier | `collection_method` | Payout to Seller | Fee | Item Limit | Pickup |
+|------|-------------------|-----------------|-----|------------|--------|
+| **Pro Plan** | `online` | 50% of sale price | $15 one-time | Unlimited | Guaranteed |
+| **Free Plan** | `free` | 20% of sale price | $0 | Unlimited | Space-permitting |
+
+- **All new sellers start on the Free plan.** Service tier is no longer selected during onboarding — it defaults to `'free'`. Upgrade is a deliberate dashboard action.
+- Pickup week is set per-user (`User.pickup_week`) during onboarding (optional, skippable) or from the dashboard modal at any time.
+- Pro sellers pay $15 via `/upgrade_pickup` ($15 Stripe checkout) — flow unchanged.
+- The admin free-tier confirm/reject system still exists but is no longer the gate to activity. Commented out from active UI; preserved for ops flexibility.
 
 ### Admin Roles
-- `is_admin`: access to admin panel (inventory, approvals)
-- `is_super_admin`: full access (user management, database reset, mass email)
+- `is_admin`: access to admin panel (inventory, approvals, free-tier management)
+- `is_super_admin`: full access (user management, database reset, mass email, category management)
 - Pre-approved via `AdminEmail` table — role assigned at signup
+
+### Worker / Crew Accounts
+- Users apply at `/crew/apply` — sets `worker_status='pending'`, creates `WorkerApplication`
+- Admin approves/rejects at `/admin/crew/approve|reject/<user_id>`
+- Approved workers (`is_worker=True`, `worker_status='approved'`) access `/crew` dashboard
+- Workers submit weekly availability via `/crew/availability` → stored in `WorkerAvailability`
 
 ### AppSetting Flags
 - `reserve_only_mode`: 'true'/'false' — hides buy buttons, shows reserve only
 - `pickup_period_active`: 'true'/'false' — enables pickup scheduling
 - `current_store`: store name for display
+- `store_open_date`: date string shown on inventory banner when store not yet open
 
 ### Stripe Integration
 - Item purchase: standard Checkout Session
-- Valet pickup fee ($15): Checkout Session at onboarding
-- Oversize fee ($10): Checkout Session
+- Pro pickup fee ($15): Checkout Session at onboarding or confirm_pickup
 - Payment method save: SetupIntent (for deferred charge at pickup)
 - Stripe webhook at `/webhook` handles all post-payment state changes
 
@@ -385,7 +478,9 @@ pending_valuation → (admin approves) → approved → (seller confirms logisti
 
 11. **Constants** — shared constants in `constants.py`: `VIDEO_REQUIRED_CATEGORIES`, `category_requires_video()`, `PICKUP_WEEKS`, `PICKUP_WEEK_DATE_RANGES`, `PICKUP_TIME_OPTIONS`. Import into `app.py` and use via context processor for templates.
 
-12. **Cron jobs** — digest email triggered via POST `/admin/digest/trigger` with `X-Cron-Secret` header or `?secret=` query param matching `DIGEST_CRON_SECRET` env var. Set up as Render cron job.
+12. **Shift optimizer** — `_run_optimizer(week)` in `app.py`. Pre-caches all worker availability at the start (no DB queries mid-loop). Tracks load and same-day assignments in-memory. Sort key: `(already_doubled, flexible_for_other_slot, load)` — prefers workers who can only do one slot, then by load, then deprioritizes double-shifts. `assigned_by_id=NULL` on ShiftAssignment means optimizer-assigned; non-NULL means manual.
+
+13. **Cron jobs** — digest email triggered via POST `/admin/digest/trigger` with `X-Cron-Secret` header or `?secret=` query param matching `DIGEST_CRON_SECRET` env var. Set up as Render cron job.
 
 ---
 
