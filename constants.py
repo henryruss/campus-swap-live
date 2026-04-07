@@ -12,17 +12,10 @@ WAREHOUSE_CAPACITY = 2000   # Total items we can physically store and sell at ou
 
 # Free Tier Configuration
 PAYOUT_PERCENTAGE_FREE = 0.20  # Free-tier sellers receive 20% (space-permitting pickup)
-FREE_TIER_MAX_ITEMS = 3        # Max items a free-tier seller can list
 
 
 # Payment Configuration
-SERVICE_FEE_CENTS = 1500  # $15 service fee (guarantees space + move-out pickup)
-LARGE_ITEM_FEE_CENTS = 1000  # $10 per additional large item (first included in SERVICE_FEE_CENTS)
-
-
-def calc_pickup_fee_cents(large_count: int) -> int:
-    """$15 base includes 1 oversized; each additional oversized = $10."""
-    return SERVICE_FEE_CENTS + (LARGE_ITEM_FEE_CENTS * max(0, large_count - 1))
+SERVICE_FEE_CENTS = 1500  # $15 service fee (Pro plan — guarantees space + move-out pickup)
 SELLER_ACTIVATION_FEE_CENTS = 1500  # Legacy alias
 
 # File Upload Configuration

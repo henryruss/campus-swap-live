@@ -1,0 +1,141 @@
+{#
+  Availability grid partial — 7×2 (days × AM/PM).
+  Usage: {% include 'crew/_availability_grid.html' %}
+  Context variable: avail — dict of 14 booleans, or None for all-available default.
+#}
+<style>
+  .avail-grid {
+    display: grid;
+    grid-template-columns: 90px 1fr 1fr;
+    gap: 6px;
+    max-width: 340px;
+  }
+  .avail-grid-header {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 4px 0;
+  }
+  .avail-day-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .avail-day-label .full { display: inline; }
+  .avail-day-label .abbr { display: none; }
+  @media (max-width: 400px) {
+    .avail-day-label .full { display: none; }
+    .avail-day-label .abbr { display: inline; }
+    .avail-grid { grid-template-columns: 50px 1fr 1fr; }
+  }
+  .avail-cell {
+    min-height: 44px;
+    min-width: 44px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .avail-cell.available {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+  }
+  .avail-cell.available:hover { background: #a7f3d0; }
+  .avail-cell.unavailable {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #94a3b8;
+  }
+  .avail-cell.unavailable:hover { background: #e2e8f0; }
+  .avail-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 14px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .avail-legend span { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 3px; display: inline-block;
+  }
+</style>
+
+{% set days = [
+  ('Monday',    'Mon', 'mon'),
+  ('Tuesday',   'Tue', 'tue'),
+  ('Wednesday', 'Wed', 'wed'),
+  ('Thursday',  'Thu', 'thu'),
+  ('Friday',    'Fri', 'fri'),
+  ('Saturday',  'Sat', 'sat'),
+  ('Sunday',    'Sun', 'sun'),
+] %}
+
+<div class="avail-grid" id="avail-grid">
+  {# Header row #}
+  <div></div>
+  <div class="avail-grid-header">AM</div>
+  <div class="avail-grid-header">PM</div>
+
+  {% for full, abbr, key in days %}
+  {% set am_val = avail[key ~ '_am'] if avail else true %}
+  {% set pm_val = avail[key ~ '_pm'] if avail else true %}
+  <div class="avail-day-label">
+    <span class="full">{{ full }}</span>
+    <span class="abbr">{{ abbr }}</span>
+  </div>
+  <div class="avail-cell {{ 'available' if am_val else 'unavailable' }}"
+       data-field="{{ key }}_am"
+       onclick="toggleCell(this)">
+    {{ 'Free' if am_val else 'Off' }}
+  </div>
+  <div class="avail-cell {{ 'available' if pm_val else 'unavailable' }}"
+       data-field="{{ key }}_pm"
+       onclick="toggleCell(this)">
+    {{ 'Free' if pm_val else 'Off' }}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="avail-legend">
+  <span><span class="legend-dot" style="background:#d1fae5; border: 2px solid #6ee7b7;"></span> Available (tap to black out)</span>
+  <span><span class="legend-dot" style="background:#f1f5f9; border: 2px solid #cbd5e1;"></span> Unavailable</span>
+</div>
+
+{# Hidden inputs — one per cell, updated by JS on toggle #}
+{% for full, abbr, key in days %}
+{% set am_val = avail[key ~ '_am'] if avail else true %}
+{% set pm_val = avail[key ~ '_pm'] if avail else true %}
+<input type="hidden" name="{{ key }}_am" id="input_{{ key }}_am" value="{{ 'true' if am_val else 'false' }}">
+<input type="hidden" name="{{ key }}_pm" id="input_{{ key }}_pm" value="{{ 'true' if pm_val else 'false' }}">
+{% endfor %}
+
+<script>
+function toggleCell(cell) {
+  var isAvailable = cell.classList.contains('available');
+  if (isAvailable) {
+    cell.classList.remove('available');
+    cell.classList.add('unavailable');
+    cell.textContent = 'Off';
+  } else {
+    cell.classList.remove('unavailable');
+    cell.classList.add('available');
+    cell.textContent = 'Free';
+  }
+  var field = cell.dataset.field;
+  document.getElementById('input_' + field).value = isAvailable ? 'false' : 'true';
+}
+</script>

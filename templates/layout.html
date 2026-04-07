@@ -204,6 +204,11 @@
             <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
             
             {% if current_user.is_authenticated %}
+                {% if current_user.is_worker and current_user.worker_status == 'approved' %}
+                <a href="/crew" class="nav-item" aria-label="Crew Portal">
+                    <i class="fas fa-hard-hat"></i> Crew Portal
+                </a>
+                {% endif %}
                 <a href="/dashboard" class="nav-item" aria-label="Dashboard">
                     <i class="fas fa-columns"></i> Dashboard
                 </a>
@@ -258,6 +263,9 @@
             </div>
         </div>
         {% if current_user.is_authenticated %}
+            {% if current_user.is_worker and current_user.worker_status == 'approved' %}
+            <a href="/crew" class="mobile-menu-link"><i class="fas fa-hard-hat"></i> Crew Portal</a>
+            {% endif %}
             <a href="/dashboard" class="mobile-menu-link"><i class="fas fa-columns"></i> Dashboard</a>
             <a href="/account_settings" class="mobile-menu-link"><i class="fas fa-user-cog"></i> Account Settings</a>
             {% if current_user.is_admin %}

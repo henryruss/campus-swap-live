@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-04
+> **Last updated:** 2026-04-06
 
 ---
 
@@ -12,19 +12,20 @@
 3. [Seller Experience](#seller-experience)
 4. [Account Management](#account-management)
 5. [Admin Features](#admin-features)
-6. [Support & Contact](#support--contact)
-7. [Auth Flows](#auth-flows)
-8. [Emails Sent](#emails-sent)
-9. [Analytics & Tracking](#analytics--tracking)
-10. [Payments & Stripe Integration](#payments--stripe-integration)
-11. [Data Collected Summary](#data-collected-summary)
-12. [Item Lifecycle & Status Transitions](#item-lifecycle--status-transitions)
-13. [Seller Activation Flows](#seller-activation-flows)
-14. [Configuration & Constants](#configuration--constants)
-15. [SEO & Structured Data](#seo--structured-data)
-16. [Static / Legal Pages](#static--legal-pages)
-17. [API Endpoints](#api-endpoints)
-18. [Infrastructure & Error Handling](#infrastructure--error-handling)
+6. [Crew Portal (Worker Accounts)](#crew-portal-worker-accounts)
+7. [Support & Contact](#support--contact)
+8. [Auth Flows](#auth-flows)
+9. [Emails Sent](#emails-sent)
+10. [Analytics & Tracking](#analytics--tracking)
+11. [Payments & Stripe Integration](#payments--stripe-integration)
+12. [Data Collected Summary](#data-collected-summary)
+13. [Item Lifecycle & Status Transitions](#item-lifecycle--status-transitions)
+14. [Seller Activation Flows](#seller-activation-flows)
+15. [Configuration & Constants](#configuration--constants)
+16. [SEO & Structured Data](#seo--structured-data)
+17. [Static / Legal Pages](#static--legal-pages)
+18. [API Endpoints](#api-endpoints)
+19. [Infrastructure & Error Handling](#infrastructure--error-handling)
 
 ---
 
@@ -202,11 +203,13 @@
 - Note shown: "This is just a recommendation. We review each item..."
 - Recommended price ranges shown based on category (e.g., Couch $50-150, Mini Fridge $40-80)
 
-**Step 7: Service Tier**
-- Fields: `collection_method` ("online" for Pro, "free" for Free)
-- UI: Two tier cards with pricing breakdown
-  - Pro: $15 fee, 50% payout, guaranteed pickup, unlimited items
-  - Free: $0 fee, 20% payout, space-permitting pickup, max 3 items
+**Step 7: Pickup Week (Optional)**
+- Fields: `onboard_pickup_week` ("week1" | "week2"), `onboard_time_preference` ("morning" | "afternoon" | "evening")
+- UI: Two large radio cards (Week 1: Apr 27–May 3, Week 2: May 4–May 10) + time-of-day radio buttons (shown after week selected)
+- Validation: if week selected, time preference is required. Both null = skip.
+- "Skip for now" button same visual weight as Back — clears any selection and advances. Helper text: "You can set or change this anytime from your dashboard."
+- Saves to `User.pickup_week` and `User.pickup_time_preference` on submit
+- **Service tier selection removed from onboarding** — all sellers start Free. `collection_method` is hardcoded to `'free'` on item creation.
 
 **Step 8: Payout Method**
 - Fields: `payout_method` (Venmo/PayPal/Zelle), `payout_handle`, `payout_handle_confirm`
@@ -220,9 +223,9 @@
 - Action: "Submit for Approval"
 
 **Steps 10-11 (Guests Only): Account Creation**
-- Fields: `full_name`, `email`, `password` (min 6 chars)
+- Fields: `full_name`, `email`, `phone` (required), `password` (min 6 chars)
 - Google OAuth option, Cloudflare Turnstile captcha
-- Guest save progress: POST to `/onboard/guest/save` stores session data
+- Guest save progress: POST to `/onboard/guest/save` stores session data (includes pickup_week/time_pref if set)
 
 **Post-onboard routes:**
 - `/onboard_complete` — redirect destination on success
@@ -255,29 +258,42 @@ Same as onboarding steps 1-6 + review, minus tier selection, payout, and account
 
 ### Seller Dashboard (`/dashboard`) — "Seller Studio"
 
-**Alert Banners (top of page):**
-- Unresolved `SellerAlert` records rendered as amber cards above item grid
+**Nag Banners (above stats bar):**
+- **Phone nag** (amber): shown if `current_user.phone is None`. Inline phone input + Save button, POSTs to `/update_account_info`. Not dismissible without saving.
+- **Address nag** (grey): shown if no pickup location AND phone is set. "Add your pickup address..." link → `/account_settings`. Secondary priority.
+
+**Alert Banners (action cards area):**
+- Unresolved `SellerAlert` records rendered as amber cards
 - `needs_info` alerts: lists admin's reasons + custom note, "Update Item" button → `/edit_item/<id>`
-- `pickup_reminder` alerts: "Action needed: Please select your pickup week" + "Select Pickup Week" button → `/confirm_pickup`
+- `pickup_reminder` alerts: "Action needed: Please select your pickup week" + button → opens pickup week modal (not `/confirm_pickup` anymore)
 - `preset` / `custom` alerts: from admin seller profile panel, message content shown directly
 
 **Stats bar (4 columns):**
 1. **Potential Earnings** — dollar amount based on approved items × payout percentage, or "—" with "Updates once items are approved"
 2. **Paid Out** — amount already sent via payout
 3. **Items** — "X live, Y sold" + pending count in orange
-4. **Pickup Window** — shows "Wk 1 · Morning" format when both week + time preference set; week only for legacy sellers; "Not scheduled" (amber) if neither
+4. **Pickup Window** — uses `User.pickup_week` (not item pickup_week). Shows "Wk 1 · Morning" format when both set; "Not scheduled" in amber with "Set now →" if neither. Entire cell is clickable → opens pickup week modal.
 
-**Plan badge:** Free Plan / Awaiting Payment / Pro User
+**Plan badge:** Free Plan (grey) or Pro Plan (green) — driven by `user_collection_method`.
+
+**Upgrade card** (shown for free-plan sellers): "You're on the free plan — keeping 20% of each sale. Upgrade for guaranteed pickup and 50% payout. $15 one-time fee. [Upgrade →]" — links to `/upgrade_pickup`.
+
+**Pickup Week Modal** (centered overlay, no page navigation):
+- Triggered by clicking pickup stats cell or "Set now →" link
+- Week 1 / Week 2 cards (pre-filled if already set)
+- Time preference buttons (Morning/Afternoon/Evening)
+- Save: POSTs to `/api/user/set_pickup_week` via fetch, updates stats bar inline on success, reloads page
+- Plan note at bottom: upgrade prompt (free) or "You're on the Pro plan ✓"
 
 **Action cards (conditional):**
 | Condition | Card Shown |
 |---|---|
-| Payment awaiting | Orange card + link to pay $15 (to `/add_payment_method` or `/confirm_pickup`) |
-| Free plan | Reminder card + upgrade option (link to `/upgrade_pickup`) |
+| Payment awaiting | Orange card + link to pay $15 → `/confirm_pickup` (now redirects to dashboard) |
+| Free plan, items approved | "Set Pickup Week" button → opens modal |
+| Free plan, no approved items | "Awaiting approval" |
+| **Upgrade card** (always shown for free plan + Stripe configured) | "Upgrade to Pro" card → `/upgrade_pickup` |
 | Guest mode | "Save Your Progress" with inline password input (POST `/set_password`) |
-| Free tier awaiting confirmation | "Awaiting admin confirmation" messaging |
-| Free tier confirmed | "You're confirmed!" messaging |
-| Free tier rejected | Rejection message with alternative to upgrade to Pro |
+| Free tier rejected | Rejection message + upgrade option |
 
 **Item grid — "My Shop":**
 Each item tile shows:
@@ -298,28 +314,13 @@ Each item tile shows:
 
 ---
 
-### Confirm Pickup (`/confirm_pickup`) — 2-3 Step Wizard
-For Pro sellers who need to schedule their pickup.
+### Confirm Pickup (`/confirm_pickup`) — DEPRECATED
+**Superseded by dashboard pickup week modal (April 2026).** Route now immediately redirects to `/dashboard` with flash: "You can set your pickup week from your dashboard."
 
-**Step 1: Pickup Week + Preferences**
-- Fields: `pickup_week` (radio buttons)
-  - Week 1: April 27 – May 3
-  - Week 2: May 4 – May 10
-- `pickup_time_preference` (radio buttons, required): Morning (9am–1pm), Afternoon (1pm–5pm), Evening (5pm–9pm) — subtext: "We'll do our best to match your preference."
-- `moveout_date` (date picker, optional): constrained to selected week's date range, resets on week change
-- Cannot be changed after confirmation (week locked; time preference and moveout date editable from Account Settings)
-
-**Step 2: Address & Phone** (skipped if location already saved)
-- `pickup_location_type`: on_campus or off_campus
-- **On-campus:** `pickup_dorm` (dropdown grouped by area: North Campus / Mid-Campus / South Campus — 40+ dorms for UNC Chapel Hill), `pickup_room`
-- **Off-campus:** `pickup_address` (Google Maps autocomplete), `pickup_lat`/`pickup_lng` (hidden, auto-filled), `pickup_note` (optional directions)
-- `phone` (formatted as (XXX) XXX-XXXX) — "So we can text you when we're on the way"
-
-**Step 3: Review & Pay**
-- Summary of selections
-- Fee display: "$15.00 one-time pickup fee" (Pro) or free (Free plan)
-- Action: "Pay $15 & Confirm Pickup" or "Confirm Pickup"
-- Redirects to Stripe checkout → `/confirm_pickup_success` on success
+- Template (`confirm_pickup.html`) and legacy code are preserved but unreachable.
+- Address collection moved to `/account_settings` only.
+- Phone collection moved to account creation and phone nag banner.
+- Pickup week now set via `/api/user/set_pickup_week` AJAX endpoint from dashboard modal.
 
 ---
 
@@ -332,20 +333,9 @@ For Free-tier sellers upgrading to Pro.
 - Action: "Pay $15 & Upgrade to Pickup"
 - Success page: `/upgrade_pickup_success`
 
-### Pay Oversize Fee (`/pay_oversize_fee/<id>`)
-- Item thumbnail + title displayed
-- Fee: $10 per additional oversized item (first oversized included in $15 service fee)
-- Action: "Pay $10"
-- Success page: `/pay_oversize_fee_success`
-
-### Pay Oversize Fee Blocked (`/pay_oversize_fee_blocked/<id>`)
-- Shown when seller tries to pay oversize fee before paying the base $15 service fee
-- Warning card with CTA to go to `/confirm_pickup` first
-
 ### Add Payment Method (`/add_payment_method`)
 - Stripe Elements card form (SetupIntent flow — card saved for deferred charge)
-- Messaging: "You won't be charged until pickup week"
-- Fee breakdown: $15 one-time, +$10 per additional oversized
+- Messaging: "You won't be charged until pickup week. One-time $15 pickup fee covers all your items."
 - Success page: `/payment_method_success`
 
 ---
@@ -441,7 +431,6 @@ For Free-tier sellers upgrading to Pro.
   - `price` (final sale price — may differ from seller's `suggested_price`)
   - `category_id` / `subcategory_id`
   - `quality` (condition)
-  - `is_large` (oversized flag — triggers $10 fee for additional oversized items)
 - Approve, Reject, or **"More Info Needed"** (keyboard shortcuts: A=approve, R=reject, I=info needed)
 - "More Info Needed" opens modal with: 4 preset reason checkboxes (better photos, video required, better description, different angle) + custom note textarea (500 chars). Sends to `/admin/item/<id>/request_info` → sets item to `needs_info`, creates SellerAlert
 - "Resubmitted" badge (blue) shown on items that were previously sent back and resubmitted by seller
@@ -464,6 +453,51 @@ For Free-tier sellers upgrading to Pro.
   - Sales CSV: item_id, seller, price, payout_percentage, payout_amount, payout_sent, sold_at
 - **Mass email** (POST `/admin/mass-email`): custom subject + HTML body, sent to all non-unsubscribed users, rate-limited at 0.55s/email
 - **Database reset** (POST `/admin/database/reset`): Super admin only, requires typing "reset database" to confirm
+
+---
+
+## Crew Portal (Worker Accounts)
+
+*Spec #1 — signed off 2026-04-06. .edu enforcement currently disabled for development; re-enable before first real hiring cycle.*
+
+### Application (`/crew/apply`)
+- Publicly accessible, no login required
+- Short job description hero: roles explained (Driver vs. Organizer), $130/shift, ~3-week season
+- Form fields: full name, email, phone, UNC year, role preference (Driver/Organizer/Both), 7×2 availability grid, optional blurb (500 char max)
+- If logged in: name/email/phone pre-filled and read-only
+- On submit: creates `WorkerApplication` + initial `WorkerAvailability` (week_start=NULL), redirects to `/crew/pending`
+- Duplicate check: pending → flash error; approved → redirect to `/crew`; rejected → flash "applications closed for this account"
+
+### Availability Grid
+- 7-day × AM/PM tap-to-toggle grid (14 cells)
+- Default state: all green (fully available)
+- Tap to blackout (grey); tap again to restore
+- Outputs 14 hidden inputs (`mon_am` … `sun_pm`) read on POST
+- Reused on apply form and weekly update page via `crew/_availability_grid.html` partial
+
+### Pending Page (`/crew/pending`)
+- Shown after application submit
+- On refresh: checks live status — approved redirects to `/crew`, rejected redirects to index with flash
+
+### Worker Dashboard (`/crew`)
+- Requires `is_worker=True` and `worker_status='approved'`
+- Shows role badge, last availability submission summary
+- Placeholder sections for schedule and shift history (Specs #2, #3)
+
+### Weekly Availability Update (`/crew/availability`)
+- Available Sunday–Tuesday only; locked Wed–Sat with "schedule posts Thursday" message
+- Grid pre-filled from most recent `WorkerAvailability` record
+- Submit upserts by `(user_id, week_start)` — no duplicates
+
+### Admin Crew Management (within `/admin`)
+- "Crew" collapsible section with pending count badge
+- Per-applicant expand: shows availability grid (read-only) + role preference + optional blurb
+- **Approve:** role selector (Driver/Organizer/Both) → sets `is_worker=True`, `worker_status='approved'`, `worker_role` → sends approval email
+- **Reject:** optional rejection email toggle → sets `worker_status='rejected'`
+
+### Emails
+- **Approval:** "You're on the Campus Swap Crew!" — role confirmed, $130/shift, link to `/crew`, availability deadline reminder
+- **Rejection (optional):** Brief, kind decline — admin toggles on/off per applicant
 
 ---
 
@@ -496,11 +530,12 @@ For Free-tier sellers upgrading to Pro.
 | Flow | Fields Collected | Route | Notes |
 |------|-----------------|-------|-------|
 | Email Login | email, password | `/login` | Turnstile captcha |
-| Email Register | full_name, email, password | `/register` | Turnstile captcha |
-| Google OAuth | (from Google: email, profile) | `/auth/google` → `/auth/google/callback` | Scope: openid email profile. Auto-creates account if email new. Links to existing account if email matches. |
+| Email Register | full_name, email, **phone** (required), password | `/register` | Phone required since April 2026. Turnstile captcha. |
+| Google OAuth | (from Google: email, profile) | `/auth/google` → `/auth/google/callback` | New accounts redirected to `/complete_profile` to collect phone before proceeding. |
+| Complete Profile (post-OAuth) | phone | `/complete_profile` | Required for new Google OAuth accounts. Idempotent — skips if phone already set. Redirects to `session['next_after_profile']`. |
 | Homepage Signup | email | `/` (POST) | Creates guest account if new, auto-logs in during active period |
 | Guest → Full Account (Dashboard) | password | POST `/set_password` | Inline on dashboard "Save Your Progress" card |
-| Guest → Full Account (Onboard) | full_name, email, password | `/onboard/complete_account` | Post-onboarding completion flow |
+| Guest → Full Account (Onboard) | full_name, email, **phone** (required), password | `/onboard/complete_account` | Phone added to step 11 of onboarding wizard. |
 | Password Change | current_password, new_password, confirm_password | POST `/change_password` | current_password optional if no existing hash (OAuth/guest accounts) |
 
 ---
@@ -579,13 +614,12 @@ For Free-tier sellers upgrading to Pro.
 |------|--------------|-------|--------|------|
 | Item purchase (buyer) | Checkout Session | POST `/create_checkout_session` → `/item_success` | Item price | Buyer clicks "Buy Now" |
 | Pro seller activation fee | Checkout Session | POST `/upgrade_checkout` or via confirm_pickup | $15 | Onboarding or confirm pickup |
-| Oversize fee | Checkout Session | `/pay_oversize_fee/<id>` | $10 | Per additional oversized item |
 | Pickup upgrade (Free→Pro) | Checkout Session | `/upgrade_pickup` | $15 | Seller upgrades from dashboard |
 | Save payment method | SetupIntent | POST `/create_setup_intent` → `/add_payment_method` | $0 (deferred) | Card saved for later charge |
 
 ### Webhook (`/webhook`)
 Handles:
-- `checkout.session.completed` — marks item sold, activates seller, processes oversize fee
+- `checkout.session.completed` — marks item sold, activates seller
 - `setup_intent.succeeded` — saves payment method to user (`stripe_payment_method_id`)
 - Updates `has_paid`, `payment_declined` flags accordingly
 
@@ -596,7 +630,6 @@ Handles:
 | `/success` | Generic payment success (seller activation, upgrade) — context-specific flash message |
 | `/confirm_pickup_success` | Seller confirms pickup week |
 | `/upgrade_pickup_success` | Seller upgrades to Pro |
-| `/pay_oversize_fee_success` | Oversize fee paid |
 | `/payment_method_success` | Payment method saved |
 
 ---
@@ -619,7 +652,7 @@ Handles:
 - Referral source
 
 ### From Admin Actions
-- Item approval: final price, category/subcategory, condition, oversized flag
+- Item approval: final price, category/subcategory, condition
 - "More Info Needed" requests: preset reasons + custom note → stored as SellerAlert
 - Pickup nudge reminders → stored as SellerAlert
 - Custom/preset alerts via seller profile panel → stored as SellerAlert
@@ -672,11 +705,10 @@ pending_logistics
 2. Admin approves → `pending_logistics`, seller emailed with final price
 3. Seller goes to `/confirm_pickup` → selects pickup week → enters address/phone
 4. Pay $15 via Stripe → `has_paid=True`
-5. Webhook confirms → items become `available`
-6. Additional oversized items: $10 each via `/pay_oversize_fee/<id>` (first oversized included in $15)
+5. Webhook confirms → all items become `available`
 
 ### Free Tier Seller (`collection_method='free'`)
-1. Submit item (max 3 items) → `pending_valuation`
+1. Submit item → `pending_valuation`
 2. Admin approves → `pending_logistics`
 3. Admin reviews capacity → Confirm or Reject
 4. **Confirmed:** seller picks up week + address → items `available`, 20% payout
@@ -695,15 +727,16 @@ pending_logistics
 ### Payout Rates
 | Tier | `collection_method` | Payout % | Fee |
 |------|-------------------|----------|-----|
-| Pro (Valet Pickup) | `online` | 50% | $15 one-time |
-| Free (Space-Permitting) | `free` | 20% | $0 |
+| Pro Plan | `online` | 50% | $15 one-time |
+| Free Plan | `free` | 20% | $0 |
+
+Both tiers include free pickup. Pro guarantees it; Free is space-permitting.
 
 ### Capacity Limits
 - Warehouse: 2,000 items
 
 ### Fee Structure
-- Service fee (Pro): $15 (1500 cents) — includes first oversized item
-- Additional oversized: $10 (1000 cents) each
+- Service fee (Pro): $15 (1500 cents) — covers all items, no per-item charges
 
 ### Key Deadlines (Configurable)
 - `RESERVE_ONLY_DEADLINE`: April 20 — before this date, items are reserve-only (no Stripe charges); after, "Buy Now" enabled
@@ -809,6 +842,12 @@ Grouped by area for on-campus pickup dropdown:
 | GET | `/api/upload_session/status` | Poll for new photos uploaded from phone | Login required |
 | GET/POST | `/upload_from_phone` | Mobile upload page (accessed via QR code) | Token-based |
 | POST | `/upload_video_from_phone` | Video upload from phone | Token-based |
+
+### User API Routes (added April 2026)
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| POST | `/api/user/set_pickup_week` | Save `User.pickup_week` + `pickup_time_preference` from dashboard modal. Returns JSON `{success, pickup_week, pickup_week_label, pickup_time_preference}`. | Login required |
 
 ### Admin API Routes (added April 2026)
 

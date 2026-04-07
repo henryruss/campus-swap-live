@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container" style="max-width: 420px; margin-top: 80px;">
+    <div class="card no-hover" style="text-align: center; padding: 40px 32px;">
+        <div style="font-size: 2.5rem; margin-bottom: 16px;">📱</div>
+        <h2 style="margin-bottom: 10px;">One last thing</h2>
+        <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 28px; line-height: 1.5;">
+            We need your phone number to text you pickup updates.<br>
+            We won't use it for anything else.
+        </p>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div style="margin-bottom: 20px; text-align: left;">
+                <label style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;">Phone number</label>
+                <input type="tel" name="phone" placeholder="(555) 123-4567" required
+                       style="width: 100%; padding: 14px 18px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem; box-sizing: border-box;">
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin: 6px 0 0;">10-digit US number. We'll text you updates about your pickup — nothing else.</p>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
+                Save &amp; Continue
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

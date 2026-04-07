@@ -128,8 +128,8 @@ The ops system connects back to the seller experience in three ways:
 
 | # | Spec File | Status | Description |
 |---|-----------|--------|-------------|
-| 1 | `feature_worker_accounts.md` | ✅ Ready for Claude Code | Worker role, .edu gating, application, availability grid |
-| 2 | `feature_shift_scheduling.md` | 🔲 Not yet designed | Admin shift creation, constraint-satisfaction optimizer, schedule publishing |
+| 1 | `feature_worker_accounts.md` | ✅ Done (signed off 2026-04-06) | Worker role, .edu gating, application, availability grid |
+| 2 | `feature_shift_scheduling.md` | ✅ Done (signed off 2026-04-06) | Admin shift creation, greedy optimizer, schedule publishing, worker calendar view |
 | 3 | `feature_driver_shift_view.md` | 🔲 Not yet designed | Phone-optimized day-of view, pickup checklist, progress logging |
 | 4 | `feature_organizer_intake.md` | 🔲 Not yet designed | Item intake at storage unit, location tagging, tie to InventoryItem |
 | 5 | `feature_payout_reconciliation.md` | 🔲 Not yet designed | Close loop between intake and existing seller payout workflow |

@@ -47,8 +47,14 @@ class User(UserMixin, db.Model):
     oauth_id = db.Column(db.String(120), nullable=True)
     
     # PICKUP SCHEDULING
+    pickup_week = db.Column(db.String(10), nullable=True)  # 'week1' | 'week2' | None — seller's stated preference
     pickup_time_preference = db.Column(db.String(20), nullable=True)  # 'morning' | 'afternoon' | 'evening'
     moveout_date = db.Column(db.Date, nullable=True)  # Seller's exact move-out date (optional)
+
+    # WORKER / CREW
+    is_worker = db.Column(db.Boolean, default=False)
+    worker_status = db.Column(db.String(20), nullable=True)  # None | 'pending' | 'approved' | 'rejected'
+    worker_role = db.Column(db.String(20), nullable=True)    # None | 'driver' | 'organizer' | 'both'
 
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
@@ -100,11 +106,6 @@ class InventoryItem(db.Model):
     
     # COLLECTION METHOD: 'online' (default) or 'in_person'
     collection_method = db.Column(db.String(20), default='online')
-    
-    # LARGE ITEM: Admin marks during approval; $10 fee for online items (pickup only)
-    is_large = db.Column(db.Boolean, default=False)
-    oversize_included_in_service_fee = db.Column(db.Boolean, default=False)  # True = first oversized, waived with $15
-    oversize_fee_paid = db.Column(db.Boolean, default=False)  # True when seller paid $10 (additional oversized)
     
     # LOGISTICS (set when seller confirms after approval)
     pickup_week = db.Column(db.String(20), nullable=True)   # 'week1' (Apr 27-May 3) or 'week2' (May 4-May 10)
@@ -240,3 +241,135 @@ class ItemAIResult(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     item = db.relationship('InventoryItem', backref=db.backref('ai_result', uselist=False))
+
+
+class WorkerApplication(db.Model):
+    """One application per user. Stores role preference, year, and optional blurb."""
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    unc_year    = db.Column(db.String(20))
+    role_pref   = db.Column(db.String(20))       # driver | organizer | both
+    why_blurb   = db.Column(db.Text, nullable=True)
+    applied_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    user     = db.relationship('User', foreign_keys=[user_id], backref=db.backref('worker_application', uselist=False))
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by])
+
+
+class WorkerAvailability(db.Model):
+    """
+    One record per worker per week.
+    week_start=NULL for the initial application submission.
+    Weekly updates upsert by (user_id, week_start).
+    True = available, False = blacked out.
+    """
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'))
+    week_start = db.Column(db.Date, nullable=True)  # NULL = initial | Monday date = weekly update
+
+    mon_am = db.Column(db.Boolean, default=True)
+    mon_pm = db.Column(db.Boolean, default=True)
+    tue_am = db.Column(db.Boolean, default=True)
+    tue_pm = db.Column(db.Boolean, default=True)
+    wed_am = db.Column(db.Boolean, default=True)
+    wed_pm = db.Column(db.Boolean, default=True)
+    thu_am = db.Column(db.Boolean, default=True)
+    thu_pm = db.Column(db.Boolean, default=True)
+    fri_am = db.Column(db.Boolean, default=True)
+    fri_pm = db.Column(db.Boolean, default=True)
+    sat_am = db.Column(db.Boolean, default=True)
+    sat_pm = db.Column(db.Boolean, default=True)
+    sun_am = db.Column(db.Boolean, default=True)
+    sun_pm = db.Column(db.Boolean, default=True)
+
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user         = db.relationship('User', backref='availabilities')
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'week_start', name='uq_worker_avail_user_week'),
+    )
+
+
+# =========================================================
+# SPEC #2 — SHIFT SCHEDULING
+# =========================================================
+
+class ShiftWeek(db.Model):
+    """One record per work week. Holds all shifts for that week."""
+    id           = db.Column(db.Integer, primary_key=True)
+    week_start   = db.Column(db.Date, unique=True, nullable=False)  # Monday of the work week
+    status       = db.Column(db.String(20), nullable=False, default='draft')  # 'draft' | 'published'
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    shifts       = db.relationship('Shift', backref='week', lazy=True, order_by='Shift.id')
+    created_by   = db.relationship('User', foreign_keys=[created_by_id])
+
+
+class Shift(db.Model):
+    """One AM or PM block on a specific day within a ShiftWeek."""
+    id           = db.Column(db.Integer, primary_key=True)
+    week_id      = db.Column(db.Integer, db.ForeignKey('shift_week.id'), nullable=False)
+    day_of_week  = db.Column(db.String(3), nullable=False)  # 'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun'
+    slot         = db.Column(db.String(2), nullable=False)   # 'am'|'pm'
+    trucks       = db.Column(db.Integer, default=2)
+    is_active    = db.Column(db.Boolean, default=True)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    assignments  = db.relationship('ShiftAssignment', backref='shift', lazy=True, cascade='all, delete-orphan')
+
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    _DAY_LABELS = {'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday',
+                   'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday', 'sun': 'Sunday'}
+
+    @property
+    def label(self):
+        return f"{self._DAY_LABELS.get(self.day_of_week, self.day_of_week)} {'AM' if self.slot == 'am' else 'PM'}"
+
+    @property
+    def sort_key(self):
+        return (self._DAY_ORDER.index(self.day_of_week), 0 if self.slot == 'am' else 1)
+
+    @property
+    def drivers_needed(self):
+        return self.trucks * int(AppSetting.get('drivers_per_truck', '2'))
+
+    @property
+    def organizers_needed(self):
+        return self.trucks * int(AppSetting.get('organizers_per_truck', '2'))
+
+    @property
+    def driver_assignments(self):
+        return [a for a in self.assignments if a.role_on_shift == 'driver']
+
+    @property
+    def organizer_assignments(self):
+        return [a for a in self.assignments if a.role_on_shift == 'organizer']
+
+    @property
+    def is_fully_staffed(self):
+        return (len(self.driver_assignments) >= self.drivers_needed and
+                len(self.organizer_assignments) >= self.organizers_needed)
+
+    @property
+    def status_label(self):
+        if not self.assignments:
+            return 'Unassigned'
+        if self.is_fully_staffed:
+            return 'Fully Staffed'
+        return 'Understaffed'
+
+
+class ShiftAssignment(db.Model):
+    """One worker assigned to one shift in a specific role."""
+    id             = db.Column(db.Integer, primary_key=True)
+    shift_id       = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    worker_id      = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    role_on_shift  = db.Column(db.String(20), nullable=False)  # 'driver' | 'organizer'
+    assigned_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    assigned_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # NULL = optimizer
+
+    worker      = db.relationship('User', foreign_keys=[worker_id], backref='shift_assignments')
+    assigned_by = db.relationship('User', foreign_keys=[assigned_by_id])

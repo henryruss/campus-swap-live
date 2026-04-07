@@ -30,13 +30,13 @@ from sqlalchemy import or_, and_, func, nulls_last
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment
 
 # Import Constants
 from constants import (
     PAYOUT_PERCENTAGE, PAYOUT_PERCENTAGE_ONLINE,
     PAYOUT_PERCENTAGE_FREE,
-    SERVICE_FEE_CENTS, LARGE_ITEM_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS, calc_pickup_fee_cents,
+    SERVICE_FEE_CENTS, SELLER_ACTIVATION_FEE_CENTS,
     MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES,
     MAX_VIDEO_SIZE, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_VIDEO_MIME_TYPES,
     category_requires_video, VIDEO_REQUIRED_CATEGORIES,
@@ -47,7 +47,7 @@ from constants import (
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
     PICKUP_WEEKS, PICKUP_WEEK_DATE_RANGES, PICKUP_TIME_OPTIONS,
     RESERVE_ONLY_DEADLINE,
-    WAREHOUSE_CAPACITY, FREE_TIER_MAX_ITEMS,
+    WAREHOUSE_CAPACITY,
     get_price_range_for_category
 )
 
@@ -212,7 +212,10 @@ migrate = Migrate(app, db)
 csrf = CSRFProtect(app)
 
 # Rate Limiting
+_ratelimit_enabled = os.environ.get('RATELIMIT_ENABLED', 'true').lower() != 'false'
 try:
+    if not _ratelimit_enabled:
+        raise ImportError("Rate limiting disabled via RATELIMIT_ENABLED=false")
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
     limiter = Limiter(
@@ -284,6 +287,11 @@ if not posthog.api_key:
 @app.context_processor
 def inject_posthog():
     return {'posthog_api_key': os.environ.get('POSTHOG_API_KEY', '')}
+
+
+@app.context_processor
+def inject_template_utils():
+    return {'timedelta': timedelta}
 
 
 def get_user_dashboard():
@@ -1154,20 +1162,20 @@ def become_a_seller():
         if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
             flash("Verification failed. Please try again.", "error")
             return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()),
-                               warehouse_spots=get_warehouse_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
+                               warehouse_spots=get_warehouse_spots_remaining())
         email = request.form.get('email', '').strip()
 
         if not email:
             flash("Please provide your email address.", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining())
 
         if not validate_email(email):
             flash("Please provide a valid email address.", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining())
 
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
+            return render_template('become_a_seller.html', pickup_period_active=get_pickup_period_active(), store_info=get_store_info(get_current_store()), warehouse_spots=get_warehouse_spots_remaining())
 
         pickup_period_active = get_pickup_period_active()
         if not pickup_period_active:
@@ -1201,7 +1209,7 @@ def become_a_seller():
     pickup_period_active = get_pickup_period_active()
     store_info = get_store_info(get_current_store())
     return render_template('become_a_seller.html', pickup_period_active=pickup_period_active, store_info=store_info,
-                           warehouse_spots=get_warehouse_spots_remaining(),                            free_tier_max_items=FREE_TIER_MAX_ITEMS)
+                           warehouse_spots=get_warehouse_spots_remaining())
 
 @app.route('/sitemap.xml')
 def sitemap():
@@ -2350,7 +2358,7 @@ def admin_panel():
                                 try:
                                     fee_text = ""
                                     if item.collection_method == 'online':
-                                        fee = SERVICE_FEE_CENTS // 100  # Single item: $15 (first oversized included)
+                                        fee = SERVICE_FEE_CENTS // 100
                                         fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
                                     elif item.collection_method == 'free':
                                         fee_text = " Add your address and select a pickup window in your dashboard—no payment required."
@@ -2398,9 +2406,6 @@ def admin_panel():
                                 item.category_id = new_cat_id
                             except ValueError:
                                 pass
-                        # is_large: admin marks during approval; $10 fee for online items
-                        if f"is_large_{item_id}" in request.form:
-                            item.is_large = request.form[f"is_large_{item_id}"].lower() in ('1', 'true', 'on', 'yes')
                 except (ValueError, TypeError) as e:
                     logger.error(f"Error updating item {key}: {e}", exc_info=True)
                     continue
@@ -2659,6 +2664,32 @@ def admin_panel():
         })
     nudge_sellers.sort(key=lambda x: (-x['days_since_approval'], (x['user'].full_name or '').lower()))
 
+    # Crew data
+    crew_pending_raw = User.query.filter_by(worker_status='pending').all()
+    crew_pending_applications = []
+    for u in crew_pending_raw:
+        app_record = u.worker_application
+        if not app_record:
+            continue
+        last_avail = (
+            WorkerAvailability.query
+            .filter_by(user_id=u.id, week_start=None)
+            .first()
+        )
+        avail_dict = {}
+        for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+            for slot in ['am', 'pm']:
+                field = f"{day}_{slot}"
+                avail_dict[field] = getattr(last_avail, field, True) if last_avail else True
+        crew_pending_applications.append({
+            'user': u,
+            'application': app_record,
+            'availability': last_avail,
+            'avail_dict': avail_dict,
+        })
+    crew_pending_applications.sort(key=lambda x: x['application'].applied_at)
+    crew_approved_workers = User.query.filter_by(is_worker=True, worker_status='approved').order_by(User.full_name).all()
+
     return render_template('admin.html', commodities=commodities, all_cats=all_cats,
                            pending_items=pending_items, gallery_items=gallery_items,
                            pickup_period_active=pickup_period_active,
@@ -2670,7 +2701,9 @@ def admin_panel():
                            free_rejected_ids=free_rejected_ids,
                            warehouse_spots=get_warehouse_spots_remaining(),
                            admin_reservations=admin_reservations,
-                           nudge_sellers=nudge_sellers)
+                           nudge_sellers=nudge_sellers,
+                           crew_pending_applications=crew_pending_applications,
+                           crew_approved_workers=crew_approved_workers)
 
 
 @app.route('/admin/approve', methods=['GET', 'POST'])
@@ -2718,7 +2751,7 @@ def admin_approve():
             flash(f"Rejected '{desc}'.", "success")
             return redirect(url_for('admin_approve', sort=sort_val))
         
-        # Approve: set price, is_large, category, quality, status
+        # Approve: set price, category, quality, status
         price_str = request.form.get('price', '').strip()
         if not price_str:
             flash("Please set a price to approve.", "error")
@@ -2732,7 +2765,6 @@ def admin_approve():
         item.price = price_result
         item.price_updated_at = datetime.utcnow()
         item.price_changed_acknowledged = False
-        item.is_large = request.form.get('is_large', '').lower() in ('1', 'true', 'on', 'yes')
         if request.form.get('category_id'):
             try:
                 item.category_id = int(request.form['category_id'])
@@ -2757,7 +2789,7 @@ def admin_approve():
             try:
                 fee_text = ""
                 if item.collection_method == 'online':
-                    fee = SERVICE_FEE_CENTS // 100  # Single item: $15 (first oversized included)
+                    fee = SERVICE_FEE_CENTS // 100
                     fee_text = f" Confirm your pickup week and pay ${fee} to secure your spot."
                 elif item.collection_method == 'free':
                     fee_text = " Add your address and select a pickup window in your dashboard—no payment required."
@@ -3671,11 +3703,10 @@ def update_account_info():
         logger.info(f"User {current_user.id} updated account info")
         flash("Account information updated successfully!", "success")
 
-    # Update pickup preferences if provided (only if seller has a pickup week set)
+    # Update pickup preferences if provided (only if seller has a pickup week set on their profile)
     time_pref = request.form.get('pickup_time_preference')
     moveout_raw = request.form.get('moveout_date', '').strip()
-    has_pickup_items = any(i.pickup_week for i in current_user.items)
-    if has_pickup_items and time_pref is not None:
+    if current_user.pickup_week and time_pref is not None:
         if time_pref in PICKUP_TIME_OPTIONS:
             current_user.pickup_time_preference = time_pref
         elif time_pref == '':
@@ -3691,6 +3722,55 @@ def update_account_info():
         db.session.commit()
 
     return redirect(url_for('account_settings'))
+
+
+@app.route('/complete_profile', methods=['GET', 'POST'])
+@login_required
+def complete_profile():
+    """Collect required phone number after Google OAuth. Idempotent — redirects away if phone already set."""
+    if current_user.phone:
+        return redirect(session.pop('next_after_profile', url_for('dashboard')))
+
+    if request.method == 'POST':
+        phone_raw = request.form.get('phone', '').strip()
+        if not phone_raw:
+            flash("Please provide a phone number.", "error")
+            return redirect(url_for('complete_profile'))
+        phone_valid, phone_result = validate_phone(phone_raw)
+        if not phone_valid:
+            flash(phone_result, "error")
+            return redirect(url_for('complete_profile'))
+        current_user.phone = phone_result
+        db.session.commit()
+        next_url = session.pop('next_after_profile', url_for('dashboard'))
+        return redirect(next_url)
+
+    return render_template('complete_profile.html')
+
+
+@app.route('/api/user/set_pickup_week', methods=['POST'])
+@login_required
+def api_set_pickup_week():
+    """AJAX endpoint for dashboard modal to save pickup week + time preference."""
+    pickup_week = request.form.get('pickup_week', '').strip()
+    pickup_time = request.form.get('pickup_time_preference', '').strip()
+
+    valid_weeks = dict(PICKUP_WEEKS)
+    if pickup_week not in valid_weeks:
+        return jsonify({'success': False, 'error': 'Invalid pickup week.'}), 400
+    if pickup_time not in PICKUP_TIME_OPTIONS:
+        return jsonify({'success': False, 'error': 'Invalid time preference.'}), 400
+
+    current_user.pickup_week = pickup_week
+    current_user.pickup_time_preference = pickup_time
+    db.session.commit()
+    logger.info(f"User {current_user.id} set pickup week={pickup_week} time={pickup_time}")
+    return jsonify({
+        'success': True,
+        'pickup_week': pickup_week,
+        'pickup_week_label': valid_weeks[pickup_week],
+        'pickup_time_preference': pickup_time,
+    })
 
 
 def process_pending_onboard(user):
@@ -3722,6 +3802,10 @@ def process_pending_onboard(user):
     user.pickup_lng = pending.get('pickup_lng')
     user.pickup_note = pending.get('pickup_note')
     user.phone = pending.get('phone')
+    if pending.get('pickup_week'):
+        user.pickup_week = pending.get('pickup_week')
+    if pending.get('pickup_time_preference'):
+        user.pickup_time_preference = pending.get('pickup_time_preference')
     user.payout_method = pending.get('payout_method')
     user.payout_handle = pending.get('payout_handle')
     user.is_seller = True
@@ -3845,22 +3929,32 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
-        
+        phone_raw = request.form.get('phone', '').strip()
+
         # Validate inputs
         if not email or not validate_email(email):
             flash("Please provide a valid email address.", "error")
             return _error_redirect()
-        
+
         if len(email) > MAX_EMAIL_LENGTH:
             flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
             return _error_redirect()
-        
+
         if not password or len(password) < 6:
             flash("Password must be at least 6 characters long.", "error")
             return _error_redirect()
-        
+
         if full_name and len(full_name) > MAX_NAME_LENGTH:
             flash(f"Name is too long (max {MAX_NAME_LENGTH} characters).", "error")
+            return _error_redirect()
+
+        # Phone is required at registration
+        if not phone_raw:
+            flash("Please provide a phone number.", "error")
+            return _error_redirect()
+        phone_valid, phone_result = validate_phone(phone_raw)
+        if not phone_valid:
+            flash(phone_result, "error")
             return _error_redirect()
         
         user = User.query.filter_by(email=email).first()
@@ -3872,6 +3966,8 @@ def register():
                 user.password_hash = generate_password_hash(password)
                 if full_name:
                     user.full_name = full_name
+                if phone_result:
+                    user.phone = phone_result
                 db.session.commit()
                 apply_admin_email_if_pending(user)
                 db.session.refresh(user)
@@ -3907,7 +4003,7 @@ def register():
                 flash("An account with this email already exists. Please log in.", "error")
                 return redirect(url_for('login', email=email))
         
-        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password))
+        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password), phone=phone_result)
         db.session.add(new_user)
         db.session.commit()
         # PostHog: new user registration
@@ -4064,7 +4160,9 @@ def auth_google_callback():
         flash("Item submitted! We'll review and price it soon. You'll confirm your pickup after approval. Check your spam folder if you don't receive our emails.", "success")
     else:
         flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
-    return redirect(get_user_dashboard())
+    # New Google OAuth accounts: collect phone before sending to destination
+    session['next_after_profile'] = get_user_dashboard()
+    return redirect(url_for('complete_profile'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -4116,6 +4214,9 @@ def login():
                 login_user(user)
                 if process_pending_onboard(user):
                     flash("Item submitted! We'll review and price it soon. You'll confirm your pickup after approval. Check your spam folder if you don't receive our emails.", "success")
+                next_url = request.args.get('next') or request.form.get('next', '')
+                if next_url and next_url.startswith('/') and not next_url.startswith('//'):
+                    return redirect(next_url)
                 return redirect(get_user_dashboard())
         else:
             # This shouldn't happen as signup form posts to /register
@@ -4187,16 +4288,13 @@ def dashboard():
     pending_payouts = sum(_payout_for_item(i) for i in sold_items if not i.payout_sent)
     total_potential = estimated_payout + pending_payouts + paid_out
     
-    # Fee calculation for pickup: $15 includes 1 oversized; $10 per additional oversized
     approved_online = [i for i in live_items if i.collection_method == 'online']
-    approved_large_count = sum(1 for i in approved_online if i.is_large)
-    projected_fee_cents = calc_pickup_fee_cents(approved_large_count) if approved_online else 0
+    projected_fee_cents = SERVICE_FEE_CENTS if approved_online else 0
 
-    # Pending pickup: items awaiting confirmation + fee breakdown for receipt modal
+    # Pending pickup: items awaiting confirmation
     pending_pickup = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'online']
     pending_free = [i for i in my_items if i.status == 'pending_logistics' and i.collection_method == 'free']
-    pending_pickup_large_count = sum(1 for i in pending_pickup if i.is_large)
-    pending_pickup_fee_cents = calc_pickup_fee_cents(pending_pickup_large_count) if pending_pickup else 0
+    pending_pickup_fee_cents = SERVICE_FEE_CENTS if pending_pickup else 0
 
     # Free tier flags
     has_free_items = any(i.collection_method == 'free' for i in my_items if i.status != 'rejected')
@@ -4208,19 +4306,18 @@ def dashboard():
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     stripe_configured = bool(stripe.api_key and stripe_pk)
 
-    # Pickup method for header card: week, needs_pickup, free_waiting, free_confirmed, free_rejected
+    # Pickup method for header card — uses User.pickup_week (seller's stated preference)
     pickup_method_type = None
     pickup_method_label = None
-    item_with_week = next((i for i in my_items if i.pickup_week), None)
-    if item_with_week:
+    time_labels = {'morning': 'Morning', 'afternoon': 'Afternoon', 'evening': 'Evening'}
+    if current_user.pickup_week:
         pickup_method_type = 'week'
-        week_label = dict(PICKUP_WEEKS).get(item_with_week.pickup_week, item_with_week.pickup_week)
-        week_short = 'Wk 1' if item_with_week.pickup_week == 'week1' else 'Wk 2'
-        time_labels = {'morning': 'Morning', 'afternoon': 'Afternoon', 'evening': 'Evening'}
+        week_label = dict(PICKUP_WEEKS).get(current_user.pickup_week, current_user.pickup_week)
+        week_short = 'Wk 1' if current_user.pickup_week == 'week1' else 'Wk 2'
         if current_user.pickup_time_preference:
             pickup_method_label = f"{week_short} · {time_labels.get(current_user.pickup_time_preference, '')}"
         else:
-            pickup_method_label = week_label
+            pickup_method_label = f"{week_short} — time TBD"
     elif pending_pickup:
         pickup_method_type = 'needs_pickup'
     elif has_free_items:
@@ -4236,6 +4333,13 @@ def dashboard():
         user_id=current_user.id, resolved=False
     ).order_by(SellerAlert.created_at.desc()).all()
 
+    # Determine user's overall collection_method for upgrade card
+    user_any_item = my_items[0] if my_items else None
+    user_collection_method = current_user.items[0].collection_method if current_user.items else 'free'
+    # If any item is 'online', consider user on Pro plan
+    if any(i.collection_method == 'online' for i in my_items):
+        user_collection_method = 'online'
+
     return render_template('dashboard.html',
                           my_items=my_items,
                           unresolved_alerts=unresolved_alerts,
@@ -4250,15 +4354,11 @@ def dashboard():
                           live_item_ids={i.id for i in live_items},
                           earnings_subtext=earnings_subtext,
                           approved_online_count=len(approved_online),
-                          approved_large_count=approved_large_count,
                           projected_fee_cents=projected_fee_cents,
                           pending_pickup=pending_pickup,
-                          pending_pickup_large_count=pending_pickup_large_count,
-                          pending_pickup_additional_oversized_count=max(0, pending_pickup_large_count - 1),
                           pending_pickup_fee_cents=pending_pickup_fee_cents,
                           pickup_weeks=PICKUP_WEEKS,
                           service_fee_cents=SERVICE_FEE_CENTS,
-                          large_item_fee_cents=LARGE_ITEM_FEE_CENTS,
                           has_payment_method=bool(current_user.stripe_payment_method_id),
                           stripe_configured=stripe_configured,
                           dorms=RESIDENCE_HALLS_BY_STORE.get(get_current_store(), {}),
@@ -4268,10 +4368,12 @@ def dashboard():
                           pickup_method_type=pickup_method_type,
                           pickup_method_label=pickup_method_label,
                           warehouse_spots=get_warehouse_spots_remaining(),
-                                                    is_free_confirmed=is_free_confirmed,
+                          is_free_confirmed=is_free_confirmed,
                           is_free_rejected=is_free_rejected,
-                          free_tier_max_items=FREE_TIER_MAX_ITEMS,
-                          pending_free=pending_free)
+                          pending_free=pending_free,
+                          user_collection_method=user_collection_method,
+                          user_pickup_week=current_user.pickup_week,
+                          user_pickup_time_pref=current_user.pickup_time_preference)
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
@@ -4519,7 +4621,7 @@ def onboard():
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
         # Render onboard page with "closed" message instead of redirecting (avoids redirect loop with dashboard)
-        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated, warehouse_spots=0, free_tier_max_items=FREE_TIER_MAX_ITEMS)
+        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated, warehouse_spots=0)
 
     categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     category_price_ranges = {cat.id: get_price_range_for_category(cat.name) for cat in categories}
@@ -4531,10 +4633,11 @@ def onboard():
     google_maps_key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 
     if not categories:
-        flash("No categories available. Please contact an administrator.", "error")
-        if current_user.is_authenticated:
-            return redirect(get_user_dashboard())
-        return redirect(url_for('index'))
+        # Don't redirect authenticated non-admin users to get_user_dashboard() — that sends them
+        # back to /dashboard which redirects here again, causing an infinite loop.
+        if current_user.is_authenticated and current_user.is_admin:
+            return redirect(url_for('admin_panel'))
+        return render_template('onboard.html', pickup_ended=True, categories=[], category_price_ranges={}, dorms={}, google_maps_key='', is_guest=not current_user.is_authenticated, warehouse_spots=0, no_categories=True)
 
     if request.method == 'POST' and current_user.is_authenticated:
         cat_id = request.form.get('category_id')
@@ -4542,9 +4645,8 @@ def onboard():
         long_desc = (request.form.get('long_description') or '').strip()
         quality = request.form.get('quality')
         suggested_price_raw = request.form.get('suggested_price', '').strip()
-        collection_method = (request.form.get('collection_method') or 'online').strip()
-        if collection_method not in ('online', 'free'):
-            collection_method = 'online'
+        # All new sellers start on free tier — upgrade is a deliberate dashboard action
+        collection_method = 'free'
         files = request.files.getlist('photos')
         temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
         temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
@@ -4585,18 +4687,16 @@ def onboard():
             current_user.payout_handle = payout_handle
             current_user.is_seller = True
 
-        db.session.commit()
+        # Optional pickup week from onboarding step 7
+        onboard_pickup_week = request.form.get('onboard_pickup_week', '').strip()
+        onboard_time_pref = request.form.get('onboard_time_preference', '').strip()
+        if onboard_pickup_week in dict(PICKUP_WEEKS):
+            current_user.pickup_week = onboard_pickup_week
+            if onboard_time_pref in PICKUP_TIME_OPTIONS:
+                current_user.pickup_time_preference = onboard_time_pref
+        # else: skip saves null (no change)
 
-        # Enforce free tier item cap
-        if collection_method == 'free':
-            existing_free = InventoryItem.query.filter(
-                InventoryItem.seller_id == current_user.id,
-                InventoryItem.collection_method == 'free',
-                ~InventoryItem.status.in_(['rejected'])
-            ).count()
-            if existing_free >= FREE_TIER_MAX_ITEMS:
-                flash(f"The free plan allows up to {FREE_TIER_MAX_ITEMS} items. Upgrade to Pro User to add more.", "error")
-                return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, warehouse_spots=get_warehouse_spots_remaining(), free_tier_max_items=FREE_TIER_MAX_ITEMS)
+        db.session.commit()
 
         # Subcategory validation
         sub_id = request.form.get('subcategory_id')
@@ -4762,8 +4862,7 @@ def onboard():
         return redirect(get_user_dashboard())
 
     return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=not current_user.is_authenticated,
-                           warehouse_spots=get_warehouse_spots_remaining(),
-                                                      free_tier_max_items=FREE_TIER_MAX_ITEMS)
+                           warehouse_spots=get_warehouse_spots_remaining())
 
 
 @app.route('/onboard/guest/save', methods=['POST'])
@@ -4797,7 +4896,8 @@ def onboard_guest_save():
     long_desc = (request.form.get('long_description') or '').strip()
     quality = request.form.get('quality')
     suggested_price_raw = request.form.get('suggested_price', '').strip()
-    collection_method = (request.form.get('collection_method') or 'online').strip()
+    # All new sellers start on free tier — upgrade is a deliberate dashboard action
+    collection_method = 'free'
     files = request.files.getlist('photos')
     temp_photo_ids_raw = request.form.get('temp_photo_ids', '')
     temp_photo_ids = [x.strip() for x in temp_photo_ids_raw.split(',') if x.strip()]
@@ -4918,6 +5018,12 @@ def onboard_guest_save():
     elif category_requires_video(cat_name, guest_sub_cat_name):
         return _err("A video is required for this item category.")
 
+    # Optional pickup week from onboarding step 7
+    guest_pickup_week_raw = (request.form.get('onboard_pickup_week') or '').strip()
+    guest_time_pref_raw = (request.form.get('onboard_time_preference') or '').strip()
+    guest_pickup_week = guest_pickup_week_raw if guest_pickup_week_raw in dict(PICKUP_WEEKS) else None
+    guest_time_pref = guest_time_pref_raw if guest_time_pref_raw in PICKUP_TIME_OPTIONS else None
+
     session['pending_onboard'] = {
         'category_id': int(cat_id),
         'subcategory_id': guest_subcategory_id,
@@ -4925,7 +5031,7 @@ def onboard_guest_save():
         'long_description': long_desc[:MAX_LONG_DESCRIPTION_LENGTH] if long_desc else None,
         'quality': quality_value,
         'suggested_price': suggested_price,
-        'collection_method': collection_method if collection_method in ('online', 'free') else 'online',
+        'collection_method': 'free',
         'pickup_location_type': None,
         'pickup_dorm': None,
         'pickup_room': None,
@@ -4934,6 +5040,8 @@ def onboard_guest_save():
         'pickup_lng': None,
         'pickup_note': None,
         'phone': phone_raw[:20] if len(phone_raw) >= 10 else None,
+        'pickup_week': guest_pickup_week,
+        'pickup_time_preference': guest_time_pref,
         'payout_method': payout_method if payout_method in ('Venmo', 'PayPal', 'Zelle') else 'Venmo',
         'payout_handle': payout_handle,
         'photo_filenames': photo_filenames,
@@ -4972,7 +5080,11 @@ def onboard_cancel():
 @app.route('/confirm_pickup', methods=['GET', 'POST'])
 @login_required
 def confirm_pickup():
-    """Pickup users confirm week and pay $15 service fee. Free-tier users: no payment, just address + phone + week."""
+    """Superseded — pickup week is now set from the dashboard modal. Redirect to dashboard."""
+    flash("You can set your pickup week from your dashboard.", "info")
+    return redirect(url_for('dashboard'))
+
+    # --- LEGACY CODE BELOW (superseded by open-enrollment model — storage units added on demand) ---
     # Free-tier path: any user with approved free items can select pickup window (no payment)
     pending_free = [i for i in current_user.items if i.status == 'pending_logistics' and i.collection_method == 'free']
     free_rejected_ids_str = AppSetting.get('free_rejected_user_ids') or ''
@@ -5192,7 +5304,7 @@ def confirm_pickup():
 @app.route('/confirm_pickup_success')
 @login_required
 def confirm_pickup_success():
-    """After Stripe payment for $15 service fee. Move standard + first oversized to available; additional oversized stay pending (pay per-item)."""
+    """After Stripe payment for $15 service fee. Move all pending items to available."""
     session_id = request.args.get('session_id')
     if not session_id:
         return redirect(get_user_dashboard())
@@ -5207,16 +5319,7 @@ def confirm_pickup_success():
                 items = [i for i in items if i and i.seller_id == current_user.id and i.status == 'pending_logistics']
                 for item in items:
                     item.pickup_week = pickup_week
-                # Move to available: all standard + first oversized. Additional oversized stay pending (pay $10 per-item).
-                oversized_seen = 0
-                for item in sorted(items, key=lambda x: x.id):
-                    if item.is_large:
-                        oversized_seen += 1
-                        if oversized_seen > 1:
-                            continue  # Additional oversized: stay pending (never set status or oversize_included)
                     item.status = 'available'
-                    if item.is_large:
-                        item.oversize_included_in_service_fee = True  # Explicit: first oversized is waived
                     if item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
                 current_user.has_paid = True
@@ -5227,7 +5330,7 @@ def confirm_pickup_success():
                 db.session.commit()
     except Exception as e:
         logger.error(f"confirm_pickup_success error: {e}", exc_info=True)
-    flash("Pickup confirmed! Your items are now live. Pay oversize fee on each additional oversized item card.", "success")
+    flash("Pickup confirmed! Your items are now live.", "success")
     return redirect(get_user_dashboard())
 
 
@@ -5343,15 +5446,8 @@ def upgrade_pickup_success():
                 for item in items:
                     item.collection_method = 'online'
                     item.pickup_week = pickup_week
-                oversized_seen = 0
-                for item in sorted(items, key=lambda x: x.id):
-                    if item.is_large:
-                        oversized_seen += 1
-                        if oversized_seen > 1:
-                            continue
+                for item in items:
                     item.status = 'available'
-                    if item.is_large:
-                        item.oversize_included_in_service_fee = True
                     # Only increment count for items moving from pending; available already had count
                     if item.id in pending_ids and item.category:
                         item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
@@ -5369,81 +5465,6 @@ def upgrade_pickup_success():
     return redirect(get_user_dashboard())
 
 
-@app.route('/pay_oversize_fee/<int:item_id>', methods=['GET', 'POST'])
-@login_required
-def pay_oversize_fee(item_id):
-    """Dedicated page for $10 oversize fee. GET shows the page; POST creates Stripe checkout. Service fee must be paid first."""
-    item = InventoryItem.query.get_or_404(item_id)
-    if item.seller_id != current_user.id or item.status != 'pending_logistics' or item.collection_method != 'online' or not item.is_large:
-        flash("Invalid item.", "error")
-        return redirect(get_user_dashboard())
-    user_has_week = any(i.pickup_week for i in current_user.items if i.pickup_week)
-    if not user_has_week:
-        if request.method == 'GET':
-            return render_template('pay_oversize_fee_blocked.html')
-        flash("Pay the service fee first to select your pickup window.", "error")
-        return redirect(url_for('pay_oversize_fee', item_id=item_id))
-    if request.method == 'GET':
-        return render_template('pay_oversize_fee.html', item=item)
-    if not stripe.api_key:
-        flash("Payment is not configured. Please contact support.", "error")
-        return redirect(url_for('pay_oversize_fee', item_id=item_id))
-    try:
-        pickup_week = next((i.pickup_week for i in current_user.items if i.pickup_week), 'week1')
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': f'Oversize fee: {item.description[:50]}',
-                        'description': 'Campus Swap - oversize item fee',
-                    },
-                    'unit_amount': LARGE_ITEM_FEE_CENTS,
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            metadata={
-                'type': 'pay_oversize_fee',
-                'item_id': str(item.id),
-                'user_id': str(current_user.id),
-                'pickup_week': pickup_week,
-            },
-            success_url=url_for('pay_oversize_fee_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url=url_for('pay_oversize_fee', item_id=item_id, _external=True),
-        )
-        return redirect(checkout_session.url, code=303)
-    except stripe.error.StripeError as e:
-        logger.error(f"Pay oversize fee Stripe error: {e}", exc_info=True)
-        flash("Payment setup failed. Please try again.", "error")
-        return redirect(url_for('pay_oversize_fee', item_id=item_id))
-
-
-@app.route('/pay_oversize_fee_success')
-@login_required
-def pay_oversize_fee_success():
-    """After Stripe payment for $10 oversize fee."""
-    session_id = request.args.get('session_id')
-    if not session_id:
-        return redirect(get_user_dashboard())
-    try:
-        stripe_session = stripe.checkout.Session.retrieve(session_id)
-        if stripe_session.metadata.get('type') == 'pay_oversize_fee' and stripe_session.payment_status == 'paid':
-            item_id = stripe_session.metadata.get('item_id')
-            if item_id:
-                item = InventoryItem.query.get(int(item_id))
-                if item and item.seller_id == current_user.id and item.status == 'pending_logistics':
-                    item.pickup_week = stripe_session.metadata.get('pickup_week') or next((i.pickup_week for i in current_user.items if i.pickup_week), 'week1')
-                    item.oversize_fee_paid = True
-                    item.status = 'available'
-                    if item.category:
-                        item.category.count_in_stock = (item.category.count_in_stock or 0) + 1
-                    db.session.commit()
-    except Exception as e:
-        logger.error(f"pay_oversize_fee_success error: {e}", exc_info=True)
-    flash("Oversize fee paid. Item is now live.", "success")
-    return redirect(get_user_dashboard())
 
 
 @app.route('/add_item', methods=['GET', 'POST'])
@@ -6635,10 +6656,893 @@ def admin_mass_email():
     
     return redirect(url_for('admin_panel') + '#mass-email')
 
+# =========================================================
+# SECTION: CREW / OPS ROUTES
+# =========================================================
+
+def require_crew():
+    """Returns redirect if current user is not an approved worker. Call at top of crew-only routes."""
+    if not current_user.is_authenticated:
+        flash("Please log in to access the crew portal.", "error")
+        return redirect(url_for('login', next='/crew'))
+    if not current_user.is_worker or current_user.worker_status != 'approved':
+        if current_user.worker_status == 'pending':
+            return redirect(url_for('crew_pending'))
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+    return None
+
+
+def _is_edu_email(email):
+    """True if email domain matches crew_allowed_email_domain, or if no domain is configured (open applications)."""
+    allowed_domain = (AppSetting.get('crew_allowed_email_domain') or '').strip().lstrip('.')
+    if not allowed_domain:
+        return True
+    email_domain = email.strip().split('@')[-1].lower()
+    return email_domain == allowed_domain or email_domain.endswith('.' + allowed_domain)
+
+
+def _availability_booleans(form):
+    """Parse the 14 availability fields from a submitted form into a dict of booleans."""
+    fields = [
+        'mon_am', 'mon_pm', 'tue_am', 'tue_pm',
+        'wed_am', 'wed_pm', 'thu_am', 'thu_pm',
+        'fri_am', 'fri_pm', 'sat_am', 'sat_pm',
+        'sun_am', 'sun_pm',
+    ]
+    return {f: form.get(f, 'false').lower() == 'true' for f in fields}
+
+
+def _availability_as_dict(avail):
+    """Convert a WorkerAvailability ORM object to a plain dict for template pre-fill."""
+    fields = [
+        'mon_am', 'mon_pm', 'tue_am', 'tue_pm',
+        'wed_am', 'wed_pm', 'thu_am', 'thu_pm',
+        'fri_am', 'fri_pm', 'sat_am', 'sat_pm',
+        'sun_am', 'sun_pm',
+    ]
+    return {f: getattr(avail, f, True) for f in fields}
+
+
+def _is_availability_open():
+    """True if today is Sunday, Monday, or Tuesday (window to submit weekly availability)."""
+    return datetime.utcnow().weekday() in (6, 0, 1)  # Sun=6, Mon=0, Tue=1
+
+
+@app.route('/crew/apply', methods=['GET', 'POST'])
+def crew_apply():
+    """Public worker application page. Gated to .edu emails on POST."""
+    # Check if applications are open
+    if AppSetting.get('crew_applications_open', 'true') != 'true':
+        flash("Applications are currently closed. Check back soon.", "info")
+        return redirect(url_for('index'))
+
+    if request.method == 'GET':
+        if current_user.is_authenticated:
+            if current_user.worker_status == 'approved':
+                return redirect(url_for('crew_dashboard'))
+            if current_user.worker_status in ('pending', 'rejected'):
+                return redirect(url_for('crew_pending'))
+        return render_template('crew/apply.html')
+
+    # POST — process application
+    full_name = request.form.get('full_name', '').strip()
+    email = request.form.get('email', '').strip().lower()
+    phone = request.form.get('phone', '').strip()
+    unc_year = request.form.get('unc_year', '').strip()
+    role_pref = request.form.get('role_pref', '').strip()
+    why_blurb = request.form.get('why_blurb', '').strip()
+
+    # unc.edu enforcement disabled — re-enable before launch by restoring _is_edu_email check
+
+    # Validate required fields
+    if not all([full_name, email, phone, unc_year, role_pref]):
+        flash("Please fill in all required fields.", "error")
+        return render_template('crew/apply.html', form_data=request.form)
+
+    if len(why_blurb) > 500:
+        flash("Optional blurb must be 500 characters or fewer.", "error")
+        return render_template('crew/apply.html', form_data=request.form)
+
+    # Find or create user
+    user = User.query.filter_by(email=email).first()
+    if user:
+        # Check for existing application
+        if user.worker_status == 'approved':
+            flash("You're already an approved crew member!", "info")
+            return redirect(url_for('crew_dashboard'))
+        if user.worker_status in ('pending', 'rejected'):
+            if user.worker_status == 'pending':
+                flash("You've already applied. We'll reach out soon.", "error")
+            else:
+                flash("Applications are closed for this account.", "error")
+            return redirect(url_for('index'))
+    else:
+        # Create new account
+        user = User(email=email, full_name=full_name, phone=phone)
+        db.session.add(user)
+        db.session.flush()
+
+    # Update name/phone if this is a returning user applying fresh
+    if current_user.is_authenticated and current_user.id == user.id:
+        pass  # pre-filled read-only fields; trust existing values
+    else:
+        if not user.full_name:
+            user.full_name = full_name
+        if not user.phone:
+            user.phone = phone
+
+    # Mark as pending worker
+    user.worker_status = 'pending'
+
+    # Create application record
+    application = WorkerApplication(
+        user_id=user.id,
+        unc_year=unc_year,
+        role_pref=role_pref,
+        why_blurb=why_blurb or None,
+    )
+    db.session.add(application)
+
+    # Create initial availability record (week_start=None)
+    avail_data = _availability_booleans(request.form)
+    availability = WorkerAvailability(user_id=user.id, week_start=None, **avail_data)
+    db.session.add(availability)
+
+    db.session.commit()
+
+    # If this was a brand-new user (not logged in), log them in
+    if not current_user.is_authenticated:
+        login_user(user)
+
+    return redirect(url_for('crew_pending'))
+
+
+@app.route('/crew/pending')
+@login_required
+def crew_pending():
+    """Holding page shown to applicants while their application is under review."""
+    if current_user.worker_status == 'approved':
+        return redirect(url_for('crew_dashboard'))
+    if current_user.worker_status == 'rejected':
+        flash("Your application wasn't selected this time. Thanks for your interest in Campus Swap.", "info")
+        return redirect(url_for('index'))
+    return render_template('crew/pending.html')
+
+
+@app.route('/crew')
+def crew_dashboard():
+    """Approved worker portal — shows role, current availability, schedule card."""
+    if (r := require_crew()):
+        return r
+    last_avail = (
+        WorkerAvailability.query
+        .filter_by(user_id=current_user.id)
+        .order_by(WorkerAvailability.submitted_at.desc())
+        .first()
+    )
+    avail_dict = _availability_as_dict(last_avail) if last_avail else None
+
+    # Schedule context
+    current_week = _get_current_published_week()
+    # my_shifts: list of (shift, role_on_shift) tuples for this worker, sorted by day+slot
+    my_shifts = []
+    if current_week:
+        for shift in sorted([s for s in current_week.shifts if s.is_active], key=lambda s: s.sort_key):
+            for a in shift.assignments:
+                if a.worker_id == current_user.id:
+                    my_shifts.append((shift, a.role_on_shift))
+                    break
+
+    return render_template(
+        'crew/dashboard.html',
+        avail=avail_dict,
+        last_avail=last_avail,
+        current_week=current_week,
+        my_shifts=my_shifts,
+    )
+
+
+@app.route('/crew/availability', methods=['GET', 'POST'])
+def crew_availability():
+    """Weekly availability form. Pre-filled from last submission. Locks after Tuesday."""
+    if (r := require_crew()):
+        return r
+
+    if request.method == 'POST':
+        if not _is_availability_open():
+            flash("Availability window is closed for this week.", "error")
+            return redirect(url_for('crew_availability'))
+
+        avail_data = _availability_booleans(request.form)
+        # week_start = Monday of current week
+        today = datetime.utcnow().date()
+        week_start = today - timedelta(days=today.weekday())
+
+        existing = WorkerAvailability.query.filter_by(
+            user_id=current_user.id, week_start=week_start
+        ).first()
+        if existing:
+            for field, val in avail_data.items():
+                setattr(existing, field, val)
+            existing.submitted_at = datetime.utcnow()
+        else:
+            record = WorkerAvailability(user_id=current_user.id, week_start=week_start, **avail_data)
+            db.session.add(record)
+        db.session.commit()
+        flash("Availability submitted.", "success")
+        return redirect(url_for('crew_dashboard'))
+
+    # GET — pre-fill from last submission
+    last_avail = (
+        WorkerAvailability.query
+        .filter_by(user_id=current_user.id)
+        .order_by(WorkerAvailability.submitted_at.desc())
+        .first()
+    )
+    avail_dict = _availability_as_dict(last_avail) if last_avail else None
+    window_open = _is_availability_open()
+    return render_template('crew/availability.html', avail=avail_dict, window_open=window_open)
+
+
+@app.route('/admin/crew/approve/<int:user_id>', methods=['POST'])
+@login_required
+def admin_crew_approve(user_id):
+    """Admin approves a worker application and assigns their role."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+
+    worker = User.query.get_or_404(user_id)
+    assigned_role = request.form.get('role', '').strip()
+    if assigned_role not in ('driver', 'organizer', 'both'):
+        flash("Invalid role selection.", "error")
+        return redirect(url_for('admin_panel') + '#crew')
+
+    worker.is_worker = True
+    worker.worker_status = 'approved'
+    worker.worker_role = assigned_role
+
+    if worker.worker_application:
+        worker.worker_application.reviewed_at = datetime.utcnow()
+        worker.worker_application.reviewed_by = current_user.id
+
+    db.session.commit()
+
+    # Send approval email
+    try:
+        crew_url = url_for('crew_dashboard', _external=True)
+        role_label = {'driver': 'Driver', 'organizer': 'Organizer', 'both': 'Driver & Organizer'}[assigned_role]
+        email_content = f"""
+        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+            <h2 style="color: #1A3D1A;">You're on the Campus Swap Crew!</h2>
+            <p>Hi {worker.full_name},</p>
+            <p>Your application has been approved. Here's what's next:</p>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                <p style="margin: 0 0 8px;"><strong>Role:</strong> {role_label}</p>
+                <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
+                <p style="margin: 0 0 8px;"><strong>Season:</strong> ~3 weeks (late April – mid May)</p>
+                <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
+            </div>
+            <p><a href="{crew_url}" style="background: #C8832A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Crew Portal</a></p>
+            <p>See you out there!</p>
+            <p>— The Campus Swap Team</p>
+        </div>
+        """
+        send_email(worker.email, "You're on the Campus Swap Crew — here's what's next", email_content)
+    except Exception as e:
+        logger.error(f"Failed to send crew approval email to {worker.email}: {e}")
+
+    flash(f"Approved {worker.full_name} as {assigned_role}.", "success")
+    return redirect(url_for('admin_panel') + '#crew')
+
+
+@app.route('/admin/crew/reject/<int:user_id>', methods=['POST'])
+@login_required
+def admin_crew_reject(user_id):
+    """Admin rejects a worker application."""
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+
+    worker = User.query.get_or_404(user_id)
+    send_rejection_email = request.form.get('send_email') == 'true'
+
+    worker.worker_status = 'rejected'
+
+    if worker.worker_application:
+        worker.worker_application.reviewed_at = datetime.utcnow()
+        worker.worker_application.reviewed_by = current_user.id
+
+    db.session.commit()
+
+    if send_rejection_email and worker.email:
+        try:
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #1A3D1A;">Campus Swap Crew — Application Update</h2>
+                <p>Hi {worker.full_name},</p>
+                <p>Thank you for applying to work with Campus Swap this season. After reviewing all applications,
+                we weren't able to offer you a position this time around.</p>
+                <p>We really appreciate your interest and hope to work with you in the future.</p>
+                <p>— The Campus Swap Team</p>
+            </div>
+            """
+            send_email(worker.email, "Campus Swap Crew — Application Update", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send crew rejection email to {worker.email}: {e}")
+
+    flash(f"Rejected {worker.full_name}'s application.", "success")
+    return redirect(url_for('admin_panel') + '#crew')
+
+
+# =========================================================
+# SECTION: SHIFT SCHEDULING (ADMIN + CREW)
+# =========================================================
+
+_SHIFT_DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+_SHIFT_DAY_LABELS = {
+    'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday',
+    'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday', 'sun': 'Sunday',
+}
+
+
+def _get_worker_availability_for_week(worker, week_start):
+    """Return the best WorkerAvailability record for this worker and week.
+    Priority: weekly record → application record → None."""
+    avail = WorkerAvailability.query.filter_by(
+        user_id=worker.id, week_start=week_start
+    ).first()
+    if avail:
+        return avail
+    return WorkerAvailability.query.filter_by(
+        user_id=worker.id, week_start=None
+    ).first()
+
+
+def _worker_available_for_slot(worker, shift, week_start):
+    """True if worker has availability for shift.day_of_week + shift.slot."""
+    avail = _get_worker_availability_for_week(worker, week_start)
+    if not avail:
+        return False
+    field = f"{shift.day_of_week}_{shift.slot}"
+    return bool(getattr(avail, field, False))
+
+
+def _run_optimizer(week):
+    """Core optimizer. Clears all existing assignments for the week, then re-assigns greedily.
+    Returns a summary dict: {fully_staffed: int, understaffed: int}."""
+    # Clear existing assignments
+    for shift in week.shifts:
+        if shift.is_active:
+            ShiftAssignment.query.filter_by(shift_id=shift.id).delete()
+    db.session.flush()
+
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    organizers_per_truck = int(AppSetting.get('organizers_per_truck', '2'))
+
+    all_workers = User.query.filter_by(is_worker=True, worker_status='approved').all()
+
+    # Pre-cache all availability records — avoids repeated DB queries inside the loop
+    # avail_cache[worker_id] = set of "day_slot" strings the worker is available for
+    avail_cache = {}
+    for w in all_workers:
+        record = _get_worker_availability_for_week(w, week.week_start)
+        if record:
+            avail_cache[w.id] = {
+                f"{day}_{slot}"
+                for day in _SHIFT_DAY_ORDER
+                for slot in ('am', 'pm')
+                if getattr(record, f"{day}_{slot}", False)
+            }
+        else:
+            avail_cache[w.id] = set()
+
+    def worker_available(worker_id, day, slot):
+        return f"{day}_{slot}" in avail_cache[worker_id]
+
+    # Track load and same-day assignments in memory — never query DB mid-loop
+    worker_load = {w.id: 0 for w in all_workers}
+    # worker_day_assigned[worker_id] = set of (day, slot) tuples assigned so far
+    worker_day_assigned = {w.id: set() for w in all_workers}
+
+    active_shifts = sorted([s for s in week.shifts if s.is_active], key=lambda s: s.sort_key)
+
+    fully_staffed = 0
+    understaffed = 0
+
+    for shift in active_shifts:
+        drivers_needed = shift.trucks * drivers_per_truck
+        organizers_needed = shift.trucks * organizers_per_truck
+        day, slot = shift.day_of_week, shift.slot
+        other_slot = 'pm' if slot == 'am' else 'am'
+
+        # Build eligible pools using the pre-cached availability
+        driver_pool = [
+            w for w in all_workers
+            if w.worker_role in ('driver', 'both')
+            and worker_available(w.id, day, slot)
+        ]
+        organizer_pool = [
+            w for w in all_workers
+            if w.worker_role in ('organizer', 'both')
+            and worker_available(w.id, day, slot)
+        ]
+
+        def sort_key(w):
+            # 1. Already assigned to other slot today → last resort
+            already_doubled = (day, other_slot) in worker_day_assigned[w.id]
+            # 2. Available for the other slot today → deprioritize (save them for it)
+            #    Workers who can ONLY do this slot are preferred (they can't fill the other)
+            flexible = worker_available(w.id, day, other_slot)
+            # 3. Load balancing as tiebreaker
+            return (already_doubled, flexible, worker_load[w.id])
+
+        driver_pool.sort(key=sort_key)
+        organizer_pool.sort(key=sort_key)
+
+        # Assign drivers
+        assigned_driver_ids = set()
+        for w in driver_pool:
+            if len(assigned_driver_ids) >= drivers_needed:
+                break
+            db.session.add(ShiftAssignment(
+                shift_id=shift.id, worker_id=w.id,
+                role_on_shift='driver', assigned_by_id=None,
+            ))
+            assigned_driver_ids.add(w.id)
+            worker_load[w.id] += 1
+            worker_day_assigned[w.id].add((day, slot))
+
+        # Assign organizers — exclude workers already assigned as drivers to this same shift
+        assigned_org_ids = set()
+        for w in organizer_pool:
+            if len(assigned_org_ids) >= organizers_needed:
+                break
+            if w.id in assigned_driver_ids:
+                continue
+            db.session.add(ShiftAssignment(
+                shift_id=shift.id, worker_id=w.id,
+                role_on_shift='organizer', assigned_by_id=None,
+            ))
+            assigned_org_ids.add(w.id)
+            worker_load[w.id] += 1
+            worker_day_assigned[w.id].add((day, slot))
+
+        if (len(assigned_driver_ids) >= drivers_needed
+                and len(assigned_org_ids) >= organizers_needed):
+            fully_staffed += 1
+        else:
+            understaffed += 1
+
+    db.session.commit()
+    return {'fully_staffed': fully_staffed, 'understaffed': understaffed, 'total': fully_staffed + understaffed}
+
+
+def _get_current_published_week():
+    """Return the most relevant published ShiftWeek for the worker dashboard.
+    Priority:
+      1. Active week: week_start <= today <= week_start + 6 (currently running)
+      2. Nearest upcoming published week (week_start > today)
+      3. Most recently completed published week (week_start < today, as fallback)
+    """
+    today = datetime.utcnow().date()
+    week_end = today + timedelta(days=6 - today.weekday())  # Saturday of current week
+
+    # 1. Active: week contains today
+    active = (
+        ShiftWeek.query
+        .filter(
+            ShiftWeek.status == 'published',
+            ShiftWeek.week_start <= today,
+            ShiftWeek.week_start >= today - timedelta(days=6),
+        )
+        .order_by(ShiftWeek.week_start.desc())
+        .first()
+    )
+    if active:
+        return active
+
+    # 2. Nearest upcoming
+    upcoming = (
+        ShiftWeek.query
+        .filter(ShiftWeek.status == 'published', ShiftWeek.week_start > today)
+        .order_by(ShiftWeek.week_start.asc())
+        .first()
+    )
+    if upcoming:
+        return upcoming
+
+    # 3. Most recent past
+    return (
+        ShiftWeek.query
+        .filter(ShiftWeek.status == 'published', ShiftWeek.week_start < today)
+        .order_by(ShiftWeek.week_start.desc())
+        .first()
+    )
+
+
+@app.route('/admin/schedule')
+@login_required
+def admin_schedule_index():
+    """List all ShiftWeeks and form to create a new week. Super admin only."""
+    if (r := require_super_admin()):
+        return r
+    weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).all()
+    return render_template('admin/schedule_index.html', weeks=weeks)
+
+
+@app.route('/admin/schedule/create', methods=['POST'])
+@login_required
+def admin_schedule_create():
+    """Create a ShiftWeek + Shifts from the week form. Super admin only."""
+    if (r := require_super_admin()):
+        return r
+
+    monday_str = request.form.get('week_start', '').strip()
+    if not monday_str:
+        flash("Please select a Monday date.", "error")
+        return redirect(url_for('admin_schedule_index'))
+
+    try:
+        week_start = datetime.strptime(monday_str, '%Y-%m-%d').date()
+    except ValueError:
+        flash("Invalid date format.", "error")
+        return redirect(url_for('admin_schedule_index'))
+
+    if week_start.weekday() != 0:
+        flash("Week must start on a Monday.", "error")
+        return redirect(url_for('admin_schedule_index'))
+
+    if ShiftWeek.query.filter_by(week_start=week_start).first():
+        flash("A schedule for that week already exists.", "error")
+        return redirect(url_for('admin_schedule_index'))
+
+    week = ShiftWeek(week_start=week_start, status='draft', created_by_id=current_user.id)
+    db.session.add(week)
+    db.session.flush()
+
+    for day in _SHIFT_DAY_ORDER:
+        for slot in ('am', 'pm'):
+            active = request.form.get(f"slot_{day}_{slot}") == 'on'
+            shift = Shift(
+                week_id=week.id,
+                day_of_week=day,
+                slot=slot,
+                trucks=2,
+                is_active=active,
+            )
+            db.session.add(shift)
+
+    db.session.commit()
+    flash(f"Week of {week_start.strftime('%B %-d')} created.", "success")
+    return redirect(url_for('admin_schedule_week', week_id=week.id))
+
+
+@app.route('/admin/schedule/<int:week_id>')
+@login_required
+def admin_schedule_week(week_id):
+    """Schedule builder view for a single week. Super admin only."""
+    if (r := require_super_admin()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+
+    # All approved workers for the dropdowns
+    all_workers = User.query.filter_by(is_worker=True, worker_status='approved').order_by(User.full_name).all()
+
+    # For each shift, build per-slot availability set
+    worker_availability = {}  # {worker_id: set of "day_slot" strings}
+    for w in all_workers:
+        avail = _get_worker_availability_for_week(w, week.week_start)
+        available_slots = set()
+        if avail:
+            for day in _SHIFT_DAY_ORDER:
+                for slot in ('am', 'pm'):
+                    if getattr(avail, f"{day}_{slot}", False):
+                        available_slots.add(f"{day}_{slot}")
+        worker_availability[w.id] = available_slots
+
+    shifts_sorted = sorted([s for s in week.shifts], key=lambda s: s.sort_key)
+    has_any_assignments = any(s.assignments for s in week.shifts if s.is_active)
+
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    organizers_per_truck = int(AppSetting.get('organizers_per_truck', '2'))
+
+    return render_template(
+        'admin/schedule_week.html',
+        week=week,
+        shifts=shifts_sorted,
+        all_workers=all_workers,
+        worker_availability=worker_availability,
+        has_any_assignments=has_any_assignments,
+        drivers_per_truck=drivers_per_truck,
+        organizers_per_truck=organizers_per_truck,
+    )
+
+
+@app.route('/admin/schedule/<int:week_id>/optimize', methods=['POST'])
+@login_required
+def admin_schedule_optimize(week_id):
+    """Run optimizer for the week. Clears and rewrites all ShiftAssignments."""
+    if (r := require_super_admin()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+    result = _run_optimizer(week)
+    total = result['total']
+    fully = result['fully_staffed']
+    under = result['understaffed']
+    if total == 0:
+        flash("No active shifts found. Add shifts before optimizing.", "info")
+    else:
+        msg = f"Optimizer ran. {fully} of {total} shifts fully staffed."
+        if under:
+            msg += f" {under} shift{'s' if under != 1 else ''} understaffed — see below."
+        flash(msg, "success")
+    return redirect(url_for('admin_schedule_week', week_id=week_id))
+
+
+@app.route('/admin/schedule/<int:week_id>/publish', methods=['POST'])
+@login_required
+def admin_schedule_publish(week_id):
+    """Publish the schedule and email all assigned workers."""
+    if (r := require_super_admin()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+
+    # Collect workers with ≥1 assignment
+    assigned_worker_ids = set(
+        a.worker_id
+        for shift in week.shifts if shift.is_active
+        for a in shift.assignments
+    )
+    if not assigned_worker_ids:
+        flash("Cannot publish — no workers are assigned yet.", "error")
+        return redirect(url_for('admin_schedule_week', week_id=week_id))
+
+    week.status = 'published'
+    db.session.commit()
+
+    # Send publish emails
+    week_label = week.week_start.strftime('%B %-d')
+    notified = 0
+    for worker_id in assigned_worker_ids:
+        worker = User.query.get(worker_id)
+        if not worker:
+            continue
+        # Build their personal shift list
+        my_shifts = [
+            a for shift in sorted([s for s in week.shifts if s.is_active], key=lambda s: s.sort_key)
+            for a in shift.assignments if a.worker_id == worker_id
+        ]
+        shift_lines = ''.join(
+            f"<li>{a.shift.label} — {a.role_on_shift.capitalize()}</li>"
+            for a in my_shifts
+        )
+        body = wrap_email_template(f"""
+            <h2>Your Campus Swap Schedule — Week of {week_label}</h2>
+            <p>Hey {worker.full_name.split()[0]},</p>
+            <p>Your schedule for the week of {week_label} is set. Here are your shifts:</p>
+            <ul>{shift_lines}</ul>
+            <p><a href="{request.host_url.rstrip('/')}/crew" style="color:#C8832A;">View your crew portal →</a></p>
+            <p>Questions? Reply to this email or reach out to your admin.</p>
+        """)
+        try:
+            send_email(worker.email, f"Your Campus Swap Schedule — Week of {week_label}", body)
+            notified += 1
+        except Exception as e:
+            logger.error(f"Failed to send publish email to {worker.email}: {e}")
+
+    flash(f"Schedule published. {notified} worker{'s' if notified != 1 else ''} notified.", "success")
+    return redirect(url_for('admin_schedule_week', week_id=week_id))
+
+
+@app.route('/admin/schedule/<int:week_id>/unpublish', methods=['POST'])
+@login_required
+def admin_schedule_unpublish(week_id):
+    """Return week to draft status. Silent — no worker emails."""
+    if (r := require_super_admin()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+    week.status = 'draft'
+    db.session.commit()
+    flash("Schedule returned to draft.", "success")
+    return redirect(url_for('admin_schedule_week', week_id=week_id))
+
+
+@app.route('/admin/schedule/shift/<int:shift_id>/update', methods=['POST'])
+@login_required
+def admin_shift_update(shift_id):
+    """Save trucks count and manual assignment changes for one shift."""
+    if (r := require_super_admin()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+
+    max_trucks = int(AppSetting.get('max_trucks_per_shift', '4'))
+    try:
+        new_trucks = int(request.form.get('trucks', shift.trucks))
+        new_trucks = max(1, min(new_trucks, max_trucks))
+    except (ValueError, TypeError):
+        new_trucks = shift.trucks
+
+    shift.trucks = new_trucks
+
+    # Process manual driver assignments
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    organizers_per_truck = int(AppSetting.get('organizers_per_truck', '2'))
+    drivers_needed = new_trucks * drivers_per_truck
+    organizers_needed = new_trucks * organizers_per_truck
+
+    # Remove all existing assignments and replace with submitted form data
+    ShiftAssignment.query.filter_by(shift_id=shift.id).delete()
+    db.session.flush()
+
+    # Collect submitted worker IDs for each role
+    driver_ids = request.form.getlist('driver_ids')
+    organizer_ids = request.form.getlist('organizer_ids')
+
+    seen_workers = set()
+    for wid in driver_ids[:drivers_needed]:
+        try:
+            wid_int = int(wid)
+        except (ValueError, TypeError):
+            continue
+        if wid_int in seen_workers:
+            continue
+        seen_workers.add(wid_int)
+        db.session.add(ShiftAssignment(
+            shift_id=shift.id,
+            worker_id=wid_int,
+            role_on_shift='driver',
+            assigned_by_id=current_user.id,
+        ))
+
+    for wid in organizer_ids[:organizers_needed]:
+        try:
+            wid_int = int(wid)
+        except (ValueError, TypeError):
+            continue
+        if wid_int in seen_workers:
+            continue
+        seen_workers.add(wid_int)
+        db.session.add(ShiftAssignment(
+            shift_id=shift.id,
+            worker_id=wid_int,
+            role_on_shift='organizer',
+            assigned_by_id=current_user.id,
+        ))
+
+    db.session.commit()
+    flash(f"{shift.label} saved.", "success")
+    return redirect(url_for('admin_schedule_week', week_id=shift.week_id) + f'#shift-{shift_id}')
+
+
+@app.route('/admin/schedule/shift/<int:shift_id>/swap', methods=['POST'])
+@login_required
+def admin_shift_swap(shift_id):
+    """Replace one worker on a shift. Sends swap emails to removed and added workers."""
+    if (r := require_super_admin()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+
+    remove_assignment_id = request.form.get('remove_assignment_id', type=int)
+    replacement_worker_id = request.form.get('replacement_worker_id', type=int)
+
+    if not remove_assignment_id or not replacement_worker_id:
+        flash("Invalid swap request.", "error")
+        return redirect(url_for('admin_schedule_week', week_id=shift.week_id))
+
+    old_assignment = ShiftAssignment.query.get_or_404(remove_assignment_id)
+    if old_assignment.shift_id != shift.id:
+        flash("Assignment does not belong to this shift.", "error")
+        return redirect(url_for('admin_schedule_week', week_id=shift.week_id))
+
+    removed_worker = User.query.get(old_assignment.worker_id)
+    replacement_worker = User.query.get_or_404(replacement_worker_id)
+    role = old_assignment.role_on_shift
+
+    # Remove old assignment
+    db.session.delete(old_assignment)
+    db.session.flush()
+
+    # Add new assignment
+    new_assignment = ShiftAssignment(
+        shift_id=shift.id,
+        worker_id=replacement_worker_id,
+        role_on_shift=role,
+        assigned_by_id=current_user.id,
+    )
+    db.session.add(new_assignment)
+    db.session.commit()
+
+    # Send swap emails
+    shift_label = shift.label
+    crew_url = f"{request.host_url.rstrip('/')}/crew"
+
+    if removed_worker:
+        try:
+            send_email(
+                removed_worker.email,
+                "Campus Swap Shift Update",
+                wrap_email_template(f"""
+                    <h2>Campus Swap Shift Update</h2>
+                    <p>Hey {removed_worker.full_name.split()[0]},</p>
+                    <p>Your <strong>{shift_label}</strong> shift assignment has been updated.
+                    Please contact your admin with any questions.</p>
+                """),
+            )
+        except Exception as e:
+            logger.error(f"Failed to send swap removal email to {removed_worker.email}: {e}")
+
+    # Only email new worker if they have no other assignments this week (they may already know)
+    other_assignments = [
+        a for s in shift.week.shifts if s.is_active and s.id != shift.id
+        for a in s.assignments if a.worker_id == replacement_worker_id
+    ]
+    try:
+        send_email(
+            replacement_worker.email,
+            "You've Been Scheduled — Campus Swap",
+            wrap_email_template(f"""
+                <h2>You've Been Scheduled — Campus Swap</h2>
+                <p>Hey {replacement_worker.full_name.split()[0]},</p>
+                <p>You've been added to the <strong>{shift_label}</strong> shift as a
+                <strong>{role.capitalize()}</strong>.</p>
+                <p><a href="{crew_url}" style="color:#C8832A;">View your crew portal →</a></p>
+            """),
+        )
+    except Exception as e:
+        logger.error(f"Failed to send swap addition email to {replacement_worker.email}: {e}")
+
+    flash(f"Swap complete: {removed_worker.full_name if removed_worker else 'worker'} replaced by {replacement_worker.full_name}.", "success")
+    return redirect(url_for('admin_schedule_week', week_id=shift.week_id) + f'#shift-{shift_id}')
+
+
+@app.route('/crew/schedule/<int:week_id>')
+@login_required
+def crew_schedule_week(week_id):
+    """Full week schedule HTML partial. Requires approved worker. Returns partial HTML (no layout)."""
+    if (r := require_crew()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+    if week.status != 'published':
+        return "Schedule not available.", 403
+    shifts_sorted = sorted([s for s in week.shifts if s.is_active], key=lambda s: s.sort_key)
+    return render_template(
+        'crew/schedule_week_partial.html',
+        week=week,
+        shifts=shifts_sorted,
+        current_user=current_user,
+    )
+
+
+def seed_crew_app_settings():
+    """Seed AppSetting keys needed by the crew/ops system. Safe to call multiple times — only sets if missing."""
+    defaults = {
+        'crew_applications_open': 'true',
+        'crew_allowed_email_domain': '',
+        'availability_deadline_day': 'tuesday',
+        'drivers_per_truck': '2',
+        'organizers_per_truck': '2',
+        'max_trucks_per_shift': '4',
+    }
+    for key, value in defaults.items():
+        if AppSetting.get(key) is None:
+            db.session.add(AppSetting(key=key, value=value))
+    db.session.commit()
+
+
 if __name__ == '__main__':
     with app.app_context():
         # Only create DB if it doesn't exist (Local SQLite check)
         # On Render, we use migrations.
-        if not os.path.exists('campus.db') and 'DATABASE_URL' not in os.environ:
+        if not os.path.exists('instance/campus.db') and 'DATABASE_URL' not in os.environ:
             db.create_all()
+        seed_crew_app_settings()
+        # Auto-seed categories if table is empty (local dev safety net)
+        if 'DATABASE_URL' not in os.environ:
+            from models import InventoryCategory
+            if InventoryCategory.query.count() == 0:
+                logger.info("No categories found — auto-seeding from seed_categories.py")
+                from seed_categories import seed as seed_cats
+                seed_cats(include_items=False)
     app.run(debug=True, port=4242, host='0.0.0.0')

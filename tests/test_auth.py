@@ -20,26 +20,29 @@ class TestRegistration:
     
     def test_register_new_user_success(self, client):
         """
-        Test successful user registration.
-        
-        This simulates a user filling out the registration form.
+        Test successful user registration with required phone field.
+        Checks user is created and redirected (not following redirects to avoid
+        the dashboard→onboard loop in empty test DB).
         """
         response = client.post('/register', data={
             'email': 'newuser@example.com',
             'password': 'password123',
             'full_name': 'New User',
             'phone': '555-123-4567'
-        }, follow_redirects=True)
-        
-        assert response.status_code == 200
-        
-        # Check user was created in database
+        })
+
+        # Should redirect to dashboard on success
+        assert response.status_code == 302
+        assert '/dashboard' in response.headers.get('Location', '') or '/onboard' in response.headers.get('Location', '')
+
+        # Check user was created in database with phone
         from app import User
         with client.application.app_context():
             user = User.query.filter_by(email='newuser@example.com').first()
             assert user is not None
             assert user.full_name == 'New User'
-            assert user.password_hash is not None  # Password should be hashed
+            assert user.password_hash is not None
+            assert user.phone is not None  # Phone should be saved
     
     def test_register_duplicate_email(self, client, test_user):
         """

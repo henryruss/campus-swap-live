@@ -1,0 +1,450 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .sched-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 32px 0 28px;
+    margin-bottom: 32px;
+  }
+  .sched-header-inner {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  }
+  .sched-title { font-family: 'DM Serif Display', serif; font-size: 1.8rem; color: var(--primary); margin: 0 0 6px; }
+  .sched-subtitle { color: var(--text-muted); margin: 0; font-size: 0.9rem; }
+  .sched-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+
+  /* Header action buttons */
+  .btn-action {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: none; border-radius: 10px; cursor: pointer;
+    font-size: 0.875rem; font-weight: 700; letter-spacing: 0.01em;
+    padding: 10px 20px; transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-action:hover { transform: translateY(-1px); }
+  .btn-action:active { transform: translateY(0); }
+
+  .btn-optimizer {
+    background: var(--bg-cream); color: var(--primary);
+    border: 1.5px solid var(--primary-light);
+    box-shadow: 0 2px 6px -2px rgba(26,61,26,0.15);
+  }
+  .btn-optimizer:hover { background: #eae4d8; box-shadow: 0 4px 10px -2px rgba(26,61,26,0.2); }
+
+  .btn-publish {
+    background: var(--accent); color: white;
+    box-shadow: 0 4px 14px -3px rgba(200,131,42,0.45);
+  }
+  .btn-publish:hover { background: var(--accent-hover); box-shadow: 0 6px 18px -3px rgba(200,131,42,0.55); }
+
+  .btn-unpublish {
+    background: #f1f5f9; color: #64748b;
+    border: 1.5px solid #cbd5e1;
+  }
+  .btn-unpublish:hover { background: #e2e8f0; }
+
+  .status-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .badge-draft { background: #f1f5f9; color: #64748b; }
+  .badge-published { background: #dcfce7; color: #166534; }
+
+  /* Shift card */
+  .shift-card {
+    background: white;
+    border: var(--card-border);
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+  }
+  .shift-card-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;
+  }
+  .shift-label { font-weight: 700; font-size: 1.05rem; color: var(--primary); }
+  .staffing-badge {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .badge-full { background: #dcfce7; color: #166534; }
+  .badge-under { background: #fef9c3; color: #854d0e; }
+  .badge-none { background: #f1f5f9; color: #64748b; }
+
+  .shift-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  .role-section h4 {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    color: var(--text-muted); letter-spacing: 0.05em; margin: 0 0 10px;
+  }
+  .assignment-slots { display: flex; flex-direction: column; gap: 8px; }
+  .assignment-slot {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .assignment-slot select {
+    flex: 1; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px;
+    font-size: 0.875rem; background: white; color: var(--text-main);
+  }
+
+  /* Worker badge (assigned, published view) */
+  .worker-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-cream); border: 1px solid var(--rule);
+    border-radius: 20px; padding: 4px 12px; font-size: 0.85rem;
+    font-weight: 600; cursor: pointer; position: relative;
+  }
+  .worker-badge .remove-btn {
+    display: none; background: none; border: none; cursor: pointer;
+    color: #dc2626; font-size: 0.8rem; padding: 0; line-height: 1;
+  }
+  .worker-badge:hover .remove-btn { display: inline; }
+
+  /* Inline swap form */
+  .swap-form {
+    display: none; margin-top: 8px; padding: 12px;
+    background: #fafafa; border: 1px solid var(--rule); border-radius: 10px;
+  }
+  .swap-form.open { display: block; }
+  .swap-form select {
+    padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px;
+    font-size: 0.875rem; background: white; margin-right: 8px;
+  }
+
+  .trucks-input {
+    width: 56px; padding: 6px 8px; border: 1px solid var(--rule);
+    border-radius: 8px; font-size: 0.9rem; text-align: center;
+  }
+  .trucks-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .trucks-row label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+
+  .shift-save-btn {
+    margin-top: 16px;
+  }
+
+  .inactive-shift {
+    opacity: 0.45;
+  }
+  .day-group-label {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+    margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  }
+</style>
+
+<div class="sched-header">
+  <div class="container">
+    <div class="sched-header-inner">
+      <div>
+        <div style="margin-bottom: 8px;">
+          <a href="{{ url_for('admin_schedule_index') }}" style="color: var(--text-muted); font-size: 0.85rem; text-decoration: none;">&larr; All Weeks</a>
+        </div>
+        <h1 class="sched-title">
+          Week of {{ week.week_start.strftime('%B %-d') }}
+          <span class="status-badge badge-{{ week.status }}" style="font-size: 0.7rem; vertical-align: middle; margin-left: 10px;">{{ week.status }}</span>
+        </h1>
+        <p class="sched-subtitle">
+          {{ week.week_start.strftime('%b %-d') }} – {{ (week.week_start + timedelta(days=6)).strftime('%b %-d, %Y') }}
+        </p>
+      </div>
+      <div class="sched-actions">
+        <!-- Optimizer -->
+        <form method="POST" action="{{ url_for('admin_schedule_optimize', week_id=week.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-action btn-optimizer"
+            {% if has_any_assignments %}
+            onclick="return confirm('Running the optimizer will clear all current assignments and reassign. Continue?')"
+            {% endif %}>
+            <i class="fas fa-magic"></i> Run Optimizer
+          </button>
+        </form>
+
+        <!-- Publish (only shown when there are assignments) -->
+        {% if week.status == 'draft' and has_any_assignments %}
+        <form method="POST" action="{{ url_for('admin_schedule_publish', week_id=week.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-action btn-publish">
+            <i class="fas fa-paper-plane"></i> Publish Schedule
+          </button>
+        </form>
+        {% endif %}
+
+        <!-- Unpublish -->
+        {% if week.status == 'published' %}
+        <form method="POST" action="{{ url_for('admin_schedule_unpublish', week_id=week.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-action btn-unpublish"
+            onclick="return confirm('Unpublish this schedule? Workers will not be notified.')">
+            <i class="fas fa-eye-slash"></i> Unpublish
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container" style="max-width: 860px; margin-bottom: 80px;">
+
+{% set current_day = namespace(value='') %}
+{% for shift in shifts %}
+  {% if shift.day_of_week != current_day.value %}
+    {% set current_day.value = shift.day_of_week %}
+    <div class="day-group-label">{{ shift._DAY_LABELS[shift.day_of_week] }}</div>
+  {% endif %}
+
+  <div class="shift-card {% if not shift.is_active %}inactive-shift{% endif %}" id="shift-{{ shift.id }}">
+    <div class="shift-card-header">
+      <div>
+        <span class="shift-label">{{ shift.label }}</span>
+        {% if not shift.is_active %}
+          <span style="margin-left: 8px; font-size: 0.75rem; color: var(--text-muted);">Inactive</span>
+        {% endif %}
+      </div>
+      {% if shift.is_active %}
+        {% if shift.status_label == 'Fully Staffed' %}
+          <span class="staffing-badge badge-full">Fully Staffed</span>
+        {% elif shift.status_label == 'Understaffed' %}
+          <span class="staffing-badge badge-under">Understaffed</span>
+        {% else %}
+          <span class="staffing-badge badge-none">Unassigned</span>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if shift.is_active %}
+
+    {# ── TRUCKS COUNT ROW (shared by both states) ── #}
+    <div class="trucks-row">
+      <label for="trucks-{{ shift.id }}">Trucks:</label>
+      <input type="number" class="trucks-input" id="trucks-{{ shift.id }}"
+             value="{{ shift.trucks }}" min="1" max="4"
+             form="save-shift-{{ shift.id }}"
+             name="trucks"
+             data-shift-id="{{ shift.id }}"
+             data-drivers-per-truck="{{ drivers_per_truck }}"
+             data-organizers-per-truck="{{ organizers_per_truck }}">
+      <span style="font-size: 0.85rem; color: var(--text-muted);">
+        → <span class="drivers-label-{{ shift.id }}">{{ shift.drivers_needed }}</span> drivers,
+           <span class="organizers-label-{{ shift.id }}">{{ shift.organizers_needed }}</span> organizers
+      </span>
+    </div>
+
+    {% if week.status == 'draft' %}
+    {# ── DRAFT: full-slot dropdowns ── #}
+    <form method="POST" action="{{ url_for('admin_shift_update', shift_id=shift.id) }}"
+          id="save-shift-{{ shift.id }}" class="shift-save-form" data-shift-id="{{ shift.id }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <div class="shift-grid">
+        <div class="role-section">
+          <h4>Drivers</h4>
+          <div class="assignment-slots" id="driver-slots-{{ shift.id }}">
+            {% set driver_assignments = shift.driver_assignments %}
+            {% for i in range(shift.drivers_needed) %}
+            <div class="assignment-slot">
+              <select name="driver_ids" style="flex:1;">
+                <option value="">— unassigned —</option>
+                {% for w in all_workers %}
+                  {% if w.worker_role in ('driver', 'both') and (shift.day_of_week + '_' + shift.slot) in worker_availability[w.id] %}
+                    <option value="{{ w.id }}"
+                      {% if i < driver_assignments|length and driver_assignments[i].worker_id == w.id %}selected{% endif %}>
+                      {{ w.full_name }}
+                    </option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="role-section">
+          <h4>Organizers</h4>
+          <div class="assignment-slots" id="organizer-slots-{{ shift.id }}">
+            {% set org_assignments = shift.organizer_assignments %}
+            {% for i in range(shift.organizers_needed) %}
+            <div class="assignment-slot">
+              <select name="organizer_ids" style="flex:1;">
+                <option value="">— unassigned —</option>
+                {% for w in all_workers %}
+                  {% if w.worker_role in ('organizer', 'both') and (shift.day_of_week + '_' + shift.slot) in worker_availability[w.id] %}
+                    <option value="{{ w.id }}"
+                      {% if i < org_assignments|length and org_assignments[i].worker_id == w.id %}selected{% endif %}>
+                      {{ w.full_name }}
+                    </option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="btn-outline shift-save-btn" style="font-size: 0.85rem; padding: 8px 18px;">Save</button>
+    </form>
+
+    {% else %}
+    {# ── PUBLISHED: badge + swap forms (no nesting) ── #}
+    {#
+       The save form is a thin wrapper for the trucks input (via form= attr) + hidden existing
+       assignments + any empty-slot dropdowns. Swap forms are siblings, never nested.
+    #}
+    <form method="POST" action="{{ url_for('admin_shift_update', shift_id=shift.id) }}"
+          id="save-shift-{{ shift.id }}" class="shift-save-form" data-shift-id="{{ shift.id }}"
+          style="display:contents;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      {# Preserve existing assignments as hidden inputs so the save form keeps them #}
+      {% for a in shift.driver_assignments %}
+        <input type="hidden" name="driver_ids" value="{{ a.worker_id }}"/>
+      {% endfor %}
+      {% for a in shift.organizer_assignments %}
+        <input type="hidden" name="organizer_ids" value="{{ a.worker_id }}"/>
+      {% endfor %}
+    </form>
+
+    <div class="shift-grid">
+      {% for role, role_label, assignments, needed in [
+          ('driver', 'Drivers', shift.driver_assignments, shift.drivers_needed),
+          ('organizer', 'Organizers', shift.organizer_assignments, shift.organizers_needed)
+      ] %}
+      <div class="role-section">
+        <h4>{{ role_label }}</h4>
+        <div class="assignment-slots">
+          {# Assigned workers — badge + standalone swap form #}
+          {# Exclude ALL workers on this shift (any role) from replacements #}
+          {% set all_shift_worker_ids = shift.assignments | map(attribute='worker_id') | list %}
+          {% for a in assignments %}
+          <div style="margin-bottom: 10px;">
+            <div class="worker-badge" onclick="toggleSwap('swap-{{ a.id }}')">
+              {{ a.worker.full_name }}
+              <span class="remove-btn" title="Replace">&times;</span>
+            </div>
+            <div class="swap-form" id="swap-{{ a.id }}">
+              {# Build replacement candidates: right role, available for slot, not already on shift #}
+              {% set candidates = [] %}
+              {% for w in all_workers %}
+                {% if w.worker_role in (role, 'both')
+                       and (shift.day_of_week + '_' + shift.slot) in worker_availability[w.id]
+                       and w.id not in all_shift_worker_ids %}
+                  {% set _ = candidates.append(w) %}
+                {% endif %}
+              {% endfor %}
+
+              {% if candidates %}
+              <form method="POST" action="{{ url_for('admin_shift_swap', shift_id=shift.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="remove_assignment_id" value="{{ a.id }}"/>
+                <select name="replacement_worker_id">
+                  <option value="">— select replacement —</option>
+                  {% for w in candidates %}
+                    <option value="{{ w.id }}">{{ w.full_name }}</option>
+                  {% endfor %}
+                </select>
+                <div style="margin-top: 8px; display: flex; gap: 6px;">
+                  <button type="submit" class="btn-primary" style="font-size: 0.8rem; padding: 6px 14px;">Swap</button>
+                  <button type="button" class="btn-outline" onclick="toggleSwap('swap-{{ a.id }}')"
+                          style="font-size: 0.8rem; padding: 6px 12px;">Cancel</button>
+                </div>
+              </form>
+              {% else %}
+              <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0 0 8px;">
+                No available workers to replace this slot — assign manually or leave understaffed.
+              </p>
+              <button type="button" class="btn-outline" onclick="toggleSwap('swap-{{ a.id }}')"
+                      style="font-size: 0.8rem; padding: 6px 12px;">Close</button>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+          {# Empty slots — dropdowns associated with the save form via form= attr #}
+          {% set empty_slots = needed - assignments|length %}
+          {% for i in range(empty_slots) %}
+          <div class="assignment-slot">
+            <select name="{{ role }}_ids" form="save-shift-{{ shift.id }}"
+                    style="flex:1; border-color: #fca5a5; border-width: 1.5px;">
+              <option value="">— unassigned —</option>
+              {% for w in all_workers %}
+                {% if w.worker_role in (role, 'both') and (shift.day_of_week + '_' + shift.slot) in worker_availability[w.id] %}
+                  <option value="{{ w.id }}">{{ w.full_name }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="submit" form="save-shift-{{ shift.id }}" class="btn-outline shift-save-btn"
+            style="font-size: 0.85rem; padding: 8px 18px; margin-top: 14px;">Save Changes</button>
+    {% endif %}
+
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 0.875rem; margin: 0;">This slot was disabled when the week was created.</p>
+    {% endif %}
+  </div>
+{% endfor %}
+
+{% if not shifts %}
+<p style="text-align: center; color: var(--text-muted); padding: 60px 0;">No shifts in this week.</p>
+{% endif %}
+
+</div>
+
+<script>
+// Toggle swap form for a specific assignment
+function toggleSwap(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('open');
+}
+
+// Trucks count change → recalculate slot counts inline
+document.querySelectorAll('.trucks-input').forEach(function(input) {
+  input.addEventListener('change', function() {
+    const shiftId = this.dataset.shiftId;
+    const drivers = parseInt(this.dataset.driversPerTruck) || 2;
+    const organizers = parseInt(this.dataset.organizersPerTruck) || 2;
+    const trucks = Math.max(1, Math.min(4, parseInt(this.value) || 1));
+    this.value = trucks;
+
+    document.querySelector('.drivers-label-' + shiftId).textContent = trucks * drivers;
+    document.querySelector('.organizers-label-' + shiftId).textContent = trucks * organizers;
+
+    // Warn if reducing would remove assigned workers
+    const driverSlots = document.getElementById('driver-slots-' + shiftId);
+    const orgSlots = document.getElementById('organizer-slots-' + shiftId);
+
+    adjustSlots(driverSlots, trucks * drivers, 'driver_ids');
+    adjustSlots(orgSlots, trucks * organizers, 'organizer_ids');
+  });
+});
+
+function adjustSlots(container, newCount, inputName) {
+  if (!container) return;
+  const slots = container.querySelectorAll('.assignment-slot');
+  const current = slots.length;
+  if (newCount < current) {
+    // Check if any slots beyond newCount have values
+    let hasAssigned = false;
+    for (let i = newCount; i < current; i++) {
+      const sel = slots[i].querySelector('select');
+      if (sel && sel.value) { hasAssigned = true; break; }
+    }
+    if (hasAssigned && !confirm('Reducing trucks will remove assigned workers from extra slots. Continue?')) {
+      return;
+    }
+    for (let i = current - 1; i >= newCount; i--) {
+      slots[i].remove();
+    }
+  } else if (newCount > current) {
+    // Clone last slot and clear its value
+    const template = slots[slots.length - 1];
+    for (let i = current; i < newCount; i++) {
+      const clone = template.cloneNode(true);
+      clone.querySelector('select').value = '';
+      container.appendChild(clone);
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,239 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .crew-dash-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 40px 0 32px;
+    margin-bottom: 36px;
+  }
+  .crew-dash-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .role-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--primary);
+    color: white;
+    margin-left: 10px;
+  }
+  .crew-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    max-width: 960px;
+    margin: 0 auto 60px;
+  }
+  .crew-card {
+    background: white;
+    border: var(--card-border);
+    border-radius: 14px;
+    padding: 28px;
+  }
+  .crew-card h3 {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    margin: 0 0 18px;
+  }
+  .avail-read-only .avail-cell {
+    cursor: default;
+    pointer-events: none;
+  }
+  .placeholder-card {
+    background: var(--bg-cream);
+    border: 1px dashed var(--rule);
+  }
+  .placeholder-card p { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+
+  /* ── My Schedule card ── */
+  .schedule-week-label {
+    font-size: 0.78rem; color: var(--text-muted);
+    margin: -10px 0 16px; font-weight: 500;
+  }
+  .my-shift-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+  .my-shift-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg-cream); border-radius: 10px; padding: 10px 14px;
+  }
+  .my-shift-day {
+    font-weight: 700; font-size: 0.9rem; color: var(--primary);
+    min-width: 36px;
+  }
+  .slot-pill {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 2px 8px; border-radius: 6px;
+    background: var(--primary); color: white;
+  }
+  .role-pill {
+    font-size: 0.75rem; color: var(--text-muted); margin-left: auto;
+    font-weight: 600; text-transform: capitalize;
+  }
+
+  /* "See full schedule" toggle button */
+  .btn-full-schedule {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: 1.5px solid var(--primary);
+    color: var(--primary); border-radius: 8px; padding: 8px 16px;
+    font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    width: 100%;
+    justify-content: center;
+  }
+  .btn-full-schedule:hover { background: var(--primary); color: white; }
+
+  /* ── Full-screen calendar modal ── */
+  .cal-modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(26, 61, 26, 0.45);
+    backdrop-filter: blur(3px);
+    z-index: 1000;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    overflow-y: auto;
+  }
+  .cal-modal-backdrop.open { display: flex; }
+  .cal-modal {
+    background: white;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 960px;
+    box-shadow: 0 32px 64px -12px rgba(0,0,0,0.3);
+    overflow: hidden;
+    margin: auto;
+  }
+</style>
+
+<div class="crew-dash-header">
+  <div class="container">
+    <h1>
+      Hey, {{ current_user.full_name.split()[0] }}
+      <span class="role-badge">
+        {{ current_user.worker_role|capitalize if current_user.worker_role != 'both' else 'Driver & Organizer' }}
+      </span>
+    </h1>
+    <p style="color: var(--text-muted); margin: 0;">Welcome to your Campus Swap Crew portal.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="crew-cards">
+
+    <!-- Availability card -->
+    <div class="crew-card">
+      <h3><i class="fas fa-calendar-alt"></i> My Availability</h3>
+      {% if avail %}
+        <div class="avail-read-only">
+          <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0 0 14px;">
+            Last submitted {{ last_avail.submitted_at.strftime('%b %-d') if last_avail else '' }}.
+            <a href="{{ url_for('crew_availability') }}" style="color: var(--primary); font-weight: 600;">Update for this week</a>
+          </p>
+          {% include 'crew/_availability_grid.html' %}
+        </div>
+      {% else %}
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px;">No availability on file yet.</p>
+        <a href="{{ url_for('crew_availability') }}" class="btn-primary">Submit Availability</a>
+      {% endif %}
+    </div>
+
+    <!-- Schedule card -->
+    <div class="crew-card {% if not current_week %}placeholder-card{% endif %}">
+      <h3><i class="fas fa-calendar-week"></i> My Schedule</h3>
+
+      {% if not current_week %}
+        <p>Your shift schedule will appear here once it's been built. Schedules post every Thursday.</p>
+
+      {% else %}
+        <p class="schedule-week-label">
+          Week of {{ current_week.week_start.strftime('%b %-d') }}
+        </p>
+
+        {% if my_shifts %}
+          <div class="my-shift-list">
+            {% for shift, role in my_shifts %}
+            <div class="my-shift-row">
+              <span class="my-shift-day">{{ shift._DAY_LABELS[shift.day_of_week][:3] }}</span>
+              <span class="slot-pill">{{ shift.slot|upper }}</span>
+              <span class="role-pill">{{ role }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px;">You have no shifts this week.</p>
+        {% endif %}
+
+        <button class="btn-full-schedule" onclick="openCalModal({{ current_week.id }})">
+          <i class="fas fa-th"></i> Full crew schedule
+        </button>
+      {% endif %}
+    </div>
+
+    <!-- Shift history placeholder -->
+    <div class="crew-card placeholder-card">
+      <h3><i class="fas fa-history"></i> Shift History</h3>
+      <p>Completed shifts and earnings will appear here.</p>
+    </div>
+
+  </div>
+</div>
+
+<!-- Full crew calendar modal -->
+<div class="cal-modal-backdrop" id="cal-modal-backdrop" onclick="handleBackdropClick(event)">
+  <div class="cal-modal" id="cal-modal">
+    <div id="cal-modal-body">
+      <div style="display:flex; align-items:center; justify-content:center; padding:60px 0; color:var(--text-muted);">
+        <i class="fas fa-spinner fa-spin" style="margin-right:10px;"></i> Loading schedule…
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _calLoaded = false;
+
+function openCalModal(weekId) {
+  var backdrop = document.getElementById('cal-modal-backdrop');
+  backdrop.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  if (_calLoaded) return;
+
+  fetch('/crew/schedule/' + weekId)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      document.getElementById('cal-modal-body').innerHTML = html;
+      _calLoaded = true;
+    })
+    .catch(function() {
+      document.getElementById('cal-modal-body').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load schedule.</div>';
+    });
+}
+
+function closeCalModal() {
+  document.getElementById('cal-modal-backdrop').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function handleBackdropClick(e) {
+  if (e.target === document.getElementById('cal-modal-backdrop')) closeCalModal();
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeCalModal();
+});
+</script>
+{% endblock %}
