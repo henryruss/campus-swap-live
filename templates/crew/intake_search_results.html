@@ -1,0 +1,74 @@
+{# Partial — no layout extend. Rendered into #search-results div via fetch. #}
+<style>
+  .search-result-item {
+    background: white; border: var(--card-border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 12px;
+    transition: box-shadow 0.12s;
+  }
+  .search-result-item:active { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+  .search-result-item.received { background: #dcfce7; border-color: #bbf7d0; }
+  .s-thumb {
+    width: 52px; height: 52px; border-radius: 8px; object-fit: cover;
+    border: 1px solid var(--rule); flex-shrink: 0; background: var(--bg-cream);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 1.2rem; overflow: hidden;
+  }
+  .s-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
+  .s-id-badge {
+    display: inline-block; background: var(--bg-cream);
+    border: 1px solid var(--rule); border-radius: 5px;
+    padding: 1px 6px; font-size: 0.72rem; font-weight: 700;
+    color: var(--text-muted); font-family: monospace; margin-bottom: 3px;
+  }
+  .s-desc { font-weight: 700; font-size: 0.88rem; color: var(--primary); margin: 0; }
+  .s-seller { font-size: 0.78rem; color: var(--text-muted); }
+  .s-status-chip {
+    display: inline-block; padding: 2px 8px; border-radius: 8px;
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; flex-shrink: 0;
+  }
+  .chip-received { background: rgba(220,252,231,0.8); color: #166534; }
+  .chip-pending  { background: #f1f5f9; color: #64748b; }
+</style>
+
+{% if not results %}
+  <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0; font-style: italic;">
+    No items found for "{{ query }}".
+  </p>
+{% else %}
+  {% for item in results %}
+  {% set intake = latest_intake.get(item.id) %}
+  <div class="search-result-item {% if intake %}received{% endif %}"
+       data-item="{{ item.id }}"
+       data-shift="{{ shift_id or 0 }}"
+       data-quality="{{ item.quality }}"
+       data-loc="{{ intake.storage_location_id if intake and intake.storage_location_id else '' }}"
+       data-row="{{ intake.storage_row | e if intake and intake.storage_row else '' }}"
+       data-note="{{ intake.storage_note | e if intake and intake.storage_note else '' }}"
+       data-saved-quality="{{ intake.quality_after if intake else item.quality }}"
+       data-flagged=""
+       onclick="openIntakeModalFromCard(this)"
+       style="cursor:pointer;">
+    {# Photo thumbnail #}
+    <div class="s-thumb">
+      {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+      {% else %}
+        <i class="fas fa-box-open"></i>
+      {% endif %}
+    </div>
+    <div style="flex: 1; min-width: 0;">
+      <div class="s-id-badge">#{{ item.id }}</div>
+      <div class="s-desc">{{ item.description }}</div>
+      <div class="s-seller">{{ item.seller.full_name if item.seller else 'Unknown seller' }}</div>
+    </div>
+    <div style="flex-shrink:0;">
+      {% if intake %}
+        <span class="s-status-chip chip-received">Received</span>
+      {% else %}
+        <span class="s-status-chip chip-pending">Pending</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% endif %}

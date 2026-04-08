@@ -183,7 +183,7 @@
   </div>
   <div class="cal-legend-item">
     <div class="legend-swatch" style="background:#dbeafe;"></div>
-    Driver
+    Mover
   </div>
   <div class="cal-legend-item">
     <div class="legend-swatch" style="background:#f0fdf4;"></div>
@@ -220,7 +220,7 @@
             <div class="cal-worker-row {% if a.worker_id == current_user.id %}is-me{% endif %}">
               <span class="cal-worker-name">{{ a.worker.full_name.split()[0] }}</span>
               <span class="cal-role-tag {% if a.role_on_shift == 'driver' %}tag-driver{% else %}tag-organizer{% endif %} {% if a.worker_id == current_user.id %}is-me{% endif %}">
-                {{ 'D' if a.role_on_shift == 'driver' else 'O' }}
+                {{ 'M' if a.role_on_shift == 'driver' else 'O' }}
               </span>
             </div>
             {% endfor %}
@@ -249,7 +249,7 @@
             <div class="cal-worker-row {% if a.worker_id == current_user.id %}is-me{% endif %}">
               <span class="cal-worker-name">{{ a.worker.full_name.split()[0] }}</span>
               <span class="cal-role-tag {% if a.role_on_shift == 'driver' %}tag-driver{% else %}tag-organizer{% endif %} {% if a.worker_id == current_user.id %}is-me{% endif %}">
-                {{ 'D' if a.role_on_shift == 'driver' else 'O' }}
+                {{ 'M' if a.role_on_shift == 'driver' else 'O' }}
               </span>
             </div>
             {% endfor %}

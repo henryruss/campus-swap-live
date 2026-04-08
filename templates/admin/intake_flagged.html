@@ -1,0 +1,179 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .flagged-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 32px 0 28px;
+    margin-bottom: 32px;
+  }
+  .flagged-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .flagged-wrap { max-width: 980px; margin: 0 auto 80px; }
+
+  .bulk-bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 14px 20px; margin-bottom: 20px;
+  }
+  .bulk-bar .select-all-label { font-size: 0.875rem; font-weight: 600; color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .selected-count { font-size: 0.82rem; color: var(--text-muted); flex: 1; }
+
+  .item-flag-row {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 16px 20px; margin-bottom: 10px;
+    display: flex; align-items: flex-start; gap: 16px;
+  }
+  .item-flag-row.selected { border-color: var(--accent); background: #fffbf5; }
+
+  .item-thumb {
+    width: 64px; height: 64px; border-radius: 8px; object-fit: cover;
+    border: 1px solid var(--rule); flex-shrink: 0; background: var(--bg-cream);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 1.3rem; overflow: hidden;
+  }
+  .item-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
+
+  .item-info { flex: 1; min-width: 0; }
+  .item-id-badge {
+    display: inline-block; background: var(--bg-cream); border: 1px solid var(--rule);
+    border-radius: 5px; padding: 1px 7px; font-size: 0.75rem; font-weight: 700;
+    color: var(--text-muted); font-family: monospace; margin-bottom: 4px;
+  }
+  .item-desc { font-weight: 700; font-size: 0.95rem; color: var(--primary); margin: 0 0 2px; }
+  .item-seller { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px; }
+
+  .flag-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 10px;
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    background: #fef3c7; color: #92400e; margin-right: 6px;
+  }
+  .flag-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+
+  .item-status {
+    display: inline-block; padding: 2px 9px; border-radius: 8px;
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    background: #dbeafe; color: #1e40af; margin-left: 6px;
+  }
+
+  .row-checkbox { margin-top: 2px; flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+
+  .btn-remove {
+    padding: 10px 24px; background: #dc2626; color: white;
+    border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 700;
+    cursor: pointer; transition: background 0.15s; white-space: nowrap;
+  }
+  .btn-remove:hover { background: #b91c1c; }
+  .btn-remove:disabled { background: #fca5a5; cursor: not-allowed; }
+</style>
+
+<div class="flagged-header">
+  <div class="container">
+    <div style="margin-bottom: 8px;">
+      <a href="{{ url_for('admin_panel') }}" style="color: var(--text-muted); font-size: 0.85rem; text-decoration: none;">&larr; Admin</a>
+    </div>
+    <h1><i class="fas fa-flag" style="color:#d97706;"></i> Damaged / Missing Items</h1>
+    <p style="color: var(--text-muted); margin: 0; font-size: 0.9rem;">
+      Items flagged during organizer intake. Select items to remove from the marketplace.
+    </p>
+  </div>
+</div>
+
+<div class="container flagged-wrap">
+
+  {% if not flagged_items %}
+    <div style="text-align: center; padding: 60px 0; color: var(--text-muted);">
+      <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--primary); margin-bottom: 12px; display: block;"></i>
+      <p style="font-size: 1rem; font-weight: 600; color: var(--primary); margin: 0 0 4px;">All clear</p>
+      <p style="margin: 0; font-size: 0.9rem;">No unresolved intake flags on active items.</p>
+    </div>
+  {% else %}
+    <form method="POST" action="{{ url_for('admin_intake_flagged_remove') }}" id="bulk-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+      <div class="bulk-bar">
+        <label class="select-all-label">
+          <input type="checkbox" id="select-all" onchange="toggleAll(this)">
+          Select all
+        </label>
+        <span class="selected-count" id="selected-count">0 of {{ flagged_items|length }} selected</span>
+        <button type="submit" class="btn-remove" id="remove-btn" disabled
+                onclick="return confirm('Remove selected items from the marketplace? This sets their status to rejected and cannot be undone.')">
+          <i class="fas fa-times-circle"></i> Remove from Marketplace
+        </button>
+      </div>
+
+      {% for flag in flagged_items %}
+      {% set item = flag.item %}
+      <div class="item-flag-row" id="row-{{ item.id }}">
+        <input type="checkbox" name="item_ids" value="{{ item.id }}"
+               class="row-checkbox item-cb"
+               onchange="updateCount()">
+
+        <div class="item-thumb">
+          {% if item.photo_url %}
+            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+          {% else %}
+            <i class="fas fa-box-open"></i>
+          {% endif %}
+        </div>
+
+        <div class="item-info">
+          <div>
+            <span class="item-id-badge">#{{ item.id }}</span>
+            <span class="item-status">{{ item.status | replace('_', ' ') }}</span>
+          </div>
+          <div class="item-desc">{{ item.description }}</div>
+          <div class="item-seller">
+            {{ item.seller.full_name if item.seller else '—' }}
+            {% if item.price %}&nbsp;·&nbsp; ${{ "%.0f"|format(item.price) }}{% endif %}
+          </div>
+          <div>
+            <span class="flag-badge">{{ flag.flag_type | replace('_', ' ') }}</span>
+            {% if flag.organizer %}<span style="font-size:0.78rem; color:var(--text-muted);">flagged by {{ flag.organizer.full_name }}</span>{% endif %}
+          </div>
+          {% if flag.description %}
+            <div class="flag-desc">"{{ flag.description }}"</div>
+          {% endif %}
+          <div style="margin-top: 8px;">
+            <a href="{{ url_for('admin_shift_intake_log', shift_id=flag.shift_id) }}"
+               style="font-size: 0.78rem; color: var(--primary); font-weight: 600;">
+              View intake log &rarr;
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+    </form>
+  {% endif %}
+
+</div>
+
+<script>
+function toggleAll(cb) {
+  document.querySelectorAll('.item-cb').forEach(function(c) { c.checked = cb.checked; });
+  updateCount();
+}
+
+function updateCount() {
+  var checked = document.querySelectorAll('.item-cb:checked');
+  var total = document.querySelectorAll('.item-cb').length;
+  document.getElementById('selected-count').textContent = checked.length + ' of ' + total + ' selected';
+  document.getElementById('remove-btn').disabled = (checked.length === 0);
+  document.querySelectorAll('.item-flag-row').forEach(function(row) {
+    var cb = row.querySelector('.item-cb');
+    row.classList.toggle('selected', cb && cb.checked);
+  });
+  // Sync select-all checkbox state
+  var allCb = document.getElementById('select-all');
+  allCb.indeterminate = (checked.length > 0 && checked.length < total);
+  allCb.checked = (checked.length === total && total > 0);
+}
+</script>
+{% endblock %}

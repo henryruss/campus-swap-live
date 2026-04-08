@@ -1,0 +1,574 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .ops-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 32px 0 28px;
+    margin-bottom: 32px;
+  }
+  .ops-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .ops-header p { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+  .ops-meta-row {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px;
+    font-size: 0.875rem; color: var(--text-muted);
+  }
+  .ops-meta-item { display: flex; align-items: center; gap: 6px; }
+
+  .run-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .run-badge-not-started { background: #f1f5f9; color: #64748b; }
+  .run-badge-in-progress { background: #fef9c3; color: #854d0e; }
+  .run-badge-completed   { background: #dcfce7; color: #166534; }
+
+  .ops-wrap {
+    max-width: 860px;
+    margin: 0 auto 80px;
+  }
+
+  /* ── Truck mover cards ── */
+  .truck-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .truck-card {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .truck-card-label {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: rgba(255,255,255,0.7);
+    margin: 0 0 12px; display: flex; align-items: center; gap: 7px;
+  }
+  .mover-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.15); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 6px; font-size: 0.875rem;
+  }
+  .mover-chip-name { flex: 1; font-weight: 600; color: white; }
+  .btn-chip-remove {
+    background: none; border: none; cursor: pointer;
+    color: rgba(255,255,255,0.5); font-size: 0.9rem; padding: 0 2px;
+    line-height: 1; transition: color 0.15s;
+  }
+  .btn-chip-remove:hover { color: #fca5a5; }
+  .truck-full-badge {
+    font-size: 0.75rem; font-weight: 700; color: white;
+    background: rgba(255,255,255,0.2); border-radius: 6px; padding: 3px 8px;
+    display: inline-block; margin-top: 4px;
+  }
+  .add-mover-row {
+    display: flex; gap: 8px; align-items: center; margin-top: 8px;
+  }
+  .add-mover-row select {
+    flex: 1; padding: 7px 10px; border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px; font-size: 0.8rem;
+    background: rgba(255,255,255,0.15); color: white;
+  }
+  .add-mover-row select option { background: var(--primary); color: white; }
+  .add-mover-row button {
+    padding: 7px 14px; font-size: 0.8rem; white-space: nowrap; min-height: 34px;
+    background: var(--accent); border: none; color: white; border-radius: 8px;
+    font-weight: 700; cursor: pointer; transition: background 0.15s;
+  }
+  .add-mover-row button:hover { background: var(--accent-hover); }
+
+  /* Mover multi-select picker */
+  .mover-picker-trigger {
+    width: 100%; padding: 7px 10px; border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px; font-size: 0.8rem;
+    background: rgba(255,255,255,0.15); color: white;
+    cursor: pointer; text-align: left; display: flex;
+    justify-content: space-between; align-items: center; gap: 6px;
+  }
+  .mover-picker-trigger:focus { outline: none; }
+  .mover-picker-label { flex: 1; white-space: normal; }
+  .mover-picker-dropdown {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--primary-light); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px; box-shadow: 0 8px 24px -4px rgba(0,0,0,0.3);
+    z-index: 100; overflow: hidden;
+  }
+  .mover-picker.open .mover-picker-dropdown { display: block; }
+  .mover-picker-option {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; cursor: pointer; font-size: 0.875rem; color: white;
+    transition: background 0.1s;
+  }
+  .mover-picker-option:hover { background: rgba(255,255,255,0.1); }
+  .mover-picker-option.selected { font-weight: 600; background: rgba(255,255,255,0.08); }
+  .mover-picker-check {
+    width: 16px; height: 16px; border-radius: 4px;
+    border: 1.5px solid rgba(255,255,255,0.4);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-size: 0.65rem; transition: background 0.1s;
+  }
+  .mover-picker-option.selected .mover-picker-check {
+    background: var(--accent); border-color: var(--accent); color: white;
+  }
+
+  /* ── Route section divider ── */
+  .section-divider {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+    margin: 0 0 20px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+  }
+
+  /* Truck group */
+  .truck-group { margin-bottom: 32px; }
+  .truck-group-label {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+    margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* Stop rows */
+  .stop-row {
+    background: white;
+    border: var(--card-border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .stop-row-main { flex: 1; }
+  .stop-seller-name { font-weight: 700; color: var(--primary); font-size: 0.95rem; }
+  .stop-address { color: var(--text-muted); font-size: 0.85rem; margin: 2px 0 4px; }
+  .stop-item-count { font-size: 0.8rem; color: var(--text-muted); }
+  .stop-notes { font-size: 0.85rem; color: var(--text-muted); font-style: italic; margin-top: 4px; }
+  .stop-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px; flex-shrink: 0;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .badge-pending   { background: #f1f5f9; color: #64748b; }
+  .badge-completed { background: #dcfce7; color: #166534; }
+  .badge-issue     { background: #fef3c7; color: #92400e; }
+  .stop-row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .btn-remove {
+    padding: 5px 12px; background: none; border: 1.5px solid #fca5a5;
+    border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+    color: #dc2626; cursor: pointer; transition: background 0.15s;
+  }
+  .btn-remove:hover { background: #fef2f2; }
+  .no-stops-note {
+    color: var(--text-muted); font-size: 0.875rem; padding: 12px 0; font-style: italic;
+  }
+
+  /* Add Stop form */
+  .add-stop-form {
+    background: var(--bg-cream); border: 1px dashed var(--rule);
+    border-radius: 12px; padding: 16px 18px; margin-top: 10px;
+  }
+  .add-stop-form h4 {
+    font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 12px;
+  }
+  .add-stop-row {
+    display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+  }
+  .add-stop-row select {
+    flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: 0.875rem; background: white; color: var(--text-main);
+  }
+  .add-stop-row button {
+    padding: 9px 20px; white-space: nowrap; font-size: 0.875rem; min-height: 40px;
+  }
+
+  /* ── Destination Unit selector ── */
+  .dest-unit-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.15);
+  }
+  .dest-unit-label {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: rgba(255,255,255,0.6); white-space: nowrap;
+  }
+  .dest-unit-row select {
+    flex: 1; padding: 7px 10px; border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px; font-size: 0.8rem;
+    background: rgba(255,255,255,0.15); color: white;
+  }
+  .dest-unit-row select option { background: var(--primary); color: white; }
+  .dest-unit-row button {
+    padding: 7px 14px; font-size: 0.8rem; white-space: nowrap; min-height: 34px;
+    background: var(--accent); border: none; color: white; border-radius: 8px;
+    font-weight: 700; cursor: pointer;
+  }
+  .unit-chip-assigned   { display:inline-block; padding:2px 8px; border-radius:8px; font-size:0.72rem; font-weight:700; background:#dcfce7; color:#166534; }
+  .unit-chip-unassigned { display:inline-block; padding:2px 8px; border-radius:8px; font-size:0.72rem; font-weight:700; background:#fef3c7; color:#92400e; }
+
+  /* ── Intake summary ── */
+  .intake-section { margin-top: 40px; }
+  .intake-truck-summary {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 16px 20px; margin-bottom: 14px;
+  }
+  .intake-truck-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .intake-progress-bar {
+    height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; flex: 1; min-width: 80px;
+  }
+  .intake-progress-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
+  .flag-mini {
+    background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 7px 12px; margin-top: 6px; font-size: 0.82rem;
+    display: flex; align-items: flex-start; gap: 8px;
+  }
+  .flag-mini-type { font-weight: 700; color: #92400e; flex-shrink: 0; }
+</style>
+
+<div class="ops-header">
+  <div class="container">
+    <div style="margin-bottom: 8px;">
+      <a href="{{ url_for('admin_schedule_week', week_id=shift.week_id) }}" style="color: var(--text-muted); font-size: 0.85rem; text-decoration: none;">&larr; Back to Schedule</a>
+    </div>
+    <h1>{{ shift.label }} — Ops</h1>
+    <p>Week of {{ shift.week.week_start.strftime('%B %-d, %Y') }}</p>
+    <div class="ops-meta-row">
+      {% set org_assignments = shift.assignments | selectattr('role_on_shift', 'equalto', 'organizer') | list %}
+      {% if org_assignments %}
+      <div class="ops-meta-item">
+        <i class="fas fa-warehouse"></i>
+        <strong>Organizers:</strong>
+        {{ org_assignments | map(attribute='worker') | map(attribute='full_name') | join(', ') }}
+      </div>
+      {% endif %}
+      <div class="ops-meta-item">
+        {% if shift.run %}
+          {% if shift.run.status == 'in_progress' %}
+            <span class="run-badge run-badge-in-progress">In Progress</span>
+            &nbsp; started {{ shift.run.started_at.strftime('%I:%M %p') }} by {{ shift.run.started_by.full_name }}
+          {% else %}
+            <span class="run-badge run-badge-completed">Completed</span>
+            &nbsp; ended {{ shift.run.ended_at.strftime('%I:%M %p') if shift.run.ended_at else '' }}
+          {% endif %}
+        {% else %}
+          <span class="run-badge run-badge-not-started">Not Started</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container ops-wrap">
+
+  {# ── Truck mover assignment cards ── #}
+  {% set all_drivers = shift.assignments | selectattr('role_on_shift', 'equalto', 'driver') | list %}
+  <div style="background: var(--primary); border-radius: 16px; padding: 20px 24px; margin-bottom: 32px;">
+    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.6); margin-bottom: 14px;">
+      <i class="fas fa-users"></i> &nbsp;Assign Movers to Trucks
+    </div>
+  <div class="truck-cards-grid">
+    {% for truck_num in truck_numbers %}
+    {% set truck_movers = movers_by_truck[truck_num] %}
+    {% set is_full = truck_movers | length >= drivers_per_truck %}
+    {% set available_to_add = all_drivers | rejectattr('truck_number') | list %}
+    <div class="truck-card">
+      <div class="truck-card-label">
+        <i class="fas fa-truck"></i> Truck {{ truck_num }}
+      </div>
+
+      {# ── Destination Unit selector — auto-saves on change, no page reload ── #}
+      {% set assigned_unit = truck_planned_unit.get(truck_num) %}
+      <div class="dest-unit-row">
+        <span class="dest-unit-label"><i class="fas fa-warehouse"></i></span>
+        <select onchange="saveTruckUnit(this, {{ truck_num }})"
+                style="flex:1; padding:6px 8px; border:1px solid rgba(255,255,255,0.3); border-radius:8px; font-size:0.78rem; background:rgba(255,255,255,0.15); color:white;">
+          <option value="">— No unit —</option>
+          {% for loc in storage_locations %}
+          <option value="{{ loc.id }}" {% if assigned_unit and assigned_unit.id == loc.id %}selected{% endif %}>
+            {{ loc.name }}
+          </option>
+          {% endfor %}
+        </select>
+        <span id="unit-save-indicator-{{ truck_num }}"
+              style="font-size:0.72rem; color:rgba(255,255,255,0.6); white-space:nowrap; min-width:36px; text-align:right;"></span>
+      </div>
+      <div id="unit-chip-{{ truck_num }}" style="margin-bottom:10px;">
+        {% if assigned_unit %}
+          <span class="unit-chip-assigned"><i class="fas fa-check"></i> {{ assigned_unit.name }}</span>
+        {% else %}
+          <span class="unit-chip-unassigned"><i class="fas fa-exclamation-triangle"></i> No unit assigned</span>
+        {% endif %}
+      </div>
+
+      {% for a in truck_movers %}
+      <div class="mover-chip">
+        <span class="mover-chip-name">{{ a.worker.full_name }}</span>
+        {% if truck_numbers | length > 1 %}
+        <form method="POST" style="display:inline;"
+              action="{{ url_for('admin_shift_assign_mover_truck', shift_id=shift.id, assignment_id=a.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="truck_number" value=""/>
+          {# truck_number="" → null means unassign; we'll use a JS helper to clear #}
+        </form>
+        <button class="btn-chip-remove" title="Remove from truck"
+                onclick="removeMover({{ a.id }}, {{ shift.id }})">&times;</button>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      {% if is_full %}
+        <div class="truck-full-badge"><i class="fas fa-check"></i> Full</div>
+      {% elif available_to_add %}
+        {% set slots_open = drivers_per_truck - (movers_by_truck[truck_num] | length) %}
+        <form method="POST" action="{{ url_for('admin_shift_assign_movers_bulk', shift_id=shift.id) }}"
+              id="mover-form-{{ truck_num }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="truck_number" value="{{ truck_num }}"/>
+          <div class="add-mover-row">
+            {# Custom multi-select picker #}
+            <div class="mover-picker" data-max="{{ slots_open }}" style="flex:1; position:relative;">
+              <button type="button" class="mover-picker-trigger"
+                      onclick="toggleMoverPicker(this.parentElement)">
+                <span class="mover-picker-label">Add mover…</span>
+                <span style="font-size:0.7rem; opacity:0.7;">&#9660;</span>
+              </button>
+              <div class="mover-picker-dropdown">
+                {% for a in available_to_add %}
+                <div class="mover-picker-option" data-value="{{ a.id }}"
+                     onclick="toggleMoverOption(this)">
+                  <span class="mover-picker-check"></span>
+                  {{ a.worker.full_name }}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <button type="button" onclick="submitMoverForm({{ truck_num }})">Add</button>
+          </div>
+        </form>
+      {% else %}
+        <p style="font-size:0.8rem; color:rgba(255,255,255,0.5); margin:8px 0 0; font-style:italic;">No movers available to add.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  </div>{# end green panel #}
+
+  {# ── Route ── #}
+  <div class="section-divider"><i class="fas fa-route"></i> Route</div>
+
+  {% for truck_num in truck_numbers %}
+  <div class="truck-group">
+    <div class="truck-group-label">
+      <i class="fas fa-truck"></i> Truck {{ truck_num }}
+      <span style="font-weight:400; text-transform:none; letter-spacing:0;">
+        — {{ pickups_by_truck[truck_num] | length }} stop{{ 's' if pickups_by_truck[truck_num] | length != 1 else '' }}
+      </span>
+    </div>
+
+    {% if pickups_by_truck[truck_num] %}
+      {% for pickup in pickups_by_truck[truck_num] %}
+      <div class="stop-row">
+        <div class="stop-row-main">
+          <div class="stop-seller-name">{{ pickup.seller.full_name }}</div>
+          <div class="stop-address">
+            <i class="fas fa-map-marker-alt"></i>
+            {{ pickup.seller.pickup_address if pickup.seller.pickup_address else 'No address on file' }}
+          </div>
+          <div class="stop-item-count">
+            <i class="fas fa-box"></i>
+            {{ pickup_item_counts.get(pickup.seller_id, 0) }} available item{{ 's' if pickup_item_counts.get(pickup.seller_id, 0) != 1 else '' }}
+          </div>
+          {% if pickup.notes %}
+          <div class="stop-notes"><i class="fas fa-sticky-note"></i> {{ pickup.notes }}</div>
+          {% endif %}
+        </div>
+        <div class="stop-row-actions">
+          <span class="stop-badge badge-{{ pickup.status }}">{{ pickup.status }}</span>
+          {% if pickup.status == 'pending' %}
+          <form method="POST"
+                action="{{ url_for('admin_shift_remove_stop', shift_id=shift.id, pickup_id=pickup.id) }}"
+                onsubmit="return confirm('Remove {{ pickup.seller.full_name }} from this shift?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn-remove">Remove</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="no-stops-note">No stops assigned to this truck yet.</p>
+    {% endif %}
+
+    <div class="add-stop-form">
+      <h4><i class="fas fa-plus"></i> Add Stop — Truck {{ truck_num }}</h4>
+      {% if available_sellers %}
+      <form method="POST" action="{{ url_for('admin_shift_assign_seller', shift_id=shift.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="truck_number" value="{{ truck_num }}"/>
+        <div class="add-stop-row">
+          <select name="seller_id" required>
+            <option value="">— Select a seller —</option>
+            {% for s in available_sellers %}
+            <option value="{{ s.id }}">
+              {{ s.full_name }} ({{ seller_item_counts.get(s.id, 0) }} item{{ 's' if seller_item_counts.get(s.id, 0) != 1 else '' }})
+            </option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn-primary">Add</button>
+        </div>
+      </form>
+      {% else %}
+        <p style="font-size:0.875rem; color:var(--text-muted); margin:0;">No sellers with available items left to assign.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {# ── Intake Summary ── #}
+  <div class="intake-section">
+    <div class="section-divider">
+      <i class="fas fa-clipboard-check"></i> Intake Summary
+      &nbsp;&nbsp;
+      <a href="{{ url_for('admin_shift_intake_log', shift_id=shift.id) }}"
+         style="font-weight:400; text-transform:none; letter-spacing:0; color:var(--primary); font-size:0.82rem;">
+        View Full Intake Log &rarr;
+      </a>
+    </div>
+    {% for truck_num in truck_numbers %}
+    {% set total = item_ids_by_truck[truck_num] | length %}
+    {% set received = received_by_truck[truck_num] %}
+    {% set pct = ((received / total * 100) | int) if total > 0 else 0 %}
+    <div class="intake-truck-summary">
+      <div class="intake-truck-header">
+        <span style="font-size:0.8rem; font-weight:700; color:var(--primary);">
+          <i class="fas fa-truck"></i> Truck {{ truck_num }}
+        </span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">{{ received }} / {{ total }} items received</span>
+        <div class="intake-progress-bar">
+          <div class="intake-progress-fill" style="width: {{ pct }}%;"></div>
+        </div>
+      </div>
+      {% for flag in open_flags_by_truck[truck_num] %}
+      <div class="flag-mini">
+        <span class="flag-mini-type">
+          {% if flag.item_id %}#{{ flag.item_id }}{% else %}Unknown item{% endif %}
+          — {{ flag.flag_type | replace('_', ' ') }}:
+        </span>
+        <span style="color: var(--text-main);">{{ flag.description[:120] }}{% if flag.description | length > 120 %}…{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<script>
+var CSRF = '{{ csrf_token() }}';
+var SHIFT_ID = {{ shift.id }};
+
+// ── Destination Unit — auto-save on dropdown change ────────
+function saveTruckUnit(select, truckNum) {
+  var locId = select.value;
+  var locName = locId ? select.options[select.selectedIndex].text : null;
+  var indicator = document.getElementById('unit-save-indicator-' + truckNum);
+  var chip = document.getElementById('unit-chip-' + truckNum);
+
+  indicator.textContent = '…';
+
+  var body = 'csrf_token=' + encodeURIComponent(CSRF)
+           + '&storage_location_id=' + encodeURIComponent(locId);
+
+  fetch('/admin/crew/shift/' + SHIFT_ID + '/truck/' + truckNum + '/assign_unit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body
+  }).then(function(r) {
+    if (r.ok || r.redirected) {
+      indicator.textContent = '✓';
+      setTimeout(function() { indicator.textContent = ''; }, 1500);
+      if (locName) {
+        chip.innerHTML = '<span class="unit-chip-assigned"><i class="fas fa-check"></i> ' + locName + '</span>';
+      } else {
+        chip.innerHTML = '<span class="unit-chip-unassigned"><i class="fas fa-exclamation-triangle"></i> No unit assigned</span>';
+      }
+    } else {
+      indicator.textContent = '!';
+    }
+  }).catch(function() {
+    indicator.textContent = '!';
+  });
+}
+
+// ── Mover picker ──────────────────────────────────────────
+function toggleMoverPicker(picker) {
+  var isOpen = picker.classList.contains('open');
+  document.querySelectorAll('.mover-picker.open').forEach(function(p) { p.classList.remove('open'); });
+  if (!isOpen) picker.classList.add('open');
+}
+
+function toggleMoverOption(opt) {
+  var picker = opt.closest('.mover-picker');
+  var max = parseInt(picker.dataset.max) || 2;
+  var selected = picker.querySelectorAll('.mover-picker-option.selected');
+  if (!opt.classList.contains('selected') && selected.length >= max) return; // cap reached
+  opt.classList.toggle('selected');
+  var check = opt.querySelector('.mover-picker-check');
+  check.innerHTML = opt.classList.contains('selected') ? '&#10003;' : '';
+  updateMoverLabel(picker);
+}
+
+function updateMoverLabel(picker) {
+  var selected = picker.querySelectorAll('.mover-picker-option.selected');
+  var label = picker.querySelector('.mover-picker-label');
+  label.innerHTML = selected.length === 0
+    ? 'Add mover\u2026'
+    : Array.from(selected).map(function(o) { return '&#10003; ' + o.textContent.trim(); }).join('<br>');
+}
+
+function submitMoverForm(truckNum) {
+  var form = document.getElementById('mover-form-' + truckNum);
+  var picker = form.querySelector('.mover-picker');
+  var selected = picker.querySelectorAll('.mover-picker-option.selected');
+  if (!selected.length) return;
+  selected.forEach(function(opt) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'assignment_ids'; inp.value = opt.dataset.value;
+    form.appendChild(inp);
+  });
+  sessionStorage.setItem('scrollPos_' + location.pathname, window.scrollY);
+  form.submit();
+}
+
+// Close pickers when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.mover-picker')) {
+    document.querySelectorAll('.mover-picker.open').forEach(function(p) { p.classList.remove('open'); });
+  }
+});
+
+// ── Remove mover from truck ───────────────────────────────
+function removeMover(assignmentId, shiftId) {
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/admin/crew/shift/' + shiftId + '/mover/' + assignmentId + '/assign_truck';
+  var csrf = document.createElement('input');
+  csrf.type = 'hidden'; csrf.name = 'csrf_token'; csrf.value = CSRF;
+  var truck = document.createElement('input');
+  truck.type = 'hidden'; truck.name = 'truck_number'; truck.value = '0';
+  form.appendChild(csrf); form.appendChild(truck);
+  document.body.appendChild(form);
+  sessionStorage.setItem('scrollPos_' + location.pathname, window.scrollY);
+  form.submit();
+}
+</script>
+{% endblock %}

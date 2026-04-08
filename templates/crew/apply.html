@@ -108,7 +108,7 @@
     <p>Help us make move-out season sustainable. Pick up items, keep them out of landfills, and earn $130 per shift during the ~3-week season.</p>
     <div class="role-cards">
       <div class="role-card">
-        <strong><i class="fas fa-truck"></i> Driver</strong>
+        <strong><i class="fas fa-truck"></i> Mover</strong>
         <p>Ride in the truck and execute pickups at seller addresses across campus.</p>
       </div>
       <div class="role-card">
@@ -171,16 +171,6 @@
           {% for yr in ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate'] %}
           <option value="{{ yr }}" {% if form_data and form_data.unc_year == yr %}selected{% endif %}>{{ yr }}</option>
           {% endfor %}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label for="role_pref">Role Preference <span class="required">*</span></label>
-        <select id="role_pref" name="role_pref" required>
-          <option value="" disabled {% if not (form_data and form_data.role_pref) %}selected{% endif %}>Select a role</option>
-          <option value="driver" {% if form_data and form_data.role_pref == 'driver' %}selected{% endif %}>Driver — in the field</option>
-          <option value="organizer" {% if form_data and form_data.role_pref == 'organizer' %}selected{% endif %}>Organizer — at the storage unit</option>
-          <option value="both" {% if form_data and form_data.role_pref == 'both' %}selected{% endif %}>Either — flexible</option>
         </select>
       </div>
 

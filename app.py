@@ -15,6 +15,17 @@ from PIL import Image, ImageOps
 import stripe
 import resend
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_EASTERN = ZoneInfo('America/New_York')
+
+def _now_eastern():
+    """Current datetime in US Eastern time (handles EST/EDT automatically)."""
+    return datetime.now(_EASTERN)
+
+def _today_eastern():
+    """Current date in US Eastern time."""
+    return _now_eastern().date()
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
 import csv
 from io import StringIO, BytesIO
@@ -30,7 +41,7 @@ from sqlalchemy import or_, and_, func, nulls_last
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag
 
 # Import Constants
 from constants import (
@@ -4309,11 +4320,12 @@ def dashboard():
     # Pickup method for header card — uses User.pickup_week (seller's stated preference)
     pickup_method_type = None
     pickup_method_label = None
-    time_labels = {'morning': 'Morning', 'afternoon': 'Afternoon', 'evening': 'Evening'}
+    time_labels = {'am': 'AM', 'pm': 'PM'}
     if current_user.pickup_week:
         pickup_method_type = 'week'
         week_label = dict(PICKUP_WEEKS).get(current_user.pickup_week, current_user.pickup_week)
-        week_short = 'Wk 1' if current_user.pickup_week == 'week1' else 'Wk 2'
+        week_short_map = {'week1': 'Wk 1', 'week2': 'Wk 2', 'week3': 'Wk 3'}
+        week_short = week_short_map.get(current_user.pickup_week, current_user.pickup_week)
         if current_user.pickup_time_preference:
             pickup_method_label = f"{week_short} · {time_labels.get(current_user.pickup_time_preference, '')}"
         else:
@@ -5352,7 +5364,7 @@ def upgrade_pickup():
 
     if request.method == 'POST':
         pickup_week = request.form.get('pickup_week')
-        if pickup_week not in ('week1', 'week2'):
+        if pickup_week not in dict(PICKUP_WEEKS):
             flash("Please select a pickup week.", "error")
             return redirect(url_for('upgrade_pickup'))
 
@@ -6705,8 +6717,8 @@ def _availability_as_dict(avail):
 
 
 def _is_availability_open():
-    """True if today is Sunday, Monday, or Tuesday (window to submit weekly availability)."""
-    return datetime.utcnow().weekday() in (6, 0, 1)  # Sun=6, Mon=0, Tue=1
+    """True if today (Eastern) is Sunday, Monday, or Tuesday — availability submission window."""
+    return _now_eastern().weekday() in (6, 0, 1)  # Sun=6, Mon=0, Tue=1
 
 
 @app.route('/crew/apply', methods=['GET', 'POST'])
@@ -6730,13 +6742,12 @@ def crew_apply():
     email = request.form.get('email', '').strip().lower()
     phone = request.form.get('phone', '').strip()
     unc_year = request.form.get('unc_year', '').strip()
-    role_pref = request.form.get('role_pref', '').strip()
     why_blurb = request.form.get('why_blurb', '').strip()
 
     # unc.edu enforcement disabled — re-enable before launch by restoring _is_edu_email check
 
     # Validate required fields
-    if not all([full_name, email, phone, unc_year, role_pref]):
+    if not all([full_name, email, phone, unc_year]):
         flash("Please fill in all required fields.", "error")
         return render_template('crew/apply.html', form_data=request.form)
 
@@ -6779,7 +6790,7 @@ def crew_apply():
     application = WorkerApplication(
         user_id=user.id,
         unc_year=unc_year,
-        role_pref=role_pref,
+        role_pref='both',  # all movers are both; role_pref field no longer collected
         why_blurb=why_blurb or None,
     )
     db.session.add(application)
@@ -6825,14 +6836,86 @@ def crew_dashboard():
 
     # Schedule context
     current_week = _get_current_published_week()
-    # my_shifts: list of (shift, role_on_shift) tuples for this worker, sorted by day+slot
+    _day_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+    # Completed assignments — each role tracked independently via ShiftAssignment.completed_at
+    completed_assignments = (
+        ShiftAssignment.query
+        .filter_by(worker_id=current_user.id)
+        .filter(ShiftAssignment.completed_at.isnot(None))
+        .join(Shift, ShiftAssignment.shift_id == Shift.id)
+        .order_by(ShiftAssignment.completed_at.desc())
+        .all()
+    )
+    completed_shift_role_pairs = {(a.shift_id, a.role_on_shift) for a in completed_assignments}
+    completed_shift_ids = {a.shift_id for a in completed_assignments}
+
+    # Build shift history entries for the dashboard card
+    completed_entries = []
+    for a in completed_assignments:
+        shift = a.shift
+        shift_date = shift.week.week_start + timedelta(days=_day_order.index(shift.day_of_week))
+        completed_entries.append({
+            'shift': shift,
+            'role': a.role_on_shift,
+            'completed_at': a.completed_at,
+            'date': shift_date,
+        })
+
+    # my_shifts: exclude shifts where THIS worker's role is already marked complete
     my_shifts = []
     if current_week:
         for shift in sorted([s for s in current_week.shifts if s.is_active], key=lambda s: s.sort_key):
             for a in shift.assignments:
                 if a.worker_id == current_user.id:
+                    if (shift.id, a.role_on_shift) in completed_shift_role_pairs:
+                        break  # this role is done — lives in Shift History
                     my_shifts.append((shift, a.role_on_shift))
                     break
+
+    # Find today's shift for the banner — use Eastern time throughout
+    _day_map = {0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu', 4: 'fri', 5: 'sat', 6: 'sun'}
+    now_et = _now_eastern()
+    today_dow = _day_map[now_et.weekday()]
+    today_shifts = [(s, r) for s, r in my_shifts if s.day_of_week == today_dow]
+    today_shift = None
+    today_shift_run = None
+    # If a shift is actively in-progress, always surface it — mover must be able to end it
+    for shift, _role in today_shifts:
+        if shift.run and shift.run.status == 'in_progress':
+            today_shift = shift
+            today_shift_run = shift.run
+            break
+    # No in-progress shift: pick by time (Eastern) — before noon prefer AM, at/after noon prefer PM
+    if not today_shift:
+        prefer_slot = 'pm' if now_et.hour >= 12 else 'am'
+        for preferred in (prefer_slot, ('pm' if prefer_slot == 'am' else 'am')):
+            for shift, _role in today_shifts:
+                if shift.slot == preferred:
+                    today_shift = shift
+                    today_shift_run = shift.run
+                    break
+            if today_shift:
+                break
+    shifts_required = int(AppSetting.get('shifts_required', '10'))
+
+    # Group shifts by day for the dashboard card (one row per day)
+    from itertools import groupby as _groupby
+    my_shifts_by_day = [
+        (day, list(group))
+        for day, group in _groupby(my_shifts, key=lambda x: x[0].day_of_week)
+    ]
+
+    # Spec #4: organizer context — based on shift-level role, not worker_role
+    # True if the worker has an organizer assignment on today's shift
+    is_organizer = any(role == 'organizer' for _, role in today_shifts)
+    # Unresolved flags raised by this worker across any past shift
+    flagged_shift_ids = {
+        f.shift_id for f in
+        IntakeFlag.query
+        .filter_by(organizer_id=current_user.id, resolved=False)
+        .all()
+    }
 
     return render_template(
         'crew/dashboard.html',
@@ -6840,6 +6923,13 @@ def crew_dashboard():
         last_avail=last_avail,
         current_week=current_week,
         my_shifts=my_shifts,
+        my_shifts_by_day=my_shifts_by_day,
+        today_shift=today_shift,
+        today_shift_run=today_shift_run,
+        completed_entries=completed_entries,
+        shifts_required=shifts_required,
+        is_organizer=is_organizer,
+        flagged_shift_ids=flagged_shift_ids,
     )
 
 
@@ -6855,8 +6945,8 @@ def crew_availability():
             return redirect(url_for('crew_availability'))
 
         avail_data = _availability_booleans(request.form)
-        # week_start = Monday of current week
-        today = datetime.utcnow().date()
+        # week_start = Monday of current week (Eastern date)
+        today = _today_eastern()
         week_start = today - timedelta(days=today.weekday())
 
         existing = WorkerAvailability.query.filter_by(
@@ -6882,7 +6972,1087 @@ def crew_availability():
     )
     avail_dict = _availability_as_dict(last_avail) if last_avail else None
     window_open = _is_availability_open()
-    return render_template('crew/availability.html', avail=avail_dict, window_open=window_open)
+    # Partner preferences for the form
+    my_preferred_ids = [
+        p.target_user_id for p in WorkerPreference.query.filter_by(
+            user_id=current_user.id, preference_type='preferred'
+        ).all()
+    ]
+    my_avoided_ids = [
+        p.target_user_id for p in WorkerPreference.query.filter_by(
+            user_id=current_user.id, preference_type='avoided'
+        ).all()
+    ]
+    all_workers = User.query.filter_by(is_worker=True, worker_status='approved').filter(
+        User.id != current_user.id
+    ).order_by(User.full_name).all()
+    return render_template(
+        'crew/availability.html',
+        avail=avail_dict,
+        window_open=window_open,
+        all_workers=all_workers,
+        my_preferred_ids=my_preferred_ids,
+        my_avoided_ids=my_avoided_ids,
+    )
+
+
+@app.route('/crew/preferences', methods=['POST'])
+@login_required
+def crew_save_preferences():
+    """Save partner preferences for this worker."""
+    if (r := require_crew()):
+        return r
+    preferred_ids = request.form.getlist('preferred_ids')
+    avoided_ids   = request.form.getlist('avoided_ids')
+
+    # Validate: same worker can't be in both lists
+    preferred_set = set(preferred_ids)
+    avoided_set   = set(avoided_ids)
+    overlap = preferred_set & avoided_set
+    if overlap:
+        flash("A worker can't be in both lists.", "error")
+        return redirect(url_for('crew_availability'))
+
+    # Replace all existing preferences for this user
+    WorkerPreference.query.filter_by(user_id=current_user.id).delete()
+    for wid in preferred_set:
+        try:
+            wid_int = int(wid)
+        except (ValueError, TypeError):
+            continue
+        db.session.add(WorkerPreference(
+            user_id=current_user.id,
+            target_user_id=wid_int,
+            preference_type='preferred',
+        ))
+    for wid in avoided_set:
+        try:
+            wid_int = int(wid)
+        except (ValueError, TypeError):
+            continue
+        db.session.add(WorkerPreference(
+            user_id=current_user.id,
+            target_user_id=wid_int,
+            preference_type='avoided',
+        ))
+    db.session.commit()
+    flash("Preferences saved.", "success")
+    return redirect(url_for('crew_availability'))
+
+
+@app.route('/crew/shift/<int:shift_id>')
+@login_required
+def crew_shift_view(shift_id):
+    """Phone-optimized mover shift view."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+
+    # Compute the actual calendar date of this shift (compare in Eastern time)
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_DAY_ORDER.index(shift.day_of_week))
+    today = _today_eastern()
+    is_today = (shift_date == today)
+    is_past  = (shift_date < today)
+    is_future = (shift_date > today)
+
+    # Block access to future shifts — not on the clock yet
+    if is_future and not shift.run:
+        flash("This shift isn't scheduled until " + shift_date.strftime('%A, %b %-d') + ". Come back then.", "info")
+        return redirect(url_for('crew_dashboard'))
+
+    my_truck_number = assignment.truck_number
+
+    # Get pickups for this mover's truck only
+    pickup_query = ShiftPickup.query.filter_by(shift_id=shift.id)
+    if my_truck_number is not None:
+        pickup_query = pickup_query.filter_by(truck_number=my_truck_number)
+    all_pickups = pickup_query.order_by(
+        nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc()
+    ).all()
+
+    shift_run = shift.run
+
+    seller_items = {}
+    item_counts = {}
+    for p in all_pickups:
+        items = InventoryItem.query.filter_by(
+            seller_id=p.seller_id, status='available'
+        ).all()
+        seller_items[p.seller_id] = items
+        item_counts[p.seller_id] = len(items)
+
+    total_stops = len(all_pickups)
+    done_stops = sum(1 for p in all_pickups if p.status in ('completed', 'issue'))
+
+    return render_template(
+        'crew/shift.html',
+        shift=shift,
+        shift_run=shift_run,
+        pickups=all_pickups,
+        is_today=is_today,
+        is_past=is_past,
+        seller_items=seller_items,
+        item_counts=item_counts,
+        total_stops=total_stops,
+        done_stops=done_stops,
+        shift_date=shift_date,
+    )
+
+
+@app.route('/crew/shift/<int:shift_id>/start', methods=['POST'])
+@login_required
+def crew_shift_start(shift_id):
+    """Create ShiftRun, notify first seller."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_DAY_ORDER.index(shift.day_of_week))
+    today = _today_eastern()
+    if shift_date > today:
+        flash("You can only start a shift on or after the day it's scheduled.", "error")
+        return redirect(url_for('crew_dashboard'))
+    if shift.run:
+        return redirect(url_for('crew_shift_view', shift_id=shift_id))
+    run = ShiftRun(shift_id=shift.id, started_by_id=current_user.id)
+    db.session.add(run)
+    db.session.commit()
+    _notify_next_seller(shift)
+    flash("Shift started — good luck out there!", "success")
+    return redirect(url_for('crew_shift_view', shift_id=shift_id))
+
+
+@app.route('/crew/shift/<int:shift_id>/complete_retroactive', methods=['POST'])
+@login_required
+def crew_shift_complete_retroactive(shift_id):
+    """Mark a past shift complete in one step — creates ShiftRun and immediately closes it."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_DAY_ORDER.index(shift.day_of_week))
+    if shift_date >= _today_eastern():
+        flash("Use the normal End Shift flow for today's shifts.", "error")
+        return redirect(url_for('crew_shift_view', shift_id=shift_id))
+    if not shift.run:
+        run = ShiftRun(shift_id=shift.id, started_by_id=current_user.id)
+        db.session.add(run)
+        db.session.flush()
+    else:
+        run = shift.run
+    run.status = 'completed'
+    run.ended_at = datetime.utcnow()
+    db.session.commit()
+    flash("Shift marked as complete.", "success")
+    return redirect(url_for('crew_dashboard'))
+
+
+@app.route('/crew/shift/<int:shift_id>/stop/<int:pickup_id>/update', methods=['POST'])
+@login_required
+def crew_shift_stop_update(shift_id, pickup_id):
+    """Mark a stop completed or issue."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift.id:
+        abort(404)
+
+    new_status = request.form.get('status')
+    if new_status not in ('completed', 'issue'):
+        flash("Invalid status.", "error")
+        return redirect(url_for('crew_shift_view', shift_id=shift_id))
+
+    notes = request.form.get('notes', '').strip()
+    if new_status == 'issue' and not notes:
+        flash("Notes are required when reporting an issue.", "error")
+        return redirect(url_for('crew_shift_view', shift_id=shift_id))
+
+    pickup.status = new_status
+    pickup.completed_at = datetime.utcnow()
+    pickup.notes = notes or None
+
+    if new_status == 'completed':
+        # Write picked_up_at on seller's available items (do not overwrite if already set)
+        items = InventoryItem.query.filter_by(
+            seller_id=pickup.seller_id, status='available'
+        ).all()
+        for item in items:
+            if not item.picked_up_at:
+                item.picked_up_at = datetime.utcnow()
+
+    db.session.commit()
+    _notify_next_seller(shift, pickup)
+    return redirect(url_for('crew_shift_view', shift_id=shift_id))
+
+
+@app.route('/crew/shift/<int:shift_id>/stop/<int:pickup_id>/revert', methods=['POST'])
+@login_required
+def crew_shift_stop_revert(shift_id, pickup_id):
+    """Revert a resolved stop back to pending so the mover can re-log it."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift.id:
+        abort(404)
+    pickup.status = 'pending'
+    pickup.notes = None
+    pickup.completed_at = None
+    # picked_up_at is intentionally left as-is — items were physically collected
+    db.session.commit()
+    return redirect(url_for('crew_shift_view', shift_id=shift_id))
+
+
+@app.route('/crew/shift/<int:shift_id>/end', methods=['POST'])
+@login_required
+def crew_shift_end(shift_id):
+    """Close ShiftRun."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+    run = shift.run
+    if run and run.status == 'in_progress':
+        run.status = 'completed'
+        run.ended_at = datetime.utcnow()
+    # Mark this driver's assignment as individually complete
+    if not assignment.completed_at:
+        assignment.completed_at = datetime.utcnow()
+    db.session.commit()
+    flash("Shift complete — great work!", "success")
+    return redirect(url_for('crew_dashboard'))
+
+
+# =========================================================
+# SPEC #4 — ORGANIZER INTAKE (Crew routes)
+# =========================================================
+
+def _require_organizer():
+    """Returns redirect if current user is not an approved crew member."""
+    return require_crew()
+
+
+def _require_mover(shift_id=None):
+    """Returns redirect if current user is not an approved crew member.
+    The per-shift role (driver vs organizer) is enforced by ShiftAssignment.role_on_shift."""
+    return require_crew()
+
+
+@app.route('/crew/intake/<int:shift_id>')
+@login_required
+def crew_intake_shift(shift_id):
+    """Organizer shift-scoped intake page."""
+    if (r := _require_organizer()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    # Block access to future shifts (Eastern date)
+    _day_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_day_order.index(shift.day_of_week))
+    if shift_date > _today_eastern():
+        flash("Intake is not available for future shifts.", "error")
+        return redirect(url_for('crew_dashboard'))
+    # Organizer must be assigned to this shift
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id, role_on_shift='organizer'
+    ).first()
+    if not assignment:
+        flash("You are not assigned as an organizer for this shift.", "error")
+        return redirect(url_for('crew_dashboard'))
+
+    # Build data: for each truck, list of (pickup, items) pairs
+    truck_numbers = list(range(1, shift.trucks + 1))
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift.id)
+        .order_by(ShiftPickup.truck_number.asc(), ShiftPickup.id.asc())
+        .all()
+    )
+    from collections import defaultdict
+    pickups_by_truck = defaultdict(list)
+    for p in pickups:
+        pickups_by_truck[p.truck_number].append(p)
+
+    # All items for each seller in this shift
+    seller_items = {}
+    for p in pickups:
+        items = InventoryItem.query.filter_by(seller_id=p.seller_id).filter(
+            InventoryItem.status.in_(['approved', 'available'])
+        ).all()
+        seller_items[p.seller_id] = items
+
+    # Intake status per item: latest IntakeRecord
+    all_item_ids = [i.id for items in seller_items.values() for i in items]
+    latest_intake = {}
+    if all_item_ids:
+        from sqlalchemy import func
+        subq = (
+            db.session.query(
+                IntakeRecord.item_id,
+                func.max(IntakeRecord.id).label('max_id')
+            )
+            .filter(IntakeRecord.item_id.in_(all_item_ids))
+            .group_by(IntakeRecord.item_id)
+            .subquery()
+        )
+        records = (
+            db.session.query(IntakeRecord)
+            .join(subq, IntakeRecord.id == subq.c.max_id)
+            .all()
+        )
+        for rec in records:
+            latest_intake[rec.item_id] = rec
+
+    # Open flags for this shift
+    open_flags = IntakeFlag.query.filter_by(shift_id=shift.id, resolved=False).all()
+
+    # Live counts — "accounted for" = has an IntakeRecord (received OR flagged with issue)
+    received_item_ids = set(latest_intake.keys())
+    total_items = len(all_item_ids)
+    received_count = len(received_item_ids)
+    all_accounted = (total_items == 0 or received_count >= total_items)
+
+    # Active storage locations (for the intake modal dropdown — all active, including full)
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+
+    return render_template(
+        'crew/intake.html',
+        shift=shift,
+        truck_numbers=truck_numbers,
+        pickups_by_truck=pickups_by_truck,
+        seller_items=seller_items,
+        latest_intake=latest_intake,
+        open_flags=open_flags,
+        received_count=received_count,
+        total_items=total_items,
+        all_accounted=all_accounted,
+        storage_locations=storage_locations,
+    )
+
+
+@app.route('/crew/intake/<int:shift_id>/item/<int:item_id>', methods=['POST'])
+@login_required
+def crew_intake_submit(shift_id, item_id):
+    """Submit intake for one item. Creates IntakeRecord. Never updates existing records."""
+    if (r := _require_organizer()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    item = InventoryItem.query.get_or_404(item_id)
+
+    storage_location_id = request.form.get('storage_location_id', type=int)
+    storage_row = request.form.get('storage_row', '').strip() or None
+    storage_note = request.form.get('storage_note', '').strip() or None
+    quality_after = request.form.get('quality', type=int)
+    flag_checked = request.form.get('flag_issue') == 'on'
+    flag_type = request.form.get('flag_type', '').strip()
+    flag_description = request.form.get('flag_description', '').strip()
+
+    # Storage unit is required only if the item was actually received (not flagged as an issue)
+    if not storage_location_id and not flag_checked:
+        flash("Storage unit is required for received items.", "error")
+        return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+    if not quality_after or quality_after not in range(1, 6):
+        flash("Condition rating is required (1–5).", "error")
+        return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+    if flag_checked and not flag_description:
+        flash("Please describe the issue when flagging an item.", "error")
+        return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+
+    # Snapshot quality before any update
+    quality_before = item.quality
+
+    # Update InventoryItem — only write location/arrival if item actually made it to the unit
+    if storage_location_id:
+        if not item.arrived_at_store_at:
+            item.arrived_at_store_at = datetime.utcnow()
+        item.storage_location_id = storage_location_id
+        item.storage_row = storage_row
+        item.storage_note = storage_note
+    item.quality = quality_after
+
+    # Append new IntakeRecord (never update existing)
+    record = IntakeRecord(
+        item_id=item.id,
+        shift_id=shift.id,
+        organizer_id=current_user.id,
+        storage_location_id=storage_location_id,
+        storage_row=storage_row,
+        storage_note=storage_note,
+        quality_before=quality_before,
+        quality_after=quality_after,
+    )
+    db.session.add(record)
+    db.session.flush()  # get record.id for IntakeFlag FK
+
+    if flag_checked:
+        flag = IntakeFlag(
+            item_id=item.id,
+            shift_id=shift.id,
+            intake_record_id=record.id,
+            organizer_id=current_user.id,
+            flag_type=flag_type or 'other',
+            description=flag_description,
+        )
+        db.session.add(flag)
+
+    db.session.commit()
+    flash(f"Item #{item.id} received.", "success")
+    return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+
+
+@app.route('/crew/intake/<int:shift_id>/complete', methods=['POST'])
+@login_required
+def crew_intake_complete(shift_id):
+    """Organizer marks their intake work done — independent of ShiftRun completion."""
+    if (r := _require_organizer()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id, role_on_shift='organizer'
+    ).first()
+    if not assignment:
+        flash("You are not assigned as organizer for this shift.", "error")
+        return redirect(url_for('crew_dashboard'))
+    if not assignment.completed_at:
+        assignment.completed_at = datetime.utcnow()
+        db.session.commit()
+    flash("Intake complete — great work!", "success")
+    return redirect(url_for('crew_dashboard'))
+
+
+@app.route('/crew/intake/<int:shift_id>/unknown', methods=['POST'])
+@login_required
+def crew_intake_log_unknown(shift_id):
+    """Log an unknown item (no DB record) as an IntakeFlag."""
+    if (r := _require_organizer()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    description = request.form.get('description', '').strip()
+    if not description:
+        flash("Please describe the unknown item.", "error")
+        return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+    flag = IntakeFlag(
+        item_id=None,
+        shift_id=shift.id,
+        intake_record_id=None,
+        organizer_id=current_user.id,
+        flag_type='unknown_item',
+        description=description,
+    )
+    db.session.add(flag)
+    db.session.commit()
+    flash("Unknown item logged as a flag for admin review.", "success")
+    return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+
+
+@app.route('/crew/intake/search')
+@login_required
+def crew_intake_search():
+    """Search items by ID or partial seller name. Returns a rendered partial (no layout)."""
+    if (r := _require_organizer()):
+        return r
+    q = request.args.get('q', '').strip()
+    results = []
+    if q:
+        # Try numeric ID match first
+        if q.lstrip('#').isdigit():
+            item_id = int(q.lstrip('#'))
+            item = InventoryItem.query.get(item_id)
+            if item:
+                results = [item]
+        if not results:
+            # Seller name partial match
+            results = (
+                InventoryItem.query
+                .join(User, InventoryItem.seller_id == User.id)
+                .filter(User.full_name.ilike(f'%{q}%'))
+                .filter(InventoryItem.status.in_(['approved', 'available']))
+                .limit(20)
+                .all()
+            )
+    # Build latest intake state for results
+    item_ids = [i.id for i in results]
+    latest_intake = {}
+    if item_ids:
+        from sqlalchemy import func
+        subq = (
+            db.session.query(
+                IntakeRecord.item_id,
+                func.max(IntakeRecord.id).label('max_id')
+            )
+            .filter(IntakeRecord.item_id.in_(item_ids))
+            .group_by(IntakeRecord.item_id)
+            .subquery()
+        )
+        records = (
+            db.session.query(IntakeRecord)
+            .join(subq, IntakeRecord.id == subq.c.max_id)
+            .all()
+        )
+        for rec in records:
+            latest_intake[rec.item_id] = rec
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    shift_id = request.args.get('shift_id', type=int)
+    return render_template(
+        'crew/intake_search_results.html',
+        results=results,
+        latest_intake=latest_intake,
+        storage_locations=storage_locations,
+        query=q,
+        shift_id=shift_id,
+    )
+
+
+# ── Admin Shift Ops routes ──────────────────────────────────────────────────
+
+@app.route('/admin/crew/shift/<int:shift_id>/ops')
+@login_required
+def admin_shift_ops(shift_id):
+    """Live admin ops view — assign sellers to shift stops."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    max_trucks = int(AppSetting.get('max_trucks_per_shift', '4'))
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift.id)
+        .order_by(ShiftPickup.truck_number.asc(),
+                  nulls_last(ShiftPickup.stop_order.asc()),
+                  ShiftPickup.id.asc())
+        .all()
+    )
+    # Sellers already on ANY shift (a seller should only be picked up once)
+    assigned_seller_ids = {
+        p.seller_id for p in ShiftPickup.query.all()
+    }
+    # Available sellers: have 'available' items and not already on any shift
+    available_sellers = (
+        User.query
+        .join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(InventoryItem.status == 'available')
+        .filter(User.id.notin_(assigned_seller_ids))
+        .group_by(User.id)
+        .order_by(User.full_name)
+        .all()
+    )
+    # Item counts for available sellers
+    seller_item_counts = {}
+    for s in available_sellers:
+        seller_item_counts[s.id] = InventoryItem.query.filter_by(
+            seller_id=s.id, status='available'
+        ).count()
+    # Item counts for assigned sellers
+    pickup_item_counts = {}
+    for p in pickups:
+        pickup_item_counts[p.seller_id] = InventoryItem.query.filter_by(
+            seller_id=p.seller_id, status='available'
+        ).count()
+    # Group pickups by truck
+    from collections import defaultdict
+    pickups_by_truck = defaultdict(list)
+    for p in pickups:
+        pickups_by_truck[p.truck_number].append(p)
+    truck_numbers = list(range(1, shift.trucks + 1))
+    # Group driver assignments by truck for the ops page mover section
+    movers_by_truck = defaultdict(list)
+    unassigned_movers = []
+    for a in shift.assignments:
+        if a.role_on_shift == 'driver':
+            if a.truck_number and a.truck_number in truck_numbers:
+                movers_by_truck[a.truck_number].append(a)
+            else:
+                unassigned_movers.append(a)
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    # Spec #4: storage locations for the Destination Unit dropdown (active + non-full)
+    storage_locations = (
+        StorageLocation.query
+        .filter_by(is_active=True, is_full=False)
+        .order_by(StorageLocation.name.asc())
+        .all()
+    )
+    # Parse the shift-level truck unit plan (keyed by truck number string)
+    import json as _json
+    truck_unit_plan = _json.loads(shift.truck_unit_plan or '{}')
+    # Build a lookup: truck_number (int) → StorageLocation object
+    storage_loc_by_id = {loc.id: loc for loc in StorageLocation.query.filter_by(is_active=True).all()}
+    truck_planned_unit = {
+        int(k): storage_loc_by_id.get(v)
+        for k, v in truck_unit_plan.items()
+        if storage_loc_by_id.get(v)
+    }
+    # Spec #4: intake summary — received count + open flags per truck
+    all_pickups = pickups
+    item_ids_by_truck = {}
+    for truck_num in truck_numbers:
+        truck_pickups = pickups_by_truck[truck_num]
+        ids = []
+        for p in truck_pickups:
+            for item in InventoryItem.query.filter_by(seller_id=p.seller_id).filter(
+                InventoryItem.status.in_(['approved', 'available'])
+            ).all():
+                ids.append(item.id)
+        item_ids_by_truck[truck_num] = ids
+    # Items received = those with an IntakeRecord in this shift
+    received_by_truck = {}
+    for truck_num in truck_numbers:
+        ids = item_ids_by_truck[truck_num]
+        if ids:
+            received_by_truck[truck_num] = (
+                db.session.query(IntakeRecord.item_id)
+                .filter(IntakeRecord.shift_id == shift.id, IntakeRecord.item_id.in_(ids))
+                .distinct()
+                .count()
+            )
+        else:
+            received_by_truck[truck_num] = 0
+    open_flags = IntakeFlag.query.filter_by(shift_id=shift.id, resolved=False).all()
+    open_flags_by_truck = {n: [] for n in truck_numbers}
+    for f in open_flags:
+        if f.item_id:
+            # find which truck this item belongs to
+            for truck_num in truck_numbers:
+                if f.item_id in item_ids_by_truck[truck_num]:
+                    open_flags_by_truck[truck_num].append(f)
+                    break
+        else:
+            # unknown_item flags — attach to truck 1 for display
+            open_flags_by_truck[truck_numbers[0]].append(f)
+    return render_template(
+        'admin/shift_ops.html',
+        shift=shift,
+        pickups_by_truck=pickups_by_truck,
+        truck_numbers=truck_numbers,
+        movers_by_truck=movers_by_truck,
+        unassigned_movers=unassigned_movers,
+        available_sellers=available_sellers,
+        seller_item_counts=seller_item_counts,
+        pickup_item_counts=pickup_item_counts,
+        max_trucks=max_trucks,
+        drivers_per_truck=drivers_per_truck,
+        storage_locations=storage_locations,
+        truck_planned_unit=truck_planned_unit,
+        item_ids_by_truck=item_ids_by_truck,
+        received_by_truck=received_by_truck,
+        open_flags_by_truck=open_flags_by_truck,
+    )
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/assign_movers_bulk', methods=['POST'])
+@login_required
+def admin_shift_assign_movers_bulk(shift_id):
+    """Assign multiple movers to a truck in one submit."""
+    if not current_user.is_admin:
+        abort(403)
+    truck_number = request.form.get('truck_number', type=int)
+    assignment_ids = [v for v in request.form.getlist('assignment_ids') if v]
+    if not truck_number or not assignment_ids:
+        flash("Select at least one mover and a truck.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    current_count = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, role_on_shift='driver', truck_number=truck_number
+    ).count()
+    seen = set()
+    assigned = 0
+    for aid in assignment_ids:
+        if aid in seen:
+            continue
+        seen.add(aid)
+        if current_count + assigned >= drivers_per_truck:
+            flash(f"Truck {truck_number} is full — only {drivers_per_truck} movers allowed.", "error")
+            break
+        try:
+            a = ShiftAssignment.query.get(int(aid))
+        except (ValueError, TypeError):
+            continue
+        if not a or a.shift_id != shift_id:
+            continue
+        a.truck_number = truck_number
+        assigned += 1
+    db.session.commit()
+    if assigned:
+        flash(f"{assigned} mover{'s' if assigned != 1 else ''} assigned to Truck {truck_number}.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/mover/<int:assignment_id>/assign_truck', methods=['POST'])
+@login_required
+def admin_shift_assign_mover_truck(shift_id, assignment_id):
+    """Reassign a driver to a specific truck on this shift."""
+    if not current_user.is_admin:
+        abort(403)
+    assignment = ShiftAssignment.query.get_or_404(assignment_id)
+    if assignment.shift_id != shift_id:
+        abort(404)
+    truck_number = request.form.get('truck_number', type=int)
+    # truck_number=0 means remove from truck (unassign)
+    if truck_number == 0:
+        assignment.truck_number = None
+        db.session.commit()
+        flash(f"{assignment.worker.full_name} removed from truck.", "success")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    if not truck_number:
+        flash("Truck number required.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    current_on_truck = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, role_on_shift='driver', truck_number=truck_number
+    ).count()
+    already_there = (assignment.truck_number == truck_number)
+    if not already_there and current_on_truck >= drivers_per_truck:
+        flash(f"Truck {truck_number} is full ({drivers_per_truck} movers max).", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    assignment.truck_number = truck_number
+    db.session.commit()
+    flash(f"{assignment.worker.full_name} assigned to Truck {truck_number}.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/assign', methods=['POST'])
+@login_required
+def admin_shift_assign_seller(shift_id):
+    """Add a seller stop to this shift."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    seller_id = request.form.get('seller_id', type=int)
+    truck_number = request.form.get('truck_number', type=int)
+    if not seller_id or not truck_number:
+        flash("Seller and truck number are required.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    seller = User.query.get_or_404(seller_id)
+    # Check for duplicate — a seller should only appear on one shift total
+    existing = ShiftPickup.query.filter_by(seller_id=seller_id).first()
+    if existing:
+        flash(f"{seller.full_name} is already assigned to a shift.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    # Pre-populate storage_location_id from the truck unit plan if set
+    import json as _json
+    plan = _json.loads(shift.truck_unit_plan or '{}')
+    planned_unit_id = plan.get(str(truck_number))
+    pickup = ShiftPickup(
+        shift_id=shift.id,
+        seller_id=seller_id,
+        truck_number=truck_number,
+        storage_location_id=planned_unit_id,
+        created_by_id=current_user.id,
+    )
+    db.session.add(pickup)
+    db.session.commit()
+    flash(f"{seller.full_name} added to Truck {truck_number}.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/stop/<int:pickup_id>/remove', methods=['POST'])
+@login_required
+def admin_shift_remove_stop(shift_id, pickup_id):
+    """Remove a pending stop from this shift."""
+    if not current_user.is_admin:
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift_id:
+        abort(404)
+    if pickup.status != 'pending':
+        flash("Cannot remove a stop that is already in progress.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    db.session.delete(pickup)
+    db.session.commit()
+    flash("Stop removed.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+# =========================================================
+# SPEC #4 — ORGANIZER INTAKE (Admin routes)
+# =========================================================
+
+@app.route('/admin/storage')
+@login_required
+def admin_storage_index():
+    """List and manage all storage locations. Super admin only."""
+    if not current_user.is_super_admin:
+        flash("Super admin access required.", "error")
+        return redirect(url_for('admin_panel'))
+    locations = (
+        StorageLocation.query
+        .order_by(StorageLocation.is_active.desc(), StorageLocation.name.asc())
+        .all()
+    )
+    # Live item count per location
+    item_counts = {}
+    for loc in locations:
+        item_counts[loc.id] = InventoryItem.query.filter_by(storage_location_id=loc.id).count()
+    return render_template('admin/storage_index.html', locations=locations, item_counts=item_counts)
+
+
+@app.route('/admin/storage/create', methods=['POST'])
+@login_required
+def admin_storage_create():
+    """Create a new storage location. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    name = request.form.get('name', '').strip()
+    address = request.form.get('address', '').strip() or None
+    location_note = request.form.get('location_note', '').strip() or None
+    capacity_note = request.form.get('capacity_note', '').strip() or None
+    if not name:
+        flash("Location name is required.", "error")
+        return redirect(url_for('admin_storage_index'))
+    if StorageLocation.query.filter_by(name=name).first():
+        flash(f"A location named '{name}' already exists.", "error")
+        return redirect(url_for('admin_storage_index'))
+    loc = StorageLocation(
+        name=name,
+        address=address,
+        location_note=location_note,
+        capacity_note=capacity_note,
+        created_by_id=current_user.id,
+    )
+    db.session.add(loc)
+    db.session.commit()
+    flash(f"Storage location '{name}' created.", "success")
+    return redirect(url_for('admin_storage_index'))
+
+
+@app.route('/admin/storage/<int:loc_id>/edit', methods=['POST'])
+@login_required
+def admin_storage_edit(loc_id):
+    """Edit a storage location. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    loc = StorageLocation.query.get_or_404(loc_id)
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash("Location name is required.", "error")
+        return redirect(url_for('admin_storage_index'))
+    # Unique name check (exclude self)
+    existing = StorageLocation.query.filter_by(name=name).first()
+    if existing and existing.id != loc.id:
+        flash(f"A location named '{name}' already exists.", "error")
+        return redirect(url_for('admin_storage_index'))
+    loc.name = name
+    loc.address = request.form.get('address', '').strip() or None
+    loc.location_note = request.form.get('location_note', '').strip() or None
+    loc.capacity_note = request.form.get('capacity_note', '').strip() or None
+    loc.is_active = request.form.get('is_active') == 'on'
+    loc.is_full = request.form.get('is_full') == 'on'
+    db.session.commit()
+    flash(f"'{loc.name}' updated.", "success")
+    return redirect(url_for('admin_storage_index'))
+
+
+@app.route('/admin/storage/<int:loc_id>')
+@login_required
+def admin_storage_detail(loc_id):
+    """View all items stored at this location. Admin."""
+    if not current_user.is_admin:
+        abort(403)
+    loc = StorageLocation.query.get_or_404(loc_id)
+    items = (
+        InventoryItem.query
+        .filter_by(storage_location_id=loc.id)
+        .order_by(InventoryItem.storage_row.asc(), InventoryItem.id.asc())
+        .all()
+    )
+    # Latest intake record per item for the intake date column
+    item_ids = [i.id for i in items]
+    latest_intake = {}
+    if item_ids:
+        from sqlalchemy import func
+        subq = (
+            db.session.query(
+                IntakeRecord.item_id,
+                func.max(IntakeRecord.id).label('max_id')
+            )
+            .filter(IntakeRecord.item_id.in_(item_ids))
+            .group_by(IntakeRecord.item_id)
+            .subquery()
+        )
+        for rec in db.session.query(IntakeRecord).join(subq, IntakeRecord.id == subq.c.max_id).all():
+            latest_intake[rec.item_id] = rec
+    return render_template('admin/storage_detail.html', loc=loc, items=items, latest_intake=latest_intake)
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/truck/<int:truck_number>/assign_unit', methods=['POST'])
+@login_required
+def admin_shift_assign_unit(shift_id, truck_number):
+    """Set the planned StorageLocation for a truck. Persists on the shift and all pending pickups."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    storage_location_id = request.form.get('storage_location_id', type=int) or None
+
+    # Write to the shift-level plan (source of truth even before pickups exist)
+    import json as _json
+    plan = _json.loads(shift.truck_unit_plan or '{}')
+    if storage_location_id:
+        plan[str(truck_number)] = storage_location_id
+    else:
+        plan.pop(str(truck_number), None)
+    shift.truck_unit_plan = _json.dumps(plan) if plan else None
+
+    # Also update any existing pending pickups on this truck
+    for p in ShiftPickup.query.filter_by(
+        shift_id=shift.id, truck_number=truck_number, status='pending'
+    ).all():
+        p.storage_location_id = storage_location_id
+
+    db.session.commit()
+    if storage_location_id:
+        loc = StorageLocation.query.get(storage_location_id)
+        flash(f"Truck {truck_number} destination set to '{loc.name}'.", "success")
+    else:
+        flash(f"Truck {truck_number} destination cleared.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/intake')
+@login_required
+def admin_shift_intake_log(shift_id):
+    """Full read-only intake log for a shift. Admin."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    records = (
+        IntakeRecord.query
+        .filter_by(shift_id=shift.id)
+        .order_by(IntakeRecord.created_at.asc())
+        .all()
+    )
+    flags = (
+        IntakeFlag.query
+        .filter_by(shift_id=shift.id)
+        .order_by(IntakeFlag.created_at.asc())
+        .all()
+    )
+    # Group records by truck via seller → pickup → truck_number
+    pickup_by_seller = {p.seller_id: p for p in shift.pickups}
+    truck_numbers = list(range(1, shift.trucks + 1))
+    from collections import defaultdict
+    records_by_truck = defaultdict(list)
+    for rec in records:
+        if rec.item and rec.item.seller_id in pickup_by_seller:
+            tn = pickup_by_seller[rec.item.seller_id].truck_number
+            records_by_truck[tn].append(rec)
+        else:
+            records_by_truck[0].append(rec)  # unattributed
+    return render_template(
+        'admin/shift_intake_log.html',
+        shift=shift,
+        records=records,
+        records_by_truck=records_by_truck,
+        flags=flags,
+        pickup_by_seller=pickup_by_seller,
+        truck_numbers=truck_numbers,
+    )
+
+
+@app.route('/admin/intake/flag/<int:flag_id>/resolve', methods=['POST'])
+@login_required
+def admin_intake_flag_resolve(flag_id):
+    """Resolve an intake flag with an admin note."""
+    if not current_user.is_admin:
+        abort(403)
+    flag = IntakeFlag.query.get_or_404(flag_id)
+    shift_id = flag.shift_id
+    note = request.form.get('resolution_note', '').strip() or None
+    flag.resolved = True
+    flag.resolved_at = datetime.utcnow()
+    flag.resolved_by_id = current_user.id
+    flag.resolution_note = note
+    db.session.commit()
+    flash("Flag resolved.", "success")
+    return redirect(url_for('admin_shift_intake_log', shift_id=shift_id))
+
+
+@app.route('/admin/intake/flagged')
+@login_required
+def admin_intake_flagged():
+    """Items flagged during intake as missing/damaged/wrong — admin review queue."""
+    if not current_user.is_admin:
+        abort(403)
+    # All unresolved flags that reference a real item and indicate a quality/availability issue
+    flags = (
+        IntakeFlag.query
+        .filter(IntakeFlag.resolved == False)
+        .filter(IntakeFlag.item_id.isnot(None))
+        .order_by(IntakeFlag.created_at.desc())
+        .all()
+    )
+    # Deduplicate by item — keep the most recent flag per item
+    seen_items = {}
+    for flag in flags:
+        if flag.item_id not in seen_items:
+            seen_items[flag.item_id] = flag
+    flagged_items = list(seen_items.values())
+    # Exclude items already rejected or sold
+    flagged_items = [
+        f for f in flagged_items
+        if f.item and f.item.status not in ('rejected', 'sold')
+    ]
+    return render_template('admin/intake_flagged.html', flagged_items=flagged_items)
+
+
+@app.route('/admin/intake/flagged/remove', methods=['POST'])
+@login_required
+def admin_intake_flagged_remove():
+    """Bulk-remove flagged items from the marketplace (set status=rejected)."""
+    if not current_user.is_admin:
+        abort(403)
+    item_ids = request.form.getlist('item_ids')
+    if not item_ids:
+        flash("No items selected.", "error")
+        return redirect(url_for('admin_intake_flagged'))
+    removed = 0
+    for raw_id in item_ids:
+        try:
+            item_id = int(raw_id)
+        except (ValueError, TypeError):
+            continue
+        item = InventoryItem.query.get(item_id)
+        if not item or item.status in ('sold',):
+            continue
+        item.status = 'rejected'
+        # Resolve all open flags for this item
+        IntakeFlag.query.filter_by(item_id=item_id, resolved=False).update({
+            'resolved': True,
+            'resolved_at': datetime.utcnow(),
+            'resolved_by_id': current_user.id,
+            'resolution_note': 'Removed from marketplace by admin after intake flag.',
+        }, synchronize_session=False)
+        removed += 1
+    db.session.commit()
+    flash(f"{removed} item{'s' if removed != 1 else ''} removed from the marketplace.", "success")
+    return redirect(url_for('admin_intake_flagged'))
 
 
 @app.route('/admin/crew/approve/<int:user_id>', methods=['POST'])
@@ -6894,14 +8064,10 @@ def admin_crew_approve(user_id):
         return redirect(url_for('index'))
 
     worker = User.query.get_or_404(user_id)
-    assigned_role = request.form.get('role', '').strip()
-    if assigned_role not in ('driver', 'organizer', 'both'):
-        flash("Invalid role selection.", "error")
-        return redirect(url_for('admin_panel') + '#crew')
 
     worker.is_worker = True
     worker.worker_status = 'approved'
-    worker.worker_role = assigned_role
+    worker.worker_role = 'both'  # all movers are both roles; role_on_shift assigned per shift
 
     if worker.worker_application:
         worker.worker_application.reviewed_at = datetime.utcnow()
@@ -6912,14 +8078,13 @@ def admin_crew_approve(user_id):
     # Send approval email
     try:
         crew_url = url_for('crew_dashboard', _external=True)
-        role_label = {'driver': 'Driver', 'organizer': 'Organizer', 'both': 'Driver & Organizer'}[assigned_role]
         email_content = f"""
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
             <h2 style="color: #1A3D1A;">You're on the Campus Swap Crew!</h2>
             <p>Hi {worker.full_name},</p>
             <p>Your application has been approved. Here's what's next:</p>
             <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                <p style="margin: 0 0 8px;"><strong>Role:</strong> {role_label}</p>
+                <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
                 <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
                 <p style="margin: 0 0 8px;"><strong>Season:</strong> ~3 weeks (late April – mid May)</p>
                 <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
@@ -6933,7 +8098,7 @@ def admin_crew_approve(user_id):
     except Exception as e:
         logger.error(f"Failed to send crew approval email to {worker.email}: {e}")
 
-    flash(f"Approved {worker.full_name} as {assigned_role}.", "success")
+    flash(f"Approved {worker.full_name} as a Mover.", "success")
     return redirect(url_for('admin_panel') + '#crew')
 
 
@@ -6976,6 +8141,7 @@ def admin_crew_reject(user_id):
     return redirect(url_for('admin_panel') + '#crew')
 
 
+
 # =========================================================
 # SECTION: SHIFT SCHEDULING (ADMIN + CREW)
 # =========================================================
@@ -7009,6 +8175,22 @@ def _worker_available_for_slot(worker, shift, week_start):
     return bool(getattr(avail, field, False))
 
 
+def _notify_next_seller(shift, current_pickup=None):
+    # TODO (spec #9): Send SMS to next seller in queue via Twilio.
+    # Next stop = lowest stop_order (nulls last) / id among status='pending' stops on this shift.
+    next_pickup = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift.id, status='pending')
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc())
+        .first()
+    )
+    if next_pickup:
+        app.logger.info(
+            f"[SMS HOOK] Would notify seller {next_pickup.seller_id} "
+            f"for shift {shift.id}, stop {next_pickup.id}"
+        )
+
+
 def _run_optimizer(week):
     """Core optimizer. Clears all existing assignments for the week, then re-assigns greedily.
     Returns a summary dict: {fully_staffed: int, understaffed: int}."""
@@ -7018,8 +8200,8 @@ def _run_optimizer(week):
             ShiftAssignment.query.filter_by(shift_id=shift.id).delete()
     db.session.flush()
 
+    import math as _math
     drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
-    organizers_per_truck = int(AppSetting.get('organizers_per_truck', '2'))
 
     all_workers = User.query.filter_by(is_worker=True, worker_status='approved').all()
 
@@ -7041,6 +8223,26 @@ def _run_optimizer(week):
     def worker_available(worker_id, day, slot):
         return f"{day}_{slot}" in avail_cache[worker_id]
 
+    # Role imbalance: truck_count - storage_count per worker (from all historical assignments)
+    # positive → has done more truck; prefer storage next
+    # negative → has done more storage; prefer truck next
+    role_imbalance = {}
+    for w in all_workers:
+        truck_count = ShiftAssignment.query.filter_by(worker_id=w.id, role_on_shift='driver').count()
+        storage_count = ShiftAssignment.query.filter_by(worker_id=w.id, role_on_shift='organizer').count()
+        role_imbalance[w.id] = truck_count - storage_count
+
+    # Partner preferences: build avoided and preferred pair sets
+    preferred_pairs = set()  # frozenset({id_a, id_b})
+    avoided_pairs   = set()  # frozenset({id_a, id_b})
+    for pref in WorkerPreference.query.all():
+        pair = frozenset({pref.user_id, pref.target_user_id})
+        if pref.preference_type == 'avoided':
+            avoided_pairs.add(pair)
+        else:
+            preferred_pairs.add(pair)
+    preferred_pairs -= avoided_pairs  # avoid always overrides prefer
+
     # Track load and same-day assignments in memory — never query DB mid-loop
     worker_load = {w.id: 0 for w in all_workers}
     # worker_day_assigned[worker_id] = set of (day, slot) tuples assigned so far
@@ -7053,48 +8255,60 @@ def _run_optimizer(week):
 
     for shift in active_shifts:
         drivers_needed = shift.trucks * drivers_per_truck
-        organizers_needed = shift.trucks * organizers_per_truck
+        organizers_needed = _math.ceil(shift.trucks / 2) * 2
         day, slot = shift.day_of_week, shift.slot
         other_slot = 'pm' if slot == 'am' else 'am'
 
         # Build eligible pools using the pre-cached availability
+        # All workers are eligible for both roles — role is assigned per shift
         driver_pool = [
             w for w in all_workers
-            if w.worker_role in ('driver', 'both')
-            and worker_available(w.id, day, slot)
+            if worker_available(w.id, day, slot)
         ]
         organizer_pool = [
             w for w in all_workers
-            if w.worker_role in ('organizer', 'both')
-            and worker_available(w.id, day, slot)
+            if worker_available(w.id, day, slot)
         ]
 
-        def sort_key(w):
-            # 1. Already assigned to other slot today → last resort
-            already_doubled = (day, other_slot) in worker_day_assigned[w.id]
-            # 2. Available for the other slot today → deprioritize (save them for it)
-            #    Workers who can ONLY do this slot are preferred (they can't fill the other)
-            flexible = worker_available(w.id, day, other_slot)
-            # 3. Load balancing as tiebreaker
-            return (already_doubled, flexible, worker_load[w.id])
+        def make_sort_key(already_on_shift_ids):
+            def sort_key(w):
+                # 1. Already assigned to other slot today → last resort
+                already_doubled = (day, other_slot) in worker_day_assigned[w.id]
+                # 2. Available for the other slot today → deprioritize (save them for it)
+                flexible = worker_available(w.id, day, other_slot)
+                # 3. Load balancing
+                load = worker_load[w.id]
+                # 4. Role imbalance tiebreaker (more imbalanced sorted last)
+                imbalance = abs(role_imbalance.get(w.id, 0))
+                # 5. Partner preferences (avoid conflicts first, then preferred matches)
+                avoid_conflict = 1 if any(
+                    frozenset({w.id, a_id}) in avoided_pairs for a_id in already_on_shift_ids
+                ) else 0
+                preferred_match = 0 if any(
+                    frozenset({w.id, a_id}) in preferred_pairs for a_id in already_on_shift_ids
+                ) else 1
+                return (already_doubled, flexible, load, imbalance, avoid_conflict, preferred_match)
+            return sort_key
 
-        driver_pool.sort(key=sort_key)
-        organizer_pool.sort(key=sort_key)
+        driver_pool.sort(key=make_sort_key(set()))
 
         # Assign drivers
         assigned_driver_ids = set()
         for w in driver_pool:
             if len(assigned_driver_ids) >= drivers_needed:
                 break
+            truck_num = (len(assigned_driver_ids) // drivers_per_truck) + 1
             db.session.add(ShiftAssignment(
                 shift_id=shift.id, worker_id=w.id,
-                role_on_shift='driver', assigned_by_id=None,
+                role_on_shift='driver', truck_number=truck_num, assigned_by_id=None,
             ))
             assigned_driver_ids.add(w.id)
             worker_load[w.id] += 1
             worker_day_assigned[w.id].add((day, slot))
 
         # Assign organizers — exclude workers already assigned as drivers to this same shift
+        # Sort organizer pool with knowledge of assigned drivers (for partner preference scoring)
+        organizer_pool.sort(key=make_sort_key(assigned_driver_ids))
         assigned_org_ids = set()
         for w in organizer_pool:
             if len(assigned_org_ids) >= organizers_needed:
@@ -7126,8 +8340,8 @@ def _get_current_published_week():
       2. Nearest upcoming published week (week_start > today)
       3. Most recently completed published week (week_start < today, as fallback)
     """
-    today = datetime.utcnow().date()
-    week_end = today + timedelta(days=6 - today.weekday())  # Saturday of current week
+    today = _today_eastern()
+    week_end = today + timedelta(days=6 - today.weekday())  # Saturday of current week (Eastern)
 
     # 1. Active: week contains today
     active = (
@@ -7168,7 +8382,7 @@ def admin_schedule_index():
     """List all ShiftWeeks and form to create a new week. Super admin only."""
     if (r := require_super_admin()):
         return r
-    weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).all()
+    weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.asc()).all()
     return render_template('admin/schedule_index.html', weeks=weeks)
 
 
@@ -7315,7 +8529,7 @@ def admin_schedule_publish(week_id):
             for a in shift.assignments if a.worker_id == worker_id
         ]
         shift_lines = ''.join(
-            f"<li>{a.shift.label} — {a.role_on_shift.capitalize()}</li>"
+            f"<li>{a.shift.label} — {'Mover' if a.role_on_shift == 'driver' else 'Organizer'}</li>"
             for a in my_shifts
         )
         body = wrap_email_template(f"""
@@ -7349,6 +8563,46 @@ def admin_schedule_unpublish(week_id):
     return redirect(url_for('admin_schedule_week', week_id=week_id))
 
 
+@app.route('/admin/schedule/<int:week_id>/delete', methods=['POST'])
+@login_required
+def admin_schedule_delete(week_id):
+    """Delete a ShiftWeek and all its shifts, assignments, and associated ops data."""
+    if (r := require_super_admin()):
+        return r
+    week = ShiftWeek.query.get_or_404(week_id)
+    if week.status == 'published':
+        flash("Unpublish the schedule before deleting it.", "error")
+        return redirect(url_for('admin_schedule_week', week_id=week_id))
+
+    week_label = week.week_start.strftime('%b %-d, %Y')
+    week_id_val = week.id  # capture before we touch anything
+
+    # Collect shift IDs via a scalar query — do NOT load Shift ORM objects.
+    # Loading them would put them in the identity map and cause SQLAlchemy to
+    # emit a stale UPDATE when we later delete the rows directly.
+    shift_ids = [row[0] for row in
+                 db.session.execute(
+                     db.select(Shift.id).where(Shift.week_id == week_id_val)
+                 ).fetchall()]
+
+    # Delete bottom-up (children before parents, all via bulk SQL).
+    # synchronize_session=False keeps the ORM identity map out of the picture.
+    if shift_ids:
+        IntakeFlag.query.filter(IntakeFlag.shift_id.in_(shift_ids)).delete(synchronize_session=False)
+        IntakeRecord.query.filter(IntakeRecord.shift_id.in_(shift_ids)).delete(synchronize_session=False)
+        ShiftPickup.query.filter(ShiftPickup.shift_id.in_(shift_ids)).delete(synchronize_session=False)
+        ShiftRun.query.filter(ShiftRun.shift_id.in_(shift_ids)).delete(synchronize_session=False)
+        ShiftAssignment.query.filter(ShiftAssignment.shift_id.in_(shift_ids)).delete(synchronize_session=False)
+        Shift.query.filter(Shift.week_id == week_id_val).delete(synchronize_session=False)
+
+    # Delete the week itself via bulk SQL — avoids db.session.delete(week) which
+    # would trigger ORM cascade logic and try to UPDATE already-deleted Shift rows.
+    ShiftWeek.query.filter_by(id=week_id_val).delete(synchronize_session=False)
+    db.session.commit()
+    flash(f"Week of {week_label} deleted.", "success")
+    return redirect(url_for('admin_schedule_index'))
+
+
 @app.route('/admin/schedule/shift/<int:shift_id>/update', methods=['POST'])
 @login_required
 def admin_shift_update(shift_id):
@@ -7367,10 +8621,10 @@ def admin_shift_update(shift_id):
     shift.trucks = new_trucks
 
     # Process manual driver assignments
+    import math as _math
     drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
-    organizers_per_truck = int(AppSetting.get('organizers_per_truck', '2'))
     drivers_needed = new_trucks * drivers_per_truck
-    organizers_needed = new_trucks * organizers_per_truck
+    organizers_needed = _math.ceil(new_trucks / 2) * 2
 
     # Remove all existing assignments and replace with submitted form data
     ShiftAssignment.query.filter_by(shift_id=shift.id).delete()
@@ -7381,6 +8635,7 @@ def admin_shift_update(shift_id):
     organizer_ids = request.form.getlist('organizer_ids')
 
     seen_workers = set()
+    driver_slot_index = 0
     for wid in driver_ids[:drivers_needed]:
         try:
             wid_int = int(wid)
@@ -7389,12 +8644,15 @@ def admin_shift_update(shift_id):
         if wid_int in seen_workers:
             continue
         seen_workers.add(wid_int)
+        truck_num = (driver_slot_index // drivers_per_truck) + 1
         db.session.add(ShiftAssignment(
             shift_id=shift.id,
             worker_id=wid_int,
             role_on_shift='driver',
+            truck_number=truck_num,
             assigned_by_id=current_user.id,
         ))
+        driver_slot_index += 1
 
     for wid in organizer_ids[:organizers_needed]:
         try:
@@ -7524,6 +8782,7 @@ def seed_crew_app_settings():
         'drivers_per_truck': '2',
         'organizers_per_truck': '2',
         'max_trucks_per_shift': '4',
+        'shifts_required': '10',
     }
     for key, value in defaults.items():
         if AppSetting.get(key) is None:

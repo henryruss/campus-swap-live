@@ -19,14 +19,16 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 |------|------------|
 | **Shift** | A single AM or PM work block on a specific date |
 | **Slot** | One AM or PM half of a given day (e.g. "Tuesday AM") |
-| **Truck** | One vehicle + its 2-driver crew operating during a shift |
+| **Truck** | One vehicle + its 2-mover crew operating during a shift |
 | **Route** | The ordered list of pickup addresses assigned to one truck for one shift |
 | **Worker** | An approved, hired Campus Swap seasonal employee |
-| **Driver** | Worker role — rides in truck, executes pickups at seller addresses |
-| **Organizer** | Worker role — stays at storage unit, receives and tags incoming items |
+| **Mover** | Worker role — rides in truck, executes pickups at seller addresses (`role_on_shift = 'driver'` in DB) |
+| **Organizer** | Worker role — stays at storage unit, receives and tags incoming items (`role_on_shift = 'organizer'` in DB) |
 | **Availability** | A worker's self-reported AM/PM availability per day of the week |
 | **Blackout** | A slot a worker has marked as unavailable — strictly never scheduled |
 | **Pickup** | A single seller address visit to collect consigned items |
+| **ShiftPickup** | DB record linking a seller to a specific shift + truck (one per seller per shift, globally unique) |
+| **ShiftRun** | DB record tracking shift execution state — created when mover taps Start Shift |
 | **Intake** | The organizer-side process of receiving, logging, and tagging items |
 | **Overflow truck** | A flex truck slot held in reserve to absorb rescheduled pickups |
 
@@ -36,16 +38,23 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 
 | Unit | Composition |
 |------|-------------|
-| 1 truck | 2 drivers |
-| 1 shift support | 2 organizers per truck |
-| Max per shift | 4 trucks → 8 drivers + 8 organizers = 16 workers |
-| Min per shift | 1 truck → 2 drivers + 2 organizers = 4 workers |
+| 1 truck | 2 movers |
+| 1–2 trucks | 2 organizers (stagger model: one truck picks up while other drops off) |
+| 3–4 trucks | 4 organizers |
+| Max per shift | 4 trucks → 8 movers + 4 organizers = 12 workers |
+| Min per shift | 1 truck → 2 movers + 2 organizers = 4 workers |
 
 Admin sets trucks-per-shift when building the weekly schedule. Organizer count
-is always `trucks × 2`. These ratios are stored in `AppSetting`:
+uses the **stagger formula**: `ceil(trucks / 2) × 2`. Two trucks can share two
+organizers because they stagger (one truck is picking up while the other drops
+off). A third truck requires a second organizer pair.
+
+AppSetting keys (movers):
 - `drivers_per_truck` = `'2'`
-- `organizers_per_truck` = `'2'`
 - `max_trucks_per_shift` = `'4'`
+- `shifts_required` = `'10'` (minimum shifts for full season payout)
+
+Note: `organizers_per_truck` AppSetting exists but is no longer used for capacity calculation (superseded by stagger formula).
 
 ---
 
@@ -130,7 +139,7 @@ The ops system connects back to the seller experience in three ways:
 |---|-----------|--------|-------------|
 | 1 | `feature_worker_accounts.md` | ✅ Done (signed off 2026-04-06) | Worker role, .edu gating, application, availability grid |
 | 2 | `feature_shift_scheduling.md` | ✅ Done (signed off 2026-04-06) | Admin shift creation, greedy optimizer, schedule publishing, worker calendar view |
-| 3 | `feature_driver_shift_view.md` | 🔲 Not yet designed | Phone-optimized day-of view, pickup checklist, progress logging |
+| 3 | `feature_driver_shift_view.md` | ✅ Done (signed off 2026-04-07) | Phone-optimized mover shift view, ops page, partner preferences, shift history |
 | 4 | `feature_organizer_intake.md` | 🔲 Not yet designed | Item intake at storage unit, location tagging, tie to InventoryItem |
 | 5 | `feature_payout_reconciliation.md` | 🔲 Not yet designed | Close loop between intake and existing seller payout workflow |
 | 6 | `feature_route_planning.md` | 🔲 Not yet designed | Admin route-building tools, bulk vs. scattered pickup handling |

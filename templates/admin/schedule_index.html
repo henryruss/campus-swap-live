@@ -81,8 +81,22 @@
 
 <div class="schedule-header">
   <div class="container">
-    <h1>Shift Schedules</h1>
-    <p style="color: var(--text-muted); margin: 0;">Create and manage weekly shift schedules for Campus Swap crew.</p>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;">
+      <div>
+        <h1>Shift Schedules</h1>
+        <p style="color: var(--text-muted); margin: 0;">Create and manage weekly shift schedules for Campus Swap crew.</p>
+      </div>
+      <a href="{{ url_for('admin_storage_index') }}"
+         style="display: inline-flex; align-items: center; gap: 7px;
+                background: var(--bg-cream); color: var(--primary);
+                border: 1.5px solid var(--primary-light); border-radius: 10px;
+                padding: 10px 20px; font-size: 0.875rem; font-weight: 700;
+                text-decoration: none; white-space: nowrap; margin-top: 4px;
+                box-shadow: 0 2px 6px -2px rgba(26,61,26,0.15);
+                transition: background 0.15s;">
+        <i class="fas fa-warehouse"></i> Storage Units
+      </a>
+    </div>
   </div>
 </div>
 
@@ -151,8 +165,20 @@
           <td style="color: var(--text-muted); font-size: 0.875rem;">
             {{ week.created_at.strftime('%b %-d') }}{% if week.created_by %} by {{ week.created_by.full_name }}{% endif %}
           </td>
-          <td>
+          <td style="display: flex; gap: 8px; align-items: center;">
             <a href="{{ url_for('admin_schedule_week', week_id=week.id) }}" class="btn-outline" style="font-size: 0.85rem; padding: 6px 14px;">Manage</a>
+            {% if week.status == 'draft' %}
+            <form method="POST" action="{{ url_for('admin_schedule_delete', week_id=week.id) }}"
+                  onsubmit="return confirm('Delete the week of {{ week.week_start.strftime('%b %-d') }}? This cannot be undone.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="submit" style="padding: 6px 14px; font-size: 0.85rem; font-weight: 600;
+                background: none; border: 1.5px solid #fca5a5; color: #dc2626;
+                border-radius: 8px; cursor: pointer; transition: background 0.15s;"
+                onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='none'">
+                Delete
+              </button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

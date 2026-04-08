@@ -36,16 +36,12 @@
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">We'll do our best to match your preference.</p>
                 <div class="pickup-week-grid">
                     <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="morning" required>
-                        <span class="pickup-week-label">Morning <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
+                        <input type="radio" name="pickup_time_preference" value="am" required>
+                        <span class="pickup-week-label">AM <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
                     </label>
                     <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="afternoon">
-                        <span class="pickup-week-label">Afternoon <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
-                    </label>
-                    <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="evening">
-                        <span class="pickup-week-label">Evening <span style="font-weight: 400; color: var(--text-muted);">— 5pm to 9pm</span></span>
+                        <input type="radio" name="pickup_time_preference" value="pm">
+                        <span class="pickup-week-label">PM <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
                     </label>
                 </div>
             </div>
@@ -95,7 +91,7 @@ function toggleRouteMessage() {
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 (function() {
-    var weekDateRanges = { 'week1': ['2026-04-27', '2026-05-03'], 'week2': ['2026-05-04', '2026-05-10'] };
+    var weekDateRanges = { 'week1': ['2026-04-27', '2026-05-03'], 'week2': ['2026-05-04', '2026-05-10'], 'week3': ['2026-05-11', '2026-05-17'] };
     var moveoutInput = document.getElementById('moveout-date-input');
     document.querySelectorAll('input[name="pickup_week"]').forEach(function(r) {
         r.addEventListener('change', function() {
