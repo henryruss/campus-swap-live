@@ -89,6 +89,163 @@
       {% endif %}
     </div>
 
+    {# ── Partner Preferences ── #}
+    <div class="avail-form-card" style="margin-top: 24px;">
+      <h2 style="font-family: 'DM Serif Display', serif; color: var(--primary); font-size: 1.3rem; margin: 0 0 6px;">Partner Preferences</h2>
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0 0 20px;">
+        Optional. Preferences inform the optimizer but staffing coverage always takes priority.
+        A worker can't be in both lists.
+      </p>
+      <style>
+        .pref-picker { position: relative; }
+        .pref-trigger {
+          width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+          background: white; font-size: 0.875rem; color: var(--text-main);
+          cursor: pointer; text-align: left; display: flex; justify-content: space-between;
+          align-items: center; gap: 8px; user-select: none;
+        }
+        .pref-trigger:focus { outline: none; border-color: var(--primary); }
+        .pref-trigger-label { flex: 1; white-space: normal; overflow: hidden; word-break: break-word; }
+        .pref-trigger-arrow { font-size: 0.7rem; color: var(--text-muted); transition: transform 0.15s; flex-shrink: 0; }
+        .pref-picker.open .pref-trigger-arrow { transform: rotate(180deg); }
+        .pref-dropdown {
+          display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+          background: white; border: 1px solid #cbd5e1; border-radius: 8px;
+          box-shadow: 0 8px 24px -4px rgba(0,0,0,0.12); z-index: 100;
+          max-height: 200px; overflow-y: auto;
+        }
+        .pref-picker.open .pref-dropdown { display: block; }
+        .pref-option {
+          display: flex; align-items: center; gap: 10px;
+          padding: 9px 12px; cursor: pointer; font-size: 0.875rem;
+          transition: background 0.1s;
+        }
+        .pref-option:hover { background: var(--bg-cream); }
+        .pref-option.selected { font-weight: 600; }
+        .pref-option .pref-check {
+          width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #cbd5e1;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+          font-size: 0.65rem; transition: background 0.1s, border-color 0.1s;
+        }
+        .pref-option.selected .pref-check { color: white; }
+        .pref-picker[data-color="green"] .pref-option.selected .pref-check {
+          background: var(--primary); border-color: var(--primary);
+        }
+        .pref-picker[data-color="amber"] .pref-option.selected .pref-check {
+          background: var(--accent); border-color: var(--accent);
+        }
+      </style>
+
+      <form method="POST" action="{{ url_for('crew_save_preferences') }}" id="pref-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        {% if all_workers %}
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+
+          {# ── Preferred picker ── #}
+          <div>
+            <p style="font-weight: 700; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px;">Prefer to work with</p>
+            <div class="pref-picker" data-name="preferred_ids" data-color="green">
+              <button type="button" class="pref-trigger" onclick="togglePicker(this.parentElement)">
+                <span class="pref-trigger-label">Select movers…</span>
+                <span class="pref-trigger-arrow">&#9660;</span>
+              </button>
+              <div class="pref-dropdown">
+                {% for w in all_workers %}
+                <div class="pref-option {% if w.id in my_preferred_ids %}selected{% endif %}"
+                     data-value="{{ w.id }}" onclick="toggleOption(this)">
+                  <span class="pref-check">{% if w.id in my_preferred_ids %}&#10003;{% endif %}</span>
+                  {{ w.full_name }}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          {# ── Avoided picker ── #}
+          <div>
+            <p style="font-weight: 700; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px;">Prefer not to work with</p>
+            <div class="pref-picker" data-name="avoided_ids" data-color="amber">
+              <button type="button" class="pref-trigger" onclick="togglePicker(this.parentElement)">
+                <span class="pref-trigger-label">Select movers…</span>
+                <span class="pref-trigger-arrow">&#9660;</span>
+              </button>
+              <div class="pref-dropdown">
+                {% for w in all_workers %}
+                <div class="pref-option {% if w.id in my_avoided_ids %}selected{% endif %}"
+                     data-value="{{ w.id }}" onclick="toggleOption(this)">
+                  <span class="pref-check">{% if w.id in my_avoided_ids %}&#10003;{% endif %}</span>
+                  {{ w.full_name }}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div style="margin-top: 18px;">
+          <button type="submit" class="btn-outline" style="padding: 10px 24px; font-size: 0.875rem;">
+            Save Preferences
+          </button>
+        </div>
+        {% else %}
+        <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0;">No other approved movers yet.</p>
+        {% endif %}
+      </form>
+
+      <script>
+      function togglePicker(picker) {
+        var isOpen = picker.classList.contains('open');
+        // Close all open pickers
+        document.querySelectorAll('.pref-picker.open').forEach(function(p) { p.classList.remove('open'); });
+        if (!isOpen) picker.classList.add('open');
+      }
+
+      function toggleOption(opt) {
+        var picker = opt.closest('.pref-picker');
+        opt.classList.toggle('selected');
+        var check = opt.querySelector('.pref-check');
+        check.innerHTML = opt.classList.contains('selected') ? '&#10003;' : '';
+        updateTriggerLabel(picker);
+      }
+
+      function updateTriggerLabel(picker) {
+        var selected = picker.querySelectorAll('.pref-option.selected');
+        var label = picker.querySelector('.pref-trigger-label');
+        if (selected.length === 0) {
+          label.textContent = 'Select movers\u2026';
+        } else {
+          label.innerHTML = Array.from(selected).map(function(o) {
+            return '&#10003; ' + o.textContent.trim();
+          }).join('<br>');
+        }
+      }
+
+      // Close pickers when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!e.target.closest('.pref-picker')) {
+          document.querySelectorAll('.pref-picker.open').forEach(function(p) { p.classList.remove('open'); });
+        }
+      });
+
+      // On form submit: inject hidden inputs from selected options
+      document.getElementById('pref-form').addEventListener('submit', function() {
+        document.querySelectorAll('.pref-picker').forEach(function(picker) {
+          var name = picker.dataset.name;
+          picker.querySelectorAll('.pref-option.selected').forEach(function(opt) {
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = name;
+            inp.value = opt.dataset.value;
+            picker.appendChild(inp);
+          });
+        });
+      });
+
+      // Init trigger labels on load
+      document.querySelectorAll('.pref-picker').forEach(updateTriggerLabel);
+      </script>
+    </div>
+
     <div style="text-align: center; margin-top: 20px;">
       <a href="{{ url_for('crew_dashboard') }}" style="color: var(--text-muted); font-size: 0.875rem;">
         <i class="fas fa-arrow-left"></i> Back to Crew Portal

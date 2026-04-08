@@ -295,6 +295,79 @@ mobile experience = higher completion rate.
 
 ---
 
+---
+
+## Spec #3 — Driver Shift View / Ops
+
+### Decision: Terminology — "Mover" not "Driver", DB values unchanged
+**Date:** 2026-04-07
+**Decision:** All user-facing labels changed from "Driver" to "Mover" and "Organizer" stays "Organizer." DB column values (`role_on_shift = 'driver'`) left untouched to avoid a data migration on live records.
+**Reasoning:** "Driver" implies the person drives the truck; in practice both people on a truck do pickups. "Mover" better describes the role without implying truck operation. Changing DB values would require a migration touching every ShiftAssignment record and all optimizer/filter logic. Pure display change has zero risk.
+
+---
+
+### Decision: truck_number on ShiftAssignment (not a junction table)
+**Date:** 2026-04-07
+**Options considered:**
+- New `TruckAssignment` junction table (shift_id, worker_id, truck_number)
+- Nullable `truck_number` column on the existing `ShiftAssignment`
+
+**Decision:** Column on `ShiftAssignment`.
+
+**Reasoning:** The relationship is 1:1 — one worker has one role on one truck per shift. A separate table would require a JOIN for every ops page query and adds a new model for no behavioral gain. The nullable column approach adds one migration, one field, zero new queries. `NULL` for organizers is semantically correct (they're not on a truck).
+
+---
+
+### Decision: Organizer count uses stagger formula, not linear multiplier
+**Date:** 2026-04-07
+**Old formula:** `organizers_needed = trucks × organizers_per_truck` (e.g. 2 trucks → 4 organizers)
+**New formula:** `organizers_needed = ceil(trucks / 2) × 2` (2 trucks → 2 organizers, 3 trucks → 4)
+**Reasoning:** Organizers work at the storage unit, not on trucks. One pair of organizers can handle two trucks staggered (one picking up while the other drops off). The linear formula was overstaffing storage. The stagger model reflects actual ops: you always need 2 organizers minimum, and a second pair only when a third truck is added.
+**Impact:** `organizers_per_truck` AppSetting is now unused for capacity calculation. Left in DB for historical context.
+
+---
+
+### Decision: Seller is globally unique across all shifts (not just per-shift)
+**Date:** 2026-04-07
+**Spec said:** UniqueConstraint on `(shift_id, seller_id)` — a seller appears once per shift.
+**Changed to:** A seller can only be assigned to one shift total across all shifts.
+**Reasoning:** There's no operational reason to pick up the same seller twice. The original constraint would allow scheduling the same seller on Monday and Tuesday, which would send redundant SMS notifications and confuse the mover. Global uniqueness prevents this entirely with a single query check.
+
+---
+
+### Decision: Retroactive shift completion (past unstarted shifts)
+**Date:** 2026-04-07
+**Problem:** Workers who forgot to tap End Shift had no way to log past shifts as complete. The shift would sit in My Schedule forever, never counting toward their 10-shift total.
+**Decision:** Added `crew_shift_complete_retroactive` route — one-click creates ShiftRun and immediately marks it completed. Separate from the normal Start → End flow to avoid confusion.
+**Tradeoff:** A mover can retroactively "complete" a shift they never actually worked. This is an ops trust issue, not a technical one — if a mover is gaming the count, that's a management problem. Requiring admin sign-off on retroactive completions would add too much friction for what is usually an honest oversight.
+
+---
+
+### Decision: Future shift access blocked at route level
+**Date:** 2026-04-07
+**Reasoning:** Workers could previously navigate to `/crew/shift/<id>` for any assigned shift regardless of date. Future shifts have no ShiftRun and no stops in most cases — showing "Start Shift" a week early risks accidental taps and premature SMS notifications. Blocking with a friendly redirect ("come back on [date]") preserves the route for today and past shifts while preventing premature access.
+
+---
+
+### Decision: Today's shift banner is time-aware and in-progress-aware
+**Date:** 2026-04-07
+**Rules:**
+1. If any today-shift has `ShiftRun.status = 'in_progress'` → always show that shift (mover must be able to end it)
+2. Else before 1pm UTC → prefer AM slot; at/after 1pm → prefer PM slot
+3. Fall back to whichever slot exists if preferred doesn't
+
+**Reasoning:** Without rule 1, a mover who starts their AM shift but runs past 1pm would lose the End Shift button from the banner — the banner would switch to PM. Rule 1 ensures they can always find an active shift. The 1pm UTC cutoff is approximate Eastern noon, a reasonable AM/PM boundary for a US campus pickup operation.
+
+---
+
+### Decision: Scroll position preserved on /admin and /crew form submits
+**Date:** 2026-04-07
+**Problem:** Every form POST redirects, which reloads the page at the top. Admins building routes had to scroll back down after every "Add Stop" action.
+**Decision:** Before any form `submit` event on `/admin` or `/crew` paths, save `window.scrollY` to `sessionStorage`. On page load, restore it and clear the key. JS-programmatic `form.submit()` calls (ops mover picker) save manually before submitting.
+**Reasoning:** AJAX would be more seamless but violates the server-rendered-only constraint and adds significant complexity for every action. The sessionStorage approach is 12 lines in `layout.html` and works transparently for all form submits site-wide.
+
+---
+
 ### Decision: No whole-day blackout shortcut in the grid
 **Date:** Spec #1 final revision
 **Originally planned:** A "✕ Day" toggle column that blacks out both AM and PM

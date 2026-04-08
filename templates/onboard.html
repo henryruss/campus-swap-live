@@ -4,6 +4,7 @@
 
 {% block content %}
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';window.scrollTo(0,0);</script>
+<script>(function(){if(/iphone|android|mobile|ipad/i.test(navigator.userAgent))document.documentElement.classList.add('is-mobile');})();</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
 <style>
     .onboard-wizard .wizard-container {
@@ -121,6 +122,13 @@
     .upload-zone i.fa-camera { font-size: 3rem; color: var(--primary); margin-bottom: 16px; }
     .upload-zone h4 { margin: 0 0 6px; font-size: 1.1rem; }
     .upload-zone p { margin: 0; font-size: 0.9rem; color: var(--text-muted); }
+    /* Mobile: hide QR/tab UI, show direct upload only */
+    .is-mobile .upload-tabs { display: none; }
+    .is-mobile #tab-phone { display: none !important; }
+    .is-mobile #tab-computer { display: block !important; }
+    .upload-zone-mobile-hint { display: none; }
+    .is-mobile .upload-zone-desktop-hint { display: none; }
+    .is-mobile .upload-zone-mobile-hint { display: block; }
     .preview-carousel { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
     .preview-main {
         flex: 1; aspect-ratio: 4/3; min-height: 200px; max-height: 280px; border-radius: 12px; overflow: hidden;
@@ -494,8 +502,10 @@
             <div class="upload-tab-content active" id="tab-computer">
                 <div id="upload-from-computer" class="upload-zone" style="min-height:180px;">
                     <i class="fas fa-camera" style="font-size:1.8rem;color:var(--primary);margin-bottom:10px;"></i>
-                    <h4 style="margin:0 0 4px;">Click to upload photos</h4>
-                    <p style="font-size:0.9rem;color:var(--text-muted);margin:0;">or drag and drop &bull; JPG, PNG, or WebP</p>
+                    <h4 class="upload-zone-desktop-hint" style="margin:0 0 4px;">Click to upload photos</h4>
+                    <p class="upload-zone-desktop-hint" style="font-size:0.9rem;color:var(--text-muted);margin:0;">or drag and drop &bull; JPG, PNG, or WebP</p>
+                    <h4 class="upload-zone-mobile-hint" style="margin:0 0 4px;">Tap to take or upload a photo</h4>
+                    <p class="upload-zone-mobile-hint" style="font-size:0.9rem;color:var(--text-muted);margin:0;">Camera or photo library</p>
                 </div>
             </div>
 
@@ -608,7 +618,7 @@
             <h2 class="step-title">When are you moving out?</h2>
             <p class="step-sub">Pick the week that works best. We'll assign a specific time closer to pickup.</p>
 
-            <div class="pickup-week-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+            <div class="pickup-week-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px;">
                 <label class="onboard-week-card" id="onboard-week-1" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
                     <input type="radio" name="onboard_pickup_week" value="week1" style="display:none;">
                     <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 1</span>
@@ -619,22 +629,23 @@
                     <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 2</span>
                     <span style="font-size:0.88rem;color:var(--text-muted);">May 4 – May 10</span>
                 </label>
+                <label class="onboard-week-card" id="onboard-week-3" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
+                    <input type="radio" name="onboard_pickup_week" value="week3" style="display:none;">
+                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 3</span>
+                    <span style="font-size:0.88rem;color:var(--text-muted);">May 11 – May 17</span>
+                </label>
             </div>
 
             <div id="onboard-time-pref-section" style="display:none;margin-bottom:20px;">
                 <p style="font-size:0.9rem;font-weight:600;color:var(--text-main);margin-bottom:10px;">Preferred time of day</p>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <label class="onboard-time-card" id="onboard-time-morning" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
-                        <input type="radio" name="onboard_time_preference" value="morning" style="display:none;">
-                        Morning <span style="font-weight:400;font-size:0.82rem;">(9am–1pm)</span>
+                    <label class="onboard-time-card" id="onboard-time-am" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
+                        <input type="radio" name="onboard_time_preference" value="am" style="display:none;">
+                        AM <span style="font-weight:400;font-size:0.82rem;">(9am–1pm)</span>
                     </label>
-                    <label class="onboard-time-card" id="onboard-time-afternoon" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
-                        <input type="radio" name="onboard_time_preference" value="afternoon" style="display:none;">
-                        Afternoon <span style="font-weight:400;font-size:0.82rem;">(1pm–5pm)</span>
-                    </label>
-                    <label class="onboard-time-card" id="onboard-time-evening" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
-                        <input type="radio" name="onboard_time_preference" value="evening" style="display:none;">
-                        Evening <span style="font-weight:400;font-size:0.82rem;">(5pm–9pm)</span>
+                    <label class="onboard-time-card" id="onboard-time-pm" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
+                        <input type="radio" name="onboard_time_preference" value="pm" style="display:none;">
+                        PM <span style="font-weight:400;font-size:0.82rem;">(1pm–5pm)</span>
                     </label>
                 </div>
             </div>
@@ -1204,7 +1215,7 @@
         const weekEl = document.getElementById('review-pickup-week');
         const selectedWeekR = form.querySelector('input[name="onboard_pickup_week"]:checked');
         const selectedTimeR = form.querySelector('input[name="onboard_time_preference"]:checked');
-        const weekLabels = {week1: 'Week 1 (Apr 27–May 3)', week2: 'Week 2 (May 4–May 10)'};
+        const weekLabels = {week1: 'Week 1 (Apr 27–May 3)', week2: 'Week 2 (May 4–May 10)', week3: 'Week 3 (May 11–May 17)'};
         if (selectedWeekR) {
             const timeText = selectedTimeR ? ' · ' + selectedTimeR.value.charAt(0).toUpperCase() + selectedTimeR.value.slice(1) : '';
             weekEl.textContent = (weekLabels[selectedWeekR.value] || selectedWeekR.value) + timeText;
@@ -1348,7 +1359,7 @@
             document.querySelectorAll('.upload-tab-content').forEach(c => c.classList.remove('active'));
             this.classList.add('active');
             document.getElementById('tab-' + this.dataset.tab).classList.add('active');
-            if (this.dataset.tab === 'phone' && !uploadSessionToken) loadQr();
+            if (this.dataset.tab === 'phone' && !uploadSessionToken && !isMobile) loadQr();
         });
     });
 
@@ -1465,8 +1476,9 @@
     document.getElementById('next-btn').addEventListener('click', function() { changeImage(1); });
 
     // QR upload (works for both logged-in and guest users)
+    var isMobile = document.documentElement.classList.contains('is-mobile');
     async function loadQr() {
-        if (window.innerWidth <= 480) return; /* Skip on phone - user taps upload zone for camera/gallery */
+        if (isMobile) return;
         try {
             const fd = new FormData();
             fd.append('csrf_token', form.querySelector('input[name="csrf_token"]').value);

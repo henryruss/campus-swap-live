@@ -1,0 +1,490 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  /* Responsive layout */
+  .intake-page { padding: 0 0 80px; }
+
+  .intake-top-bar {
+    background: var(--primary); color: white;
+    padding: 18px 0 14px;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .intake-top-bar-inner {
+    max-width: 1100px; margin: 0 auto; padding: 0 24px;
+  }
+  .intake-top-bar h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.2rem; margin: 0 0 4px; color: white;
+  }
+  .intake-count {
+    font-size: 0.82rem; color: rgba(255,255,255,0.75);
+  }
+  .intake-search-form {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .intake-search-form input {
+    flex: 1; padding: 8px 12px; border: none; border-radius: 8px;
+    font-size: 0.9rem; background: rgba(255,255,255,0.15); color: white;
+  }
+  .intake-search-form input::placeholder { color: rgba(255,255,255,0.5); }
+  .intake-search-form button {
+    padding: 8px 14px; background: var(--accent); border: none;
+    border-radius: 8px; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+  }
+
+  .search-results-wrap { padding: 0 16px; }
+
+  .truck-section { margin: 0; }
+  .truck-summary {
+    padding: 14px 16px 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .truck-label {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .unit-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 10px;
+    font-size: 0.75rem; font-weight: 700;
+  }
+  .unit-chip-assigned  { background: #dcfce7; color: #166534; }
+  .unit-chip-unassigned { background: #fef3c7; color: #92400e; }
+
+  /* Truck grid — stacked on mobile, side-by-side on desktop */
+  .intake-content {
+    max-width: 1100px; margin: 0 auto; padding: 0 16px;
+  }
+  .trucks-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin-top: 8px;
+  }
+  @media (min-width: 760px) {
+    .trucks-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
+    .truck-section { border: var(--card-border); border-radius: 12px; overflow: hidden; margin: 0; background: white; }
+  }
+
+  .item-cards { padding: 0 12px 4px; }
+  .item-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 8px; cursor: pointer;
+    transition: box-shadow 0.15s;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .item-card:active { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+  .item-card.received { background: #dcfce7; border-color: #bbf7d0; }
+  .item-card.flagged  { background: #fef3c7; border-color: #fde68a; }
+
+  .item-card-main { flex: 1; min-width: 0; }
+  .item-id-badge {
+    display: inline-block; background: var(--bg-cream);
+    border: 1px solid var(--rule); border-radius: 5px;
+    padding: 1px 6px; font-size: 0.72rem; font-weight: 700;
+    color: var(--text-muted); font-family: monospace; margin-bottom: 4px;
+  }
+  .item-card.received .item-id-badge,
+  .item-card.flagged  .item-id-badge { background: rgba(255,255,255,0.5); }
+  .item-desc { font-weight: 700; font-size: 0.9rem; color: var(--primary); margin: 0 0 2px; }
+  .item-seller { font-size: 0.8rem; color: var(--text-muted); }
+  .item-quality { font-size: 0.78rem; color: var(--text-muted); }
+  .status-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
+  .status-chip {
+    display: inline-block; padding: 2px 9px; border-radius: 10px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .chip-pending  { background: #f1f5f9; color: #64748b; }
+  .chip-received { background: rgba(255,255,255,0.6); color: #166534; }
+  .chip-flagged  { background: rgba(255,255,255,0.6); color: #92400e; }
+
+  /* ── Bottom-sheet modal ── */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4); z-index: 200;
+    align-items: flex-end;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-sheet {
+    background: white; border-radius: 20px 20px 0 0;
+    width: 100%; max-width: 500px; margin: 0 auto;
+    padding: 28px 24px 40px;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.2);
+  }
+  .modal-drag-bar {
+    width: 40px; height: 4px; background: #d1d5db; border-radius: 2px;
+    margin: -12px auto 16px; display: block;
+  }
+  .modal-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.1rem; color: var(--primary); margin: 0 0 20px;
+  }
+
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block; font-size: 0.78rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); margin-bottom: 6px;
+  }
+  .form-group select, .form-group input, .form-group textarea {
+    width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1;
+    border-radius: 10px; font-size: 0.9rem; color: var(--text-main);
+    background: white; box-sizing: border-box;
+  }
+  .form-group textarea { resize: vertical; min-height: 72px; }
+
+  .quality-row {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .quality-option { display: none; }
+  .quality-label {
+    flex: 1; min-width: 48px; text-align: center;
+    padding: 10px 6px; border: 2px solid #e2e8f0;
+    border-radius: 10px; cursor: pointer; font-size: 0.82rem;
+    font-weight: 700; transition: border-color 0.15s, background 0.15s;
+    line-height: 1.2; color: var(--text-main);
+  }
+  .quality-option:checked + .quality-label {
+    border-color: var(--primary); background: var(--primary); color: white;
+  }
+
+  .flag-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); }
+  .flag-toggle-btn {
+    width: 100%; padding: 11px 16px; border-radius: 10px; cursor: pointer;
+    font-size: 0.9rem; font-weight: 700; text-align: left;
+    display: flex; align-items: center; gap: 8px;
+    background: #fef3c7; color: #92400e;
+    border: 1.5px solid #fde68a;
+    transition: background 0.15s, border-color 0.15s;
+    margin-bottom: 12px;
+  }
+  .flag-toggle-btn.active {
+    background: #fef3c7; border-color: #d97706; color: #78350f;
+  }
+  .flag-fields { display: none; }
+  .flag-fields.visible { display: block; }
+
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .modal-actions .btn-primary { flex: 1; padding: 14px; font-size: 1rem; }
+  .btn-cancel {
+    padding: 14px 20px; background: none; border: 1.5px solid var(--rule);
+    border-radius: 10px; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+    color: var(--text-muted); transition: border-color 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--text-muted); }
+</style>
+
+<div class="intake-top-bar">
+  <div class="intake-top-bar-inner">
+    <div style="margin-bottom: 4px;">
+      <a href="{{ url_for('crew_dashboard') }}" style="color: rgba(255,255,255,0.65); font-size: 0.82rem; text-decoration: none;">&larr; Dashboard</a>
+    </div>
+    <div style="display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;">
+      <h2 style="margin:0;">{{ shift.label }} — Intake</h2>
+      <div class="intake-count">
+        <span id="received-count">{{ received_count }}</span> of {{ total_items }} items received
+      </div>
+    </div>
+    {# Search bar #}
+    <form class="intake-search-form" onsubmit="doSearch(event)" style="margin-top:10px;">
+      <input type="text" id="search-input" placeholder="Search by item # or seller name…" autocomplete="off">
+      <button type="submit"><i class="fas fa-search"></i></button>
+    </form>
+  </div>
+</div>
+
+<div class="intake-page">
+  <div class="intake-content">
+
+  {# Search results area (hidden by default) #}
+  <div id="search-results-area" style="display:none; padding: 16px 16px 8px; border-bottom: 1px solid var(--rule);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">SEARCH RESULTS</span>
+      <button onclick="clearSearch()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:0.8rem;">Clear &times;</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  {# Truck sections #}
+  <div class="trucks-grid">
+  {% for truck_num in truck_numbers %}
+  <details class="truck-section" open>
+    <summary style="list-style: none; cursor: pointer; padding: 0;">
+      <div class="truck-summary">
+        <span class="truck-label"><i class="fas fa-truck"></i> Truck {{ truck_num }}</span>
+        {% set truck_pickups = pickups_by_truck[truck_num] %}
+        {% if truck_pickups and truck_pickups[0].planned_storage_location %}
+          <span class="unit-chip unit-chip-assigned">
+            <i class="fas fa-warehouse"></i>
+            {{ truck_pickups[0].planned_storage_location.name }}
+          </span>
+        {% else %}
+          <span class="unit-chip unit-chip-unassigned">
+            <i class="fas fa-exclamation-triangle"></i> No unit assigned
+          </span>
+        {% endif %}
+        <span style="margin-left: auto; font-size: 0.78rem; color: var(--text-muted);">
+          {{ truck_pickups | length }} stop{{ 's' if truck_pickups | length != 1 else '' }}
+          <i class="fas fa-chevron-down" style="margin-left: 4px; font-size: 0.7rem;"></i>
+        </span>
+      </div>
+    </summary>
+
+    <div class="item-cards">
+      {% for pickup in truck_pickups %}
+      {% for item in seller_items.get(pickup.seller_id, []) %}
+      {% set intake = latest_intake.get(item.id) %}
+      {% set is_flagged = item.intake_flags | selectattr('resolved', 'equalto', False) | list | length > 0 %}
+      {% set card_class = 'flagged' if is_flagged else ('received' if intake else '') %}
+      <div class="item-card {{ card_class }}"
+           data-item="{{ item.id }}"
+           data-shift="{{ shift.id }}"
+           data-quality="{{ item.quality }}"
+           data-loc="{{ intake.storage_location_id if intake and intake.storage_location_id else '' }}"
+           data-row="{{ intake.storage_row | e if intake and intake.storage_row else '' }}"
+           data-note="{{ intake.storage_note | e if intake and intake.storage_note else '' }}"
+           data-saved-quality="{{ intake.quality_after if intake else item.quality }}"
+           data-flagged="{{ 'true' if is_flagged else '' }}"
+           onclick="openIntakeModalFromCard(this)"
+           style="cursor:pointer;">
+        <div class="item-card-main">
+          <div class="item-id-badge">#{{ item.id }}</div>
+          <div class="item-desc">{{ item.description }}</div>
+          <div class="item-seller">{{ pickup.seller.full_name }}</div>
+          <div class="item-quality">Condition: {{ item.quality }}/5</div>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0;">
+          {% if is_flagged %}
+            <span class="status-icon" style="color: #d97706;">&#9873;</span>
+            <span class="status-chip chip-flagged">Flagged</span>
+          {% elif intake %}
+            <span class="status-icon" style="color: #16a34a;">&#10003;</span>
+            <span class="status-chip chip-received">Received</span>
+          {% else %}
+            <span class="status-chip chip-pending">Pending</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.85rem; padding: 8px 0 4px; font-style: italic;">No stops on this truck.</p>
+      {% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+  </div>{# end trucks-grid #}
+
+  </div>{# end intake-content #}
+</div>{# end intake-page #}
+
+{# ── Unknown item log form ── #}
+<div class="container" style="max-width: 500px; margin-top: 32px; padding-bottom: 60px;">
+
+  {# End Intake button — only enabled when every item has been accounted for #}
+  {% if all_accounted %}
+  <form method="POST" action="{{ url_for('crew_intake_complete', shift_id=shift.id) }}"
+        onsubmit="return confirm('Mark intake complete? This shift will move to your Shift History.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <button type="submit" class="btn-primary" style="width:100%; padding:14px; font-size:1rem; margin-bottom:16px;">
+      <i class="fas fa-check-circle"></i> End Intake — All Items Accounted For
+    </button>
+  </form>
+  {% else %}
+  <div style="background: var(--bg-cream); border: 1px solid var(--rule); border-radius: 12px;
+              padding: 14px 18px; margin-bottom: 16px; text-align: center;">
+    <p style="margin: 0 0 4px; font-weight: 700; color: var(--text-muted); font-size: 0.9rem;">
+      <i class="fas fa-lock"></i> End Intake Locked
+    </p>
+    <p style="margin: 0; font-size: 0.82rem; color: var(--text-muted);">
+      {{ total_items - received_count }} item{{ 's' if (total_items - received_count) != 1 else '' }} still pending —
+      account for every item (receive or flag) to unlock.
+    </p>
+  </div>
+  {% endif %}
+
+  <details>
+    <summary style="cursor: pointer; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); padding: 8px 0;">
+      <i class="fas fa-plus"></i> Log Unknown Item (not in system)
+    </summary>
+    <div style="padding: 16px 0 0;">
+      <form method="POST" action="{{ url_for('crew_intake_log_unknown', shift_id=shift.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="form-group">
+          <label>Describe the item</label>
+          <textarea name="description" required placeholder="e.g. brown couch, no label, near entrance"></textarea>
+        </div>
+        <button type="submit" class="btn-outline">Log Unknown Item</button>
+      </form>
+    </div>
+  </details>
+</div>
+
+{# ── Bottom-sheet modal ── #}
+<div class="modal-backdrop" id="intake-modal-backdrop" onclick="handleBackdropClick(event)">
+  <div class="modal-sheet" id="intake-modal-sheet">
+    <span class="modal-drag-bar"></span>
+    <div class="modal-title" id="modal-item-title">Item Intake</div>
+    <form id="intake-form" method="POST" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+      <div class="form-group" id="storage-unit-group">
+        <label id="storage-unit-label">Storage Unit *</label>
+        <select name="storage_location_id" id="modal-storage-select" required>
+          <option value="">— Select unit —</option>
+          {% for loc in storage_locations %}
+          <option value="{{ loc.id }}">
+            {{ loc.name }}{% if loc.is_full %} (Full){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Row <span style="font-weight: 400; text-transform: none;">(optional)</span></label>
+        <input type="text" name="storage_row" id="modal-row" placeholder="e.g. Row 1, Row B">
+      </div>
+
+      <div class="form-group">
+        <label>Storage Note <span style="font-weight: 400; text-transform: none;">(optional)</span></label>
+        <textarea name="storage_note" id="modal-note" placeholder="e.g. behind the couch stack"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Condition *</label>
+        <div class="quality-row">
+          {% for q in [1, 2, 3, 4, 5] %}
+          {% set labels = {1: '1<br>Poor', 2: '2<br>Fair', 3: '3<br>Good', 4: '4<br>V. Good', 5: '5<br>Like New'} %}
+          <input type="radio" name="quality" id="q{{ q }}" value="{{ q }}" class="quality-option">
+          <label for="q{{ q }}" class="quality-label">{{ labels[q] | safe }}</label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="flag-section">
+        <input type="checkbox" id="flag-checkbox" name="flag_issue" style="display:none;">
+        <button type="button" id="flag-toggle-btn" class="flag-toggle-btn" onclick="toggleFlagFields()">
+          <i class="fas fa-flag"></i> Flag an issue with this item
+        </button>
+        <div class="flag-fields" id="flag-fields">
+          <div class="form-group">
+            <label>Issue Type</label>
+            <select name="flag_type">
+              <option value="missing">Missing — not on truck</option>
+              <option value="damaged">Damaged in transit</option>
+              <option value="wrong_item">Wrong item received</option>
+              <option value="extra_item">Extra unlisted item</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Describe the issue *</label>
+            <textarea name="flag_description" id="flag-description" placeholder="Describe what happened…"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeIntakeModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Confirm Receipt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openIntakeModalFromCard(el) {
+  var d = el.dataset;
+  openIntakeModal(+d.item, +d.shift, +d.quality,
+    d.loc ? +d.loc : 0, d.row || '', d.note || '',
+    +d.savedQuality, d.flagged === 'true');
+}
+
+function openIntakeModal(itemId, shiftId, currentQuality, savedLocId, savedRow, savedNote, savedQuality, isFlagged) {
+  document.getElementById('modal-item-title').textContent = 'Item #' + itemId;
+  document.getElementById('intake-form').action = '/crew/intake/' + shiftId + '/item/' + itemId;
+
+  // Pre-fill storage unit
+  var sel = document.getElementById('modal-storage-select');
+  sel.value = savedLocId || '';
+
+  // Pre-fill row + note
+  document.getElementById('modal-row').value = savedRow || '';
+  document.getElementById('modal-note').value = savedNote || '';
+
+  // Pre-fill condition
+  var quality = savedQuality || currentQuality || 3;
+  var radio = document.getElementById('q' + quality);
+  if (radio) radio.checked = true;
+
+  // Reset flag
+  document.getElementById('flag-checkbox').checked = false;
+  document.getElementById('flag-fields').classList.remove('visible');
+  document.getElementById('flag-toggle-btn').classList.remove('active');
+  document.getElementById('flag-toggle-btn').innerHTML = '<i class="fas fa-flag"></i> Flag an issue with this item';
+  document.getElementById('modal-storage-select').setAttribute('required', '');
+  document.getElementById('storage-unit-label').textContent = 'Storage Unit *';
+
+  document.getElementById('intake-modal-backdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeIntakeModal() {
+  document.getElementById('intake-modal-backdrop').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function handleBackdropClick(e) {
+  if (e.target === document.getElementById('intake-modal-backdrop')) closeIntakeModal();
+}
+
+function toggleFlagFields() {
+  var cb  = document.getElementById('flag-checkbox');
+  var btn = document.getElementById('flag-toggle-btn');
+  var fields = document.getElementById('flag-fields');
+  var storageSelect = document.getElementById('modal-storage-select');
+  var storageLabel  = document.getElementById('storage-unit-label');
+  cb.checked = !cb.checked;
+  fields.classList.toggle('visible', cb.checked);
+  btn.classList.toggle('active', cb.checked);
+  if (cb.checked) {
+    btn.innerHTML = '<i class="fas fa-flag"></i> Remove flag';
+    // Storage unit not required for flagged items that didn't arrive
+    storageSelect.removeAttribute('required');
+    storageLabel.textContent = 'Storage Unit (optional — item may not have arrived)';
+  } else {
+    btn.innerHTML = '<i class="fas fa-flag"></i> Flag an issue with this item';
+    storageSelect.setAttribute('required', '');
+    storageLabel.textContent = 'Storage Unit *';
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeIntakeModal();
+});
+
+// ── Search ──────────────────────────────────────────────────────
+function doSearch(e) {
+  e.preventDefault();
+  var q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  var area = document.getElementById('search-results-area');
+  var results = document.getElementById('search-results');
+  results.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">Searching…</p>';
+  area.style.display = 'block';
+  fetch('/crew/intake/search?q=' + encodeURIComponent(q) + '&shift_id={{ shift.id }}')
+    .then(function(r) { return r.text(); })
+    .then(function(html) { results.innerHTML = html; })
+    .catch(function() { results.innerHTML = '<p style="color:#dc2626;">Search failed.</p>'; });
+}
+
+function clearSearch() {
+  document.getElementById('search-results-area').style.display = 'none';
+  document.getElementById('search-results').innerHTML = '';
+  document.getElementById('search-input').value = '';
+}
+</script>
+{% endblock %}

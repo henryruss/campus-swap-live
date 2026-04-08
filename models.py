@@ -134,6 +134,11 @@ class InventoryItem(db.Model):
     # When we set or change the price (approval or later edit) - badge shows until acknowledged
     price_updated_at = db.Column(db.DateTime, nullable=True)
 
+    # SPEC #4 — ORGANIZER INTAKE: where the item actually ended up at the storage unit
+    storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
+    storage_row         = db.Column(db.String(50), nullable=True)   # e.g. "Row 1", "Row B"
+    storage_note        = db.Column(db.Text, nullable=True)         # e.g. "behind the couch stack"
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
@@ -317,6 +322,8 @@ class Shift(db.Model):
     trucks       = db.Column(db.Integer, default=2)
     is_active    = db.Column(db.Boolean, default=True)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    # JSON: {"1": storage_location_id, "2": storage_location_id} — planned unit per truck
+    truck_unit_plan = db.Column(db.Text, nullable=True)
 
     assignments  = db.relationship('ShiftAssignment', backref='shift', lazy=True, cascade='all, delete-orphan')
 
@@ -338,7 +345,10 @@ class Shift(db.Model):
 
     @property
     def organizers_needed(self):
-        return self.trucks * int(AppSetting.get('organizers_per_truck', '2'))
+        # 2 organizers per pair of trucks (always 2 at the store; stagger model)
+        # 1-2 trucks → 2, 3-4 trucks → 4
+        import math
+        return math.ceil(self.trucks / 2) * 2
 
     @property
     def driver_assignments(self):
@@ -368,8 +378,134 @@ class ShiftAssignment(db.Model):
     shift_id       = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
     worker_id      = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     role_on_shift  = db.Column(db.String(20), nullable=False)  # 'driver' | 'organizer'
+    truck_number   = db.Column(db.Integer, nullable=True)  # NULL for organizers; 1-N for movers
     assigned_at    = db.Column(db.DateTime, default=datetime.utcnow)
     assigned_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # NULL = optimizer
+    completed_at   = db.Column(db.DateTime, nullable=True)  # set when this worker marks their role done
 
     worker      = db.relationship('User', foreign_keys=[worker_id], backref='shift_assignments')
     assigned_by = db.relationship('User', foreign_keys=[assigned_by_id])
+
+
+# =========================================================
+# SPEC #3 — DRIVER SHIFT VIEW / OPS
+# =========================================================
+
+class ShiftPickup(db.Model):
+    """One seller stop per shift. Populated by admin via the ops page."""
+    id            = db.Column(db.Integer, primary_key=True)
+    shift_id      = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    seller_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    truck_number  = db.Column(db.Integer, nullable=False)
+    stop_order    = db.Column(db.Integer, nullable=True)   # populated by spec #6
+    status        = db.Column(db.String(20), nullable=False, default='pending')  # pending|completed|issue
+    notes         = db.Column(db.Text, nullable=True)
+    completed_at  = db.Column(db.DateTime, nullable=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    # SPEC #4 — planned destination set by admin pre-shift; never overwritten by intake flow
+    storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
+
+    shift      = db.relationship('Shift', backref='pickups')
+    seller     = db.relationship('User', foreign_keys=[seller_id], backref='shift_pickups')
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('shift_id', 'seller_id', name='uq_shift_pickup_shift_seller'),
+    )
+
+
+class ShiftRun(db.Model):
+    """Shift-level execution state. Created when a mover taps Start Shift."""
+    id             = db.Column(db.Integer, primary_key=True)
+    shift_id       = db.Column(db.Integer, db.ForeignKey('shift.id'), unique=True, nullable=False)
+    started_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    started_by_id  = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    ended_at       = db.Column(db.DateTime, nullable=True)
+    status         = db.Column(db.String(20), nullable=False, default='in_progress')  # in_progress|completed
+
+    shift      = db.relationship('Shift', backref=db.backref('run', uselist=False))
+    started_by = db.relationship('User', foreign_keys=[started_by_id])
+
+
+class WorkerPreference(db.Model):
+    """Partner preferences between movers. Two row types: preferred and avoided."""
+    id              = db.Column(db.Integer, primary_key=True)
+    user_id         = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    target_user_id  = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    preference_type = db.Column(db.String(20), nullable=False)  # 'preferred' | 'avoided'
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user        = db.relationship('User', foreign_keys=[user_id], backref='worker_preferences')
+    target_user = db.relationship('User', foreign_keys=[target_user_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'target_user_id', 'preference_type', name='uq_worker_pref'),
+    )
+
+
+# =========================================================
+# SPEC #4 — ORGANIZER INTAKE
+# =========================================================
+
+class StorageLocation(db.Model):
+    """A physical storage unit Campus Swap controls."""
+    id              = db.Column(db.Integer, primary_key=True)
+    name            = db.Column(db.String(100), unique=True, nullable=False)  # e.g. "Unit A"
+    address         = db.Column(db.String(200), nullable=True)
+    location_note   = db.Column(db.Text, nullable=True)    # gate code, landmark, etc.
+    capacity_note   = db.Column(db.Text, nullable=True)    # e.g. "fits ~40 large items"
+    is_active       = db.Column(db.Boolean, default=True)
+    is_full         = db.Column(db.Boolean, default=False)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    created_by      = db.relationship('User', foreign_keys=[created_by_id])
+    items           = db.relationship('InventoryItem', backref='storage_location', lazy='dynamic',
+                                      foreign_keys='InventoryItem.storage_location_id')
+    shift_pickups   = db.relationship('ShiftPickup', backref='planned_storage_location', lazy='dynamic',
+                                      foreign_keys='ShiftPickup.storage_location_id')
+    intake_records  = db.relationship('IntakeRecord', backref='storage_location', lazy='dynamic',
+                                      foreign_keys='IntakeRecord.storage_location_id')
+
+
+class IntakeRecord(db.Model):
+    """Append-only log of each organizer intake action. Never update — always insert."""
+    id                  = db.Column(db.Integer, primary_key=True)
+    item_id             = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    shift_id            = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    organizer_id        = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
+    storage_row         = db.Column(db.String(50), nullable=True)
+    storage_note        = db.Column(db.Text, nullable=True)
+    quality_before      = db.Column(db.Integer, nullable=False)  # snapshot of item quality at intake time
+    quality_after       = db.Column(db.Integer, nullable=False)  # value organizer recorded
+    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+
+    item      = db.relationship('InventoryItem', backref='intake_records')
+    shift     = db.relationship('Shift', backref='intake_records')
+    organizer = db.relationship('User', foreign_keys=[organizer_id])
+
+
+class IntakeFlag(db.Model):
+    """Problem flag raised during organizer intake. Resolved by admin."""
+    id               = db.Column(db.Integer, primary_key=True)
+    item_id          = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=True)   # null for unknown_item
+    shift_id         = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    intake_record_id = db.Column(db.Integer, db.ForeignKey('intake_record.id'), nullable=True)    # null for unknown_item
+    organizer_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    flag_type        = db.Column(db.String(30), nullable=False)
+    # 'missing' | 'damaged' | 'wrong_item' | 'extra_item' | 'unknown_item' | 'other'
+    description      = db.Column(db.Text, nullable=False)
+    resolved         = db.Column(db.Boolean, default=False)
+    resolved_at      = db.Column(db.DateTime, nullable=True)
+    resolved_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    resolution_note  = db.Column(db.Text, nullable=True)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    item          = db.relationship('InventoryItem', backref='intake_flags', foreign_keys=[item_id])
+    shift         = db.relationship('Shift', backref='intake_flags')
+    intake_record = db.relationship('IntakeRecord', backref='flags')
+    organizer     = db.relationship('User', foreign_keys=[organizer_id])
+    resolved_by   = db.relationship('User', foreign_keys=[resolved_by_id])

@@ -73,16 +73,18 @@ RATE_LIMIT_EMAIL = "10 per hour"
 PICKUP_WEEKS = [
     ('week1', 'April 27 – May 3'),
     ('week2', 'May 4 – May 10'),
+    ('week3', 'May 11 – May 17'),
 ]
 
 # Date ranges for each pickup week (used for moveout_date validation)
 PICKUP_WEEK_DATE_RANGES = {
     'week1': ('2026-04-27', '2026-05-03'),
     'week2': ('2026-05-04', '2026-05-10'),
+    'week3': ('2026-05-11', '2026-05-17'),
 }
 
 # Time-of-day options for pickup preference
-PICKUP_TIME_OPTIONS = ['morning', 'afternoon', 'evening']
+PICKUP_TIME_OPTIONS = ['am', 'pm']
 
 # Reserve-only mode: before this date (month, day), items are reserve-only (no Stripe charges)
 RESERVE_ONLY_DEADLINE = (4, 20)  # April 20th

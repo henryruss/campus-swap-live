@@ -164,13 +164,211 @@
 
 ## Spec #3 — Driver Shift View
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ⬜ Not yet signed off
+
+### Database & Migrations
+- [✅] `flask db migrate -m "shift_pickup_run_worker_preference"` runs with no errors
+- [✅] `flask db upgrade` runs with no errors
+- [✅] `shift_pickup` table exists with all fields; unique constraint on `(shift_id, seller_id)`
+- [✅] `shift_run` table exists; unique constraint on `shift_id`
+- [✅] `worker_preference` table exists; unique constraint on `(user_id, target_user_id, preference_type)`
+- [✅] No existing tables modified
+
+### Terminology
+- [✅] "Driver" no longer appears in any crew-facing template (apply, dashboard, shift, availability)
+- [✅] Admin schedule view shows "Mover (Truck)" and "Mover (Storage)" — not "Driver" / "Organizer"
+- [✅] Role preference field (`role_pref`) is gone from the worker application form at `/crew/apply`
+
+### Mover Shift View (`/crew/shift/<id>`)
+- [✅] A worker not assigned to that shift gets a 403
+- [✅] Pre-start state loads correctly: shift date, slot, truck number, stop count visible
+- [✅] If no stops assigned yet: Start Shift button is hidden and a "check back soon" message shows
+- [✅] Tapping Start Shift creates a `ShiftRun` record in the DB
+- [✅] `[SMS HOOK]` log line appears in Render logs on shift start (first seller notification)
+- [✅] In-progress state: stop cards show seller name, address, and item count
+- [✅] Progress indicator at top ("X of Y stops done") is correct
+- [✅] Tapping "Completed" reveals an optional notes field without a page reload
+- [✅] Submitting Completed sets `status='completed'` and writes `picked_up_at` on seller's `available` items
+- [✅] `picked_up_at` is NOT overwritten if it was already set on an item
+- [✅] Tapping "Issue" reveals a notes field marked required
+- [✅] Submitting Issue without a note is rejected
+- [✅] `[SMS HOOK]` log line appears in Render logs after every stop completion
+- [✅] After all stops are resolved, "End Shift" button appears
+- [✅] End Shift sets `ShiftRun.status='completed'` and `ended_at`, redirects to `/crew` with flash message
+- [✅] If shift is not today, a warning banner shows on the pre-start state (Start Shift still works)
+- [✅] Two workers on the same truck both see the same stop list and each other's status updates on refresh
+
+### Admin Ops View (`/admin/crew/shift/<id>/ops`)
+- [✅] Page loads with shift header: date, slot, mover names, status, `started_at` if applicable
+- [✅] Stop list is grouped by truck number
+- [✅] "Add Stop" seller dropdown only shows sellers with `available` items not already on this shift
+- [✅] Adding a stop creates a `ShiftPickup` record and reloads the page with a flash confirmation
+- [✅] Remove button is visible on `pending` stops and hidden on `completed`/`issue` stops
+- [✅] Attempting to remove a non-pending stop returns a flash error
+- [✅] "View Ops →" link appears on each published shift card on `/admin/schedule/<week_id>`
+
+### Partner Preferences (`/crew/availability`)
+- [✅] Preferences section renders below the availability grid
+- [✅] Both multi-selects are pre-populated with the worker's existing preferences on page load
+- [✅] Submitting with the same worker in both lists returns a flash error
+- [✅] Valid submission saves to DB and redirects back with "Preferences saved" flash
+- [✅] Resubmitting replaces old preferences entirely — no duplicates accumulate in DB
+
+### Crew Dashboard (`/crew`)
+- [✅] "Today's Shift" banner only appears on the actual day of the shift
+- [✅] Banner links to the correct `/crew/shift/<id>`
+- [✅] If a `ShiftRun` already exists for that shift, button reads "Continue Shift"
+- [✅] No banner shown on days with no shift assigned
+
+### Optimizer (Re-run on an existing draft week)
+- [✅] Optimizer still runs cleanly and produces valid assignments — no errors or regressions
+- [✅] Workers with more truck shifts historically get storage assignments as a tiebreaker (check a few manually)
+- [✅] Add two workers as a preferred pair, re-run — they land on the same shift where possible
+- [✅] Add an avoided pair, re-run — they are not placed on the same shift
+- [✅] Manual swap via admin schedule page still works on a published schedule
+
+### Existing Features (Regression Check)
+- [✅] `/crew/apply`, `/crew/pending`, `/crew/availability` all still load and function
+- [✅] Admin crew approve/reject flow still works
+- [✅] Existing published schedules still display correctly
+- [✅] Regular seller dashboard and item approval queue unaffected
+- [✅] Stripe webhook still responds correctly
+
+**Sign-off date: 4/7/2026**
+**Signed off by: Henry Russell**
+
+---
+
+## Mini-Spec — Shift History & Completion Counting
+
+**Sign-off status:** ⬜ Signed off
+
+- [✅] `shifts_required` AppSetting key exists in DB with value `'10'`
+- [✅] Shift History column shows "0 of 10 shifts completed" when no shifts done
+- [✅] Completing a shift (tapping End Shift) causes it to appear in history column on next dashboard load
+- [✅] Completed shift cards show correct date, slot, and role
+- [✅] Cards appear in reverse chronological order (most recent first)
+- [✅] Progress counter increments correctly with each completed shift
+- [✅] At 10+ shifts, counter reads "10 shifts completed ✓" in green
+- [✅] Warning note appears above End Shift button on the shift view page
+- [✅] `crew_dashboard()` query does not return shifts the worker was assigned to but did not end (no ShiftRun or ShiftRun.status != 'completed')
+- [✅] Today's shift banner still works correctly alongside the history column
+
+**Sign-off date: 4/7/26**
+**Signed off by: Henry Russell**
 
 ---
 
 ## Spec #4 — Organizer Intake
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ⬜ Not yet signed off
+
+---
+
+### Storage Location Management (Admin)
+
+- [✅] Navigate to `/admin/storage` as super admin — see list of all storage locations with name, address, status badges, and item count
+- [✅] Navigate to `/admin/storage` as regular admin — 403 or redirect
+- [✅] Create a new storage location — appears in list with `is_active=True`, `is_full=False`
+- [✅] Edit a storage location — name, address, location_note, capacity_note, is_active, is_full all update correctly
+- [✅] Toggle `is_full=True` on a location — it disappears from the truck assignment dropdown on the ops page
+- [✅] Toggle `is_active=False` on a location — it disappears from all dropdowns
+- [✅] Attempt to delete a location that has items tagged to it — not possible (no delete route exists)
+- [✅] Navigate to `/admin/storage/<id>` — see all items currently tagged to that location with correct columns
+
+---
+
+### Truck-to-Unit Assignment (Admin Ops Page)
+
+- [✅] Open `/admin/crew/shift/<shift_id>/ops` — each truck card shows a "Destination Unit" dropdown of active, non-full locations
+- [✅] Assign a unit to a truck — all *pending* ShiftPickups on that truck get `storage_location_id` updated
+- [✅] Completed ShiftPickup stops are NOT updated when truck unit is reassigned
+- [ ] Truck card shows green chip when unit assigned, amber "No unit assigned" when not *(UI — verify visually)*
+- [✅] Reassign a truck to a different unit mid-shift — pending stops update, completed stops retain original value
+
+---
+
+### Organizer Intake — Shift-Scoped View
+
+- [✅] Navigate to `/crew/intake/<shift_id>` as an organizer-role worker — page loads with shift label and item list
+- [✅] Navigate to `/crew/intake/<shift_id>` as a mover-role worker — 403 or redirect
+- [✅] Navigate to `/crew/intake/<shift_id>` as a non-worker logged-in user — 403 or redirect
+- [✅] Navigate to `/crew/intake/<shift_id>` for a future shift — flash error, redirect to `/crew`
+- [ ] Page shows trucks as collapsible sections, each with planned unit name or amber warning if none assigned *(UI — verify visually)*
+- [ ] Each item card shows item ID badge, description, seller name, condition, and status chip (Pending) *(UI — verify visually)*
+- [ ] Live counter shows "0 of Y items received" on page load *(UI — verify visually)*
+
+---
+
+### Organizer Intake — Submitting Intake
+
+- [ ] Tap an item card — bottom-sheet modal opens with storage unit pre-populated from truck's planned unit *(UI — verify on device)*
+- [ ] Storage unit dropdown shows only active locations (full and inactive excluded) *(UI — verify on device)*
+- [✅] Change the storage unit in the modal to a different unit — submits with the new unit, not the planned one
+- [✅] Submit intake — `InventoryItem.arrived_at_store_at` is set, `storage_location_id`/`storage_row`/`storage_note` are written, `IntakeRecord` is created
+- [✅] Submit intake with condition change — `InventoryItem.quality` updates, `IntakeRecord.quality_before` captures old value, `IntakeRecord.quality_after` captures new value
+- [✅] Submit intake without changing condition — `quality_before` and `quality_after` are equal
+- [ ] After submit: item card turns green with checkmark, live counter increments *(UI — page reload reflects server state)*
+- [✅] Re-submit intake on an already-received item — `arrived_at_store_at` is NOT overwritten, location/row/note/quality DO update, a new `IntakeRecord` row is appended (old one preserved)
+
+---
+
+### Organizer Intake — Flags
+
+- [ ] Check "Flag issue" in the modal — flag description field appears *(UI — JS toggle)*
+- [✅] Submit with flag checked but no description — validation error, form does not submit
+- [✅] Submit with flag — `IntakeFlag` record created, item card turns amber with flag icon
+- [✅] Flag appears in the Intake Summary section on the admin ops page
+- [✅] Admin resolves flag via `/admin/intake/flag/<id>/resolve` with a resolution note — `resolved=True`, `resolved_at` set, `resolution_note` saved
+- [ ] Resolved flag is visually distinguished (not deleted) on the admin intake log *(UI — verify visually)*
+
+---
+
+### Organizer Intake — Search Fallback
+
+- [✅] Search by item ID on `/crew/intake/search` — matching item appears with intake status
+- [✅] Search returns no results — "No items found" message shown
+- [ ] Tap a search result — intake modal opens and submits correctly (no shift-scoping required) *(UI — verify on device)*
+- [ ] Submit intake via search for an item not on the current shift manifest — intake records correctly, no error *(UI — verify on device)*
+
+---
+
+### Unknown Item Flow
+
+- [ ] Item physically present but not found in search — "Log Unknown Item" form is available *(UI — verify visually)*
+- [✅] Submit unknown item — `IntakeFlag` created with `flag_type='unknown_item'`, `item_id=NULL`, description saved
+- [✅] Unknown item flag appears in admin intake log for the shift
+
+---
+
+### Admin Intake Log
+
+- [✅] Navigate to `/admin/crew/shift/<shift_id>/intake` — full table of all IntakeRecords for the shift, grouped by truck
+- [ ] Condition change shown in amber when `quality_before != quality_after` *(UI — verify visually)*
+- [ ] Planned unit vs. actual unit visible per item (divergence is visible, no error state) *(UI — verify visually)*
+- [✅] Ops page Intake Summary section shows per-truck "X of Y received" progress and open flags
+
+---
+
+### Crew Dashboard Integration
+
+- [✅] Organizer-role worker with an in-progress shift sees "Open Intake →" button on today's shift banner
+- [✅] Mover-role worker does NOT see the intake button
+- [ ] Past shift with unresolved flags shows amber "Review Flags →" button *(UI — requires past shift with open flags)*
+
+---
+
+### Regression Check
+
+- [✅] Existing mover shift view (`/crew/shift/<shift_id>`) unaffected
+- [✅] Existing admin ops page mover assignment panel unaffected
+- [✅] `ShiftPickup.status` (pending/completed/issue) unchanged by intake flow
+- [✅] `InventoryItem.status` unchanged by intake flow
+- [✅] `picked_up_at` unchanged by intake flow
+- [ ] Stripe webhook still responds correctly *(unchanged — no Stripe code touched)*
+
+**Sign-off date:**
+**Signed off by:**
 
 ---
 
@@ -199,5 +397,9 @@
 ---
 
 ## Spec #9 — SMS Notifications
+
+**Sign-off status:** ⬜ Spec not yet written
+
+## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Spec not yet written

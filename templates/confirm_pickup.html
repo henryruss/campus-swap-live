@@ -62,16 +62,12 @@
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px;">We'll do our best to match your preference.</p>
                 <div class="pickup-week-grid">
                     <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="morning" required>
-                        <span class="pickup-week-label">Morning <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
+                        <input type="radio" name="pickup_time_preference" value="am" required>
+                        <span class="pickup-week-label">AM <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
                     </label>
                     <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="afternoon">
-                        <span class="pickup-week-label">Afternoon <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
-                    </label>
-                    <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="evening">
-                        <span class="pickup-week-label">Evening <span style="font-weight: 400; color: var(--text-muted);">— 5pm to 9pm</span></span>
+                        <input type="radio" name="pickup_time_preference" value="pm">
+                        <span class="pickup-week-label">PM <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
                     </label>
                 </div>
             </div>
@@ -386,7 +382,7 @@
         var timeRadio = form.querySelector('input[name="pickup_time_preference"]:checked');
         var timeVal = document.getElementById('review-time-value');
         if (timeVal && timeRadio) {
-            var timeLabels = { 'morning': 'Morning (9am–1pm)', 'afternoon': 'Afternoon (1pm–5pm)', 'evening': 'Evening (5pm–9pm)' };
+            var timeLabels = { 'am': 'AM (9am–1pm)', 'pm': 'PM (1pm–5pm)' };
             timeVal.textContent = timeLabels[timeRadio.value] || timeRadio.value;
         }
         var moveoutBlock = document.getElementById('review-moveout-block');

@@ -147,7 +147,8 @@ Key-value store for runtime flags.
 AppSetting.get(key, default), AppSetting.set(key, value)
 Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store', 'store_open_date',
 'crew_applications_open', 'crew_allowed_email_domain', 'availability_deadline_day',
-'drivers_per_truck', 'organizers_per_truck', 'max_trucks_per_shift'
+'drivers_per_truck', 'organizers_per_truck' (unused for capacity — superseded by stagger formula), 'max_trucks_per_shift',
+'shifts_required' (minimum shifts for season payout, default '10')
 ```
 
 ### WorkerApplication
@@ -194,8 +195,39 @@ Properties: label, sort_key, drivers_needed, organizers_needed,
 ```
 One worker assigned to one shift in a specific role.
 id, shift_id (FK), worker_id (FK → User), role_on_shift ('driver'|'organizer')
+truck_number (Integer, nullable — NULL for organizers; 1-N for movers)
 assigned_at, assigned_by_id (FK → User, nullable — NULL = optimizer)
 Relationships: shift → Shift, worker → User, assigned_by → User
+```
+
+### ShiftPickup
+```
+One seller stop per shift. Populated by admin via ops page.
+id, shift_id (FK → Shift), seller_id (FK → User), truck_number (Integer)
+stop_order (Integer, nullable — populated by spec #6)
+status: 'pending' | 'completed' | 'issue'   default: 'pending'
+notes (Text, nullable), completed_at (DateTime, nullable)
+created_at, created_by_id (FK → User)
+Unique constraint: (shift_id, seller_id) — seller globally unique across all shifts
+Relationships: shift → Shift, seller → User (backref: shift_pickups), created_by → User
+```
+
+### ShiftRun
+```
+Shift-level execution state. Created when mover taps Start Shift.
+id, shift_id (FK → Shift, unique), started_at, started_by_id (FK → User)
+ended_at (DateTime, nullable), status: 'in_progress' | 'completed'
+Relationships: shift → Shift (backref: run, uselist=False), started_by → User
+```
+
+### WorkerPreference
+```
+Partner preferences between movers.
+id, user_id (FK → User), target_user_id (FK → User)
+preference_type: 'preferred' | 'avoided'
+created_at
+Unique constraint: (user_id, target_user_id, preference_type)
+Relationships: user → User (backref: worker_preferences), target_user → User
 ```
 
 ---
@@ -310,17 +342,29 @@ Relationships: shift → Shift, worker → User, assigned_by → User
 | `POST /admin/digest/send` | `send_approval_digest` | Super admin manual trigger for digest email |
 | `POST /admin/mass-email` | `admin_mass_email` | |
 | `POST /admin/database/reset` | `admin_database_reset` | Super admin only |
-| `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker application |
+| `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker (sets worker_role='both'); sends email |
 | `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
+| `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists |
+| `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller) |
+| `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` | `admin_shift_remove_stop` | Remove pending stop only |
+| `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` | `admin_shift_assign_mover_truck` | Assign driver to truck (cap-enforced); truck_number=0 unassigns |
+| `POST /admin/crew/shift/<shift_id>/assign_movers_bulk` | `admin_shift_assign_movers_bulk` | Assign multiple movers to a truck in one submit |
 
 ### Crew (Worker Accounts)
 | Route | Function | Notes |
 |---|---|---|
-| `GET/POST /crew/apply` | `crew_apply` | Worker application form |
+| `GET/POST /crew/apply` | `crew_apply` | Worker application form (role_pref field removed; sets 'both') |
 | `GET /crew/pending` | `crew_pending` | Pending approval holding page |
-| `GET /crew` | `crew_dashboard` | Approved worker dashboard — passes `my_shifts`, `current_week` |
-| `GET/POST /crew/availability` | `crew_availability` | Worker weekly availability update |
-| `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers only, published weeks only) |
+| `GET /crew` | `crew_dashboard` | Approved worker portal — my schedule (upcoming only), shift history, today's shift banner |
+| `GET/POST /crew/availability` | `crew_availability` | Weekly availability + partner preferences section |
+| `POST /crew/preferences` | `crew_save_preferences` | Save WorkerPreference records (replaces all existing) |
+| `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers, published weeks only) |
+| `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops |
+| `POST /crew/shift/<shift_id>/start` | `crew_shift_start` | Create ShiftRun; blocked for future shifts |
+| `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion |
+| `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending |
+| `POST /crew/shift/<shift_id>/complete_retroactive` | `crew_shift_complete_retroactive` | One-click retroactive completion for past shifts |
+| `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; unconditional for past shifts |
 
 ### Shift Scheduling (Admin)
 | Route | Function | Notes |
@@ -390,14 +434,16 @@ data_preview.html              — Admin data preview
 director.html                  — Internal ops view
 _category_grid.html            — Category grid partial
 dashboard_pickup_form.html     — Pickup form partial
-crew/apply.html                — Worker application form
+crew/apply.html                — Worker application form (no role_pref field; Mover/Organizer role cards)
 crew/pending.html              — Application submitted / awaiting approval
-crew/dashboard.html            — Approved worker dashboard (my shifts list + full-schedule modal trigger)
-crew/availability.html         — Weekly availability update form
+crew/dashboard.html            — Worker portal: today's shift banner (time+in-progress aware), my schedule (upcoming, clickable rows, day-merged), shift history (progress counter + completed cards)
+crew/availability.html         — Weekly availability update + partner preferences (custom dropdown picker)
 crew/_availability_grid.html   — Availability grid partial
-crew/schedule_week_partial.html — Full crew calendar injected into modal via fetch(); no layout.html
-admin/schedule_index.html      — Week list + 7×2 slot toggle creation form
-admin/schedule_week.html       — Schedule builder (draft dropdowns / published badge+swap UI)
+crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O abbreviations; Mover/Organizer legend
+crew/shift.html                — Phone-optimized shift view: pre-start/in-progress/past states; inline notes; mark-incomplete; retroactive complete
+admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form
+admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card
+admin/shift_ops.html           — Ops page: green mover assignment panel (cap-enforced multi-select picker) + route stop lists per truck
 ```
 
 ---
@@ -478,7 +524,7 @@ Both tiers include free pickup — the difference is the revenue split and guara
 
 11. **Constants** — shared constants in `constants.py`: `VIDEO_REQUIRED_CATEGORIES`, `category_requires_video()`, `PICKUP_WEEKS`, `PICKUP_WEEK_DATE_RANGES`, `PICKUP_TIME_OPTIONS`. Import into `app.py` and use via context processor for templates.
 
-12. **Shift optimizer** — `_run_optimizer(week)` in `app.py`. Pre-caches all worker availability at the start (no DB queries mid-loop). Tracks load and same-day assignments in-memory. Sort key: `(already_doubled, flexible_for_other_slot, load)` — prefers workers who can only do one slot, then by load, then deprioritizes double-shifts. `assigned_by_id=NULL` on ShiftAssignment means optimizer-assigned; non-NULL means manual.
+12. **Shift optimizer** — `_run_optimizer(week)` in `app.py`. Pre-caches all worker availability at the start (no DB queries mid-loop). Tracks load and same-day assignments in-memory. Sort key: `(already_doubled, flexible_for_other_slot, load, abs(role_imbalance), avoid_conflict, not preferred_match)`. `truck_number` derived from slot index position (slot 0–1 → truck 1, etc.). `assigned_by_id=NULL` on ShiftAssignment means optimizer-assigned; non-NULL means manual.
 
 13. **Cron jobs** — digest email triggered via POST `/admin/digest/trigger` with `X-Cron-Secret` header or `?secret=` query param matching `DIGEST_CRON_SECRET` env var. Set up as Render cron job.
 

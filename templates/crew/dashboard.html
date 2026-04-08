@@ -57,6 +57,45 @@
   }
   .placeholder-card p { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
 
+  /* Today's shift banner */
+  .today-shift-banner {
+    max-width: 960px;
+    margin: 0 auto 28px;
+    background: var(--primary);
+    color: white;
+    border-radius: 14px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .today-shift-banner .banner-text h3 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.15rem;
+    margin: 0 0 4px;
+    color: white;
+  }
+  .today-shift-banner .banner-text p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: rgba(255,255,255,0.75);
+  }
+  .btn-go-shift {
+    display: inline-block;
+    padding: 10px 24px;
+    background: var(--accent);
+    color: white;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .btn-go-shift:hover { background: var(--accent-hover); }
+
   /* ── My Schedule card ── */
   .schedule-week-label {
     font-size: 0.78rem; color: var(--text-muted);
@@ -119,17 +158,53 @@
 
 <div class="crew-dash-header">
   <div class="container">
-    <h1>
-      Hey, {{ current_user.full_name.split()[0] }}
-      <span class="role-badge">
-        {{ current_user.worker_role|capitalize if current_user.worker_role != 'both' else 'Driver & Organizer' }}
-      </span>
-    </h1>
+    <h1>Hey, {{ current_user.full_name.split()[0] }}</h1>
     <p style="color: var(--text-muted); margin: 0;">Welcome to your Campus Swap Crew portal.</p>
   </div>
 </div>
 
 <div class="container">
+  {% if today_shift %}
+  <div class="today-shift-banner">
+    <div class="banner-text">
+      <h3>You have a shift today — {{ today_shift.label }}</h3>
+      <p>{{ today_shift.week.week_start.strftime('%B %-d') }} &nbsp;·&nbsp; {{ today_shift.trucks }} truck{{ 's' if today_shift.trucks != 1 else '' }}</p>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      {% if is_organizer %}
+        {# Organizers always go to intake — show it prominently #}
+        <a href="{{ url_for('crew_intake_shift', shift_id=today_shift.id) }}" class="btn-go-shift">
+          <i class="fas fa-clipboard-check"></i> Open Intake
+          <i class="fas fa-arrow-right"></i>
+        </a>
+      {% else %}
+        {# Movers go to shift view #}
+        <a href="{{ url_for('crew_shift_view', shift_id=today_shift.id) }}" class="btn-go-shift">
+          {% if today_shift_run %}Continue Shift{% else %}Go to Shift{% endif %}
+          <i class="fas fa-arrow-right"></i>
+        </a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Organizer: review flags on past shifts #}
+  {% if is_organizer and flagged_shift_ids %}
+  {% for entry in completed_entries %}
+  {% if entry.role == 'organizer' and entry.shift.id in flagged_shift_ids %}
+  <div style="max-width:960px; margin:0 auto 12px; background:#fef3c7; border:1px solid #fde68a; border-radius:14px; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <div>
+      <span style="font-weight:700; font-size:0.9rem; color:#92400e;"><i class="fas fa-flag"></i> Open flags — {{ entry.shift.label }}</span>
+      <p style="margin:2px 0 0; font-size:0.8rem; color:#a16207;">Unresolved flags need admin review.</p>
+    </div>
+    <a href="{{ url_for('crew_intake_shift', shift_id=entry.shift.id) }}"
+       style="padding:8px 18px; background:#d97706; color:white; border-radius:8px; font-weight:700; font-size:0.85rem; text-decoration:none; white-space:nowrap;">
+      Review Flags &rarr;
+    </a>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
   <div class="crew-cards">
 
     <!-- Availability card -->
@@ -161,14 +236,31 @@
           Week of {{ current_week.week_start.strftime('%b %-d') }}
         </p>
 
-        {% if my_shifts %}
+        {% if my_shifts_by_day %}
           <div class="my-shift-list">
-            {% for shift, role in my_shifts %}
-            <div class="my-shift-row">
-              <span class="my-shift-day">{{ shift._DAY_LABELS[shift.day_of_week][:3] }}</span>
-              <span class="slot-pill">{{ shift.slot|upper }}</span>
-              <span class="role-pill">{{ role }}</span>
+            {% for day, day_shifts in my_shifts_by_day %}
+            {% set first_shift = day_shifts[0][0] %}
+            {% set first_role = day_shifts[0][1] %}
+            {% set shift_url = url_for('crew_intake_shift', shift_id=first_shift.id) if first_role == 'organizer' else url_for('crew_shift_view', shift_id=first_shift.id) %}
+            <a href="{{ shift_url }}"
+               style="text-decoration: none; display: block;">
+            <div class="my-shift-row" style="cursor: pointer;">
+              <span class="my-shift-day">{{ first_shift._DAY_LABELS[day][:3] }}</span>
+              <span style="display:flex; gap:4px; flex-wrap:wrap;">
+                {% for shift, role in day_shifts %}
+                  <span class="slot-pill">{{ shift.slot|upper }}</span>
+                {% endfor %}
+              </span>
+              <span class="role-pill">
+                {% set roles = day_shifts | map(attribute=1) | list %}
+                {% if roles | unique | list | length == 1 %}
+                  {% if roles[0] == 'driver' %}Mover{% elif roles[0] == 'organizer' %}Organizer{% else %}{{ roles[0] }}{% endif %}
+                {% else %}
+                  Mixed
+                {% endif %}
+              </span>
             </div>
+            </a>
             {% endfor %}
           </div>
         {% else %}
@@ -181,10 +273,44 @@
       {% endif %}
     </div>
 
-    <!-- Shift history placeholder -->
-    <div class="crew-card placeholder-card">
+    <!-- Shift history -->
+    <div class="crew-card">
       <h3><i class="fas fa-history"></i> Shift History</h3>
-      <p>Completed shifts and earnings will appear here.</p>
+      {% set completed_count = completed_entries | length %}
+      {% if completed_count >= shifts_required %}
+        <p style="font-size: 0.85rem; font-weight: 700; color: var(--primary); margin: -6px 0 16px;">
+          {{ shifts_required }} shifts completed ✓
+        </p>
+      {% else %}
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: -6px 0 16px;">
+          {{ completed_count }} of {{ shifts_required }} shifts completed
+        </p>
+      {% endif %}
+
+      {% if completed_entries %}
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          {% for entry in completed_entries %}
+          {% set shift = entry.shift %}
+          <div style="background: #dcfce7; border-left: 3px solid var(--primary); border-radius: 0 8px 8px 0; padding: 10px 14px;">
+            <div style="font-weight: 700; font-size: 0.875rem; color: var(--primary); display: flex; align-items: center; gap: 6px;">
+              <i class="fas fa-check-circle" style="font-size: 0.75rem;"></i>
+              {{ shift._DAY_LABELS[shift.day_of_week] }}, {{ entry.date.strftime('%b %-d') }}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--primary); opacity: 0.7; margin-top: 2px;">
+              {{ shift.slot | upper }} &nbsp;·&nbsp; {{ 'Mover' if entry.role == 'driver' else 'Organizer' }}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 12px 0 0; line-height: 1.4;">
+          End your shift or intake when done — it won't count until you do.
+        </p>
+      {% else %}
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 10px;">No completed shifts yet.</p>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+          End your shift or intake when done — it won't count until you do.
+        </p>
+      {% endif %}
     </div>
 
   </div>

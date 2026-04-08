@@ -179,6 +179,18 @@
           </button>
         </form>
         {% endif %}
+
+        <!-- Delete (draft only) -->
+        {% if week.status == 'draft' %}
+        <form method="POST" action="{{ url_for('admin_schedule_delete', week_id=week.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-action"
+            style="background: none; border: 1.5px solid #fca5a5; color: #dc2626;"
+            onclick="return confirm('Delete this entire week? All shifts and assignments will be removed. This cannot be undone.')">
+            <i class="fas fa-trash"></i> Delete Week
+          </button>
+        </form>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -201,15 +213,21 @@
           <span style="margin-left: 8px; font-size: 0.75rem; color: var(--text-muted);">Inactive</span>
         {% endif %}
       </div>
-      {% if shift.is_active %}
-        {% if shift.status_label == 'Fully Staffed' %}
-          <span class="staffing-badge badge-full">Fully Staffed</span>
-        {% elif shift.status_label == 'Understaffed' %}
-          <span class="staffing-badge badge-under">Understaffed</span>
-        {% else %}
-          <span class="staffing-badge badge-none">Unassigned</span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        {% if shift.is_active %}
+          <a href="{{ url_for('admin_shift_ops', shift_id=shift.id) }}"
+             style="font-size: 0.78rem; font-weight: 700; color: var(--primary); text-decoration: none; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 10px; white-space: nowrap;">
+            View Ops →
+          </a>
+          {% if shift.status_label == 'Fully Staffed' %}
+            <span class="staffing-badge badge-full">Fully Staffed</span>
+          {% elif shift.status_label == 'Understaffed' %}
+            <span class="staffing-badge badge-under">Understaffed</span>
+          {% else %}
+            <span class="staffing-badge badge-none">Unassigned</span>
+          {% endif %}
         {% endif %}
-      {% endif %}
+      </div>
     </div>
 
     {% if shift.is_active %}
@@ -237,7 +255,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <div class="shift-grid">
         <div class="role-section">
-          <h4>Drivers</h4>
+          <h4>Movers</h4>
           <div class="assignment-slots" id="driver-slots-{{ shift.id }}">
             {% set driver_assignments = shift.driver_assignments %}
             {% for i in range(shift.drivers_needed) %}
@@ -303,7 +321,7 @@
 
     <div class="shift-grid">
       {% for role, role_label, assignments, needed in [
-          ('driver', 'Drivers', shift.driver_assignments, shift.drivers_needed),
+          ('driver', 'Movers', shift.driver_assignments, shift.drivers_needed),
           ('organizer', 'Organizers', shift.organizer_assignments, shift.organizers_needed)
       ] %}
       <div class="role-section">
@@ -408,7 +426,7 @@ document.querySelectorAll('.trucks-input').forEach(function(input) {
     this.value = trucks;
 
     document.querySelector('.drivers-label-' + shiftId).textContent = trucks * drivers;
-    document.querySelector('.organizers-label-' + shiftId).textContent = trucks * organizers;
+    document.querySelector('.organizers-label-' + shiftId).textContent = Math.ceil(trucks / 2) * 2;
 
     // Warn if reducing would remove assigned workers
     const driverSlots = document.getElementById('driver-slots-' + shiftId);

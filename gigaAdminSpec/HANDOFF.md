@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-04-06
-**Active spec:** None — awaiting Spec #3 design
-**Overall status:** Specs #1 and #2 signed off. Ready for Spec #3.
+**Last updated:** 2026-04-07
+**Active spec:** None — awaiting Spec #4
+**Overall status:** Specs #1, #2, #3, and Mini-Spec (Shift History) signed off. Ready for Spec #4.
 
 ---
 
@@ -19,6 +19,8 @@
 
 - Spec #1 — Worker Accounts ✅ Signed off 2026-04-06
 - Spec #2 — Shift Scheduling ✅ Signed off 2026-04-06
+- Spec #3 — Driver Shift View ✅ Signed off 2026-04-07
+- Mini-Spec — Shift History & Completion Counting ✅ Signed off 2026-04-07
 
 ---
 
@@ -189,17 +191,105 @@
 
 ---
 
-## Spec #3 — Driver Shift View (Planned)
+## Spec #3 — Driver Shift View (Complete)
 
-**Status:** Not started — spec not yet written
-**Dependencies:** Spec #2 must be signed off first ✅
+**Status:** ✅ Signed off 2026-04-07
+**Spec file:** `feature_driver_shift_view.md`
+
+### What Was Built
+
+**New models (`models.py`)**
+- `ShiftPickup` — one seller stop per shift per truck. Fields: `shift_id`, `seller_id`, `truck_number`, `stop_order` (nullable, spec #6), `status` (pending/completed/issue), `notes`, `completed_at`, `created_at`, `created_by_id`. Unique constraint on `(shift_id, seller_id)`.
+- `ShiftRun` — shift-level execution state. Fields: `shift_id` (unique), `started_at`, `started_by_id`, `ended_at`, `status` (in_progress/completed). Backref `shift.run` (uselist=False).
+- `WorkerPreference` — partner preferences. Fields: `user_id`, `target_user_id`, `preference_type` (preferred/avoided). Unique on `(user_id, target_user_id, preference_type)`.
+- `ShiftAssignment.truck_number` (Integer, nullable) — added to link movers to specific trucks.
+- Migrations: `e11efc9583e7_shift_pickup_run_worker_preference`, `69ddb3d57f86_shift_assignment_truck_number`
+
+**New routes (`app.py`)**
+- `GET /crew/shift/<shift_id>` → `crew_shift_view` — phone-optimized mover shift view; filters stops by mover's truck_number; blocks future shifts; allows past-shift access
+- `POST /crew/shift/<shift_id>/start` → `crew_shift_start` — creates ShiftRun; blocked for future shifts; allowed for today + past
+- `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` → `crew_shift_stop_update` — marks stop completed/issue; writes `picked_up_at` on completion
+- `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` → `crew_shift_stop_revert` — reverts resolved stop to pending (for note corrections)
+- `POST /crew/shift/<shift_id>/complete_retroactive` → `crew_shift_complete_retroactive` — one-click retroactive completion for past shifts (creates + immediately closes ShiftRun)
+- `POST /crew/shift/<shift_id>/end` → `crew_shift_end` — closes ShiftRun; always available on past in-progress runs, gated on all-stops-resolved for today
+- `GET /admin/crew/shift/<shift_id>/ops` → `admin_shift_ops` — ops page with truck mover cards + route stop lists
+- `POST /admin/crew/shift/<shift_id>/assign` → `admin_shift_assign_seller` — adds seller stop; global uniqueness (seller can only be on one shift total)
+- `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` → `admin_shift_remove_stop` — removes pending stop only
+- `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` → `admin_shift_assign_mover_truck` — assigns driver to truck (enforces drivers_per_truck cap); truck_number=0 unassigns
+- `POST /admin/crew/shift/<shift_id>/assign_movers_bulk` → `admin_shift_assign_movers_bulk` — assigns multiple movers to a truck in one submit
+- `POST /crew/preferences` → `crew_save_preferences` — saves WorkerPreference records (replaces all existing)
+
+**Helper functions**
+- `_notify_next_seller(shift, current_pickup=None)` — SMS stub (spec #9 TODO); logs next pending stop
+- `_run_optimizer()` extended: role_imbalance tiebreaker (`abs(truck_count - storage_count)`), partner preference scoring (avoid_conflict, preferred_match dimensions), truck_number assignment per driver slot
+
+**AppSetting keys added**
+- `shifts_required` = `'10'` — minimum shifts for full season payout
+
+**Template changes**
+- New: `templates/crew/shift.html` — mobile-first shift view; pre-start / in-progress / past states; inline notes reveal (vanilla JS); mark-incomplete link; retroactive complete for past shifts
+- New: `templates/admin/shift_ops.html` — truck mover cards (green panel, cap-enforced multi-select picker) + route stop lists per truck + Add Stop/Mover forms
+- Modified: `crew/dashboard.html` — today's shift banner (time-aware: PM preferred after 1pm UTC, in-progress always shown); shift history card (progress counter, completed run cards, end-shift reminder); My Schedule rows are clickable links; completed shifts removed from My Schedule; shifts grouped by day (merged slot pills)
+- Modified: `crew/availability.html` — partner preferences section (custom dropdown picker, click-to-toggle)
+- Modified: `crew/apply.html` — role_pref field removed; role cards relabeled Mover/Organizer
+- Modified: `crew/schedule_week_partial.html` — legend updated to Mover/Organizer; D→M abbreviation
+- Modified: `admin/schedule_week.html` — role labels Mover/Organizers; View Ops → link per shift card
+- Modified: `layout.html` — scroll position save/restore on form submit for all /admin and /crew routes
+
+**Terminology change applied throughout**
+- DB values unchanged: `role_on_shift` stays `'driver'` / `'organizer'`
+- Display: `'driver'` → "Mover", `'organizer'` → "Organizer"
+- `admin_crew_approve` now sets `worker_role = 'both'` for all new approvals (role collected at assignment time, not application time)
+- `role_pref` field still stored in WorkerApplication as `'both'` for compatibility; never shown to worker
+
+**Organizer staffing formula changed**
+- Old: `organizers_needed = trucks × organizers_per_truck` (linear)
+- New: `organizers_needed = ceil(trucks / 2) × 2` — stagger model: 2 organizers per pair of trucks (always 2 min, 4 for 3-4 trucks)
+- Applies in: `Shift.organizers_needed` property, `_run_optimizer()`, `admin_shift_update()`
+
+**Dummy data seeded (local dev only)**
+- 6 seller accounts (Alex Carter, Jamie Lee, Taylor Brooks, Morgan Davis, Jordan Kim, Casey Wright) with Davidson dorm addresses and 4 available items each, assigned to week1 for testing the ops flow
 
 ---
 
-## Spec #3 — Driver Shift View (Planned)
+### Deviations from Spec
 
-**Status:** Not started — spec not yet written
-**Dependencies:** Spec #2 must be signed off first
+1. **`truck_number` added to `ShiftAssignment`** — spec didn't define how movers get linked to specific trucks. Added nullable `truck_number` field. Populated by position in `admin_shift_update` (slot 0–1 → truck 1, 2–3 → truck 2, etc.) and the ops page reassignment UI.
+
+2. **Admin ops page has a mover assignment UI** — spec defined ops page as seller/stop management only. Added truck-mover assignment card grid (green panel at top) to close the gap between schedule builder (assigns movers to shift) and ops (assigns movers to specific truck).
+
+3. **Seller global uniqueness** — spec's `ShiftPickup` unique constraint was per `(shift_id, seller_id)`. Changed to global: a seller can only appear on one shift across all shifts. Prevents double-scheduling.
+
+4. **Retroactive shift completion** — spec didn't address past unstarted shifts. Added `crew_shift_complete_retroactive` route and "Mark Shift Complete" button for past pre-start shifts. End Shift shown unconditionally for past in-progress runs.
+
+5. **Future shift access blocked** — spec didn't define behavior for accessing `/crew/shift/<id>` before the shift date. Added redirect to `/crew` with message if shift is in the future and no ShiftRun exists.
+
+6. **1pm UTC slot preference cutoff** — spec said "today's shift" but today may have AM and PM. Added time-aware slot selection: in-progress run always wins; absent that, before 1pm UTC shows AM, at/after 1pm shows PM.
+
+7. **My Schedule excludes completed shifts** — shifts with `ShiftRun.status='completed'` are removed from My Schedule and live only in Shift History.
+
+---
+
+### Decisions Made During Implementation
+
+- Mover-to-truck assignment lives on `ShiftAssignment.truck_number`, not on a separate junction table. Single FK, low overhead.
+- `admin_shift_update` derives truck_number from slot position index, so the schedule builder doesn't need truck selector UI — just fill slots in order.
+- Ops mover assignment uses a custom multi-select picker (same pref-picker pattern as partner preferences) capped at `drivers_per_truck` per truck.
+- Scroll position saved to `sessionStorage` before any /admin or /crew form submit; restored on page load. JS `.submit()` calls manually save before submitting (bypasses the event listener).
+
+---
+
+## Mini-Spec — Shift History & Completion Counting (Complete)
+
+**Status:** ✅ Signed off 2026-04-07
+
+### What Was Built
+
+- `completed_runs` query in `crew_dashboard()` — joins ShiftRun → Shift → ShiftAssignment filtered to current_user; `.distinct()` prevents duplicate rows; ordered by `ended_at desc`
+- `completed_shift_ids` set used to exclude already-completed shifts from My Schedule
+- `shifts_required` AppSetting (default `'10'`) — minimum shifts for the season
+- Shift History card on crew dashboard: "N of 10 shifts completed" counter (turns primary green at goal), completed shift cards (light green `#dcfce7` background, checkmark icon, reverse-chrono), end-shift reminder note
+- End Shift paywall note added above button on `/crew/shift/<id>`
 
 ---
 
