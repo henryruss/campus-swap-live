@@ -255,77 +255,117 @@
         opacity: 1;
         visibility: visible;
     }
-    .room-receipt {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 24px;
-    }
-    .room-receipt h3 {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: var(--text-main);
-        margin: 0 0 16px;
-    }
-    .room-receipt-list {
-        list-style: none;
-        margin: 0 0 16px;
-        padding: 0;
-    }
-    .room-receipt-list li {
-        display: grid;
-        grid-template-columns: 1fr 90px 90px;
-        gap: 16px;
-        align-items: center;
-        padding: 8px 0;
-        border-bottom: 1px solid #e2e8f0;
-        font-size: 0.95rem;
-        color: var(--text-main);
-    }
-    .room-receipt-list li > span:nth-child(2),
-    .room-receipt-list li > span:nth-child(3) {
-        text-align: right;
-    }
-    .room-receipt-list li:last-child {
-        border-bottom: none;
-    }
-    .room-receipt-list li.room-receipt-header {
-        font-weight: 700;
-        color: var(--text-muted);
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        padding-bottom: 12px;
-        margin-bottom: 4px;
-        border-bottom: 2px solid #e2e8f0;
-    }
-    .room-receipt-total {
-        font-size: 1.25rem;
-        font-weight: 800;
-        color: var(--primary);
-        padding-top: 12px;
-        border-top: 2px solid var(--primary);
-    }
-    .room-receipt-empty {
-        color: var(--text-muted);
-        font-size: 0.95rem;
-        padding: 12px 0;
-        grid-column: 1 / -1;
-    }
-    
     @media (max-width: 768px) {
         .interactive-room-headline .calculator-title { font-size: 1.4rem; }
         .interactive-room-headline .calculator-subtitle { font-size: 1rem; }
         .interactive-room-headline .profit-label { font-size: 1.1rem; }
         .interactive-room-headline .total-amount { font-size: 3rem; }
-        .room-receipt-list li {
-            grid-template-columns: minmax(0, 1fr) minmax(60px, 1fr) minmax(60px, 1fr);
-            gap: 8px;
-            font-size: 0.85rem;
-        }
-        .room-receipt-list li > span:first-child {
-            word-break: break-word;
-        }
+        .slider-earnings-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+        .slider-earnings-amount { font-size: 1.6rem; }
+    }
+
+    /* Referral slider */
+    .referral-slider-wrap {
+        margin-top: 20px;
+        background: linear-gradient(135deg, rgba(6,78,59,0.05) 0%, rgba(245,158,11,0.05) 100%);
+        border: 1px solid rgba(6,78,59,0.15);
+        border-radius: 16px;
+        padding: 24px;
+    }
+    .referral-slider-wrap h4 {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-main);
+        margin: 0 0 3px;
+        text-align: center;
+    }
+    .referral-slider-wrap .slider-sub {
+        text-align: center;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin: 0 0 18px;
+    }
+    #referral-slider {
+        width: 100%;
+        height: 6px;
+        -webkit-appearance: none;
+        appearance: none;
+        border-radius: 3px;
+        outline: none;
+        cursor: pointer;
+        display: block;
+        margin-bottom: 6px;
+    }
+    #referral-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--primary);
+        border: 3px solid white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        cursor: pointer;
+    }
+    #referral-slider::-moz-range-thumb {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--primary);
+        border: 3px solid white;
+        cursor: pointer;
+    }
+    .slider-pct-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        margin-bottom: 18px;
+        padding: 0 2px;
+    }
+    .slider-earnings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .slider-earnings-label {
+        font-size: 1rem;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+    .slider-earnings-amount {
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--primary);
+        line-height: 1;
+        transition: transform 0.2s ease;
+    }
+    .slider-earnings-amount.pop {
+        animation: amountPop 0.4s ease;
+    }
+    .slider-referral-hint {
+        width: 100%;
+        text-align: center;
+        font-size: 0.875rem;
+        font-weight: 600;
+        margin-top: 10px;
+        padding: 8px 12px;
+        border-radius: 8px;
+    }
+    .slider-referral-hint.at-start {
+        color: var(--text-muted);
+        background: rgba(0,0,0,0.04);
+    }
+    .slider-referral-hint.in-progress {
+        color: #d97706;
+        background: rgba(245,158,11,0.1);
+    }
+    .slider-referral-hint.at-max {
+        color: var(--primary);
+        background: rgba(6,78,59,0.1);
     }
 </style>
 
@@ -333,17 +373,20 @@
     <div class="container">
         <!-- Start Selling CTA - first thing under header -->
         <div class="reveal fade-up" style="text-align: center; margin-top: 4px; margin-bottom: 8px;">
+            {% if current_user.is_authenticated %}
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; display: inline-block;">Go to Dashboard <i class="fas fa-arrow-right"></i></a>
+            {% else %}
             <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; display: inline-block;">Start Selling <i class="fas fa-arrow-right"></i></a>
+            {% endif %}
         </div>
         <!-- Interactive Room - Hero (calculator) -->
         <div class="interactive-room-hero reveal fade-up">
             <div class="interactive-room">
                 <div class="interactive-room-headline">
-                    <h2 class="calculator-title">What's your room worth?</h2>
-                    <p class="calculator-subtitle">See how much your room is worth with Campus Swap</p>
-                    <span class="profit-row"><span class="profit-label">Your profit:</span><span class="total-amount" id="room-total">$0</span></span>
+                    <h2 class="calculator-title">What&rsquo;s your room worth?</h2>
+                    <p class="calculator-subtitle">Select items to see their total value — then drag the slider to see how much you keep.</p>
+                    <span class="profit-row"><span class="profit-label">Estimated room value:</span><span class="total-amount" id="room-total">$0</span></span>
                 </div>
-                <p class="tagline">Hover over items to see value. Click to add or remove from your potential earnings.</p>
                 <div class="room-image-container" id="room-container">
                     <div class="room-tooltip" id="room-tooltip"></div>
                     <img src="{{ url_for('static', filename='dormRoom.png') }}" alt="Dorm room sketch" id="room-image">
@@ -359,11 +402,22 @@
                         <polygon data-item="tv" data-value="90" data-label="TV" points="1664,963 1662,1133 1672,1138 1794,1080 1796,1090 1744,1120 1779,1138 1883,1080 1846,1061 1831,1070 1826,1061 1930,1003 1930,834 1920,829"></polygon>
                     </svg>
                 </div>
-                <div class="room-receipt">
-                    <h3>Potential Earnings Receipt</h3>
-                    <ul class="room-receipt-list" id="room-receipt-list"></ul>
-                    <div class="room-receipt-total" id="room-receipt-total">Total: $0</div>
+                <div class="referral-slider-wrap" id="slider-section" style="display:none;">
+                    <h4>How much do <em>you</em> keep?</h4>
+                    <p class="slider-sub">Drag to see your earnings at any referral tier — start at 20%, unlock 100% after 8 friends.</p>
+                    <div style="overflow: hidden; padding: 4px 0;">
+                        <input type="range" id="referral-slider" min="20" max="100" step="10" value="20">
+                    </div>
+                    <div class="slider-pct-labels">
+                        <span>20%</span><span>30%</span><span>40%</span><span>50%</span><span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span>
+                    </div>
+                    <div class="slider-earnings-row">
+                        <span class="slider-earnings-label">You&rsquo;d earn at <span id="slider-pct-label">20%</span>:</span>
+                        <span class="slider-earnings-amount" id="slider-earnings-amount">$0</span>
+                    </div>
+                    <div class="slider-referral-hint at-start" id="slider-referral-hint">Starting rate — no referrals needed</div>
                 </div>
+
             </div>
         </div>
 
@@ -379,7 +433,7 @@
                     <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
                         <div class="step-date">Step 1</div>
                         <h3>Sign Up &amp; List Your Item</h3>
-                        <p>Create your account and list your first item: upload photos, add details, and suggest a price. Choose your plan (Free or Campus Swap Pickup) during setup&mdash;you can always upgrade later.</p>
+                        <p>Create your account and list your first item: upload photos, add details, and suggest a price.</p>
                     </div>
                     <div class="step-icon"><i class="fas fa-user-plus"></i></div>
                     <div style="flex: 1;"></div>
@@ -395,88 +449,72 @@
                 </div>
                 <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
                     <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
-                        <div class="step-date">After approval</div>
-                        <h3>Secure Your Spot</h3>
-                        <p><strong>Free Plan:</strong> Confirm your pickup details (address, phone, week)&mdash;no payment. We confirm by April 20th if we have warehouse space.</p>
-                        <p><strong>Campus Swap Pickup:</strong> Pay the one-time $15 pickup fee and select your week. Add your card when prompted. Guaranteed pickup for all your items.</p>
-                        <a href="#why-fee" class="why-fee-link">Why do we charge a fee?</a>
-                    </div>
-                    <div class="step-icon"><i class="fas fa-calendar-check"></i></div>
-                    <div style="flex: 1;"></div>
-                </div>
-                <div class="timeline-step" style="display: flex; align-items: center; margin-bottom: 50px;">
-                    <div style="flex: 1;"></div>
-                    <div class="step-icon"><i class="fas fa-truck"></i></div>
-                    <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
                         <div class="step-date">May</div>
                         <h3>Pickup</h3>
-                        <p>We schedule by area. You get a window; someone must be home. We text before we arrive.</p>
+                        <p>We schedule by area and come to you — no fees, no hauling. You get a window; someone must be home. We text before we arrive.</p>
                     </div>
+                    <div class="step-icon"><i class="fas fa-truck"></i></div>
+                    <div style="flex: 1;"></div>
                 </div>
                 <div class="timeline-step" style="display: flex; align-items: center;">
-                    <div class="timeline-step-text" style="flex: 1; text-align: right; padding-right: 30px;">
+                    <div style="flex: 1;"></div>
+                    <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
+                    <div class="timeline-step-text" style="flex: 1; padding-left: 30px;">
                         <div class="step-date">Summer</div>
                         <h3>Get Paid</h3>
-                        <p>Your items are stored and sold at our <strong>retail store near campus</strong> June 1&ndash;Aug 31. Buyers browse in person. {{ store_info.address }}. You receive <strong style="color: var(--accent);">20%</strong> (Free) or <strong style="color: var(--accent);">50%</strong> (Campus Swap Pickup) of the sale price via Venmo, PayPal, or Zelle when yours sells. Add your payout info in your dashboard; we process within a few days.</p>
+                        <p>Your items are stored at our storage facility near campus and sell all summer. You receive your payout percentage of the sale price via Venmo, PayPal, or Zelle when your items sell. Add your payout info in your dashboard; we process within a few days.</p>
                     </div>
-                    <div class="step-icon"><i class="fas fa-money-bill-wave"></i></div>
-                    <div style="flex: 1;"></div>
                 </div>
             </div>
         </div>
 
     </div>
 
-        <!-- Two-Tier Plan Comparison -->
-        <div id="why-fee" class="payment-structure-section reveal fade-up">
-            <h2><i class="fas fa-layer-group"></i> Choose Your Plan</h2>
-            <p class="subhead">Two ways to sell — pick what works best for you. You can always upgrade later.</p>
+        <!-- Referral Payout Model -->
+        <div id="payout" class="payment-structure-section reveal fade-up">
+            <h2><i class="fas fa-chart-line"></i> The More You Share, The More You Earn</h2>
+            <p class="subhead">Your payout starts at 20% and grows 10% for every friend who uses our service — up to 100%. No fees. No tiers.</p>
 
-            <!-- Comparison table -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 860px; margin: 0 auto;">
-                <!-- Free Plan -->
-                <div style="border: 1px solid #cbd5e1; border-radius: 16px; padding: 24px; background: #f8fafc; display: flex; flex-direction: column;">
-                    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 8px;">Free Plan</div>
-                    <div style="font-size: 2rem; font-weight: 800; color: #475569; margin-bottom: 4px;">20%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">of sale price · $0 fee</div>
-                    <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 0.9rem; color: var(--text-muted); line-height: 2; flex: 1;">
-                        <li>⚠ No guaranteed pickup</li>
-                        <li>✓ Unlimited items</li>
-                        <li>✓ We pick up if space exists</li>
-                        <li>✓ Can upgrade anytime</li>
-                    </ul>
-                    <a href="{{ url_for('onboard') }}" class="btn btn-start-free" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">Start Free</a>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 560px; margin: 32px auto 0;">
+                <!-- Payout steps -->
+                <div style="display: flex; align-items: center; justify-content: center; gap: 0; width: 100%; flex-wrap: wrap; gap: 4px;">
+                    {% for pct in [20, 30, 40, 50, 60, 70, 80, 90, 100] %}
+                    <div style="flex: 1; min-width: 48px; text-align: center; padding: 10px 4px; border-radius: 8px; {% if pct == 20 %}background: var(--primary); color: white; font-weight: 700;{% else %}background: rgba(6,78,59,0.08); color: var(--text-muted);{% endif %} font-size: 0.9rem;">
+                        {{ pct }}%
+                    </div>
+                    {% endfor %}
                 </div>
-                <!-- Campus Swap Pickup -->
-                <div style="border: 2px solid #d97706; border-radius: 16px; padding: 24px; background: #fffbeb; display: flex; flex-direction: column; position: relative;">
-                    <div style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #d97706; color: white; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 12px; border-radius: 20px;">&#9733; Recommended</div>
-                    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #92400e; margin-bottom: 8px;">Campus Swap Pickup</div>
-                    <div style="font-size: 2rem; font-weight: 800; color: #92400e; margin-bottom: 4px;">50%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">of sale price · $15 one-time pickup fee (no extra per item)</div>
-                    <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 0.9rem; color: var(--text-muted); line-height: 2; flex: 1;">
-                        <li>✓ Guaranteed pickup</li>
-                        <li>✓ Unlimited items</li>
-                        <li>✓ We come to you</li>
-                        <li>✓ Best payout</li>
-                    </ul>
-                    <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 10px 16px; font-size: 0.9rem; text-align: center; text-decoration: none; background: #d97706; border-color: #d97706;">Get Started</a>
+                <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.78rem; color: var(--text-muted); padding: 0 4px;">
+                    <span>Start here</span>
+                    <span>Refer 8 friends → keep 100%</span>
                 </div>
             </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; max-width: 700px; margin: 32px auto 0;">
+                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 1px solid rgba(6,78,59,0.15);">
+                    <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary); margin-bottom: 4px;">20%</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Starting rate<br>No code needed</div>
+                </div>
+                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 2px solid var(--accent);">
+                    <div style="font-size: 1.75rem; font-weight: 800; color: #d97706; margin-bottom: 4px;">30%</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">With a referral code<br>at signup</div>
+                </div>
+                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 1px solid rgba(6,78,59,0.15);">
+                    <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary); margin-bottom: 4px;">100%</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">After 8 confirmed<br>referrals</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 32px;">
+                <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('onboard') }}" class="btn btn-primary" style="padding: 14px 40px; font-size: 1.05rem; display: inline-block;">
+                    {{ 'Go to Dashboard' if current_user.is_authenticated else "Start Selling — It\u2019s Free" }}
+                </a>
+            </div>
+
             <style>
-                .btn-start-free:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); background: #e2e8f0 !important; }
-                @media (max-width: 680px) {
-                    #why-fee > div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
-                    #why-fee > div[style*="gap: 24px"] { flex-direction: column; align-items: center; }
-                }
                 @media (max-width: 480px) {
                     #join { padding: 40px 24px !important; }
-                    #why-fee > div[style*="grid-template-columns: 1fr 1fr"] > div {
-                        padding: 28px 24px;
-                        min-height: auto;
-                    }
-                    #why-fee > div[style*="grid-template-columns: 1fr 1fr"] > div a {
-                        margin-top: auto;
-                    }
+                    #payout > div[style*="grid-template-columns: 1fr 1fr 1fr"] { grid-template-columns: 1fr !important; }
                 }
             </style>
         </div>
@@ -534,8 +572,8 @@
                     Create your account and get started.
                 </p>
             </div>
-            <a href="{{ url_for('onboard') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">
-                Start Selling
+            <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('onboard') }}" class="btn btn-primary" style="padding: 16px 40px; font-size: 1.1rem; display: inline-block;">
+                {{ 'Go to Dashboard' if current_user.is_authenticated else 'Start Selling' }}
             </a>
         </div>
     </div>
@@ -560,36 +598,64 @@
     };
 
     const receiptItems = [];
-    let lastTotal = -1;
+    let lastRoomValue = -1;
+    let lastEarnings = -1;
     const tooltipEl = document.getElementById('room-tooltip');
     const totalEl = document.getElementById('room-total');
-    const receiptListEl = document.getElementById('room-receipt-list');
-    const receiptTotalEl = document.getElementById('room-receipt-total');
+    const sliderSection = document.getElementById('slider-section');
+    const sliderEl = document.getElementById('referral-slider');
+    const sliderPctLabel = document.getElementById('slider-pct-label');
+    const sliderEarningsEl = document.getElementById('slider-earnings-amount');
+    const sliderHintEl = document.getElementById('slider-referral-hint');
     const polygons = document.querySelectorAll('#room-svg polygon');
 
     function formatLabel(label) {
         return label === 'acunit' ? 'AC Unit' : label.charAt(0).toUpperCase() + label.slice(1);
     }
 
+    function updateSliderTrack() {
+        const pct = parseInt(sliderEl.value, 10);
+        const fill = ((pct - 20) / 80) * 100;
+        sliderEl.style.background = `linear-gradient(to right, var(--primary) ${fill}%, #e2e8f0 ${fill}%)`;
+    }
+
     function updateReceipt() {
-        const total = receiptItems.reduce((sum, it) => sum + it.value, 0);
-        totalEl.textContent = '$' + total;
-        if (total !== lastTotal && lastTotal >= 0) {
+        const pct = parseInt(sliderEl.value, 10);
+        const totalRoomValue = receiptItems.reduce((sum, it) => sum + it.value * 2, 0);
+        const totalEarnings = Math.round(totalRoomValue * pct / 100);
+
+        // Animate big room value number
+        totalEl.textContent = '$' + totalRoomValue;
+        if (totalRoomValue !== lastRoomValue && lastRoomValue >= 0) {
             totalEl.classList.add('pop');
             totalEl.addEventListener('animationend', () => totalEl.classList.remove('pop'), { once: true });
         }
-        lastTotal = total;
-        receiptTotalEl.textContent = total > 0 ? 'Total Potential Earnings: $' + total : 'Total Potential Earnings:';
+        lastRoomValue = totalRoomValue;
 
-        if (receiptItems.length === 0) {
-            receiptListEl.innerHTML = '<li class="room-receipt-empty">Click items above to add to your receipt</li>';
+        // Show/hide slider section
+        sliderSection.style.display = receiptItems.length > 0 ? 'block' : 'none';
+
+        // Update slider label and earnings
+        sliderPctLabel.textContent = pct + '%';
+        sliderEarningsEl.textContent = '$' + totalEarnings;
+        if (totalEarnings !== lastEarnings && lastEarnings >= 0) {
+            sliderEarningsEl.classList.add('pop');
+            sliderEarningsEl.addEventListener('animationend', () => sliderEarningsEl.classList.remove('pop'), { once: true });
+        }
+        lastEarnings = totalEarnings;
+
+        // Referral hint
+        const referralsNeeded = (pct - 20) / 10;
+        sliderHintEl.className = 'slider-referral-hint';
+        if (pct === 20) {
+            sliderHintEl.classList.add('at-start');
+            sliderHintEl.textContent = 'Starting rate — no referrals needed';
+        } else if (pct === 100) {
+            sliderHintEl.classList.add('at-max');
+            sliderHintEl.textContent = 'You keep everything — refer 8 friends to unlock this';
         } else {
-            const header = '<li class="room-receipt-header"><span>Item</span><span>Sale Price</span><span>Your Profit</span></li>';
-            const rows = receiptItems.map(it => {
-                const salePrice = it.value * 2;
-                return '<li><span>' + it.label + '</span><span>$' + salePrice + '</span><span>$' + it.value + '</span></li>';
-            }).join('');
-            receiptListEl.innerHTML = header + rows;
+            sliderHintEl.classList.add('in-progress');
+            sliderHintEl.textContent = 'Refer ' + referralsNeeded + ' friend' + (referralsNeeded !== 1 ? 's' : '') + ' to unlock ' + pct + '%';
         }
 
         polygons.forEach(p => {
@@ -597,13 +663,17 @@
             const inReceipt = receiptItems.some(it => it.id === id);
             p.classList.toggle('receipt-active', inReceipt);
         });
+
+        updateSliderTrack();
     }
+
+    sliderEl.addEventListener('input', updateReceipt);
 
     polygons.forEach(polygon => {
         polygon.addEventListener('mouseenter', function() {
             const label = this.dataset.label || formatLabel(this.dataset.item);
             const value = parseInt(this.dataset.value, 10);
-            tooltipEl.textContent = label + ': $' + value;
+            tooltipEl.textContent = label + ' — est. $' + (value * 2);
             tooltipEl.classList.add('visible');
         });
         polygon.addEventListener('mouseleave', function() {
@@ -623,6 +693,7 @@
         });
     });
 
+    updateSliderTrack();
     updateReceipt();
 </script>
 {% endblock %}

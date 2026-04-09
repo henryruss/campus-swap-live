@@ -23,6 +23,13 @@
                 <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 12px;">We'll text you updates about your pickup — nothing else.</p>
             </div>
             <input type="password" name="password" placeholder="Choose Password" required>
+            <div style="margin: 16px 0 4px;">
+                <input type="text" name="referral_code" id="referral_code_input" placeholder="Referral code (optional)"
+                       value="{{ prefill_referral_code or '' }}"
+                       autocomplete="off" autocapitalize="characters" style="text-transform:uppercase;">
+                <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 4px;">Have a referral code? Enter it here to start at 30% — and earn up to 100% by referring friends.</p>
+                <p id="referral_validation_msg" style="font-size:0.82rem; margin:2px 0; min-height:1.2em;"></p>
+            </div>
             {% if turnstile_site_key %}
             <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
             <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 16px 0;"></div>
@@ -34,4 +41,35 @@
         </p>
     </div>
 </div>
+<script>
+(function() {
+    var input = document.getElementById('referral_code_input');
+    var msg = document.getElementById('referral_validation_msg');
+    if (!input) return;
+    var lastCode = '';
+    input.addEventListener('blur', function() {
+        var code = input.value.trim().toUpperCase();
+        input.value = code;
+        if (!code || code === lastCode) return;
+        lastCode = code;
+        msg.style.color = 'var(--text-muted)';
+        msg.textContent = 'Checking…';
+        fetch('/referral/validate?code=' + encodeURIComponent(code))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.valid) {
+                    msg.style.color = '#15803d';
+                    msg.textContent = '✓ Code accepted — ' + data.referrer_name + ' referred you';
+                } else {
+                    msg.style.color = '#dc2626';
+                    msg.textContent = '✗ Code not found';
+                }
+            })
+            .catch(function() { msg.textContent = ''; });
+    });
+    input.addEventListener('input', function() {
+        input.value = input.value.toUpperCase();
+    });
+})();
+</script>
 {% endblock %}

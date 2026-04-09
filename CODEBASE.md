@@ -68,6 +68,9 @@ pickup_week: 'week1' | 'week2' | None  — seller's stated preference (per-user,
 pickup_time_preference ('morning'|'afternoon'|'evening'|null)
 moveout_date (Date, nullable)
 is_worker (bool), worker_status (None|'pending'|'approved'|'rejected'), worker_role (None|'driver'|'organizer'|'both')
+referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, generated at account creation
+referred_by_id (FK → User, nullable) — who gave them the code
+payout_rate (Integer, default 20) — stored percentage; updated when referrals are confirmed
 
 Properties: has_pickup_location, pickup_display, is_guest_account
 ```
@@ -88,6 +91,9 @@ photo_url (cover photo), video_url
 gallery_photos → [ItemPhoto]
 price_changed_acknowledged (bool)
 price_updated_at
+storage_location_id (FK → StorageLocation, nullable) — where the item physically lives
+storage_row (String, nullable) — aisle/row label within the storage location
+storage_note (Text, nullable) — freeform note from organizer (e.g. "large box, shelf 3")
 ```
 
 ### InventoryCategory
@@ -149,6 +155,16 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 'crew_applications_open', 'crew_allowed_email_domain', 'availability_deadline_day',
 'drivers_per_truck', 'organizers_per_truck' (unused for capacity — superseded by stagger formula), 'max_trucks_per_shift',
 'shifts_required' (minimum shifts for season payout, default '10')
+Referral program keys (defaults): 'referral_base_rate' ('20'), 'referral_signup_bonus' ('10'),
+'referral_bonus_per_referral' ('10'), 'referral_max_rate' ('100'), 'referral_program_active' ('true')
+```
+
+### Referral
+```
+One record per (referrer_id, referred_id) pair. referred_id is unique (one referrer per user).
+id, referrer_id (FK → User), referred_id (FK → User, unique)
+created_at, confirmed (bool, default False), confirmed_at (nullable)
+Relationships: referrer → User (backref referrals_given), referred → User (backref referral_received, uselist=False)
 ```
 
 ### WorkerApplication
@@ -186,6 +202,8 @@ id, week_id (FK), day_of_week ('mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun')
 slot: 'am' | 'pm'
 trucks (Integer, default 2), is_active (Boolean, default True)
 created_at
+truck_unit_plan (Text, nullable) — JSON dict {"truck_num": storage_location_id} — planned destination per truck;
+  written by admin before pickups exist; synced to ShiftPickup.storage_location_id when pickups are added
 Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
 Properties: label, sort_key, drivers_needed, organizers_needed,
             driver_assignments, organizer_assignments, is_fully_staffed, status_label
@@ -197,6 +215,8 @@ One worker assigned to one shift in a specific role.
 id, shift_id (FK), worker_id (FK → User), role_on_shift ('driver'|'organizer')
 truck_number (Integer, nullable — NULL for organizers; 1-N for movers)
 assigned_at, assigned_by_id (FK → User, nullable — NULL = optimizer)
+completed_at (DateTime, nullable) — per-worker, per-role completion timestamp;
+  set when driver taps End Shift OR when organizer taps End Intake; independent
 Relationships: shift → Shift, worker → User, assigned_by → User
 ```
 
@@ -207,9 +227,12 @@ id, shift_id (FK → Shift), seller_id (FK → User), truck_number (Integer)
 stop_order (Integer, nullable — populated by spec #6)
 status: 'pending' | 'completed' | 'issue'   default: 'pending'
 notes (Text, nullable), completed_at (DateTime, nullable)
+storage_location_id (FK → StorageLocation, nullable) — planned destination unit;
+  written by admin only; pre-populated from Shift.truck_unit_plan when seller is added
 created_at, created_by_id (FK → User)
 Unique constraint: (shift_id, seller_id) — seller globally unique across all shifts
-Relationships: shift → Shift, seller → User (backref: shift_pickups), created_by → User
+Relationships: shift → Shift, seller → User (backref: shift_pickups), created_by → User,
+               storage_location → StorageLocation
 ```
 
 ### ShiftRun
@@ -228,6 +251,43 @@ preference_type: 'preferred' | 'avoided'
 created_at
 Unique constraint: (user_id, target_user_id, preference_type)
 Relationships: user → User (backref: worker_preferences), target_user → User
+```
+
+### StorageLocation
+```
+A physical storage unit or warehouse where items are held after pickup.
+id, name (String), address (String)
+location_note (Text, nullable) — directions, access code, landmarks
+capacity_note (Text, nullable) — e.g. "Unit 14B, max ~80 items"
+is_active (Boolean, default True), is_full (Boolean, default False)
+created_at, created_by_id (FK → User, nullable)
+Relationships: items → [InventoryItem], intake_records → [IntakeRecord]
+```
+
+### IntakeRecord
+```
+Append-only log of one organizer receiving one item at a storage location.
+Re-submissions create new rows (not updates) — full audit trail preserved.
+id, item_id (FK → InventoryItem), shift_id (FK → Shift), organizer_id (FK → User)
+storage_location_id (FK → StorageLocation), storage_row (String, nullable)
+storage_note (Text, nullable), quality_before (Integer, nullable — 1–5)
+quality_after (Integer, nullable — 1–5), created_at
+Relationships: item → InventoryItem, shift → Shift, organizer → User,
+               storage_location → StorageLocation
+```
+
+### IntakeFlag
+```
+Flagged item during intake: damaged, missing, or completely unidentified.
+id, item_id (FK → InventoryItem, nullable — NULL for unknown/unidentified items)
+shift_id (FK → Shift), intake_record_id (FK → IntakeRecord, nullable)
+organizer_id (FK → User)
+flag_type: 'damaged' | 'missing' | 'unknown'
+description (Text, nullable), resolved (Boolean, default False)
+resolved_at (DateTime, nullable), resolved_by_id (FK → User, nullable)
+resolution_note (Text, nullable), created_at
+Relationships: item → InventoryItem, shift → Shift, intake_record → IntakeRecord,
+               organizer → User, resolved_by → User
 ```
 
 ---
@@ -256,7 +316,8 @@ Relationships: user → User (backref: worker_preferences), target_user → User
 | Route | Function | Notes |
 |---|---|---|
 | `GET/POST /login` | `login` | Email/password login |
-| `GET/POST /register` | `register` | New account |
+| `GET/POST /register` | `register` | New account. Accepts ?ref= param (pre-fills referral code). |
+| `GET /referral/validate` | `referral_validate` | AJAX: validate referral code; returns {valid, referrer_name} (first name + last initial only). Returns {valid: false} if program inactive. |
 | `GET /logout` | `logout` | |
 | `GET /auth/google` | `auth_google` | OAuth redirect |
 | `GET /auth/google/callback` | `auth_google_callback` | OAuth callback |
@@ -342,29 +403,44 @@ Relationships: user → User (backref: worker_preferences), target_user → User
 | `POST /admin/digest/send` | `send_approval_digest` | Super admin manual trigger for digest email |
 | `POST /admin/mass-email` | `admin_mass_email` | |
 | `POST /admin/database/reset` | `admin_database_reset` | Super admin only |
+| `POST /admin/settings/referral` | `admin_referral_settings` | Update referral program AppSettings (super admin only) |
 | `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker (sets worker_role='both'); sends email |
 | `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
-| `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists |
-| `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller) |
+| `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists + destination unit selectors |
+| `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` | `admin_shift_remove_stop` | Remove pending stop only |
 | `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` | `admin_shift_assign_mover_truck` | Assign driver to truck (cap-enforced); truck_number=0 unassigns |
 | `POST /admin/crew/shift/<shift_id>/assign_movers_bulk` | `admin_shift_assign_movers_bulk` | Assign multiple movers to a truck in one submit |
+| `POST /admin/crew/shift/<shift_id>/truck/<truck_number>/assign_unit` | `admin_shift_assign_unit` | Write truck→unit mapping to Shift.truck_unit_plan; sync to existing pending pickups for that truck. Returns JSON. |
+| `GET /admin/crew/shift/<shift_id>/intake` | `admin_shift_intake_log` | Full read-only intake log for a shift (all records + flags) |
+| `POST /admin/intake/flag/<flag_id>/resolve` | `admin_intake_flag_resolve` | Resolve a single IntakeFlag with resolution note |
+| `GET /admin/intake/flagged` | `admin_intake_flagged` | Damaged/missing review queue — all items with unresolved flags (excl. sold/rejected) |
+| `POST /admin/intake/flagged/remove` | `admin_intake_flagged_remove` | Bulk reject: sets status='rejected', auto-resolves all flags with audit note |
+| `GET /admin/storage` | `admin_storage_index` | Storage location list + inline create form. Super admin only. |
+| `POST /admin/storage/create` | `admin_storage_create` | Create StorageLocation. Super admin only. |
+| `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields. Super admin only. |
+| `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
 
 ### Crew (Worker Accounts)
 | Route | Function | Notes |
 |---|---|---|
 | `GET/POST /crew/apply` | `crew_apply` | Worker application form (role_pref field removed; sets 'both') |
 | `GET /crew/pending` | `crew_pending` | Pending approval holding page |
-| `GET /crew` | `crew_dashboard` | Approved worker portal — my schedule (upcoming only), shift history, today's shift banner |
+| `GET /crew` | `crew_dashboard` | Approved worker portal — my schedule (upcoming only, links to role-appropriate view), shift history, today's shift banner, Open Intake button for organizers |
 | `GET/POST /crew/availability` | `crew_availability` | Weekly availability + partner preferences section |
 | `POST /crew/preferences` | `crew_save_preferences` | Save WorkerPreference records (replaces all existing) |
 | `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers, published weeks only) |
-| `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops |
+| `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops with item photo strip |
 | `POST /crew/shift/<shift_id>/start` | `crew_shift_start` | Create ShiftRun; blocked for future shifts |
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion |
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending |
 | `POST /crew/shift/<shift_id>/complete_retroactive` | `crew_shift_complete_retroactive` | One-click retroactive completion for past shifts |
-| `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; unconditional for past shifts |
+| `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; sets ShiftAssignment.completed_at for driver; unconditional for past shifts |
+| `GET /crew/intake/<shift_id>` | `crew_intake_shift` | Organizer intake page; requires organizer role_on_shift; phone+desktop responsive |
+| `POST /crew/intake/<shift_id>/item/<item_id>` | `crew_intake_submit` | Submit intake record for one item; creates IntakeRecord (append-only); optionally creates IntakeFlag; updates InventoryItem storage fields |
+| `GET /crew/intake/search` | `crew_intake_search` | Search items by ID or seller name; returns HTML partial for fetch into #search-results |
+| `POST /crew/intake/<shift_id>/unknown` | `crew_intake_log_unknown` | Log an unidentified item as IntakeFlag (flag_type='unknown') |
+| `POST /crew/intake/<shift_id>/complete` | `crew_intake_complete` | Set ShiftAssignment.completed_at for organizer; gated on received_count >= total_items |
 
 ### Shift Scheduling (Admin)
 | Route | Function | Notes |
@@ -375,6 +451,7 @@ Relationships: user → User (backref: worker_preferences), target_user → User
 | `POST /admin/schedule/<week_id>/optimize` | `admin_schedule_optimize` | Run greedy optimizer, clear + rewrite all ShiftAssignments. |
 | `POST /admin/schedule/<week_id>/publish` | `admin_schedule_publish` | Set status=published, email all assigned workers. |
 | `POST /admin/schedule/<week_id>/unpublish` | `admin_schedule_unpublish` | Return to draft. Silent. |
+| `POST /admin/schedule/<week_id>/delete` | `admin_schedule_delete` | Delete draft ShiftWeek. Bulk SQL DELETE in FK order: IntakeFlags → IntakeRecords → ShiftPickups → ShiftRuns → ShiftAssignments → Shifts → ShiftWeek. Super admin only. |
 | `POST /admin/schedule/shift/<shift_id>/update` | `admin_shift_update` | Save trucks count + all assignments for one shift. Redirects to `#shift-<id>`. |
 | `POST /admin/schedule/shift/<shift_id>/swap` | `admin_shift_swap` | Replace one worker on a published shift. Sends swap emails. |
 
@@ -403,7 +480,7 @@ about.html
 inventory.html                 — Shop front (category grid + item cards)
 product.html                   — Product detail page (gallery, buy button)
 dashboard.html                 — Seller dashboard (items, status, upgrade prompts)
-admin.html                     — Admin panel (bulk edit, mark sold, exports)
+admin.html                     — Admin panel (bulk edit, mark sold, exports); Crew section has quick links + static "Crew" badge
 admin_approve.html             — Item approval queue
 admin_seller_panel.html        — Slide-out seller profile panel partial (no layout extends)
 admin_sidebar.html             — Admin nav sidebar partial
@@ -436,14 +513,21 @@ _category_grid.html            — Category grid partial
 dashboard_pickup_form.html     — Pickup form partial
 crew/apply.html                — Worker application form (no role_pref field; Mover/Organizer role cards)
 crew/pending.html              — Application submitted / awaiting approval
-crew/dashboard.html            — Worker portal: today's shift banner (time+in-progress aware), my schedule (upcoming, clickable rows, day-merged), shift history (progress counter + completed cards)
+crew/dashboard.html            — Worker portal: today's shift banner (time+in-progress aware), my schedule (upcoming, clickable rows, role-aware links), shift history (progress counter + completed cards), Open Intake button for organizers, Review Flags banner
 crew/availability.html         — Weekly availability update + partner preferences (custom dropdown picker)
 crew/_availability_grid.html   — Availability grid partial
 crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O abbreviations; Mover/Organizer legend
-crew/shift.html                — Phone-optimized shift view: pre-start/in-progress/past states; inline notes; mark-incomplete; retroactive complete
-admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form
-admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card
-admin/shift_ops.html           — Ops page: green mover assignment panel (cap-enforced multi-select picker) + route stop lists per truck
+crew/shift.html                — Phone-optimized mover shift view: pre-start/in-progress/past states; inline notes; mark-incomplete; retroactive complete; horizontally scrollable item photo+ID strip per stop
+crew/intake.html               — Organizer intake page: truck sections with received/total counters, item search, bottom-sheet modal for submission; responsive (960px+ two-column, 760px+ trucks grid)
+crew/_intake_modal.html        — Bottom-sheet modal partial embedded in crew/intake.html
+crew/intake_search_results.html — Partial rendered via fetch into #search-results; shows item photo, ID, seller name
+admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form; Delete Week button (draft-only); Storage Units link
+admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
+admin/shift_ops.html           — Ops page: green mover assignment panel + route stop lists + destination unit auto-save dropdown + Intake Summary section
+admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
+admin/storage_detail.html      — Items at a given storage location, filterable by status
+admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
+admin/intake_flagged.html      — Damaged/missing review queue; checkbox bulk selection + "Remove from Marketplace" bulk action
 ```
 
 ---
@@ -458,26 +542,37 @@ pending_valuation → (admin approves) → approved → (seller confirms logisti
                                                        → (admin cancels request) → pending_valuation
 
 Operational milestones (don't change status):
-  picked_up_at       — item collected from seller
-  arrived_at_store_at — item physically arrived at warehouse
+  picked_up_at         — item collected from seller
+  arrived_at_store_at  — item physically arrived at warehouse
+  storage_location_id  — set by organizer at intake (which unit the item is in)
+  storage_row          — set by organizer at intake (aisle/row within unit)
+
+Admin can set status='rejected' via the damaged/missing queue to remove flagged items from the marketplace.
 ```
 
-### Service Tiers
-Both tiers include free pickup — the difference is the revenue split and guarantee level.
+### Payout Rate / Referral Program
+The two-tier Pro/Free system is replaced by a referral-driven payout rate stored on `User.payout_rate`.
 
-| Tier | `collection_method` | Payout to Seller | Fee | Item Limit | Pickup |
-|------|-------------------|-----------------|-----|------------|--------|
-| **Pro Plan** | `online` | 50% of sale price | $15 one-time | Unlimited | Guaranteed |
-| **Free Plan** | `free` | 20% of sale price | $0 | Unlimited | Space-permitting |
+| Starting situation | payout_rate |
+|--------------------|-------------|
+| New seller, no referral code | 20% (base rate) |
+| New seller who used a referral code | 30% (base + signup bonus) |
+| Referrer, per confirmed referral | +10% per referral, up to 100% |
 
-- **All new sellers start on the Free plan.** Service tier is no longer selected during onboarding — it defaults to `'free'`. Upgrade is a deliberate dashboard action.
+- `collection_method` field is retained on `InventoryItem` but no longer drives payout — `User.payout_rate` is used everywhere.
+- Payout amount: `item.price * (seller.payout_rate / 100)`. No Pro/Free distinction.
+- Referral is confirmed when `InventoryItem.arrived_at_store_at` is set during organizer intake — exactly one credit per referred seller regardless of item count.
+- `calculate_payout_rate(user)` recalculates from AppSettings: `base_rate + (signup_bonus if referred_by_id else 0) + (confirmed_count × bonus_per_referral)`, capped at `max_rate`. Result written to `User.payout_rate` at confirmation time.
+- `/upgrade_pickup` and `/upgrade_checkout` routes left in place (return redirect) to avoid broken bookmarks. UI entry points removed.
+- The $15 Pro fee is gone. `has_paid` retained harmlessly.
+- Referral program AppSetting keys: `referral_base_rate` ('20'), `referral_signup_bonus` ('10'), `referral_bonus_per_referral` ('10'), `referral_max_rate` ('100'), `referral_program_active` ('true').
+- All new sellers still get `collection_method='free'` by default (field not removed).
 - Pickup week is set per-user (`User.pickup_week`) during onboarding (optional, skippable) or from the dashboard modal at any time.
-- Pro sellers pay $15 via `/upgrade_pickup` ($15 Stripe checkout) — flow unchanged.
-- The admin free-tier confirm/reject system still exists but is no longer the gate to activity. Commented out from active UI; preserved for ops flexibility.
+- The admin free-tier confirm/reject system is commented out from active UI; preserved for ops flexibility.
 
 ### Admin Roles
 - `is_admin`: access to admin panel (inventory, approvals, free-tier management)
-- `is_super_admin`: full access (user management, database reset, mass email, category management)
+- `is_super_admin`: full access (user management, database reset, mass email, category management, schedule creation, storage unit management)
 - Pre-approved via `AdminEmail` table — role assigned at signup
 
 ### Worker / Crew Accounts
@@ -485,6 +580,15 @@ Both tiers include free pickup — the difference is the revenue split and guara
 - Admin approves/rejects at `/admin/crew/approve|reject/<user_id>`
 - Approved workers (`is_worker=True`, `worker_status='approved'`) access `/crew` dashboard
 - Workers submit weekly availability via `/crew/availability` → stored in `WorkerAvailability`
+- All workers are treated as 'both' roles — actual role gating uses `ShiftAssignment.role_on_shift`, not `User.worker_role`
+
+### Organizer Intake Flow
+1. Admin assigns a storage unit to each truck via ops page (writes to `Shift.truck_unit_plan`; syncs to `ShiftPickup.storage_location_id`)
+2. Organizer opens intake page (`/crew/intake/<shift_id>`) — sees trucks with pending pickups grouped by truck
+3. For each item: search by ID or seller name, open modal, confirm storage row, optionally flag as damaged/missing
+4. Submission creates `IntakeRecord` (append-only) and updates `InventoryItem.storage_location_id / storage_row`
+5. Organizer taps "End Intake" when `received_count >= total_items` — sets `ShiftAssignment.completed_at`
+6. Admin reviews flagged items at `/admin/intake/flagged` — can bulk-reject (status='rejected') or resolve individually
 
 ### AppSetting Flags
 - `reserve_only_mode`: 'true'/'false' — hides buy buttons, shows reserve only
@@ -502,11 +606,11 @@ Both tiers include free pickup — the difference is the revenue split and guara
 
 ## Key Patterns
 
-1. **Server-rendered only** — no React/Vue. All state changes go through form POST → redirect. Use Vanilla JS for interactivity only.
+1. **Server-rendered only** — no React/Vue. All state changes go through form POST → redirect. Use Vanilla JS for interactivity only. Exception: fetch POST for auto-save actions that would cause disruptive page reloads (e.g., destination unit dropdown on ops page) — route still does all DB writes server-side, returns JSON.
 
 2. **Flash messages** — use `flash('message', 'success'|'error'|'info')` for user feedback. Rendered in `layout.html`.
 
-3. **Auth guards** — `@login_required` for user routes. Admin routes check `current_user.is_admin`. Super admin routes use `@require_super_admin` decorator.
+3. **Auth guards** — `@login_required` for user routes. Admin routes check `current_user.is_admin`. Super admin routes use `@require_super_admin` decorator. Crew routes use `require_crew()` helper (not a decorator). Role-specific crew gating (mover vs. organizer) checks `ShiftAssignment.role_on_shift` inside each route — not `User.worker_role`.
 
 4. **New routes** — add to `app.py` following existing patterns. Group logically near related routes.
 
@@ -527,6 +631,18 @@ Both tiers include free pickup — the difference is the revenue split and guara
 12. **Shift optimizer** — `_run_optimizer(week)` in `app.py`. Pre-caches all worker availability at the start (no DB queries mid-loop). Tracks load and same-day assignments in-memory. Sort key: `(already_doubled, flexible_for_other_slot, load, abs(role_imbalance), avoid_conflict, not preferred_match)`. `truck_number` derived from slot index position (slot 0–1 → truck 1, etc.). `assigned_by_id=NULL` on ShiftAssignment means optimizer-assigned; non-NULL means manual.
 
 13. **Cron jobs** — digest email triggered via POST `/admin/digest/trigger` with `X-Cron-Secret` header or `?secret=` query param matching `DIGEST_CRON_SECRET` env var. Set up as Render cron job.
+
+14. **Eastern timezone helpers** — `_now_eastern()` and `_today_eastern()` in `app.py` use `zoneinfo.ZoneInfo('America/New_York')`. Use these for all "what day/time is it right now" logic. Never use `datetime.utcnow()` for date comparisons or slot-preference logic. Timestamps stored in DB remain UTC (SQLAlchemy default).
+
+15. **data-* attributes for JS data passing** — never pass structured data to JS event handlers via inline `tojson` in onclick attributes (breaks on special characters in strings). Use `data-*` attributes on the element and read via `element.dataset.*` in the handler.
+
+16. **Referral program helpers** — four functions in `app.py` (also re-exported via `helpers.py` for tests):
+    - `generate_unique_referral_code()` — 8-char uppercase alphanumeric (excludes O, 0, I, 1), collision-checked against DB.
+    - `apply_referral_code(new_user, code)` — looks up referrer, sets `referred_by_id`, bumps `payout_rate` by signup bonus. No-op if program inactive or code invalid.
+    - `maybe_confirm_referral_for_seller(seller)` — call in `crew_shift_stop_update` when stop becomes `'completed'`. Confirms the referral (once per seller, idempotent), recalculates referrer's rate, sends email. No-op if program inactive, no `referred_by_id`, or already confirmed.
+    - `calculate_payout_rate(user)` — `base + (signup_bonus if referred_by_id) + (confirmed × bonus_per)`, capped at max. All values from AppSettings. **Includes signup bonus in the recalculation** so a referred seller who also refers others doesn't lose their signup bonus when their rate is recalculated.
+
+16. **Bulk SQL DELETE for cascade deletes** — when deleting a parent record that has deep FK chains (ShiftWeek → Shifts → Assignments + Pickups → IntakeRecords → IntakeFlags), use `db.session.execute(delete(Model).where(...))` in FK dependency order rather than ORM cascade. ORM cascade on deeply nested relations causes StaleDataError when the session's identity map is invalidated mid-delete.
 
 ---
 
