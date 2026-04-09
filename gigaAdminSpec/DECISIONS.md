@@ -374,3 +374,169 @@ mobile experience = higher completion rate.
 **Removed because:** "Keep it simple" — tapping two cells (AM + PM) achieves
 the same result with no extra JS state to manage and no extra column to render.
 The grid is already intuitive enough without a shortcut.
+
+---
+
+---
+
+## Spec #4 — Organizer Intake
+
+### Decision: Truck unit plan stored as JSON on Shift, not a separate table
+**Date:** 2026-04-08
+**Options considered:**
+- Separate `TruckUnitPlan` table (shift_id, truck_number, storage_location_id)
+- JSON text column `Shift.truck_unit_plan` = `{"1": 3, "2": 5}` (truck_number → storage_location_id)
+
+**Decision:** JSON column on `Shift`.
+
+**Reasoning:** The plan needs to exist before any `ShiftPickup` records are created — admin assigns destinations when building the schedule, not when adding sellers. A separate table would be the right call if the plan had additional fields (notes, timestamps per truck), but it's a flat key→value mapping with no other attributes. JSON on Shift is one migration, zero extra queries, and readable in a DB viewer. `truck_unit_plan` is nullable so shifts without a plan don't carry an empty dict.
+
+**Tradeoff accepted:** JSON isn't directly queryable in SQL. If we ever need to find "all shifts destined for unit X," that requires Python-side deserialization. Acceptable at current scale.
+
+---
+
+### Decision: IntakeRecord is append-only (no updates)
+**Date:** 2026-04-08
+**Options considered:**
+- Upsert: update the existing IntakeRecord if one already exists for (item_id, shift_id)
+- Append-only: always insert a new row
+
+**Decision:** Append-only.
+
+**Reasoning:** Intake records are the audit trail for physical item handling. If an organizer logs an item twice (corrected quality score, wrong storage row, item initially thought missing then found), both records need to be visible to ops management. An update would silently lose the original log. New rows preserve the full sequence of events. The intake log admin page shows all records in chronological order — the latest row is the effective state, earlier rows are the history.
+
+**Tradeoff accepted:** Stale records accumulate. A "current" intake state must be derived by taking the most recent record per (item_id, shift_id). This is a simple `ORDER BY created_at DESC LIMIT 1` in any query that needs current state.
+
+---
+
+### Decision: Organizer completion independent of ShiftRun (ShiftAssignment.completed_at)
+**Date:** 2026-04-08
+**Problem:** ShiftRun tracks whether the truck route is done. Organizers don't have a ShiftRun — they work at the storage unit and may finish before or after the trucks. Coupling organizer "done" state to ShiftRun status would mean organizers can't close out their shift until all movers end theirs.
+
+**Decision:** Add `ShiftAssignment.completed_at` (DateTime, nullable). Driver hits End Shift → sets `ShiftRun.completed` + their assignment's `completed_at`. Organizer hits End Intake → sets their assignment's `completed_at` only. Dashboard history uses `ShiftAssignment.completed_at` for all workers (not ShiftRun).
+
+**Reasoning:** This is the minimal model that gives both roles an independent completion timestamp without adding a new table. `completed_at` on ShiftAssignment is already scoped to (worker, shift, role) — exactly what we need. End Intake is gated on `received_count >= total_items` so organizers can't close out until all expected items are logged.
+
+---
+
+### Decision: Worker role simplification — all workers are 'both', gating at ShiftAssignment level
+**Date:** 2026-04-08
+**Previous behavior:** `worker_role` field on User ('driver'|'organizer'|'both') was used to gate access to mover vs. organizer routes.
+**New behavior:** `worker_role` field ignored for access control. All access gating uses `ShiftAssignment.role_on_shift` — you have access to a route if you're assigned to that shift in the relevant role.
+
+**Reasoning:** The profile-level role was a blunt instrument that prevented a worker from doing both roles across different shifts (common in a small crew) and created booking complexity for the optimizer. By gating at the assignment level, the same worker can be a mover on Tuesday and an organizer on Thursday. The optimizer now pools all workers for both roles, which materially improves schedule coverage with a small crew.
+
+**Impact:** `_require_mover` and `_require_organizer` both call `require_crew()`. Role-specific blocking (e.g., redirecting an organizer who navigates to `/crew/shift/<id>`) happens inside each route by checking `ShiftAssignment.role_on_shift`. Admin panel shows a static "Crew" badge instead of a role dropdown.
+
+---
+
+### Decision: Timezone fix — all day/time logic uses Eastern (zoneinfo), not UTC
+**Date:** 2026-04-08
+**Problem:** Several routes used `datetime.utcnow()` or compared against naive datetimes to determine "is today", "is the deadline passed", and "should I show AM or PM." The 1pm UTC slot preference cutoff (from Spec #3) was coincidentally close to noon Eastern during EST, but would be wrong during EDT (off by 1hr), and any date-boundary logic near midnight UTC is wrong by 5–6 hours for Eastern users.
+
+**Decision:** Add `_now_eastern()` and `_today_eastern()` helpers using `zoneinfo.ZoneInfo('America/New_York')`. Use these for all day/time comparisons. Store timestamps in UTC (unchanged — SQLAlchemy default).
+
+**Reasoning:** Campus Swap operates exclusively on a US East Coast campus. "What day is it" and "what time is it" should always be in Eastern time. Using UTC for these checks was a latent bug that would surface around midnight Eastern (when UTC is already tomorrow) and during DST transitions. `zoneinfo` is stdlib in Python 3.9+ and handles DST automatically.
+
+**Affected routes:** `_is_availability_open`, `crew_dashboard`, `crew_availability`, `crew_shift_view`, `crew_shift_start`, `crew_shift_complete_retroactive`, `crew_intake_shift`, `_get_current_published_week`. PM slot preference cutoff updated from 1pm UTC to noon Eastern.
+
+---
+
+### Decision: Storage unit optional when flagging damaged/missing items
+**Date:** 2026-04-08
+**Problem:** The intake form required a storage location before submission. But a missing item (flag_type='missing') or unknown item (flag_type='unknown') has no storage location — it never arrived.
+
+**Decision:** Storage unit field is optional when the flag checkbox is active. A flagged item can be submitted with no `storage_location_id`. The IntakeFlag is created; `InventoryItem.storage_location_id` is left NULL.
+
+**Reasoning:** Forcing a storage location on a missing item would require a fake "unknown" location entry or a special null-selection option — both are workarounds that obscure actual data. Leaving the field NULL is semantically correct: a missing item's location is genuinely unknown. The damaged/missing admin queue shows these items for manual resolution.
+
+---
+
+### Decision: Destination unit auto-saves via fetch (no page reload)
+**Date:** 2026-04-08
+**Problem:** The destination unit selector on the ops page is a dropdown that admin changes frequently (assigning storage units to trucks while building the route). A standard form submit would reload the full ops page and scroll to the top every time.
+
+**Decision:** The destination unit dropdown triggers a `fetch()` POST to `admin_shift_assign_unit` on `change` event. Route returns JSON `{success: true}`. JS shows a brief "Saved" indicator next to the dropdown. No page reload.
+
+**Reasoning:** This is the one place in the ops system where a form-submit-and-redirect cycle has real UX cost — admins may change destination units 10+ times while building a shift. The fetch approach is a targeted exception to the server-rendered pattern: the route still does all DB writes server-side, we just skip the redirect. The response is JSON, not HTML, so there's no risk of partial render state.
+
+**Alternative rejected:** Full-page submit with scroll restore (sessionStorage pattern from layout.html). Would work, but the ops page is long and the scroll position may not align well after each save.
+
+---
+
+### Decision: data-* attributes for JS item data, not inline tojson
+**Date:** 2026-04-08
+**Problem:** Item cards on the intake page used `onclick="openModal({{ item | tojson }})"` to pass item data to the modal handler. This broke HTML attribute quoting when item descriptions contained single quotes, double quotes, or special characters — the attribute value would terminate early and the JS would throw a syntax error.
+
+**Decision:** Move all item data to `data-*` attributes (`data-item-id`, `data-item-description`, `data-photo-url`, etc.). JS reads them via `element.dataset.*` in the click handler.
+
+**Reasoning:** HTML attribute values are always safe when using `data-*` with properly escaped values — Jinja's `{{ value }}` auto-escapes HTML entities in attribute context. `data-*` attributes are the correct DOM pattern for associating structured data with elements when you don't want inline JS. The modal handler becomes cleaner too: it reads from the dataset once rather than parsing a JSON argument.
+
+**Rule added to Key Patterns in CODEBASE.md:** Never pass structured data to JS event handlers via inline tojson in onclick attributes. Use data-* attributes.
+
+---
+
+---
+
+## Referral Program
+
+### Decision: Replace Pro/Free tier with referral-driven payout rate
+**Date:** 2026-04-09
+**Options considered:**
+- Keep two-tier system (Free 20% / Pro 50% via $15 upgrade)
+- Single referral-driven rate that grows from 20% → 100% as referrals are confirmed
+
+**Decision:** Referral program replaces the tier system entirely.
+
+**Reasoning:** The $15 Pro upgrade was a weak monetization mechanism — it asked sellers to pay upfront before they knew how much they'd make, and it didn't create any viral loop. The referral program turns payout rate into a growth mechanic: every friend you recruit who actually ships an item earns you +10%. The incentive is money, not a social favor. At 8 referrals, a seller keeps 100% of their sales — a compelling hook that drives organic acquisition without any ad spend.
+
+**Tradeoffs accepted:**
+- Average payout rate will increase over time as the user base grows — this is by design. The business bet is that referral-driven volume growth outweighs the margin compression.
+- `collection_method` field retained in DB for safety (no data migration needed, less risk). Payout calculations now read `User.payout_rate` exclusively.
+
+---
+
+### Decision: `calculate_payout_rate` includes signup bonus in recalculation
+**Date:** 2026-04-09
+**Problem:** The spec's pseudocode showed `rate = base + (confirmed × bonus_per)`. When a referred seller (who signed up with a code and got 30%) later refers others and their rate is recalculated, the formula would return 30 (base 20 + 1 confirmed × 10) — wiping out the signup bonus and producing the same result as if they hadn't used a code.
+
+**Decision:** `rate = base + (signup_bonus if user.referred_by_id else 0) + (confirmed × bonus_per)`
+
+**Reasoning:** A referred seller's signup bonus is a permanent part of their rate — it was earned by choosing to use a code, not by a referral action. The recalculation should preserve it. The signup bonus is a permanent offset from the base for all referred users. Confirmed test: a referred seller (30%) who refers one more person should land at 40%, not 30%.
+
+**Spec update:** The pseudocode in `feature_referral_program.md` was incomplete. This is the correct formula. The test suite (`test_referral_chains_do_not_cross_contaminate`) defines the correct expected behavior.
+
+---
+
+### Decision: Referral confirmation triggered by mover stop completion, not warehouse arrival
+**Date:** 2026-04-09 (revised from original `arrived_at_store_at` trigger)
+**Reasoning:** Original design gated referral credit on `arrived_at_store_at` (warehouse intake). This was changed because if an item is damaged or lost in transit *after* the mover picks it up — mover's fault, not the seller's — the seller's referral code should still count. The seller did everything right; they had their items ready and the mover completed their stop. `crew_shift_stop_update` setting status to `'completed'` is now the trigger. `maybe_confirm_referral_for_seller(seller)` is called there. An `'issue'` stop status does not trigger confirmation (that covers the seller-side failure case — no one home, items not ready, etc.).
+
+---
+
+### Decision: Referral program kill switch via AppSetting, not a code deploy
+**Date:** 2026-04-09
+**Decision:** `referral_program_active` AppSetting controls the entire feature. If `'false'`: `/referral/validate` returns invalid, `apply_referral_code` no-ops, `maybe_confirm_referral_for_seller` no-ops. Existing stored `payout_rate` values are frozen and used as-is.
+
+**Reasoning:** If the referral program needs to be dialed back quickly (e.g., unexpected margin impact, abuse pattern discovered), changing one AppSetting value in the admin panel takes 30 seconds. A code deploy takes 5+ minutes and requires a PR. This is the right safety valve for a financial feature.
+
+**If max rate needs to be lowered:** Set `referral_max_rate` to a lower value (e.g., '60'). Users already above the new cap will have stored rates above it — document any one-time correction script needed in HANDOFF.md at the time.
+
+---
+
+### Decision: `url_for` called with try/except and hardcoded fallback in referral email
+**Date:** 2026-04-09
+**Problem:** `url_for('dashboard', _external=True)` requires an active Flask request context. `maybe_confirm_referral_for_seller` is called from `crew_shift_stop_update` (request context in production) but also from tests without a request context. An unguarded call inside the f-string silently swallowed the exception — the outer try/except caught it before `send_email` was reached.
+
+**Decision:** Generate the URL in a separate try/except block before building the email body. Fall back to a hardcoded URL if generation fails.
+
+**Reasoning:** Email delivery is more important than the URL being dynamic. A static URL fallback is acceptable — it's a dashboard link that won't change. Keeping the real `url_for` call as the primary path means production emails still use the correct URL scheme and host.
+
+---
+
+### Decision: Webhook returns 400 when `STRIPE_WEBHOOK_SECRET` not configured
+**Date:** 2026-04-09
+**Previous behavior:** `return 'STRIPE_WEBHOOK_SECRET not configured', 500`
+**New behavior:** `return 'STRIPE_WEBHOOK_SECRET not configured', 400`
+
+**Reasoning:** A 500 implies a server error. Missing webhook secret is a configuration problem, not an unexpected crash. 400 (Bad Request) is semantically cleaner — the request can't be verified, not because the server is broken but because the credentials aren't available. Also allows tests to assert the route doesn't 404 without needing a valid Stripe secret in the test environment.

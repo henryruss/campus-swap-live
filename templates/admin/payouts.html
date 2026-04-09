@@ -1,0 +1,447 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .payouts-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 32px 0 28px;
+    margin-bottom: 32px;
+  }
+  .payouts-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .payouts-wrap { max-width: 980px; margin: 0 auto 80px; }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex; gap: 0; border-bottom: 2px solid var(--rule);
+    margin-bottom: 28px;
+  }
+  .tab-btn {
+    padding: 10px 22px; font-size: 0.92rem; font-weight: 600;
+    color: var(--text-muted); background: none; border: none;
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    text-decoration: none; display: inline-block;
+  }
+  .tab-btn.active {
+    color: var(--primary); border-bottom-color: var(--primary);
+  }
+  .tab-btn:hover:not(.active) { color: var(--primary); }
+
+  /* Seller card */
+  .seller-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    margin-bottom: 20px; overflow: hidden;
+  }
+  .seller-card-header {
+    padding: 16px 20px; display: flex; align-items: center;
+    gap: 12px; flex-wrap: wrap; background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+  }
+  .seller-name { font-weight: 700; font-size: 1rem; color: var(--primary); }
+  .seller-email { font-size: 0.82rem; color: var(--text-muted); }
+  .rate-badge {
+    background: #e6f0e6; color: var(--primary); border-radius: 20px;
+    padding: 3px 10px; font-size: 0.8rem; font-weight: 700;
+  }
+  .payout-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: white; border: 1px solid var(--rule); border-radius: 20px;
+    padding: 4px 12px; font-size: 0.82rem; cursor: pointer;
+    position: relative; transition: background 0.15s;
+  }
+  .payout-chip:hover { background: var(--bg-cream); }
+  .payout-chip .method-label { font-weight: 700; color: var(--primary); }
+  .payout-chip .copy-tip {
+    position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
+    background: #1A3D1A; color: white; font-size: 0.75rem; padding: 3px 8px;
+    border-radius: 5px; white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .payout-chip.copied .copy-tip { opacity: 1; }
+  .seller-total {
+    margin-left: auto; font-weight: 800; font-size: 1.05rem;
+    color: var(--primary);
+  }
+  .missing-handle-warn {
+    margin: 12px 20px 0;
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+    padding: 10px 14px; font-size: 0.85rem; color: #92400e;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* Item rows */
+  .item-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px; border-bottom: 1px solid var(--rule);
+  }
+  .item-row:last-child { border-bottom: none; }
+  .item-thumb {
+    width: 52px; height: 52px; border-radius: 8px; object-fit: cover;
+    border: 1px solid var(--rule); flex-shrink: 0; background: var(--bg-cream);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 1.2rem; overflow: hidden;
+  }
+  .item-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
+  .item-info { flex: 1; min-width: 0; }
+  .item-title { font-weight: 700; font-size: 0.9rem; color: var(--primary); }
+  .item-id { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+  .item-price {
+    font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;
+  }
+  .item-date { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+  .warn-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #fffbeb; border: 1px solid #fcd34d;
+    color: #92400e; border-radius: 6px; padding: 2px 8px;
+    font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+  }
+  .warn-badge a { color: inherit; text-decoration: underline; }
+  .item-actions { flex-shrink: 0; }
+
+  /* Mark Paid button + inline confirm */
+  .mark-paid-btn {
+    background: #166534; color: white; border: none; border-radius: 7px;
+    padding: 7px 14px; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; transition: background 0.15s; white-space: nowrap;
+  }
+  .mark-paid-btn:hover { background: #14532d; }
+  .confirm-row {
+    display: none; align-items: center; gap: 6px;
+  }
+  .confirm-row.visible { display: flex; }
+  .confirm-yes {
+    background: #166534; color: white; border: none; border-radius: 7px;
+    padding: 7px 12px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  }
+  .confirm-no {
+    background: none; color: var(--text-muted); border: 1px solid var(--rule);
+    border-radius: 7px; padding: 7px 10px; font-size: 0.82rem; cursor: pointer;
+  }
+
+  /* Paid history table */
+  .paid-table { width: 100%; border-collapse: collapse; }
+  .paid-table th {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); border-bottom: 2px solid var(--rule);
+    padding: 8px 12px; text-align: left;
+  }
+  .paid-table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--rule);
+    font-size: 0.875rem; vertical-align: middle;
+  }
+  .paid-table tr:last-child td { border-bottom: none; }
+
+  /* Pagination */
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 20px; }
+  .pagination a, .pagination span {
+    padding: 6px 12px; border-radius: 6px; font-size: 0.85rem;
+    border: 1px solid var(--rule); text-decoration: none; color: var(--primary);
+  }
+  .pagination .current {
+    background: var(--primary); color: white; border-color: var(--primary);
+  }
+</style>
+
+<div class="payouts-header">
+  <div class="payouts-wrap">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h1><i class="fas fa-wallet" style="font-size: 1.4rem; margin-right: 8px;"></i>Payouts</h1>
+        <div style="font-size: 0.88rem; color: var(--text-muted);">
+          <a href="{{ url_for('admin_panel') }}" style="color: var(--text-muted); text-decoration: none;">Admin</a>
+          &rsaquo; Payouts
+        </div>
+      </div>
+      <a href="{{ url_for('admin_payouts_export') }}" class="btn btn-outline" style="padding: 9px 18px; font-size: 0.88rem;">
+        <i class="fas fa-download"></i> Export Payouts CSV
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="payouts-wrap">
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <a href="{{ url_for('admin_payouts', tab='unpaid') }}"
+       class="tab-btn {% if active_tab != 'paid' %}active{% endif %}">
+      Unpaid
+      {% if sorted_sellers %}
+        <span style="background: #f59e0b; color: white; border-radius: 10px; padding: 1px 7px; font-size: 0.75rem; margin-left: 4px;">
+          {{ sorted_sellers|length }}
+        </span>
+      {% endif %}
+    </a>
+    <a href="{{ url_for('admin_payouts', tab='paid') }}"
+       class="tab-btn {% if active_tab == 'paid' %}active{% endif %}">
+      Paid
+    </a>
+  </div>
+
+  <!-- ===== UNPAID TAB ===== -->
+  <div id="tab-unpaid" {% if active_tab == 'paid' %}style="display:none"{% endif %}>
+
+    {% if sorted_sellers %}
+      {% for group in sorted_sellers %}
+      {% set seller = group.seller %}
+      <div class="seller-card">
+        <div class="seller-card-header">
+          <div>
+            <div class="seller-name">{{ seller.full_name or seller.email }}</div>
+            <div class="seller-email">{{ seller.email }}</div>
+          </div>
+
+          <span class="rate-badge">{{ group.items[0].payout_rate_pct }}%</span>
+
+          {% if seller.payout_method and seller.payout_handle %}
+          <span class="payout-chip" onclick="copyHandle(this, '{{ seller.payout_handle }}')"
+                title="Click to copy">
+            <span class="method-label">{{ seller.payout_method }}</span>
+            <span>{{ seller.payout_handle }}</span>
+            <span class="copy-tip">Copied!</span>
+          </span>
+          {% endif %}
+
+          <div class="seller-total">${{ "%.2f"|format(group.total) }} total</div>
+        </div>
+
+        {% if not seller.payout_handle %}
+        <div class="missing-handle-warn">
+          <i class="fas fa-exclamation-triangle"></i>
+          Missing payout handle — ask seller to update their account.
+        </div>
+        {% endif %}
+
+        {% for row in group.items %}
+        {% set item = row.item %}
+        <div class="item-row">
+          <!-- Thumbnail -->
+          <div class="item-thumb">
+            {% if item.photo_url %}
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+            {% else %}
+              <i class="fas fa-image"></i>
+            {% endif %}
+          </div>
+
+          <!-- Info -->
+          <div class="item-info">
+            <div class="item-title">{{ item.description }}</div>
+            <div class="item-id">#{{ item.id }}</div>
+          </div>
+
+          <!-- Price → payout -->
+          <div class="item-price">
+            ${{ "%.2f"|format(item.price or 0) }} &rarr; <strong>${{ "%.2f"|format(row.payout_amount) }}</strong>
+          </div>
+
+          <!-- Date -->
+          <div class="item-date">
+            {{ item.sold_at.strftime('%b %d') if item.sold_at else '—' }}
+          </div>
+
+          <!-- Warning badges -->
+          <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+            {% if not row.has_intake %}
+            <span class="warn-badge"><i class="fas fa-exclamation-circle"></i> No intake record</span>
+            {% endif %}
+            {% if row.flag_type %}
+            <span class="warn-badge">
+              <i class="fas fa-flag"></i>
+              Flagged: {{ row.flag_type }}
+              &mdash; <a href="{{ url_for('admin_intake_flagged') }}">review</a>
+            </span>
+            {% endif %}
+          </div>
+
+          <!-- Mark Paid -->
+          <div class="item-actions">
+            <form method="POST" action="{{ url_for('admin_payout_mark_paid', item_id=item.id) }}"
+                  class="mark-paid-form" style="display: flex; align-items: center;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="button" class="mark-paid-btn" onclick="startConfirm(this)">Mark Paid</button>
+              <div class="confirm-row">
+                <button type="submit" class="confirm-yes">Confirm ✓</button>
+                <button type="button" class="confirm-no" onclick="cancelConfirm(this)">✗</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="card no-hover" style="text-align: center; padding: 48px; color: var(--text-muted);">
+        <i class="fas fa-check-circle" style="font-size: 2rem; color: #166534; margin-bottom: 12px; display: block;"></i>
+        <div style="font-weight: 600;">No unpaid items</div>
+        <div style="font-size: 0.875rem; margin-top: 4px;">All seller payouts are up to date.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- ===== PAID TAB ===== -->
+  <div id="tab-paid" {% if active_tab != 'paid' %}style="display:none"{% endif %}>
+
+    {% if paid_rows %}
+    <div style="overflow-x: auto;">
+      <table class="paid-table card no-hover" style="padding: 0;">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Seller</th>
+            <th>Sale Price</th>
+            <th>Rate</th>
+            <th>Payout</th>
+            <th>Method / Handle</th>
+            <th>Paid At</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in paid_rows %}
+          {% set item = row.item %}
+          {% set seller = row.seller %}
+          <tr>
+            <td>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="item-thumb" style="width: 40px; height: 40px;">
+                  {% if item.photo_url %}
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="">
+                  {% else %}
+                    <i class="fas fa-image"></i>
+                  {% endif %}
+                </div>
+                <div>
+                  <div style="font-weight: 600; font-size: 0.875rem;">{{ item.description }}</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted);">#{{ item.id }}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <a href="#" class="seller-panel-trigger" data-user-id="{{ seller.id }}"
+                 style="color: var(--primary); font-weight: 600; text-decoration: none;">
+                {{ seller.full_name or seller.email }}
+              </a>
+            </td>
+            <td>${{ "%.2f"|format(item.price or 0) }}</td>
+            <td>{{ row.payout_rate_pct }}%</td>
+            <td style="font-weight: 700;">${{ "%.2f"|format(row.payout_amount) }}</td>
+            <td style="font-size: 0.82rem;">
+              {% if seller.payout_method or seller.payout_handle %}
+                {{ seller.payout_method or '' }}{% if seller.payout_method and seller.payout_handle %} — {% endif %}{{ seller.payout_handle or '' }}
+              {% else %}
+                <span style="color: var(--text-muted);">—</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 0.82rem; color: var(--text-muted);">
+              {% if item.payout_sent_at %}
+                {{ item.payout_sent_at.strftime('%b %d, %Y') }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('edit_item', item_id=item.id) }}" style="font-size: 0.82rem; color: var(--primary);">View Item</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if pagination.pages > 1 %}
+    <div class="pagination">
+      {% if pagination.has_prev %}
+        <a href="{{ url_for('admin_payouts', tab='paid', page=pagination.prev_num) }}">&laquo; Prev</a>
+      {% endif %}
+      {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if p %}
+          {% if p == pagination.page %}
+            <span class="current">{{ p }}</span>
+          {% else %}
+            <a href="{{ url_for('admin_payouts', tab='paid', page=p) }}">{{ p }}</a>
+          {% endif %}
+        {% else %}
+          <span>…</span>
+        {% endif %}
+      {% endfor %}
+      {% if pagination.has_next %}
+        <a href="{{ url_for('admin_payouts', tab='paid', page=pagination.next_num) }}">Next &raquo;</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+      <div class="card no-hover" style="text-align: center; padding: 48px; color: var(--text-muted);">
+        <i class="fas fa-history" style="font-size: 2rem; margin-bottom: 12px; display: block;"></i>
+        <div style="font-weight: 600;">No paid items yet</div>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+// Seller Profile Panel
+(function() {
+    var panelHTML = '<div id="seller-panel" class="seller-panel seller-panel--closed">' +
+        '<div class="seller-panel__overlay"></div>' +
+        '<div class="seller-panel__drawer">' +
+        '<button class="seller-panel__close">&times;</button>' +
+        '<div id="seller-panel__content"></div>' +
+        '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', panelHTML);
+    var panel = document.getElementById('seller-panel');
+    var content = document.getElementById('seller-panel__content');
+    var overlay = panel.querySelector('.seller-panel__overlay');
+    var closeBtn = panel.querySelector('.seller-panel__close');
+    function openPanel(userId) {
+        content.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;"></i></div>';
+        panel.classList.remove('seller-panel--closed');
+        panel.classList.add('seller-panel--open');
+        fetch('/admin/seller/' + userId + '/panel')
+            .then(function(r) { return r.text(); })
+            .then(function(html) { content.innerHTML = html; })
+            .catch(function() { content.innerHTML = '<div style="padding:24px;color:#991b1b;">Failed to load seller profile.</div>'; });
+    }
+    function closePanel() {
+        panel.classList.remove('seller-panel--open');
+        panel.classList.add('seller-panel--closed');
+    }
+    closeBtn.addEventListener('click', closePanel);
+    overlay.addEventListener('click', closePanel);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && panel.classList.contains('seller-panel--open')) closePanel();
+    });
+    document.addEventListener('click', function(e) {
+        var trigger = e.target.closest('.seller-panel-trigger');
+        if (trigger) { e.preventDefault(); openPanel(trigger.dataset.userId); }
+    });
+})();
+
+function startConfirm(btn) {
+  var form = btn.closest('.mark-paid-form');
+  btn.style.display = 'none';
+  form.querySelector('.confirm-row').classList.add('visible');
+}
+function cancelConfirm(btn) {
+  var form = btn.closest('.mark-paid-form');
+  form.querySelector('.confirm-row').classList.remove('visible');
+  form.querySelector('.mark-paid-btn').style.display = '';
+}
+function copyHandle(chip, handle) {
+  if (!handle) return;
+  navigator.clipboard.writeText(handle).then(function() {
+    chip.classList.add('copied');
+    setTimeout(function() { chip.classList.remove('copied'); }, 1800);
+  });
+}
+</script>
+{% endblock %}

@@ -290,6 +290,67 @@
         </div>
         
         {% if is_super_admin() %}
+        <!-- Referral Program Settings (super admin only) -->
+        <details id="referral-settings" class="admin-section" style="margin-top: 40px;">
+            <summary class="section-summary">
+                <h3 style="display: inline-block; margin: 0;"><i class="fas fa-user-plus"></i> Referral Program</h3>
+                <i class="fas fa-chevron-down summary-chevron"></i>
+            </summary>
+            <div class="card no-hover" style="margin-top: 20px;">
+
+            {% if referral_stats %}
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px;">
+                <div style="background: var(--bg-cream); border-radius: 12px; padding: 16px; text-align: center;">
+                    <div style="font-size: 1.8rem; font-weight: 800; color: var(--primary);">{{ referral_stats.total_confirmed }}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Confirmed Referrals</div>
+                </div>
+                <div style="background: var(--bg-cream); border-radius: 12px; padding: 16px; text-align: center;">
+                    <div style="font-size: 1.8rem; font-weight: 800; color: var(--primary);">{{ referral_stats.avg_payout_rate }}%</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Avg Payout Rate</div>
+                </div>
+                <div style="background: var(--bg-cream); border-radius: 12px; padding: 16px; text-align: center;">
+                    <div style="font-size: 1.8rem; font-weight: 800; color: var(--primary);">{{ referral_stats.sellers_at_max }}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Sellers at Max Rate</div>
+                </div>
+            </div>
+            {% endif %}
+
+            <form method="POST" style="max-width: 480px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="save_referral_settings" value="1"/>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div>
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px;">Base Rate (%)</label>
+                        <input type="number" name="referral_base_rate" value="{{ referral_base_rate }}" min="0" max="100" step="10" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px;">Signup Bonus (%)</label>
+                        <input type="number" name="referral_signup_bonus" value="{{ referral_signup_bonus }}" min="0" max="100" step="10" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px;">Bonus per Referral (%)</label>
+                        <input type="number" name="referral_bonus_per_referral" value="{{ referral_bonus_per_referral }}" min="0" max="100" step="10" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px;">Max Rate (%)</label>
+                        <input type="number" name="referral_max_rate" value="{{ referral_max_rate }}" min="0" max="100" step="10" style="width: 100%;">
+                    </div>
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px;">Program Active</label>
+                    <select name="referral_program_active" style="width: 100%;">
+                        <option value="true" {% if referral_program_active == 'true' %}selected{% endif %}>Enabled</option>
+                        <option value="false" {% if referral_program_active != 'true' %}selected{% endif %}>Disabled</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Referral Settings</button>
+            </form>
+
+            </div>
+        </details>
+        {% endif %}
+
+        {% if is_super_admin() %}
         <!-- Users & Database (super admin only) -->
         <details id="database" class="admin-section" style="margin-top: 40px;">
             <summary class="section-summary">
@@ -993,13 +1054,6 @@
                                     {% if item.status == 'available' %}
                                         <button type="submit" name="mark_sold" value="{{ item.id }}" class="text-btn btn-sold" data-confirm="Mark '{{ item.description }}' as sold?">Sold</button>
                                     {% elif item.status == 'sold' %}
-                                        {% if not item.payout_sent %}
-                                            <button type="submit" name="mark_payout_sent" value="{{ item.id }}" 
-                                                    class="text-btn" style="color: #166534;" 
-                                                    data-confirm="Mark payout as sent for '{{ item.description }}'?">
-                                                Mark Paid
-                                            </button>
-                                        {% endif %}
                                         <button type="submit" name="mark_available" value="{{ item.id }}" class="text-btn btn-undo" data-confirm="Mark '{{ item.description }}' as available again?">Active</button>
                                     {% endif %}
 
@@ -1016,6 +1070,26 @@
             </div>
         </form>
     </details>
+
+    <!-- Payout Summary -->
+    <div id="payout-summary" class="card no-hover" style="margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 20px 24px;">
+        <div>
+            <div style="font-weight: 700; font-size: 1rem; color: var(--primary); margin-bottom: 3px;">
+                <i class="fas fa-wallet" style="margin-right: 6px;"></i>Payouts
+            </div>
+            <div style="font-size: 0.875rem; color: var(--text-muted);">
+                {% if unpaid_items_count > 0 %}
+                    <strong style="color: var(--primary);">{{ unpaid_items_count }}</strong> item{{ 's' if unpaid_items_count != 1 else '' }} awaiting payout &middot;
+                    <strong style="color: var(--primary);">${{ "%.2f"|format(unpaid_total) }}</strong> total owed
+                {% else %}
+                    All seller payouts are up to date.
+                {% endif %}
+            </div>
+        </div>
+        <a href="{{ url_for('admin_payouts') }}" class="btn btn-primary" style="padding: 9px 18px; font-size: 0.875rem;">
+            Go to Payout Dashboard &rarr;
+        </a>
+    </div>
 
     <!-- Pickup Nudge Section -->
     <details id="pickup-nudge" class="admin-section" style="margin-bottom: 40px;">

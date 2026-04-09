@@ -584,6 +584,15 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 @media (max-width: 900px) {
     .dashboard-layout { grid-template-columns: 1fr; }
 }
+.dashboard-main-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 28px;
+    align-items: start;
+}
+@media (max-width: 960px) {
+    .dashboard-main-grid { grid-template-columns: 1fr; }
+}
 
 .dashboard-stats-bar {
     display: flex;

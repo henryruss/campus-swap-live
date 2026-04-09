@@ -56,6 +56,14 @@ class User(UserMixin, db.Model):
     worker_status = db.Column(db.String(20), nullable=True)  # None | 'pending' | 'approved' | 'rejected'
     worker_role = db.Column(db.String(20), nullable=True)    # None | 'driver' | 'organizer' | 'both'
 
+    # REFERRAL PROGRAM
+    referral_code = db.Column(db.String(8), unique=True, nullable=True)
+    # 8-char uppercase alphanumeric code (no 0,O,I,1). Generated at account creation.
+    referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    # FK to the User who gave them their referral code.
+    payout_rate = db.Column(db.Integer, default=20, nullable=False)
+    # Stored integer percentage (20, 30, 40 ... 100). Updated when a referral is confirmed.
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 
@@ -77,6 +85,10 @@ class User(UserMixin, db.Model):
         if self.pickup_address:
             return self.pickup_address
         return ''
+
+    def set_password(self, password):
+        from werkzeug.security import generate_password_hash
+        self.password_hash = generate_password_hash(password)
 
     @property
     def is_guest_account(self):
@@ -114,6 +126,7 @@ class InventoryItem(db.Model):
     # PAYOUT TRACKING
     sold_at = db.Column(db.DateTime, nullable=True)  # When item was marked sold
     payout_sent = db.Column(db.Boolean, default=False)  # Whether seller has been paid
+    payout_sent_at = db.Column(db.DateTime, nullable=True)  # When payout was marked sent (set by admin via /admin/payouts)
     
     # LIFECYCLE: Operational milestones (do not affect count_in_stock or status)
     picked_up_at = db.Column(db.DateTime, nullable=True)  # When item was collected from seller or placed in POD
@@ -509,3 +522,21 @@ class IntakeFlag(db.Model):
     intake_record = db.relationship('IntakeRecord', backref='flags')
     organizer     = db.relationship('User', foreign_keys=[organizer_id])
     resolved_by   = db.relationship('User', foreign_keys=[resolved_by_id])
+
+
+# =========================================================
+# REFERRAL PROGRAM
+# =========================================================
+
+class Referral(db.Model):
+    """One record per (referrer, referred) pair. confirmed=True when referred seller's item arrives."""
+    id          = db.Column(db.Integer, primary_key=True)
+    referrer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    referred_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+    # unique=True on referred_id: a user can only be referred by one person
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    confirmed   = db.Column(db.Boolean, default=False)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
+
+    referrer = db.relationship('User', foreign_keys=[referrer_id], backref='referrals_given')
+    referred = db.relationship('User', foreign_keys=[referred_id], backref='referral_received', uselist=False)
