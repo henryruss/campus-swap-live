@@ -1290,11 +1290,14 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     inset: 0;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 1fr;
     gap: 4px;
     filter: blur(12px);
     transform: scale(1.05);
     z-index: 0;
 }
+body.teaser-page { overflow: hidden; }
+body.teaser-page footer { display: none; }
 .teaser-tile {
     overflow: hidden;
     background: var(--bg-cream);
