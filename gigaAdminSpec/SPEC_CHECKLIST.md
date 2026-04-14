@@ -476,7 +476,198 @@
 
 ## Spec #6 — Route Planning
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ⬜ Not yet signed off
+**Automated tests:** 69/69 passing (`pytest test_route_planning.py`)
+
+> Items marked [✅] are covered by passing automated tests.
+> Items marked [ ] require your eyes on the running app — run `python3 seed_db.py && flask run` first.
+
+---
+
+### Database & Migrations
+
+- [✅] Migration `add_route_planning_fields` runs cleanly with `flask db upgrade`
+- [✅] `inventory_category` table has `default_unit_size` column (Float, default 1.0)
+- [✅] `inventory_item` table has `unit_size` column (Float, nullable)
+- [✅] `shift` table has `sellers_notified` column (Boolean, default False)
+- [✅] `shift_pickup` table has `notified_at` (DateTime) and `capacity_warning` (Boolean) columns
+- [✅] `user` table has `pickup_partner_building` column (String, nullable)
+- [✅] `storage_location` table has `lat` and `lng` columns (Float, nullable)
+- [✅] AppSettings seeded: `truck_raw_capacity` (18), `truck_capacity_buffer_pct` (10), `route_am_window`, `route_pm_window`, `maps_static_api_key`
+- [ ] Verify in DB: couch/sofa category has `default_unit_size = 3.0`, microwave has `0.5`
+
+---
+
+### Item Unit Sizing
+
+- [✅] `get_item_unit_size(item)` returns category default (3.0 for couch) when no per-item override
+- [✅] `get_item_unit_size(item)` returns the per-item `unit_size` when set
+- [✅] `unit_size = 0.0` on an item is respected (not treated as NULL)
+- [✅] Falls back to `1.0` when item has no category
+- [✅] Falls back to `1.0` when category has no `default_unit_size`
+- [✅] `get_seller_unit_count(seller)` sums only `available` items — sold, pending, rejected excluded
+- [ ] Open an item in the approval panel — "Unit size override" float field is visible with category default as placeholder *(UI)*
+
+---
+
+### Truck Capacity
+
+- [✅] `get_effective_capacity()` = `floor(18 × 0.9)` = 16 with default settings
+- [✅] Zero buffer → effective cap = raw cap exactly
+- [✅] Floor is applied (e.g. raw=10, buffer=15% → floor(8.5) = 8)
+- [✅] Falls back to defaults when AppSettings not set
+- [✅] Route settings page loads at `/admin/settings/route`
+- [✅] Saving route settings persists new `truck_raw_capacity` and `truck_capacity_buffer_pct`
+- [✅] Saving category unit sizes persists per-category `default_unit_size`
+- [✅] Non-super-admin cannot POST to `/admin/settings/route` (403 or redirect)
+- [ ] Open `/admin/settings/route` — "Effective capacity: X units" preview updates live as you change the inputs *(JS)*
+- [ ] Capacity gauge on ops page shows green when under 75%, yellow at 75–100%, red when over *(UI)*
+
+---
+
+### Route Builder (`/admin/routes`)
+
+- [✅] Page loads and requires admin (non-admin redirected)
+- [✅] Sellers without `pickup_week` set do NOT appear in the unassigned panel
+- [✅] Sellers with available items and a pickup_week ARE shown in the unassigned panel
+- [✅] Shift capacity board loads with all active shifts
+- [ ] Navigate to `/admin/routes` — unassigned sellers are grouped by cluster label (dorm name, building name, or street) *(UI)*
+- [ ] Each seller card shows name, unit count, week, and AM/PM badge *(UI)*
+- [ ] seller_noweek@test.com is NOT visible in the unassigned panel *(visual confirm)*
+- [ ] Shift board shows capacity gauge per truck with correct load/cap numbers *(UI)*
+- [ ] "Add Truck" button on a shift card works — truck count increments, page reloads with new truck *(UI)*
+- [ ] "Order Route" button appears per shift card *(UI)*
+- [ ] "Notify Sellers" button appears per shift card *(UI)*
+
+---
+
+### Auto-Assignment
+
+- [✅] Sellers with `morning` preference are placed on `am` shifts, `afternoon` → `pm`
+- [✅] Seller with no matching slot goes to TBD list with a reason string
+- [✅] TBD response includes `seller_id` and non-empty `reason`
+- [✅] Over-capacity assignment still succeeds — `capacity_warning=True` on the `ShiftPickup`
+- [✅] Re-running auto-assign skips sellers who already have a `ShiftPickup`
+- [✅] Sellers without `pickup_week` are excluded (not in assigned OR tbd lists)
+- [✅] Largest unit-count sellers are placed first
+- [ ] Click "Run Auto-Assignment" — spinner appears, page reloads with sellers assigned to shifts *(UI)*
+- [ ] TBD section appears at top if any sellers couldn't be placed — shows reason *(UI)*
+- [ ] Over-cap warnings section appears if any truck exceeded effective capacity *(UI)*
+- [ ] seller_noweek@test.com is not placed on any shift after running auto-assign *(visual confirm)*
+
+---
+
+### Geographic Clustering
+
+- [✅] Two sellers in the same dorm share a cluster with that dorm's name as the label
+- [✅] Two sellers in different dorms get different cluster labels
+- [✅] Two sellers at the same partner apartment building cluster together by building name
+- [✅] A partner apartment seller is NOT grouped by lat/lng proximity with a nearby off-campus seller
+- [✅] Two off-campus sellers within 0.25 miles are clustered together
+- [✅] Two off-campus sellers more than 0.25 miles apart get separate clusters
+- [✅] Sellers with no lat/lng and no building name go to the "Unlocated" cluster
+
+---
+
+### Stop Ordering (Nearest-Neighbor)
+
+- [✅] "Order Route" populates `stop_order` on all pickups for the shift
+- [✅] Multiple stops get unique, sequential `stop_order` values
+- [✅] Stops with no lat/lng are assigned higher `stop_order` values than located stops
+- [✅] Manual reorder (`POST /admin/crew/shift/<id>/stop/<pid>/reorder`) updates `stop_order`
+- [ ] After clicking "Order Route" on the ops page, stop cards render in the new order *(UI)*
+- [ ] Stop with no address appears at the bottom of the list *(UI)*
+- [ ] If storage unit has no lat/lng set, "Order Route" falls back to insertion order and shows a flash warning *(set storage lat/lng to NULL to test)*
+
+---
+
+### Add Truck
+
+- [✅] POST to add-truck increments `Shift.trucks` by 1
+- [✅] Response JSON contains `new_truck_number`
+- [✅] New truck number = `max(existing truck numbers) + 1`
+- [✅] Requires admin (worker gets 403/redirect)
+- [✅] Works during an active `ShiftRun` (mid-shift add)
+- [ ] After clicking "Add Truck" on the route builder, the new truck appears with "Workers TBD" and empty stop list *(UI)*
+- [ ] After clicking "Add Truck" on the ops page, the new truck section appears *(UI)*
+
+---
+
+### Stop Movement
+
+- [✅] Moving a stop to a different truck updates `truck_number`
+- [✅] Moving a stop to a different shift updates `shift_id`
+- [✅] Moving a stop to a truck under effective capacity clears `capacity_warning`
+- [✅] Manual assign creates a `ShiftPickup` (200 OK)
+- [✅] Manual assign when seller already has a pickup returns 409
+- [ ] Click "Move →" on a stop card — dropdown appears with all shift+truck options *(UI)*
+- [ ] After moving, the stop disappears from the old truck and appears on the new one *(UI)*
+
+---
+
+### Seller Notification
+
+- [✅] POST to notify sends one email per seller with `notified_at IS NULL`
+- [✅] `Shift.sellers_notified` is set to True after notifying
+- [✅] Re-running notify does NOT re-send to already-notified sellers (idempotent)
+- [✅] Newly added seller (after first notify) gets email on second notify; first seller does not
+- [ ] Click "Notify Sellers" — flash confirmation appears with count of emails sent *(UI)*
+- [ ] "Notified ✓" badge appears in shift header after sending *(UI)*
+- [ ] Check inbox — email arrives with correct subject "Your Campus Swap pickup is [shift label]" and time window *(email)*
+
+---
+
+### Mover Shift View Upgrades
+
+- [✅] `/crew/shift/<id>/stops_partial` requires crew login (non-crew redirected)
+- [✅] Partial returns HTML with the mover's seller name visible
+- [✅] Partial only shows stops for the mover's truck (other trucks' stops excluded)
+- [✅] Navigate button is present and contains `maps.google.com` link
+- [ ] Open the shift view as a mover — stops appear in `stop_order` sequence *(UI)*
+- [ ] Each stop card shows a "Navigate →" button that opens Google Maps in a new tab *(UI)*
+- [ ] Seller with `pickup_access_type = 'elevator'` shows "🛗 Elevator" badge *(UI)*
+- [ ] Seller with `pickup_access_type = 'stairs_only'` shows "🪜 Stairs" badge *(UI)*
+- [ ] Wait 30 seconds with the shift view open — stop list auto-refreshes silently (no page flash) *(UI — add a new stop via ops page, watch it appear)*
+
+---
+
+### Ops Page Upgrades
+
+- [✅] Issue alert banner appears when a stop has `status = 'issue'`
+- [✅] Issue banner shows the stop's notes text
+- [✅] No banner when all stops are `pending` or `completed`
+- [✅] Stairs badge present on stop card when seller has `pickup_access_type = 'stairs'`
+- [✅] Elevator badge present on stop card when seller has `pickup_access_type = 'elevator'`
+- [ ] Open `/admin/crew/shift/<id>/ops` — stops are shown in ascending `stop_order` order, nulls last *(UI)*
+- [ ] Stop cards show stop number badge (#1, #2…), seller name, access badge, and capacity warning badge if flagged *(UI)*
+- [ ] "Add Truck" and "Notify Sellers" buttons visible in shift header *(UI)*
+- [ ] "Order Route" button visible per truck section *(UI)*
+
+---
+
+### Static Map URL
+
+- [✅] `build_static_map_url` returns `None` when `maps_static_api_key` is empty
+- [✅] Returns a URL string containing `maps.googleapis.com` and the API key when key is set
+- [✅] Returned URL includes `markers` params for stops
+- [ ] On ops page without API key configured — text address list renders instead of map image, no error *(UI)*
+- [ ] *(Optional, skip until key is provisioned)* Set `maps_static_api_key` in AppSettings → map image renders per truck *(UI)*
+
+---
+
+### Regression Check
+
+- [✅] Existing ops page (`/admin/crew/shift/<id>/ops`) still loads
+- [✅] Existing mover shift view (`/crew/shift/<id>`) still loads
+- [✅] Admin panel still loads
+- [✅] Seller dashboard still loads
+- [✅] `_get_payout_percentage` helper untouched and returns correct float
+- [✅] Existing `admin_shift_assign_seller` route (ops page "Add Stop" form) still works
+
+---
+
+**Sign-off date:**
+**Signed off by:**
 
 ---
 
