@@ -1,0 +1,321 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .routes-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 32px 0 28px;
+    margin-bottom: 32px;
+  }
+  .routes-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .routes-wrap { max-width: 960px; margin: 0 auto 80px; padding: 0 16px; }
+  .summary-bar {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+  .summary-stat {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 16px 24px; flex: 1; min-width: 120px; text-align: center;
+  }
+  .summary-stat-num { font-size: 2rem; font-weight: 800; color: var(--primary); line-height: 1; }
+  .summary-stat-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .section-divider {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted);
+    margin: 0 0 20px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .tbd-card {
+    background: #fef9c3; border: 1px solid #fde047; border-radius: 12px;
+    padding: 16px 20px; margin-bottom: 24px;
+  }
+  .tbd-row {
+    display: flex; align-items: center; gap: 12px; padding: 8px 0;
+    border-bottom: 1px solid rgba(234, 179, 8, 0.2); flex-wrap: wrap;
+  }
+  .tbd-row:last-child { border-bottom: none; }
+  .cluster-group { margin-bottom: 28px; }
+  .cluster-label {
+    font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+    margin: 0 0 10px;
+  }
+  .seller-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .seller-card-info { flex: 1; }
+  .seller-name { font-weight: 700; color: var(--primary); }
+  .seller-meta { font-size: 0.82rem; color: var(--text-muted); margin-top: 2px; }
+  .badge-pref {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    background: var(--bg-cream); color: var(--text-muted);
+    border: 1px solid var(--rule);
+  }
+  .badge-am { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+  .badge-pm { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+  .capacity-gauge {
+    height: 8px; background: var(--bg-cream); border-radius: 999px;
+    overflow: hidden; margin: 6px 0;
+  }
+  .capacity-fill { height: 100%; border-radius: 999px; transition: width 0.3s; }
+  .fill-green  { background: #22c55e; }
+  .fill-yellow { background: #eab308; }
+  .fill-red    { background: #ef4444; }
+  .shift-board-card {
+    background: white; border: var(--card-border); border-radius: 14px;
+    padding: 20px 22px; margin-bottom: 16px;
+  }
+  .shift-board-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+  }
+  .shift-board-title { font-weight: 700; color: var(--primary); font-size: 1rem; }
+  .truck-section { margin-bottom: 14px; }
+  .truck-label {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px;
+  }
+  .over-cap-banner {
+    background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 20px;
+    font-size: 0.875rem; color: #92400e;
+  }
+  .btn-assign {
+    padding: 6px 14px; font-size: 0.8rem; font-weight: 700;
+    border: 1.5px solid var(--primary); border-radius: 8px;
+    background: none; color: var(--primary); cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-assign:hover { background: var(--bg-cream); }
+  .btn-danger { border-color: #ef4444; color: #ef4444; }
+  .btn-danger:hover { background: #fef2f2; }
+</style>
+
+<div class="routes-header">
+  <div class="container">
+    <h1>Route Planner</h1>
+    <p>Assign sellers to pickup shifts and manage truck capacity.</p>
+  </div>
+</div>
+
+<div class="routes-wrap">
+
+  {# Summary bar #}
+  <div class="summary-bar">
+    <div class="summary-stat">
+      <div class="summary-stat-num">{{ total_with_items }}</div>
+      <div class="summary-stat-label">Sellers Ready</div>
+    </div>
+    <div class="summary-stat">
+      <div class="summary-stat-num">{{ total_assigned }}</div>
+      <div class="summary-stat-label">Assigned</div>
+    </div>
+    <div class="summary-stat">
+      <div class="summary-stat-num">{{ total_unassigned }}</div>
+      <div class="summary-stat-label">Unassigned</div>
+    </div>
+    <div style="display:flex; align-items:center;">
+      <button id="btn-auto-assign" onclick="runAutoAssign()" class="btn-primary">
+        Run Auto-Assignment
+      </button>
+    </div>
+  </div>
+
+  {# Over-cap warnings #}
+  {% if overcap_pickups %}
+  <div class="over-cap-banner">
+    <strong>&#9888; Over-capacity warnings:</strong> {{ overcap_pickups | length }} stop(s) are on trucks over effective capacity.
+    Consider adding a truck or moving stops.
+  </div>
+  {% endif %}
+
+  {# Unassigned sellers panel #}
+  {% if clusters %}
+  <div class="section-divider">
+    <span><i class="fas fa-users"></i> Unassigned Sellers</span>
+  </div>
+
+  {% for cluster in clusters %}
+  <div class="cluster-group">
+    <div class="cluster-label">{{ cluster.label }}</div>
+    {% for seller in cluster.sellers %}
+    <div class="seller-card">
+      <div class="seller-card-info">
+        <div class="seller-name">{{ seller.full_name }}</div>
+        <div class="seller-meta">
+          {{ seller.pickup_week | replace('week', 'Week ') if seller.pickup_week else 'No week' }}
+          &nbsp;·&nbsp; {{ (seller_unit_counts.get(seller.id, 0)) | round(1) }} units
+        </div>
+      </div>
+      {% if seller.pickup_time_preference == 'morning' %}
+        <span class="badge-pref badge-am">AM</span>
+      {% elif seller.pickup_time_preference == 'afternoon' %}
+        <span class="badge-pref badge-pm">PM</span>
+      {% else %}
+        <span class="badge-pref">{{ seller.pickup_time_preference or 'No pref' }}</span>
+      {% endif %}
+      <div>
+        <select id="assign-select-{{ seller.id }}" style="padding:6px 10px; border:1px solid var(--rule); border-radius:8px; font-size:0.8rem;">
+          <option value="">— Assign to… —</option>
+          {% for opt in shift_truck_options %}
+          <option value="{{ opt.shift.id }}:{{ opt.truck_number }}">{{ opt.label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn-assign" onclick="assignSeller({{ seller.id }})">Assign</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  {% else %}
+  <p style="color:var(--text-muted); margin-bottom:32px;">All sellers with available items have been assigned.</p>
+  {% endif %}
+
+  {# Shift capacity board #}
+  <div class="section-divider" style="margin-top:32px;">
+    <span><i class="fas fa-calendar-alt"></i> Shift Capacity Board</span>
+  </div>
+
+  {% for shift in all_shifts %}
+  {% set trucks_data = shift_truck_data.get(shift.id, {}) %}
+  <div class="shift-board-card">
+    <div class="shift-board-header">
+      <div>
+        <div class="shift-board-title">{{ shift.label }} — Week of {{ shift.week.week_start.strftime('%b %-d') }}</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-outline" onclick="addTruck({{ shift.id }})">+ Add Truck</button>
+        <a href="{{ url_for('admin_shift_ops', shift_id=shift.id) }}" class="btn-outline">Ops &rarr;</a>
+      </div>
+    </div>
+    {% for truck_num in range(1, shift.trucks + 1) %}
+    {% set td = trucks_data.get(truck_num, {'pickups': [], 'load': 0, 'effective_cap': effective_cap}) %}
+    {% set pct = ((td.load / td.effective_cap * 100) | int) if td.effective_cap > 0 else 0 %}
+    <div class="truck-section">
+      <div class="truck-label">Truck {{ truck_num }} — {{ td.load | round(1) }} / {{ td.effective_cap }} units</div>
+      <div class="capacity-gauge">
+        <div class="capacity-fill {{ 'fill-red' if pct > 100 else ('fill-yellow' if pct > 75 else 'fill-green') }}"
+             style="width: {{ [pct, 100] | min }}%;"></div>
+      </div>
+      {% for pickup in td.pickups %}
+      <div style="font-size:0.82rem; color:var(--text-main); padding:3px 0; display:flex; align-items:center; gap:8px;">
+        {% if pickup.stop_order %}<span style="color:var(--text-muted);">#{{ pickup.stop_order }}</span>{% endif %}
+        {{ pickup.seller.full_name }}
+        {% if pickup.seller.pickup_access_type == 'elevator' %}
+          <span style="font-size:0.7rem; background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 6px;">Elevator</span>
+        {% elif pickup.seller.pickup_access_type == 'stairs_only' %}
+          <span style="font-size:0.7rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px;">Stairs</span>
+        {% endif %}
+        {% if pickup.capacity_warning %}
+          <span style="font-size:0.7rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px;">&#9888; Cap</span>
+        {% endif %}
+        <button class="btn-assign" style="padding:2px 8px; font-size:0.72rem;"
+                onclick="openMovePanel({{ pickup.id }})">Move &rarr;</button>
+      </div>
+      <div id="move-panel-{{ pickup.id }}" style="display:none; margin:4px 0 6px 16px;">
+        <select id="move-select-{{ pickup.id }}" style="padding:5px 8px; border:1px solid var(--rule); border-radius:6px; font-size:0.78rem;">
+          <option value="">— Move to… —</option>
+          {% for opt in shift_truck_options %}
+          <option value="{{ opt.shift.id }}:{{ opt.truck_number }}">{{ opt.label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn-assign" style="padding:4px 10px;" onclick="moveStop({{ pickup.id }})">Move</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div style="display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--rule);">
+      <form method="POST" action="{{ url_for('admin_shift_order_stops', shift_id=shift.id) }}" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-outline" style="font-size:0.8rem; padding:6px 14px;">
+          Order Route
+        </button>
+      </form>
+      <form method="POST" action="{{ url_for('admin_shift_notify_sellers', shift_id=shift.id) }}" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-outline" style="font-size:0.8rem; padding:6px 14px;">
+          Notify Sellers
+        </button>
+      </form>
+      {% if shift.sellers_notified %}
+        <span style="font-size:0.8rem; color:#166534; align-self:center;">&#10003; Notified</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<script>
+var CSRF = '{{ csrf_token() }}';
+
+function runAutoAssign() {
+  var btn = document.getElementById('btn-auto-assign');
+  btn.disabled = true;
+  btn.textContent = 'Running\u2026';
+  fetch('/admin/routes/auto-assign', {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    var msg = 'Assigned: ' + data.assigned.length;
+    if (data.tbd.length) msg += ', TBD: ' + data.tbd.length;
+    if (data.over_cap_warnings.length) msg += ', Over-cap warnings: ' + data.over_cap_warnings.length;
+    alert(msg);
+    location.reload();
+  }).catch(function() { btn.disabled = false; btn.textContent = 'Run Auto-Assignment'; });
+}
+
+function assignSeller(sellerId) {
+  var sel = document.getElementById('assign-select-' + sellerId);
+  if (!sel.value) { alert('Select a shift and truck first.'); return; }
+  var parts = sel.value.split(':');
+  fetch('/admin/routes/seller/' + sellerId + '/assign', {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+    body: JSON.stringify({ shift_id: parseInt(parts[0]), truck_number: parseInt(parts[1]) })
+  }).then(function(r) {
+    if (r.status === 409) { alert('Seller already assigned.'); return null; }
+    return r.json();
+  }).then(function(d) { if (d) location.reload(); });
+}
+
+function openMovePanel(pickupId) {
+  var panel = document.getElementById('move-panel-' + pickupId);
+  if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function moveStop(pickupId) {
+  var sel = document.getElementById('move-select-' + pickupId);
+  if (!sel.value) { alert('Select a destination.'); return; }
+  var parts = sel.value.split(':');
+  fetch('/admin/routes/stop/' + pickupId + '/move', {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+    body: JSON.stringify({ shift_id: parseInt(parts[0]), truck_number: parseInt(parts[1]) })
+  }).then(function() { location.reload(); });
+}
+
+function addTruck(shiftId) {
+  fetch('/admin/crew/shift/' + shiftId + '/add-truck', {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+    body: '{}'
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    alert('Added Truck ' + d.new_truck_number);
+    location.reload();
+  });
+}
+</script>
+{% endblock %}

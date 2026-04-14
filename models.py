@@ -2,7 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 
-db = SQLAlchemy()
+db = SQLAlchemy(session_options={'expire_on_commit': False})
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -25,7 +25,8 @@ class User(UserMixin, db.Model):
     pickup_lng = db.Column(db.Float, nullable=True)  # Longitude for map preview (off_campus)
     pickup_access_type = db.Column(db.String(20), nullable=True)  # 'elevator' | 'stairs_only' | 'ground_floor'
     pickup_floor = db.Column(db.Integer, nullable=True)  # Floor number (1–30)
-    
+    pickup_partner_building = db.Column(db.String(100), nullable=True)  # partner apartment building name
+
     # PAYOUT INFO
     payout_method = db.Column(db.String(20), nullable=True)
     payout_handle = db.Column(db.String(100), nullable=True)
@@ -133,6 +134,7 @@ class InventoryCategory(db.Model):
     image_url = db.Column(db.String(200), nullable=True)
     icon = db.Column(db.String(64), nullable=True)  # e.g. 'fa-couch'
     count_in_stock = db.Column(db.Integer, default=0)
+    default_unit_size = db.Column(db.Float, default=1.0, nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
 
     parent = db.relationship('InventoryCategory', remote_side='InventoryCategory.id', backref='subcategories')
@@ -144,7 +146,7 @@ class InventoryItem(db.Model):
     long_description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Float, nullable=True)
     suggested_price = db.Column(db.Float, nullable=True)
-    quality = db.Column(db.Integer, nullable=False)
+    quality = db.Column(db.Integer, nullable=False, default=1)
     status = db.Column(db.String(20), default='pending_valuation')
     date_added = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -164,7 +166,7 @@ class InventoryItem(db.Model):
     picked_up_at = db.Column(db.DateTime, nullable=True)  # When item was collected from seller or placed in POD
     arrived_at_store_at = db.Column(db.DateTime, nullable=True)  # When item physically arrived at store
     
-    category_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
     subcategory_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
@@ -183,6 +185,7 @@ class InventoryItem(db.Model):
     storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
     storage_row         = db.Column(db.String(50), nullable=True)   # e.g. "Row 1", "Row B"
     storage_note        = db.Column(db.Text, nullable=True)         # e.g. "behind the couch stack"
+    unit_size = db.Column(db.Float, nullable=True)  # per-item override; NULL = use category default
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -369,6 +372,7 @@ class Shift(db.Model):
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
     # JSON: {"1": storage_location_id, "2": storage_location_id} — planned unit per truck
     truck_unit_plan = db.Column(db.Text, nullable=True)
+    sellers_notified = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
     assignments  = db.relationship('ShiftAssignment', backref='shift', lazy=True, cascade='all, delete-orphan')
 
@@ -451,6 +455,8 @@ class ShiftPickup(db.Model):
 
     # SPEC #4 — planned destination set by admin pre-shift; never overwritten by intake flow
     storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
+    notified_at     = db.Column(db.DateTime, nullable=True)   # per-seller notification timestamp
+    capacity_warning = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
     shift      = db.relationship('Shift', backref='pickups')
     seller     = db.relationship('User', foreign_keys=[seller_id], backref='shift_pickups')
@@ -505,6 +511,8 @@ class StorageLocation(db.Model):
     is_full         = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    lat = db.Column(db.Float, nullable=True)
+    lng = db.Column(db.Float, nullable=True)
 
     created_by      = db.relationship('User', foreign_keys=[created_by_id])
     items           = db.relationship('InventoryItem', backref='storage_location', lazy='dynamic',

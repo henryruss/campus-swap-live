@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-13
+> **Last updated:** 2026-04-14
 
 ---
 
@@ -274,7 +274,7 @@ Refer & Earn — always-visible dark green card. All text white/cream/sage. Left
 
 Modals (vanilla JS, no page navigation):
 
-Pickup week & address modal: week cards (Week 1 / Week 2), time preference (Morning / Afternoon), location type, address, directions. Two sequential fetch POSTs on save: /update_profile then /api/user/set_pickup_week.
+Pickup week & address modal: week cards (Week 1 / Week 2), time preference (Morning / Afternoon), three-way location type (On-campus / Apartment Complex / Other address), branch-specific fields (dorm+room / building dropdown+unit / Google Maps address), access fields (elevator/stairs/ground floor radio cards + floor number + optional notes). POSTs to /api/user/set_pickup_week via fetch on save.
 Payout modal: method cards (Venmo / PayPal / Zelle), handle input (label/placeholder updates dynamically for Zelle). POST to /update_payout.
 Both modals are bottom sheets on mobile (≤540px).
 
@@ -520,6 +520,36 @@ For Free-tier sellers upgrading to Pro.
   - Sales CSV: item_id, seller, price, payout_percentage, payout_amount, payout_sent, sold_at
 - **Mass email** (POST `/admin/mass-email`): custom subject + HTML body, sent to all non-unsubscribed users, rate-limited at 0.55s/email
 - **Database reset** (POST `/admin/database/reset`): Super admin only, requires typing "reset database" to confirm
+
+### Route Planning (Spec #6 — Complete 2026-04-14)
+- **Route builder** (`GET /admin/routes`): unassigned sellers grouped by geographic cluster (dorm, partner building, proximity, unlocated); shift capacity board per truck; "Run Auto-Assignment" button (fetch POST, page reload on success)
+- **Auto-assignment** (`POST /admin/routes/auto-assign`): places eligible sellers (available items + pickup_week set, no existing ShiftPickup) into best-fit shift+truck; largest unit counts placed first; soft cap only — always assigns, sets `capacity_warning=True` if over cap; returns JSON `{assigned, tbd, over_cap_warnings}`
+- **TBD sellers** shown with reason when no matching week+slot shift exists; over-cap sellers still assigned (soft cap)
+- **Stop movement** (`POST /admin/routes/stop/<id>/move`): move ShiftPickup to different shift+truck inline; recalculates capacity_warning
+- **Manual assign** (`POST /admin/routes/seller/<id>/assign`): manually place an unassigned seller; 409 if already has a pickup
+- **Add Truck** (`POST /admin/crew/shift/<id>/add-truck`): increments `Shift.trucks` by 1, available anytime including mid-shift; returns `{new_truck_number}`
+- **Order Route** (`POST /admin/crew/shift/<id>/order`): nearest-neighbor from storage unit coordinates; assigns sequential `stop_order` values; stops without lat/lng appended last; flash warning if storage unit has no coordinates
+- **Manual reorder** (`POST /admin/crew/shift/<id>/stop/<id>/reorder`): set specific `stop_order` value
+- **Notify Sellers** (`POST /admin/crew/shift/<id>/notify`): sends pickup confirmation email to all stops where `notified_at IS NULL`; idempotent on re-run; sets `Shift.sellers_notified=True`
+- **Stops partial** (`GET /crew/shift/<id>/stops_partial`): HTML partial for mover's truck stops; crew-only; used by 30s auto-refresh
+- **Route settings** (`GET+POST /admin/settings/route`): configure raw capacity, buffer%, time windows, Maps API key, per-category unit sizes; super admin only
+
+**Ops page upgrades (shift_ops.html):**
+- Issue alert banner at top (red card, lists all `status='issue'` stops with seller name + notes)
+- Stop cards show stop number, stairs/elevator badge, capacity warning badge
+- Order Route button per truck, Notify Sellers + Add Truck buttons in shift header
+- "Notified ✓" badge shown when `shift.sellers_notified=True`
+
+**Mover shift view upgrades (crew/shift.html):**
+- Stops in `stop_order` sequence (nulls last)
+- Navigate → button per stop (opens Google Maps)
+- Stairs/elevator access badge per stop
+- 30-second `setInterval` auto-refresh of `#stop-list` via `/crew/shift/<id>/stops_partial`
+
+**Capacity system:**
+- `truck_raw_capacity` (default 18 units) × `truck_capacity_buffer_pct` (default 10%) = effective capacity (default 16 units)
+- Green gauge ≤75%, yellow 75–100%, red >100% — no hard blocks anywhere
+- `InventoryCategory.default_unit_size` seeded: Couch=3.0, Mattress Full/Queen=2.0, Misc=0.5, etc.
 
 ---
 
@@ -914,7 +944,8 @@ Grouped by area for on-campus pickup dropdown:
 
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
-| POST | `/api/user/set_pickup_week` | Save `User.pickup_week` + `pickup_time_preference` from dashboard modal. Returns JSON `{success, pickup_week, pickup_week_label, pickup_time_preference}`. | Login required |
+| POST | `/api/user/set_pickup_week` | Save `User.pickup_week` + `pickup_time_preference` + optional location/access fields from dashboard modal. Returns JSON `{success, pickup_week, pickup_week_label, pickup_time_preference}`. | Login required |
+| POST | `/update_profile` | Save pickup location (three branches: on_campus, off_campus_complex, off_campus_other) + access fields (access_type, floor, note). Redirects to dashboard or account_settings. | Login required |
 
 ### Admin API Routes (added April 2026)
 

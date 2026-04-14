@@ -263,10 +263,38 @@
         {% endif %}
       </div>
     </div>
+    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn-outline" onclick="addTruck({{ shift.id }})">
+        <i class="fas fa-plus"></i> Add Truck
+      </button>
+      <form method="POST" action="{{ url_for('admin_shift_notify_sellers', shift_id=shift.id) }}" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-outline">
+          <i class="fas fa-bell"></i> Notify Sellers
+        </button>
+      </form>
+      {% if shift.sellers_notified %}
+        <span style="font-size:0.875rem; color:#166534; align-self:center;">&#10003; Notified</span>
+      {% endif %}
+    </div>
   </div>
 </div>
 
 <div class="container ops-wrap">
+
+  {# ── Issue alert banner ── #}
+  {% set issue_stops = pickups_by_truck.values() | sum(start=[]) | selectattr('status', 'equalto', 'issue') | list %}
+  {% if issue_stops %}
+  <div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:12px; padding:14px 18px; margin-bottom:24px;" class="issue-alert">
+    <strong style="color:#dc2626;"><i class="fas fa-exclamation-circle"></i> Issues Reported ({{ issue_stops | length }})</strong>
+    {% for pickup in issue_stops %}
+    <div style="margin-top:8px; font-size:0.875rem; color:var(--text-main);">
+      <strong>{{ pickup.seller.full_name }}</strong>
+      {% if pickup.notes %} &mdash; {{ pickup.notes }}{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {# ── Truck mover assignment cards ── #}
   {% set all_drivers = shift.assignments | selectattr('role_on_shift', 'equalto', 'driver') | list %}
@@ -372,13 +400,26 @@
       <span style="font-weight:400; text-transform:none; letter-spacing:0;">
         — {{ pickups_by_truck[truck_num] | length }} stop{{ 's' if pickups_by_truck[truck_num] | length != 1 else '' }}
       </span>
+      <form method="POST" action="{{ url_for('admin_shift_order_stops', shift_id=shift.id) }}"
+            style="margin-left:auto; display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" style="font-size:0.75rem; padding:4px 12px; background:none; border:1px solid var(--rule); border-radius:6px; color:var(--text-muted); cursor:pointer;">
+          Order Route
+        </button>
+      </form>
     </div>
 
     {% if pickups_by_truck[truck_num] %}
       {% for pickup in pickups_by_truck[truck_num] %}
       <div class="stop-row">
         <div class="stop-row-main">
-          <div class="stop-seller-name">{{ pickup.seller.full_name }}</div>
+          {% if pickup.stop_order %}<span style="font-size:0.75rem; color:var(--text-muted); font-weight:700; margin-right:4px;">#{{ pickup.stop_order }}</span>{% endif %}
+          <div class="stop-seller-name" style="display:inline;">{{ pickup.seller.full_name }}</div>
+          {% if pickup.seller.pickup_access_type == 'elevator' %}
+            <span style="font-size:0.72rem; background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 6px; margin-left:6px;">Elevator</span>
+          {% elif pickup.seller.pickup_access_type == 'stairs_only' %}
+            <span style="font-size:0.72rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px; margin-left:6px;">Stairs</span>
+          {% endif %}
           <div class="stop-address">
             <i class="fas fa-map-marker-alt"></i>
             {{ pickup.seller.pickup_address if pickup.seller.pickup_address else 'No address on file' }}
@@ -555,6 +596,18 @@ document.addEventListener('click', function(e) {
     document.querySelectorAll('.mover-picker.open').forEach(function(p) { p.classList.remove('open'); });
   }
 });
+
+// ── Add Truck ─────────────────────────────────────────────
+function addTruck(shiftId) {
+  fetch('/admin/crew/shift/' + shiftId + '/add-truck', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+    body: '{}'
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    alert('Truck ' + d.new_truck_number + ' added. Reload to see it.');
+    location.reload();
+  }).catch(function() { alert('Failed to add truck.'); });
+}
 
 // ── Remove mover from truck ───────────────────────────────
 function removeMover(assignmentId, shiftId) {
