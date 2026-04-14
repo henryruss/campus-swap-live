@@ -222,6 +222,9 @@
                         <a href="/admin" class="dropdown-item">
                             <i class="fas fa-cog"></i> Admin Panel
                         </a>
+                        <a href="{{ url_for('admin_routes_index') }}" class="dropdown-item">
+                            <i class="fas fa-route"></i> Routes
+                        </a>
                         {% else %}
                         <a href="/dashboard" class="dropdown-item">
                             <i class="fas fa-columns"></i> Dashboard
@@ -271,6 +274,7 @@
             <a href="/account_settings" class="mobile-menu-link"><i class="fas fa-user-cog"></i> Account Settings</a>
             {% if current_user.is_admin %}
             <a href="/admin" class="mobile-menu-link"><i class="fas fa-cog"></i> Admin Panel</a>
+            <a href="{{ url_for('admin_routes_index') }}" class="mobile-menu-link"><i class="fas fa-route"></i> Routes</a>
             {% endif %}
             <a href="/logout" class="mobile-menu-link mobile-menu-logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
         {% else %}

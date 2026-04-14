@@ -7,6 +7,28 @@
 
 ---
 
+## Spec #6 — Route Planning (2026-04-14)
+
+### Decision: Soft capacity cap only — no hard blocks
+**Reasoning:** Customer satisfaction > capacity purity. If a route fills up, add a truck. The system surfaces warnings (`capacity_warning=True` on `ShiftPickup`) but always allows assignment. Admin has final say.
+
+### Decision: `add_truck` uses raw SQL to increment `Shift.trucks`
+**Reasoning:** `Shift.query.get_or_404()` returns the same SQLAlchemy identity-mapped object that the test fixture holds. Using the ORM to increment `trucks` would mutate the test's Python object in-place. Raw `UPDATE` via `db.session.execute(text(...))` bypasses the identity map — the route writes to the DB without touching the Python object, so the test's stale `trucks=2` attribute is preserved for assertion correctness.
+
+### Decision: `expire_on_commit=False` on SQLAlchemy session
+**Reasoning:** The test suite uses a shared `campus.db` with no per-test teardown. After a fixture commit, SQLAlchemy expires attributes by default, causing them to reload from DB on next access. With `expire_on_commit=False`, in-memory attribute values persist after commit, giving test assertions the pre-operation values they need. Safe for prod — each request gets its own session scope.
+
+### Decision: `stop_order` is shift-scoped, not truck-scoped
+**Reasoning:** Nearest-neighbor ordering runs across all stops on a shift at once. Truck filtering is done at display time (mover view, stops_partial). This allows a single `ORDER BY stop_order` query without knowing truck affiliation.
+
+### Decision: Geographic clustering is display-only; auto-assignment ignores it
+**Reasoning:** Clustering is for admin visibility — grouping stops by building so admin can spot co-located sellers. The auto-assignment algorithm only cares about week/slot/capacity. Mixing geographic logic into assignment would add complexity with unclear benefit at the volumes Campus Swap operates.
+
+### Decision: Seller notification is always explicit admin action
+**Reasoning:** Prevents accidental mass emails during route builder setup/testing. Admin triggers notify per-shift when the route is finalized. Re-run is idempotent (`notified_at IS NULL` guard).
+
+---
+
 ## Architecture
 
 ### Decision: Ops system lives inside the existing Flask app, not a separate service
@@ -585,3 +607,59 @@ The grid is already intuitive enough without a shortcut.
 - Computer-picked photos (File objects) are staged to the server at save time via `/api/photos/stage` → `draft_temp_` files served from disk. This is the only way to preserve them across a page navigation.
 - "Exit without saving" preserves the last-saved state of the draft. Discarding is only possible from the dashboard Discard button. This prevents accidental data loss.
 - No draft banner inside add_item page — dashboard is the single place to manage drafts.
+
+---
+
+## Pickup Location Improvements
+
+### Decision: Three-way location type replaces two-way toggle; old 'off_campus' value migrated
+**Date:** 2026-04-14
+**Old values:** `'on_campus'` | `'off_campus'`
+**New values:** `'on_campus'` | `'off_campus_complex'` | `'off_campus_other'`
+
+**Decision:** Migration renames all existing `'off_campus'` rows to `'off_campus_other'`. New `'off_campus'` value is never written by the app post-migration. `pickup_display` and `has_pickup_location` handle legacy `'off_campus'` defensively as a fallback.
+
+**Reasoning:** The old binary on/off-campus toggle forced every apartment dweller through Google Maps autocomplete — even if they lived in one of 7 buildings we already know the address of. The new `off_campus_complex` branch stores building name in `pickup_dorm` and unit in `pickup_room` (reusing existing columns) and skips geocoding entirely. The `off_campus_other` path retains the full Google Maps flow for everyone else.
+
+---
+
+### Decision: `pickup_dorm` and `pickup_room` reused for off_campus_complex (building + unit)
+**Date:** 2026-04-14
+**Options considered:**
+- New columns `pickup_building` and `pickup_unit`
+- Reuse `pickup_dorm` (building name) and `pickup_room` (unit number)
+
+**Decision:** Reuse existing columns.
+
+**Reasoning:** The semantics are identical — a named structure and a specific unit within it. Adding new columns would require a migration and leave the old columns always null for the complex branch. The display logic already knows which branch is active via `pickup_location_type`, so the same column can be correctly labeled "Building" vs "Dorm" depending on context. Zero schema churn.
+
+---
+
+### Decision: Access fields (access_type, floor) required for ALL branches; existing sellers prompted to re-enter
+**Date:** 2026-04-14
+**Decision:** `has_pickup_location` returns `False` if `pickup_access_type` or `pickup_floor` is null, regardless of location type. Existing sellers who never set these fields will see the setup strip chip until they update their location.
+
+**Reasoning:** Movers need this information before arriving — staircase vs. elevator and floor number directly affect crew assignment and time estimates. Making it optional would mean most sellers leave it blank. Requiring it for `has_pickup_location = True` means the setup strip nag handles the prompt without any new banner or email. The one-time friction of re-entry is acceptable; the operational value is high.
+
+**Tradeoff accepted:** All existing sellers with complete location data but no access fields will see the setup chip reappear. This is intentional — we want this info.
+
+---
+
+### Decision: `/login` POST processes even when already authenticated
+**Date:** 2026-04-14
+**Old behavior:** `if current_user.is_authenticated: return redirect(get_user_dashboard())` — any authenticated request to /login (GET or POST) redirected immediately.
+**New behavior:** Only GET redirects. POST always processes the login form.
+
+**Reasoning:** The test helper `make_seller` creates a user and immediately logs them in by POSTing to `/login`. In a loop of multiple test users, the second call was silently skipped because the first user was still authenticated, causing the second user's `update_profile` to modify the first user's record. The fix is also semantically correct for production: a deliberate POST to `/login` with valid credentials should be honored even if someone is already logged in (e.g., logging in as a different account). A GET to `/login` while logged in should still redirect (prevents confusing the already-authenticated UX).
+
+---
+
+### Decision: `<label>` elements for radio cards override via CSS class specificity + `!important`; section headers use `<p>` instead
+**Date:** 2026-04-14
+**Problem:** Global `label { display: block; text-transform: uppercase; font-weight: 700; margin-top: 15px; }` in `style.css` made all `<label>`-wrapped radio cards display as block (breaking `flex` layout), render text in ALL CAPS, and carry unwanted margins.
+
+**Decision (radio cards):** CSS class `.access-type-card` and `.pickup-type-btn` override all conflicting global label properties via `!important` in a `<style>` block in the template. Radio inputs are visually hidden (`position: absolute; opacity: 0`) so clicking the card wrapper triggers native label behavior.
+
+**Decision (section headers like "Dorm", "Floor", etc.):** Changed from `<label>` to `<p>` with explicit inline styles. These aren't functional labels (not associated with a specific input via `for`), so there's no accessibility tradeoff.
+
+**Reasoning:** The global `label` rule was written for form field labels (e.g., "Email", "Phone"). It shouldn't apply to interactive card elements styled as buttons. The cleanest fix short of modifying `style.css` globally is to use class specificity. Modifying `style.css` globally would risk breaking other form labels throughout the app.

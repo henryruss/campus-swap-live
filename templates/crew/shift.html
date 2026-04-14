@@ -373,12 +373,18 @@
     </div>
   </div>
 
+  <div id="stop-list">
   {% if pickups %}
     {% for pickup in pickups %}
     <div class="stop-card">
       <div class="stop-card-header">
         <span class="stop-seller-name">{{ pickup.seller.full_name }}</span>
         <span class="stop-badge badge-{{ pickup.status }}">{{ pickup.status }}</span>
+        {% if pickup.seller.pickup_access_type == 'elevator' %}
+          <span style="font-size:0.72rem; background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 6px;">Elevator</span>
+        {% elif pickup.seller.pickup_access_type == 'stairs_only' %}
+          <span style="font-size:0.72rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px;">Stairs</span>
+        {% endif %}
       </div>
       <div class="stop-address">
         {% if pickup.seller.pickup_address %}
@@ -387,6 +393,14 @@
           <i class="fas fa-map-marker-alt"></i> No address on file
         {% endif %}
       </div>
+      {% if pickup.seller.pickup_address %}
+      <div style="margin:6px 0;">
+        <a href="https://maps.google.com/?q={{ pickup.seller.pickup_address | urlencode }}"
+           target="_blank" class="btn-outline" style="font-size:0.82rem; padding:6px 14px; display:inline-block; text-decoration:none;">
+          Navigate &rarr;
+        </a>
+      </div>
+      {% endif %}
       <div class="stop-item-count">
         <i class="fas fa-box"></i>
         {{ item_counts.get(pickup.seller_id, 0) }} item{{ 's' if item_counts.get(pickup.seller_id, 0) != 1 else '' }} to collect
@@ -483,6 +497,7 @@
       No stops have been assigned to this shift yet.
     </p>
   {% endif %}
+  </div>{# end #stop-list #}
 
   {# End Shift button:
      - Today: only when all stops resolved
@@ -521,5 +536,18 @@ function closeNotes(id) {
   var el = document.getElementById(id);
   if (el) el.classList.remove('open');
 }
+
+// ── Auto-refresh stop list every 30s ──────────────────────
+setInterval(function() {
+  fetch('/crew/shift/{{ shift.id }}/stops_partial')
+    .then(function(r) { if (r.ok) return r.text(); })
+    .then(function(html) {
+      if (html) {
+        var el = document.getElementById('stop-list');
+        if (el) el.outerHTML = html;
+      }
+    })
+    .catch(function() {}); // silent fail
+}, 30000);
 </script>
 {% endblock %}

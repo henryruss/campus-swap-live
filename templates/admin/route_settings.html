@@ -1,0 +1,104 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .settings-wrap { max-width: 640px; margin: 40px auto 80px; padding: 0 16px; }
+  .settings-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 8px; }
+  .settings-section { background: white; border: var(--card-border); border-radius: 14px; padding: 24px; margin-bottom: 24px; }
+  .settings-section h3 { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 18px; }
+  .field-row { margin-bottom: 16px; }
+  .field-row label { display: block; font-size: 0.875rem; font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+  .field-row input[type=text], .field-row input[type=number] {
+    width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 0.875rem; box-sizing: border-box; color: var(--text-main);
+  }
+  .field-row input:focus { outline: none; border-color: var(--primary); }
+  .cap-preview { font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; }
+  .cat-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .cat-table th { text-align: left; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+  .cat-table td { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .cat-table td:last-child { width: 100px; }
+  .cat-table input[type=number] { width: 90px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.875rem; }
+</style>
+
+<div class="settings-wrap">
+  <h1>Route Settings</h1>
+  <p style="color:var(--text-muted); margin-bottom:28px;">Configure truck capacity, time windows, and per-category unit sizes.</p>
+
+  <form method="POST" action="{{ url_for('admin_route_settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="settings-section">
+      <h3>Truck Capacity</h3>
+      <div class="field-row">
+        <label for="truck_raw_capacity">Raw Truck Capacity (units)</label>
+        <input type="number" id="truck_raw_capacity" name="truck_raw_capacity"
+               value="{{ truck_raw_capacity }}" min="1" step="1" oninput="updatePreview()">
+      </div>
+      <div class="field-row">
+        <label for="truck_capacity_buffer_pct">Buffer % (safety margin)</label>
+        <input type="number" id="truck_capacity_buffer_pct" name="truck_capacity_buffer_pct"
+               value="{{ truck_capacity_buffer_pct }}" min="0" max="50" step="1" oninput="updatePreview()">
+      </div>
+      <div class="cap-preview" id="cap-preview">
+        Effective capacity: <strong>{{ effective_cap }} units</strong>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Time Windows (shown in notification emails)</h3>
+      <div class="field-row">
+        <label for="route_am_window">AM Window</label>
+        <input type="text" id="route_am_window" name="route_am_window" value="{{ route_am_window }}">
+      </div>
+      <div class="field-row">
+        <label for="route_pm_window">PM Window</label>
+        <input type="text" id="route_pm_window" name="route_pm_window" value="{{ route_pm_window }}">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Maps API Key</h3>
+      <div class="field-row">
+        <label for="maps_static_api_key">Google Maps Static API Key</label>
+        <input type="text" id="maps_static_api_key" name="maps_static_api_key"
+               value="{{ maps_static_api_key }}" placeholder="Leave blank to disable map images">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Category Unit Sizes</h3>
+      <table class="cat-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Unit Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cat in categories %}
+          <tr>
+            <td>{{ cat.name }}</td>
+            <td>
+              <input type="number" name="category_unit_{{ cat.id }}"
+                     value="{{ cat.default_unit_size or 1.0 }}" min="0" step="0.5">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button type="submit" class="btn-primary">Save All Settings</button>
+  </form>
+</div>
+
+<script>
+function updatePreview() {
+  var raw = parseFloat(document.getElementById('truck_raw_capacity').value) || 18;
+  var buf = parseFloat(document.getElementById('truck_capacity_buffer_pct').value) || 0;
+  var eff = Math.floor(raw * (1 - buf / 100));
+  document.getElementById('cap-preview').innerHTML = 'Effective capacity: <strong>' + eff + ' units</strong>';
+}
+</script>
+{% endblock %}

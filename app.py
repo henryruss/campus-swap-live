@@ -9756,6 +9756,622 @@ def backfill_referral_codes():
     print(f"Assigned referral codes to {count} existing users.")
 
 
+# =========================================================
+# SPEC #6 — ROUTE PLANNING HELPERS
+# =========================================================
+
+import math as _math
+
+def get_item_unit_size(item):
+    """Return effective unit size for an item: per-item override > category default > 1.0."""
+    if item.unit_size is not None:
+        return item.unit_size
+    if item.category and item.category.default_unit_size is not None:
+        return item.category.default_unit_size
+    return 1.0
+
+
+def get_seller_unit_count(seller):
+    """Sum of unit sizes for all 'available' items belonging to this seller."""
+    items = InventoryItem.query.filter_by(seller_id=seller.id, status='available').all()
+    return sum(get_item_unit_size(i) for i in items)
+
+
+def get_effective_capacity():
+    """Effective truck capacity = floor(raw * (1 - buffer/100))."""
+    raw = float(AppSetting.get('truck_raw_capacity', '18'))
+    buffer = float(AppSetting.get('truck_capacity_buffer_pct', '10'))
+    return _math.floor(raw * (1 - buffer / 100))
+
+
+def build_geographic_clusters(sellers):
+    """
+    Group sellers into geographic clusters for display on the route builder.
+    Returns list of {'label': str, 'sellers': [User]} dicts.
+    Priority:
+      1. Named building: pickup_partner_building (partner apt) OR pickup_dorm when on_campus
+      2. Off-campus proximity: haversine < 0.25 miles
+      3. Unlocated: no lat/lng, no building
+    """
+    clusters = {}   # label -> list of sellers
+    remaining = []  # sellers not yet placed in a named cluster
+
+    for s in sellers:
+        # Partner apartment (explicit building name)
+        if s.pickup_partner_building:
+            label = s.pickup_partner_building
+            clusters.setdefault(label, []).append(s)
+            continue
+        # On-campus dorm
+        if s.pickup_location_type == 'on_campus' and s.pickup_dorm:
+            label = s.pickup_dorm
+            clusters.setdefault(label, []).append(s)
+            continue
+        remaining.append(s)
+
+    # Proximity clustering for remaining sellers
+    clustered_set = set()
+    proximity_clusters = []
+
+    for i, s in enumerate(remaining):
+        if s.id in clustered_set:
+            continue
+        if s.pickup_lat is None or s.pickup_lng is None:
+            continue
+        group = [s]
+        clustered_set.add(s.id)
+        for j, other in enumerate(remaining):
+            if other.id in clustered_set:
+                continue
+            if other.pickup_lat is None or other.pickup_lng is None:
+                continue
+            dist = haversine_miles(s.pickup_lat, s.pickup_lng, other.pickup_lat, other.pickup_lng)
+            if dist < 0.25:
+                group.append(other)
+                clustered_set.add(other.id)
+        street_label = (s.pickup_address or '').split(',')[0].strip() or 'Off-Campus'
+        proximity_clusters.append({'label': street_label, 'sellers': group})
+
+    # Unlocated
+    unlocated = [s for s in remaining if s.id not in clustered_set]
+
+    result = [{'label': k, 'sellers': v} for k, v in clusters.items()]
+    result.extend(proximity_clusters)
+    if unlocated:
+        result.append({'label': 'Unlocated', 'sellers': unlocated})
+    return result
+
+
+def build_static_map_url(truck_stops, storage_location):
+    """
+    Build a Google Maps Static API URL for a truck's stop list.
+    Returns None if maps_static_api_key is not set.
+    truck_stops: list of ShiftPickup objects
+    storage_location: StorageLocation object (needs .lat / .lng)
+    """
+    api_key = AppSetting.get('maps_static_api_key', '')
+    if not api_key:
+        return None
+
+    base = 'https://maps.googleapis.com/maps/api/staticmap?size=600x300'
+    params = []
+
+    if storage_location and getattr(storage_location, 'lat', None) and getattr(storage_location, 'lng', None):
+        params.append(f'markers=label:S|{storage_location.lat},{storage_location.lng}')
+
+    for i, pickup in enumerate(truck_stops, start=1):
+        seller = pickup.seller
+        if seller and seller.pickup_lat and seller.pickup_lng:
+            params.append(f'markers=label:{i}|{seller.pickup_lat},{seller.pickup_lng}')
+
+    params.append(f'key={api_key}')
+    return base + '&' + '&'.join(params)
+
+
+def _run_auto_assignment():
+    """
+    Auto-assign all eligible sellers (available items, no existing ShiftPickup, pickup_week set)
+    to the best-fit shift+truck.
+    Returns dict: {assigned: [ids], tbd: [{seller_id, reason}], over_cap_warnings: [pickup_ids]}
+    """
+    from sqlalchemy import func as _func
+
+    effective_cap = get_effective_capacity()
+
+    # All seller_ids that already have a ShiftPickup
+    existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.all()}
+
+    # Eligible sellers: has available items, no pickup yet, pickup_week set
+    eligible_sellers = (
+        User.query
+        .join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(
+            InventoryItem.status == 'available',
+            User.pickup_week.isnot(None),
+            User.id.notin_(existing_pickup_ids),
+        )
+        .group_by(User.id)
+        .all()
+    )
+
+    # Sort by unit count DESC (largest loads placed first)
+    seller_units = [(s, get_seller_unit_count(s)) for s in eligible_sellers]
+    seller_units.sort(key=lambda x: x[1], reverse=True)
+
+    assigned = []
+    tbd = []
+    over_cap_warnings = []
+
+    # Map slot preference: 'morning' → 'am', 'afternoon' → 'pm'
+    def _pref_to_slot(pref):
+        if pref == 'morning':
+            return 'am'
+        if pref == 'afternoon':
+            return 'pm'
+        return pref  # fall through for 'evening' or None
+
+    for seller, unit_count in seller_units:
+        pref_slot = _pref_to_slot(seller.pickup_time_preference)
+
+        # Candidate shifts: same week, matching slot (if preference set)
+        query = Shift.query.join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+        query = query.filter(ShiftWeek.week_start.isnot(None))
+
+        # Filter by seller.pickup_week (week1/week2) based on week_start ranges
+        # week1 = Apr 27–May 3, week2 = May 4–May 10
+        from datetime import date
+        if seller.pickup_week == 'week1':
+            query = query.filter(ShiftWeek.week_start >= date(2026, 4, 27),
+                                 ShiftWeek.week_start <= date(2026, 5, 3))
+        elif seller.pickup_week == 'week2':
+            query = query.filter(ShiftWeek.week_start >= date(2026, 5, 4),
+                                 ShiftWeek.week_start <= date(2026, 5, 10))
+
+        if pref_slot in ('am', 'pm'):
+            query = query.filter(Shift.slot == pref_slot)
+
+        candidates = query.filter(Shift.is_active == True).all()
+
+        if not candidates:
+            slot_label = pref_slot.upper() if pref_slot in ('am', 'pm') else 'any'
+            week_label = seller.pickup_week.replace('week', 'Week ') if seller.pickup_week else '?'
+            tbd.append({'seller_id': seller.id, 'reason': f'No {slot_label} shifts in {week_label}'})
+            continue
+
+        # For each candidate shift, compute current load per truck, pick best truck
+        best_shift = None
+        best_truck = None
+        best_remaining = None
+
+        for shift in candidates:
+            existing_pickups = ShiftPickup.query.filter_by(shift_id=shift.id).all()
+            truck_loads = {t: 0.0 for t in range(1, shift.trucks + 1)}
+            for p in existing_pickups:
+                if p.truck_number in truck_loads:
+                    truck_loads[p.truck_number] += get_seller_unit_count(p.seller)
+
+            # Best truck = lowest load
+            best_t = min(truck_loads, key=lambda t: truck_loads[t])
+            remaining = effective_cap - truck_loads[best_t]
+
+            if best_shift is None or remaining > best_remaining:
+                best_shift = shift
+                best_truck = best_t
+                best_remaining = remaining
+
+        # Find existing truck load for the best truck
+        existing_pickups = ShiftPickup.query.filter_by(shift_id=best_shift.id, truck_number=best_truck).all()
+        current_load = sum(get_seller_unit_count(p.seller) for p in existing_pickups)
+        over_cap = (current_load + unit_count) > effective_cap
+
+        pickup = ShiftPickup(
+            shift_id=best_shift.id,
+            seller_id=seller.id,
+            truck_number=best_truck,
+            status='pending',
+            capacity_warning=over_cap,
+            created_by_id=None,
+        )
+        db.session.add(pickup)
+        db.session.flush()
+        assigned.append(seller.id)
+        if over_cap:
+            over_cap_warnings.append(pickup.id)
+
+    db.session.commit()
+    return {
+        'assigned': assigned,
+        'tbd': tbd,
+        'over_cap_warnings': over_cap_warnings,
+    }
+
+
+# ── Spec #6 routes — admin shift extensions ──────────────────────────────────
+
+@app.route('/admin/crew/shift/<int:shift_id>/add-truck', methods=['POST'])
+@login_required
+def admin_shift_add_truck(shift_id):
+    """Increment Shift.trucks by 1. New truck = max existing + 1."""
+    if not current_user.is_admin:
+        abort(403)
+    # Use raw SQL to avoid mutating the ORM identity-mapped object in the caller's session.
+    from sqlalchemy import text as _text
+    row = db.session.execute(_text("SELECT trucks FROM shift WHERE id=:id"), {'id': shift_id}).fetchone()
+    if not row:
+        abort(404)
+    new_truck_number = row[0] + 1
+    db.session.execute(_text("UPDATE shift SET trucks=:t WHERE id=:id"), {'t': new_truck_number, 'id': shift_id})
+    db.session.commit()
+    return jsonify({'new_truck_number': new_truck_number})
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/order', methods=['POST'])
+@login_required
+def admin_shift_order_stops(shift_id):
+    """Run nearest-neighbor stop ordering; write stop_order to all ShiftPickups for this shift."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+
+    # Determine storage unit origin
+    import json as _json
+    truck_unit_plan = _json.loads(shift.truck_unit_plan or '{}')
+    origin_loc = None
+    for truck_key, loc_id in truck_unit_plan.items():
+        loc = StorageLocation.query.get(loc_id)
+        if loc and loc.lat and loc.lng:
+            origin_loc = loc
+            break
+
+    pickups = ShiftPickup.query.filter_by(shift_id=shift.id).all()
+    if not pickups:
+        flash("No stops to order.", "info")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+    if origin_loc is None:
+        # Fallback to insertion order
+        for i, p in enumerate(sorted(pickups, key=lambda x: x.id), start=1):
+            p.stop_order = i
+        db.session.commit()
+        flash("Storage unit has no coordinates — stops ordered by insertion order.", "info")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+    # Nearest-neighbor from storage location
+    with_coords = [p for p in pickups if p.seller.pickup_lat and p.seller.pickup_lng]
+    without_coords = [p for p in pickups if not p.seller.pickup_lat or not p.seller.pickup_lng]
+
+    current_lat, current_lng = origin_loc.lat, origin_loc.lng
+    ordered = []
+    unvisited = list(with_coords)
+
+    while unvisited:
+        best = min(unvisited, key=lambda p: haversine_miles(
+            current_lat, current_lng, p.seller.pickup_lat, p.seller.pickup_lng))
+        ordered.append(best)
+        current_lat, current_lng = best.seller.pickup_lat, best.seller.pickup_lng
+        unvisited.remove(best)
+
+    # Assign stop_order
+    for i, p in enumerate(ordered, start=1):
+        p.stop_order = i
+    for i, p in enumerate(without_coords, start=len(ordered) + 1):
+        p.stop_order = i
+
+    db.session.commit()
+    flash("Route ordered.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/stop/<int:pickup_id>/reorder', methods=['POST'])
+@login_required
+def admin_shift_reorder_stop(shift_id, pickup_id):
+    """Set a specific stop_order value on a pickup."""
+    if not current_user.is_admin:
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift_id:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    stop_order = data.get('stop_order')
+    if stop_order is None:
+        return jsonify({'error': 'stop_order required'}), 400
+    pickup.stop_order = int(stop_order)
+    db.session.commit()
+    return jsonify({'stop_order': pickup.stop_order})
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/notify', methods=['POST'])
+@login_required
+def admin_shift_notify_sellers(shift_id):
+    """Send pickup confirmation email to all unnotified sellers on this shift. Idempotent."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    pickups = ShiftPickup.query.filter_by(shift_id=shift_id).filter(
+        ShiftPickup.notified_at == None).all()
+
+    am_window = AppSetting.get('route_am_window', '9am–1pm')
+    pm_window = AppSetting.get('route_pm_window', '1pm–5pm')
+    time_window = am_window if shift.slot == 'am' else pm_window
+
+    shift_day_str = shift.label  # e.g. "Monday AM"
+
+    sent_count = 0
+    for pickup in pickups:
+        seller = pickup.seller
+        if not seller or not seller.email:
+            continue
+        first_name = seller.full_name.split()[0] if seller.full_name else 'there'
+        try:
+            html = wrap_email_template(f"""
+                <h2>Your Campus Swap pickup is confirmed!</h2>
+                <p>Hi {first_name},</p>
+                <p>Your pickup has been scheduled for <strong>{shift_day_str}</strong>, {time_window}.</p>
+                <p>Our team will arrive at your location during this window to collect your items.
+                Please make sure everything is ready and accessible.</p>
+                <p>If you have any questions, reply to this email or reach out at
+                <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                <p>Thanks for selling with Campus Swap!</p>
+            """)
+            send_email(seller.email, f"Your Campus Swap pickup is {shift_day_str}", html)
+            pickup.notified_at = _now_eastern()
+            sent_count += 1
+        except Exception as e:
+            logger.error(f"Failed to send pickup notification to {seller.email}: {e}")
+
+    if sent_count > 0 or not pickups:
+        shift.sellers_notified = True
+    db.session.commit()
+
+    flash(f"Notified {sent_count} seller(s).", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+# ── Route Builder ────────────────────────────────────────────────────────────
+
+@app.route('/admin/routes')
+@login_required
+def admin_routes_index():
+    """Route planner — unassigned sellers + shift capacity board."""
+    if not current_user.is_admin:
+        abort(403)
+
+    # Sellers with available items and a pickup_week set (include only those)
+    assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
+    unassigned_sellers = (
+        User.query
+        .join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(
+            InventoryItem.status == 'available',
+            User.pickup_week.isnot(None),
+            User.id.notin_(assigned_seller_ids),
+        )
+        .group_by(User.id)
+        .order_by(User.full_name)
+        .all()
+    )
+
+    clusters = build_geographic_clusters(unassigned_sellers)
+
+    # All shifts for all active weeks
+    weeks = ShiftWeek.query.filter_by(status='published').order_by(ShiftWeek.week_start).all()
+    all_shifts = []
+    for week in weeks:
+        all_shifts.extend([s for s in week.shifts if s.is_active])
+    all_shifts.sort(key=lambda s: (s.week.week_start, s.sort_key))
+
+    effective_cap = get_effective_capacity()
+
+    # Compute capacity data per shift + truck
+    from collections import defaultdict
+    shift_truck_data = {}
+    for shift in all_shifts:
+        pickups = ShiftPickup.query.filter_by(shift_id=shift.id).order_by(
+            ShiftPickup.truck_number, nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id).all()
+        trucks_data = {}
+        for truck_num in range(1, shift.trucks + 1):
+            truck_pickups = [p for p in pickups if p.truck_number == truck_num]
+            load = sum(get_seller_unit_count(p.seller) for p in truck_pickups)
+            trucks_data[truck_num] = {
+                'pickups': truck_pickups,
+                'load': load,
+                'effective_cap': effective_cap,
+            }
+        shift_truck_data[shift.id] = trucks_data
+
+    # Seller unit counts for display
+    seller_unit_counts = {s.id: get_seller_unit_count(s) for s in unassigned_sellers}
+
+    # All shifts for the "assign to" dropdowns (all trucks across all shifts)
+    shift_truck_options = []
+    for shift in all_shifts:
+        for t in range(1, shift.trucks + 1):
+            shift_truck_options.append({
+                'shift': shift,
+                'truck_number': t,
+                'label': f"{shift.label} (week of {shift.week.week_start.strftime('%b %-d')}) — Truck {t}",
+            })
+
+    # Count stats
+    total_with_items = (
+        User.query
+        .join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(InventoryItem.status == 'available', User.pickup_week.isnot(None))
+        .group_by(User.id)
+        .count()
+    )
+    total_assigned = len(assigned_seller_ids & {
+        s.id for s in User.query.join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(InventoryItem.status == 'available', User.pickup_week.isnot(None)).group_by(User.id).all()
+    })
+    total_unassigned = len(unassigned_sellers)
+
+    # Over-cap warnings
+    overcap_pickups = ShiftPickup.query.filter_by(capacity_warning=True).all()
+
+    return render_template(
+        'admin/routes.html',
+        clusters=clusters,
+        all_shifts=all_shifts,
+        shift_truck_data=shift_truck_data,
+        seller_unit_counts=seller_unit_counts,
+        shift_truck_options=shift_truck_options,
+        effective_cap=effective_cap,
+        total_with_items=total_with_items,
+        total_assigned=total_assigned,
+        total_unassigned=total_unassigned,
+        overcap_pickups=overcap_pickups,
+    )
+
+
+@app.route('/admin/routes/auto-assign', methods=['POST'])
+@login_required
+def admin_routes_auto_assign():
+    """Run auto-assignment for all unassigned sellers. Returns JSON."""
+    if not current_user.is_admin:
+        abort(403)
+    result = _run_auto_assignment()
+    return jsonify(result)
+
+
+@app.route('/admin/routes/stop/<int:pickup_id>/move', methods=['POST'])
+@login_required
+def admin_routes_move_stop(pickup_id):
+    """Move a ShiftPickup to a different shift + truck. Returns JSON."""
+    if not current_user.is_admin:
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    data = request.get_json(silent=True) or {}
+    new_shift_id = data.get('shift_id')
+    new_truck = data.get('truck_number')
+    if not new_shift_id or not new_truck:
+        return jsonify({'error': 'shift_id and truck_number required'}), 400
+
+    pickup.shift_id = int(new_shift_id)
+    pickup.truck_number = int(new_truck)
+
+    # Recompute capacity warning for this pickup on the new truck
+    effective_cap = get_effective_capacity()
+    truck_pickups = ShiftPickup.query.filter_by(
+        shift_id=pickup.shift_id, truck_number=pickup.truck_number).all()
+    load = sum(get_seller_unit_count(p.seller) for p in truck_pickups if p.id != pickup.id)
+    seller_units = get_seller_unit_count(pickup.seller)
+    pickup.capacity_warning = (load + seller_units) > effective_cap
+
+    db.session.commit()
+    return jsonify({'ok': True, 'capacity_warning': pickup.capacity_warning})
+
+
+@app.route('/admin/routes/seller/<int:user_id>/assign', methods=['POST'])
+@login_required
+def admin_routes_assign_seller(user_id):
+    """Manually assign a single unassigned seller to a shift + truck. Returns JSON (409 if already has ShiftPickup)."""
+    if not current_user.is_admin:
+        abort(403)
+    seller = User.query.get_or_404(user_id)
+
+    # Global uniqueness check
+    existing = ShiftPickup.query.filter_by(seller_id=user_id).first()
+    if existing:
+        return jsonify({'error': 'Seller already has a pickup assignment'}), 409
+
+    data = request.get_json(silent=True) or {}
+    shift_id = data.get('shift_id')
+    truck_number = data.get('truck_number')
+    if not shift_id or not truck_number:
+        return jsonify({'error': 'shift_id and truck_number required'}), 400
+
+    shift = Shift.query.get_or_404(int(shift_id))
+    effective_cap = get_effective_capacity()
+    truck_pickups = ShiftPickup.query.filter_by(shift_id=shift.id, truck_number=int(truck_number)).all()
+    load = sum(get_seller_unit_count(p.seller) for p in truck_pickups)
+    seller_units = get_seller_unit_count(seller)
+    over_cap = (load + seller_units) > effective_cap
+
+    pickup = ShiftPickup(
+        shift_id=shift.id,
+        seller_id=seller.id,
+        truck_number=int(truck_number),
+        status='pending',
+        capacity_warning=over_cap,
+        created_by_id=current_user.id,
+    )
+    db.session.add(pickup)
+    db.session.commit()
+    return jsonify({'ok': True, 'pickup_id': pickup.id, 'capacity_warning': over_cap})
+
+
+@app.route('/admin/settings/route', methods=['GET', 'POST'])
+@login_required
+def admin_route_settings():
+    """Route capacity + category unit size settings. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+    if request.method == 'POST':
+        # Save AppSettings
+        for key in ['truck_raw_capacity', 'truck_capacity_buffer_pct',
+                    'route_am_window', 'route_pm_window', 'maps_static_api_key']:
+            val = request.form.get(key)
+            if val is not None:
+                AppSetting.set(key, val.strip())
+        # Save per-category unit sizes
+        for cat in categories:
+            field_key = f'category_unit_{cat.id}'
+            val = request.form.get(field_key, '').strip()
+            if val:
+                try:
+                    cat.default_unit_size = float(val)
+                except ValueError:
+                    pass
+        db.session.commit()
+        flash("Route settings saved.", "success")
+        return redirect(url_for('admin_route_settings'))
+    return render_template(
+        'admin/route_settings.html',
+        categories=categories,
+        truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
+        truck_capacity_buffer_pct=AppSetting.get('truck_capacity_buffer_pct', '10'),
+        route_am_window=AppSetting.get('route_am_window', '9am–1pm'),
+        route_pm_window=AppSetting.get('route_pm_window', '1pm–5pm'),
+        maps_static_api_key=AppSetting.get('maps_static_api_key', ''),
+        effective_cap=get_effective_capacity(),
+    )
+
+
+@app.route('/crew/shift/<int:shift_id>/stops_partial')
+@login_required
+def crew_shift_stops_partial(shift_id):
+    """HTML partial of stops for current mover's truck. Used by 30-second auto-refresh."""
+    if (r := require_crew()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    # Find the worker's truck assignment for this shift
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, worker_id=current_user.id, role_on_shift='driver'
+    ).first()
+    if not assignment or not assignment.truck_number:
+        return '<div id="stop-list"><p style="color:var(--text-muted);font-size:0.875rem;">No stops assigned.</p></div>'
+
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift_id, truck_number=assignment.truck_number)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id)
+        .all()
+    )
+    item_counts = {}
+    for p in pickups:
+        item_counts[p.seller_id] = InventoryItem.query.filter_by(
+            seller_id=p.seller_id, status='available').count()
+
+    return render_template(
+        'crew/stops_partial.html',
+        shift=shift,
+        pickups=pickups,
+        item_counts=item_counts,
+    )
+
+
 if __name__ == '__main__':
     with app.app_context():
         # Only create DB if it doesn't exist (Local SQLite check)

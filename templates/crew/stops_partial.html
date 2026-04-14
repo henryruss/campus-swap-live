@@ -1,0 +1,47 @@
+<div id="stop-list">
+{% if pickups %}
+  {% for pickup in pickups %}
+  <div class="stop-card" style="background:white; border:var(--card-border); border-radius:14px; padding:16px 20px; margin-bottom:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+      <div>
+        {% if pickup.stop_order %}
+          <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-right:6px;">#{{ pickup.stop_order }}</span>
+        {% endif %}
+        <span style="font-weight:700; color:var(--primary); font-size:1rem;">{{ pickup.seller.full_name }}</span>
+        {% if pickup.seller.pickup_access_type == 'elevator' %}
+          <span style="font-size:0.72rem; background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 6px; margin-left:6px;">Elevator</span>
+        {% elif pickup.seller.pickup_access_type == 'stairs_only' %}
+          <span style="font-size:0.72rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px; margin-left:6px;">Stairs</span>
+        {% endif %}
+      </div>
+      <span style="display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:700; text-transform:uppercase;
+             background: {{ '#dcfce7' if pickup.status == 'completed' else ('#fef3c7' if pickup.status == 'issue' else '#f1f5f9') }};
+             color: {{ '#166534' if pickup.status == 'completed' else ('#92400e' if pickup.status == 'issue' else '#64748b') }};">
+        {{ pickup.status }}
+      </span>
+    </div>
+    {% set nav_addr = pickup.seller.pickup_address or pickup.seller.pickup_display %}
+    <div style="color:var(--text-muted); font-size:0.875rem; margin:4px 0 8px;">
+      {% if nav_addr %}
+        <i class="fas fa-map-marker-alt"></i> {{ nav_addr.split('·')[0].strip() }}
+      {% else %}
+        <i class="fas fa-map-marker-alt"></i> No address on file
+      {% endif %}
+    </div>
+    {% if nav_addr or (pickup.seller.pickup_lat and pickup.seller.pickup_lng) %}
+    {% set nav_query = nav_addr if nav_addr else (pickup.seller.pickup_lat|string + ',' + pickup.seller.pickup_lng|string) %}
+    <a href="https://maps.google.com/?q={{ nav_query | urlencode }}"
+       target="_blank"
+       style="display:inline-block; padding:7px 14px; border:1.5px solid var(--primary); border-radius:8px; font-size:0.82rem; font-weight:700; color:var(--primary); text-decoration:none;">
+      Navigate &rarr;
+    </a>
+    {% endif %}
+    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:6px;">
+      <i class="fas fa-box"></i> {{ item_counts.get(pickup.seller_id, 0) }} item(s)
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem; text-align:center; padding:24px 0;">No stops assigned to your truck yet.</p>
+{% endif %}
+</div>

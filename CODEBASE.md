@@ -56,8 +56,11 @@ All styling lives in `static/style.css`. CSS variables:
 ```
 id, email, password_hash, full_name
 is_admin, is_super_admin
-phone, pickup_address, pickup_location_type ('on_campus'|'off_campus')
-pickup_dorm, pickup_room, pickup_note, pickup_lat, pickup_lng
+phone, pickup_address, pickup_location_type ('on_campus'|'off_campus_complex'|'off_campus_other')
+pickup_dorm, pickup_room, pickup_note (500 chars), pickup_lat, pickup_lng
+pickup_access_type ('elevator'|'stairs_only'|'ground_floor', nullable)
+pickup_floor (Integer 1–30, nullable)
+pickup_partner_building (String 100, nullable) — partner apartment building name (used for geographic clustering)
 payout_method, payout_handle
 is_seller, has_paid, payment_declined
 stripe_customer_id, stripe_payment_method_id
@@ -71,7 +74,14 @@ is_worker (bool), worker_status (None|'pending'|'approved'|'rejected'), worker_r
 referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, generated at account creation
 referred_by_id (FK → User, nullable) — who gave them the code
 payout_rate (Integer, default 20) — stored percentage; updated when referrals are confirmed
-has_paid_boost (Boolean, default False) — one-time $15 payout boost purchased flag; reset each season
+has_paid_boost (Boolean, default False, server_default='0') — one-time $15 payout boost purchased flag; reset each season
+
+Notes on pickup fields:
+- off_campus_complex: pickup_dorm = building name (one of OFF_CAMPUS_COMPLEXES), pickup_room = unit number
+- off_campus_other: pickup_address + pickup_lat/lng set; dorm/room cleared
+- on_campus: pickup_dorm = dorm name, pickup_room = room number
+- Legacy 'off_campus' value migrated to 'off_campus_other' via migration 773c1d40cca8
+- has_pickup_location = False if pickup_access_type or pickup_floor is null
 
 Properties: has_pickup_location, pickup_display, is_guest_account
 ```
@@ -95,11 +105,13 @@ price_updated_at
 storage_location_id (FK → StorageLocation, nullable) — where the item physically lives
 storage_row (String, nullable) — aisle/row label within the storage location
 storage_note (Text, nullable) — freeform note from organizer (e.g. "large box, shelf 3")
+unit_size (Float, nullable) — per-item override for truck capacity calculation; NULL = use category default
 ```
 
 ### InventoryCategory
 ```
 id, name, image_url, count_in_stock
+default_unit_size (Float, default 1.0, nullable) — truck space this category consumes; seeded for 12 furniture types
 items → [InventoryItem]
 ```
 
@@ -160,6 +172,8 @@ Referral program keys (defaults): 'referral_base_rate' ('20'), 'referral_signup_
 'referral_bonus_per_referral' ('10'), 'referral_max_rate' ('100'), 'referral_program_active' ('true')
 Delivery keys: 'warehouse_lat', 'warehouse_lng', 'delivery_radius_miles' (default '50')
 Teaser key: 'shop_teaser_mode' ('true' → show pre-launch teaser on /inventory; absent/'false' → normal shop)
+Route planning keys: 'truck_raw_capacity' ('18'), 'truck_capacity_buffer_pct' ('10'),
+  'route_am_window' ('9am–1pm'), 'route_pm_window' ('1pm–5pm'), 'maps_static_api_key' ('')
 ```
 
 ### ShopNotifySignup
@@ -222,6 +236,7 @@ trucks (Integer, default 2), is_active (Boolean, default True)
 created_at
 truck_unit_plan (Text, nullable) — JSON dict {"truck_num": storage_location_id} — planned destination per truck;
   written by admin before pickups exist; synced to ShiftPickup.storage_location_id when pickups are added
+sellers_notified (Boolean, default False) — True once admin has sent pickup confirmation emails for this shift
 Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
 Properties: label, sort_key, drivers_needed, organizers_needed,
             driver_assignments, organizer_assignments, is_fully_staffed, status_label
@@ -242,11 +257,13 @@ Relationships: shift → Shift, worker → User, assigned_by → User
 ```
 One seller stop per shift. Populated by admin via ops page.
 id, shift_id (FK → Shift), seller_id (FK → User), truck_number (Integer)
-stop_order (Integer, nullable — populated by spec #6)
+stop_order (Integer, nullable) — populated by nearest-neighbor ordering; shift-scoped (not per-truck)
 status: 'pending' | 'completed' | 'issue'   default: 'pending'
 notes (Text, nullable), completed_at (DateTime, nullable)
 storage_location_id (FK → StorageLocation, nullable) — planned destination unit;
   written by admin only; pre-populated from Shift.truck_unit_plan when seller is added
+notified_at (DateTime, nullable) — timestamp when seller was sent pickup confirmation email
+capacity_warning (Boolean, default False) — True when assigned to an over-capacity truck
 created_at, created_by_id (FK → User)
 Unique constraint: (shift_id, seller_id) — seller globally unique across all shifts
 Relationships: shift → Shift, seller → User (backref: shift_pickups), created_by → User,
@@ -278,6 +295,7 @@ id, name (String), address (String)
 location_note (Text, nullable) — directions, access code, landmarks
 capacity_note (Text, nullable) — e.g. "Unit 14B, max ~80 items"
 is_active (Boolean, default True), is_full (Boolean, default False)
+lat (Float, nullable), lng (Float, nullable) — coordinates for nearest-neighbor stop ordering
 created_at, created_by_id (FK → User, nullable)
 Relationships: items → [InventoryItem], intake_records → [IntakeRecord]
 ```
@@ -310,7 +328,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 
 ---
 
-## Route Map (`app.py` — 6,300+ lines)
+## Route Map (`app.py` — 10,000+ lines)
 
 ### Public
 | Route | Function | Notes |
@@ -425,6 +443,16 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker (sets worker_role='both'); sends email |
 | `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
 | `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists + destination unit selectors |
+| `GET /admin/routes` | `admin_routes_index` | Route builder — unassigned sellers grouped by cluster + shift capacity board |
+| `POST /admin/routes/auto-assign` | `admin_routes_auto_assign` | Run auto-assignment for all unassigned eligible sellers. Returns JSON {assigned, tbd, over_cap_warnings} |
+| `POST /admin/routes/stop/<pickup_id>/move` | `admin_routes_move_stop` | Move ShiftPickup to different shift+truck; recalculates capacity_warning. Returns JSON |
+| `POST /admin/routes/seller/<user_id>/assign` | `admin_routes_assign_seller` | Manually assign unassigned seller. Returns JSON (409 if seller already has ShiftPickup) |
+| `POST /admin/crew/shift/<shift_id>/add-truck` | `admin_shift_add_truck` | Increment Shift.trucks by 1 via raw SQL. Returns JSON {new_truck_number} |
+| `POST /admin/crew/shift/<shift_id>/order` | `admin_shift_order_stops` | Nearest-neighbor stop ordering from storage unit origin; writes stop_order to all ShiftPickups |
+| `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/reorder` | `admin_shift_reorder_stop` | Set a specific stop_order value. Returns JSON |
+| `POST /admin/crew/shift/<shift_id>/notify` | `admin_shift_notify_sellers` | Send pickup confirmation emails to unnotified sellers (idempotent). Redirect |
+| `GET /crew/shift/<shift_id>/stops_partial` | `crew_shift_stops_partial` | HTML partial of stops for current mover's truck. Used by 30s auto-refresh |
+| `GET+POST /admin/settings/route` | `admin_route_settings` | Capacity settings + category unit sizes. Super admin only |
 | `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` | `admin_shift_remove_stop` | Remove pending stop only |
 | `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` | `admin_shift_assign_mover_truck` | Assign driver to truck (cap-enforced); truck_number=0 unassigns |
@@ -538,13 +566,16 @@ crew/dashboard.html            — Worker portal: today's shift banner (time+in-
 crew/availability.html         — Weekly availability update + partner preferences (custom dropdown picker)
 crew/_availability_grid.html   — Availability grid partial
 crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O abbreviations; Mover/Organizer legend
-crew/shift.html                — Phone-optimized mover shift view: pre-start/in-progress/past states; inline notes; mark-incomplete; retroactive complete; horizontally scrollable item photo+ID strip per stop
+crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete
+crew/stops_partial.html        — HTML partial (no layout): stop list for current mover's truck; used by 30s setInterval auto-refresh fetch
 crew/intake.html               — Organizer intake page: truck sections with received/total counters, item search, bottom-sheet modal for submission; responsive (960px+ two-column, 760px+ trucks grid)
 crew/_intake_modal.html        — Bottom-sheet modal partial embedded in crew/intake.html
 crew/intake_search_results.html — Partial rendered via fetch into #search-results; shows item photo, ID, seller name
 admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form; Delete Week button (draft-only); Storage Units link
 admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
-admin/shift_ops.html           — Ops page: green mover assignment panel + route stop lists + destination unit auto-save dropdown + Intake Summary section
+admin/shift_ops.html           — Ops page: issue alert banner, green mover panel, ordered stop lists + badges (stop#, access type, cap warning), Order Route + Notify Sellers buttons, Intake Summary
+admin/routes.html              — Route builder: unassigned sellers by cluster, shift capacity board, auto-assign, move/assign inline panels
+admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes
 admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
 admin/storage_detail.html      — Items at a given storage location, filterable by status
 admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
