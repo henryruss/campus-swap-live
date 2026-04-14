@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+
+{% block head_extra %}
+<meta name="robots" content="noindex">
+{% endblock %}
+
+{% block content %}
+<!-- Blurred background mosaic of real item photos -->
+<div class="teaser-bg-grid">
+  {% for item in preview_items %}
+    <div class="teaser-tile">
+      {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="">
+      {% endif %}
+    </div>
+  {% endfor %}
+  {% for _ in placeholder_range %}
+    <div class="teaser-tile teaser-tile--placeholder"></div>
+  {% endfor %}
+</div>
+
+<!-- Dark overlay -->
+<div class="teaser-overlay"></div>
+
+<!-- Centered launch card -->
+<div class="teaser-card">
+  <p class="teaser-eyebrow">Campus Swap &mdash; UNC Chapel Hill</p>
+  <h1 class="teaser-headline">Shop Drop</h1>
+  <p class="teaser-date">Opens June 1st</p>
+  <p class="teaser-sub">Items are filling up. Be first in line.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div style="padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem;
+                  background: {% if category == 'success' %}#f0fdf4{% else %}#fef2f2{% endif %};
+                  color: {% if category == 'success' %}#166534{% else %}#991b1b{% endif %};
+                  border: 1px solid {% if category == 'success' %}#bbf7d0{% else %}#fecaca{% endif %};">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="POST" action="{{ url_for('shop_notify_signup') }}" class="teaser-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="email" name="email" placeholder="your@email.com" required class="teaser-input">
+    <button type="submit" class="btn-primary">Notify Me</button>
+  </form>
+</div>
+{% endblock %}

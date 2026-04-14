@@ -72,6 +72,14 @@
             <div>
                 <strong>Confirmed referrals given:</strong> {{ seller_confirmed_referral_count }} of {{ seller_referrals_given|length }}
             </div>
+            <div>
+                <strong>Payout Boost:</strong>
+                {% if seller.has_paid_boost %}
+                <span style="background: #dcfce7; color: #166534; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Purchased</span>
+                {% else %}
+                <span style="background: #f1f5f9; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Not purchased</span>
+                {% endif %}
+            </div>
         </div>
         {% if seller_referrals_given %}
         <table style="width:100%; border-collapse:collapse; font-size:0.85rem; margin-top:10px;">

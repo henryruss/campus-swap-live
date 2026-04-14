@@ -237,10 +237,19 @@
                     Pickup Period: {% if pickup_period_active %}OPEN{% else %}CLOSED{% endif %}
                 </button>
             </form>
+            <form method="POST" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="toggle_shop_teaser" value="true"/>
+                {% set teaser_on = shop_teaser_mode == 'true' %}
+                <button type="submit" class="btn" style="background: {% if teaser_on %}#fef9c3{% else %}#f1f5f9{% endif %}; color: {% if teaser_on %}#92400e{% else %}#475569{% endif %}; border: 2px solid {% if teaser_on %}#fde68a{% else %}#cbd5e1{% endif %};" title="Toggle Shop Teaser (pre-launch blurred mosaic)">
+                    <i class="fas fa-eye{% if not teaser_on %}-slash{% endif %}"></i>
+                    Shop Teaser: {% if teaser_on %}ON{% else %}OFF{% endif %}
+                </button>
+            </form>
             <form method="POST" style="margin: 0; display: flex; align-items: center; gap: 6px;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="update_store_open_date" value="true"/>
-                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; white-space: nowrap;">Store opens:</label>
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; white-space: nowrap;">Store goes live:</label>
                 <input type="date" name="store_open_date_value" value="{{ store_open_date_raw() }}"
                        style="padding: 6px 10px; border: 2px solid {% if store_is_open() %}#bbf7d0{% else %}#fde68a{% endif %}; border-radius: 8px; font-size: 0.85rem; background: {% if store_is_open() %}#dcfce7{% else %}#fef9c3{% endif %};">
                 <button type="submit" class="btn" style="padding: 6px 12px; font-size: 0.8rem;">Save</button>
@@ -415,6 +424,9 @@
                     </a>
                     <a id="download-btn" href="/admin/export/users" class="btn btn-primary" style="padding: 10px 20px;">
                         <i class="fas fa-download"></i> Download CSV
+                    </a>
+                    <a href="{{ url_for('admin_export_notify_signups') }}" class="btn btn-outline" style="padding: 10px 20px;" title="Export Shop Drop notification signups">
+                        <i class="fas fa-bell"></i> Notify Signups CSV
                     </a>
                 </div>
             </div>
@@ -938,7 +950,7 @@
                             <th>Picked up</th>
                             <th>At store</th>
                             <th>Status</th>
-                            <th>Reservation</th>
+                            <th>Delivery Address</th>
                             <th>Payout</th>
                             <th style="text-align: right;">Actions</th>
                         </tr>
@@ -1010,14 +1022,11 @@
                                 {% endif %}
                             </td>
 
-                            <td style="font-size: 0.8rem; min-width: 120px;">
-                                {% if item.id in admin_reservations %}
-                                    {% set res = admin_reservations[item.id] %}
-                                    <span style="color: #92400e; font-weight: 600;">Reserved</span>
-                                    <div style="color: var(--text-muted); margin-top: 2px;">{{ res.user.full_name or res.user.email }}</div>
-                                    <div style="color: var(--text-muted); font-size: 0.75rem;">until {{ res.expires_at.strftime('%b %d') }}</div>
+                            <td style="font-size: 0.8rem; color: var(--text-muted); max-width: 200px;">
+                                {% if item.status == 'sold' %}
+                                    {{ item.buyer_order.delivery_address if item.buyer_order else '—' }}
                                 {% else %}
-                                    <span style="color: #999;">—</span>
+                                    —
                                 {% endif %}
                             </td>
 

@@ -71,6 +71,7 @@ is_worker (bool), worker_status (None|'pending'|'approved'|'rejected'), worker_r
 referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, generated at account creation
 referred_by_id (FK → User, nullable) — who gave them the code
 payout_rate (Integer, default 20) — stored percentage; updated when referrals are confirmed
+has_paid_boost (Boolean, default False) — one-time $15 payout boost purchased flag; reset each season
 
 Properties: has_pickup_location, pickup_display, is_guest_account
 ```
@@ -157,6 +158,23 @@ Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store
 'shifts_required' (minimum shifts for season payout, default '10')
 Referral program keys (defaults): 'referral_base_rate' ('20'), 'referral_signup_bonus' ('10'),
 'referral_bonus_per_referral' ('10'), 'referral_max_rate' ('100'), 'referral_program_active' ('true')
+Delivery keys: 'warehouse_lat', 'warehouse_lng', 'delivery_radius_miles' (default '50')
+Teaser key: 'shop_teaser_mode' ('true' → show pre-launch teaser on /inventory; absent/'false' → normal shop)
+```
+
+### ShopNotifySignup
+```
+Email capture for pre-launch Shop Drop teaser. No UNIQUE constraint — duplicates silently accepted.
+id, email (String 120), created_at (DateTime), ip_address (String 45, nullable)
+```
+
+### BuyerOrder
+```
+Delivery details for each completed item purchase. One record per sold item.
+id, item_id (FK → InventoryItem, unique), buyer_email (String 120)
+delivery_address (String 300), delivery_lat (Float, nullable), delivery_lng (Float, nullable)
+stripe_session_id (String 120, nullable), created_at (DateTime)
+Relationships: item → InventoryItem (backref buyer_order, uselist=False)
 ```
 
 ### Referral
@@ -460,6 +478,9 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 |---|---|---|
 | `POST /api/upload_session/create` | `create_upload_session` | Create QR session token |
 | `GET /api/upload_session/status` | `upload_session_status` | Poll for mobile uploads |
+| `POST /api/photos/stage` | `stage_draft_photos` | Stage computer-picked photos to temp storage for draft saving (login required) |
+| `POST /upgrade_payout_boost` | `upgrade_payout_boost` | Create $15 Stripe Checkout Session for payout boost (login required) |
+| `GET /upgrade_boost_success` | `upgrade_boost_success` | Post-payment confirmation page |
 | `GET/POST /upload_from_phone` | `upload_from_phone[_post]` | Mobile upload page |
 | `POST /upload_video_from_phone` | `upload_video_from_phone_post` | |
 
@@ -595,6 +616,9 @@ The two-tier Pro/Free system is replaced by a referral-driven payout rate stored
 - `pickup_period_active`: 'true'/'false' — enables pickup scheduling
 - `current_store`: store name for display
 - `store_open_date`: date string shown on inventory banner when store not yet open
+- `shop_teaser_mode`: 'true' → `/inventory` shows blurred mosaic + email capture (pre-launch); 'false'/absent → normal shop
+- `warehouse_lat` / `warehouse_lng`: warehouse coordinates for delivery radius check (fail-open if absent)
+- `delivery_radius_miles`: max delivery distance, default '50'
 
 ### Stripe Integration
 - Item purchase: standard Checkout Session

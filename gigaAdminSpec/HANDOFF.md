@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-04-09
-**Active spec:** None — Referral Program complete and test-verified
-**Overall status:** Specs #1, #2, #3, #4, Mini-Spec (Shift History), and Referral Program all done. Ready for Spec #5.
+**Last updated:** 2026-04-13
+**Active spec:** None
+**Overall status:** Specs #1–4, Mini-Spec (Shift History), Referral Program, Payout Boost, Draft System, Buyer Delivery Flow, and Shop Drop Teaser all done.
 
 ---
 
@@ -23,6 +23,68 @@
 - Mini-Spec — Shift History & Completion Counting ✅ Signed off 2026-04-07
 - Spec #4 — Organizer Intake ✅ Signed off 2026-04-08
 - Referral Program ✅ Complete 2026-04-09 (60/60 tests passing)
+- Payout Boost ✅ Complete 2026-04-13
+- Item Draft System ✅ Complete 2026-04-13
+- Onboarding Payout Removal ✅ Complete 2026-04-13
+- Buyer Delivery Flow ✅ Complete 2026-04-13 (36/37 tests passing; 1 test has wrong expected range hardcoded)
+- Shop Drop Teaser ✅ Complete 2026-04-13
+
+---
+Seller Dashboard & Account Settings Redesign — Complete. 🔲 Spec written 2026-04-13, Built.
+Spec file: feature_dashboard_redesign.mdWhat changed:
+
+Dashboard layout moved from two-column (items + referral sidebar) to single full-width column
+Setup strip replaces the old address nag banner and acts as the unified completion checklist (phone ✓, pickup week & address, payout info)
+Pickup week & address combined into one modal; payout info in a second modal — both triggered from the strip and from the stats bar
+"Items Awaiting Approval" generic banner removed — pending state now shown as a frosted overlay on item thumbnails
+"Boost Your Payout" standalone card removed from dashboard — boost CTA now lives inside the Refer & Earn card
+Refer & Earn card is full-width at bottom, always visible, all text white/cream/sage (no dark text on green background)
+Account settings restructured to three sections only: Account Info, Change Password, Pickup & Payout. Payout Boost card removed entirely from that page.
+
+## Buyer Delivery Flow (Complete)
+
+**Status:** ✅ Complete 2026-04-13
+**Spec file:** `feature_buyer_delivery.md`
+
+### What Was Built
+- `BuyerOrder` model — delivery address + lat/lng per sold item, FK to InventoryItem (unique)
+- `haversine_miles()` and `geocode_address()` helpers in `app.py` (geopy/Nominatim, no API key)
+- `GET/POST /checkout/delivery/<item_id>` — address form with geocoding + 50-mile radius check
+- `GET /checkout/pay/<item_id>` — session validation + Stripe checkout session creation
+- `POST /create_checkout_session` — updated to handle item purchases (reads `pending_delivery` session); legacy seller activation path preserved
+- Webhook updated: item purchase detection by `item_id` in metadata (no longer requires `type` field), creates `BuyerOrder` from delivery metadata
+- `product.html`: "Buy Now" → `/checkout/delivery/<id>`, "Delivery" → "Weekly Delivery · Free"
+- `item_success.html`: updated next-steps to delivery language
+- `admin.html`: Delivery Address column in lifecycle table
+- `templates/checkout_delivery.html`: new two-column address form
+- AppSettings: `warehouse_lat`, `warehouse_lng`, `delivery_radius_miles`
+
+### Deviation from spec
+- Geocoding uses Nominatim (free, no API key), not Google Maps. Works on Render; SSL issue blocks local macOS testing (known).
+- Webhook now detects item purchases by `item_id` presence in metadata (not `type == 'item_purchase'`) so both old `buy_item` and new delivery flows are handled.
+- One test (`test_chapel_hill_to_charlotte_roughly_145_165_miles`) has incorrect expected range (111 mi actual vs 145-165 expected — test conflates road vs. straight-line distance). All other 36 tests pass.
+
+---
+
+## Shop Drop Teaser (Complete)
+
+**Status:** ✅ Complete 2026-04-13
+**Spec file:** `feature_shop_drop_teaser.md`
+
+### What Was Built
+- `ShopNotifySignup` model — email + created_at + ip_address (no unique constraint; duplicates accepted)
+- `POST /shop/notify` → `shop_notify_signup` — captures email, flashes "We'll let you know!"
+- `GET /admin/export/notify-signups` → `admin_export_notify_signups` — CSV export
+- `inventory()` route: early-return renders `inventory_teaser.html` when `shop_teaser_mode == 'true'`
+- `product_detail()` route: early-return redirects to `/inventory` with flash when teaser mode on
+- Admin toggle "Shop Teaser: ON/OFF" added to admin panel header bar
+- `templates/inventory_teaser.html` — full-viewport blurred mosaic + launch card + email form
+- `static/style.css` — Teaser CSS section added
+- `layout.html` — `{% block head_extra %}` block added for noindex injection
+- Notify Signups CSV export button added to admin exports section
+
+### Deviation from spec
+- None. Implemented exactly as spec described.
 
 ---
 
@@ -489,6 +551,90 @@ Crew intake:
 2. **Referral confirmation email silently swallowed.** `url_for('dashboard', _external=True)` called inside the f-string blew up with `RuntimeError: Unable to build URLs outside an active request`. The outer `try/except` caught it but never reached `send_email`. Fixed by moving `url_for` call above the email body construction with its own try/except.
 
 3. **Webhook returned 500 in test environment.** No `STRIPE_WEBHOOK_SECRET` env var in test runner → `if not endpoint_secret: return ..., 500`. Test expected 400 or 200. Changed 500 → 400.
+
+---
+
+## Payout Boost ($15 for +30%) — Complete
+
+**Status:** ✅ Complete 2026-04-13
+**Spec file:** `feature_payout_boost.md`
+
+### What Was Built
+
+**Model changes (`models.py`)**
+- `User.has_paid_boost` (Boolean, default False, nullable=False) — one-time purchase flag per season. Separate from legacy `has_paid`. Migration: `cc26a70ffae9_add_has_paid_boost_to_user`.
+
+**New routes (`app.py`)**
+- `POST /upgrade_payout_boost` → `upgrade_payout_boost` — creates $15 Stripe Checkout Session. Guards: `@login_required`, `not has_paid_boost`, `payout_rate < 100`. Metadata: `type=payout_boost`, `user_id`, `boost_amount=30`, `rate_at_purchase`.
+- `GET /upgrade_boost_success` → `upgrade_boost_success` — post-payment confirmation page showing new rate.
+- Legacy routes `/upgrade_pickup`, `/upgrade_checkout`, `/upgrade_pickup_success` now redirect to `/dashboard` with flash instead of 404.
+
+**Webhook handler (`checkout.session.completed`)**
+- Added branch for `type == 'payout_boost'`: bumps `user.payout_rate` by `boost_amount` (capped at `referral_max_rate`), sets `user.has_paid_boost = True`, sends confirmation email. Idempotency guard: `not user.has_paid_boost` checked before applying.
+
+**Template changes**
+- `dashboard.html` — "Boost Your Payout" card in the Refer & Earn sidebar. Dynamic label: "Boost to X% for $15". Hidden when `has_paid_boost` or `payout_rate >= 100`.
+- `account_settings.html` — compact inline boost panel below payout info section. Same visibility conditions.
+- `templates/upgrade_boost_success.html` — new success page. Shows new rate, encourages continued referring.
+- `admin_seller_panel.html` — "Payout Boost: Purchased / Not purchased" badge in referral section.
+
+**Business logic**
+- New rate = `min(current_rate + 30, referral_max_rate)`
+- Boost and referrals stack freely — both move toward 100% ceiling
+- `has_paid_boost` is only ever set True in the webhook handler, never on success redirect
+- Boost amount ($15, +30%) is hardcoded this season; AppSetting path documented for future configurability
+
+### Deviations from Spec
+
+None — built exactly as specced.
+
+---
+
+## Item Draft System — Complete
+
+**Status:** ✅ Complete 2026-04-13
+**Note:** Seller-side feature, not an ops spec. Documented here for completeness.
+
+### What Was Built
+
+**Draft storage (frontend, `localStorage`)**
+- `cs_item_drafts` — JSON array. Each entry: `{id, categoryId, categoryName, subcategoryId, condition, description, longDescription, suggestedPrice, tempPhotoFilenames[], tempPhotoUrls{}, step, savedAt}`. Replaces the old single-object `cs_item_draft` key.
+- `currentDraftId` — IIFE-level variable tracks which draft the current session edits. Re-saves update the same entry; fresh sessions create a new entry. Multiple drafts coexist independently.
+- 7-day expiry enforced on read; stale entries pruned automatically.
+
+**Photo staging (`app.py`)**
+- `POST /api/photos/stage` → `stage_draft_photos` — `@login_required`. Accepts multipart `photos` field, processes images identically to phone upload (EXIF transpose, RGBA→RGB, 2000px max), saves as `draft_temp_<user_id>_<ts>_<hash>.jpg`. Returns `{success, photos: [{filename, url}]}`.
+- `/uploads/<filename>` updated to serve `draft_temp_` files from disk (alongside `temp_` and `guest_temp_`).
+- `_cleanup_expired_upload_sessions` extended to delete `draft_temp_` files older than 7 days from the filesystem.
+
+**Save flow (`add_item.html`)**
+- "Save Draft" button stages any `selectedFiles` (computer-picked photos) via `/api/photos/stage` before saving — converts File objects to server URLs so they survive serialization. Staged files join `tempPhotoFilenames`.
+- "Exit without saving" navigates away without touching the draft (preserves last-saved state).
+
+**Restore flow (`add_item.html`)**
+- Dashboard "Continue →" links to `/add_item?draft=<id>`. On page load, if `?draft` param present, draft is auto-restored and URL cleaned up — no banner shown.
+- `restoreDraftData(d)` sets `currentDraftId`, restores all fields, restores photos via `addTemp()`, navigates to saved step. Falls back to photo step if no photos staged.
+- No banner on add_item page — all draft management is from the dashboard.
+
+**Dashboard (`dashboard.html`)**
+- "Saved Drafts" section rendered by JS from `cs_item_drafts` array. Shows item name, save date, "Continue →" (with draft ID in URL), and per-draft Discard button.
+
+### Key decisions
+- **Onboarding has no draft saving** — guests can't save progress. Drafts are a logged-in-seller feature only. The X button in onboarding navigates directly away.
+- **Discard only from dashboard** — the exit modal inside add_item has no delete-draft path. Discarding requires an explicit action from the dashboard.
+
+---
+
+## Onboarding Payout Removal — Complete
+
+**Status:** ✅ Complete 2026-04-13
+
+### What Changed
+- Payout collection (Venmo/PayPal/Zelle) removed from onboarding wizard entirely. Step 7 (payout) deleted from `onboard.html`. Step numbering: 1→2→3→4→5→6→8(review)→9(guest account).
+- `onboard_guest_save`: payout fields no longer required or saved. `payout_method` and `payout_handle` set to `None` in session pending data.
+- All `render_template('onboard.html', ...)` calls now pass `skip_payout=True` always.
+- `account_settings.html`: payout form always visible regardless of whether one is set. Shows amber warning when not yet configured.
+- `dashboard.html`: amber nag bar shown to sellers without payout info on file (`has_payout_info=False`).
 
 ---
 

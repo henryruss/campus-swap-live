@@ -1,23 +1,53 @@
 {% extends "layout.html" %}
 
 {% block content %}
-{% set pending_items = my_items|selectattr('status', 'equalto', 'pending_valuation')|list %}
-{% set pending_logistics = my_items|selectattr('status', 'equalto', 'pending_logistics')|list %}
-{% set sold_items = my_items|selectattr('status', 'equalto', 'sold')|list %}
-{% set pending_free_items = pending_logistics|selectattr('collection_method', 'equalto', 'free')|list %}
+{% set setup_phone_done = current_user.phone is not none %}
+{% set setup_pickup_done = has_pickup_location and current_user.pickup_week is not none %}
+{% set setup_payout_done = current_user.payout_method is not none %}
+{% set setup_complete = setup_phone_done and setup_pickup_done and setup_payout_done %}
 
-<div class="container" style="margin-top: 32px;">
-    <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 28px;">
+<div class="container" style="margin-top: 32px; padding-bottom: 48px;">
+
+    {# 1. Page Header #}
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px;">
         <div>
             <h1 style="margin-bottom: 4px;">Seller Studio</h1>
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
-                <p style="margin: 0; color: var(--text-muted); font-size: 0.95rem;">Manage your inventory and track your sales.</p>
-            </div>
+            <p style="margin: 0; color: var(--text-muted); font-size: 0.95rem;">Manage your inventory and track your sales.</p>
         </div>
         <a href="/logout" class="btn btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">Log Out</a>
     </div>
 
-    {# Earnings stats bar + Pickup method #}
+    {# 2. Setup Strip #}
+    {% if not setup_complete %}
+    <div class="setup-strip">
+        <div class="setup-chip {% if setup_phone_done %}setup-chip-done{% else %}setup-chip-todo{% endif %}"
+             {% if not setup_phone_done %}onclick="scrollToPhoneNag()" style="cursor:pointer;"{% endif %}>
+            {% if setup_phone_done %}
+            <i class="fas fa-check-circle"></i> Phone
+            {% else %}
+            Add phone &rarr;
+            {% endif %}
+        </div>
+        <div class="setup-chip {% if setup_pickup_done %}setup-chip-done{% else %}setup-chip-todo{% endif %}"
+             {% if not setup_pickup_done %}onclick="openModal('modal-pickupaddr')" style="cursor:pointer;"{% endif %}>
+            {% if setup_pickup_done %}
+            <i class="fas fa-check-circle"></i> Pickup week &amp; address
+            {% else %}
+            <span class="setup-badge">1</span> Pickup week &amp; address &rarr;
+            {% endif %}
+        </div>
+        <div class="setup-chip {% if setup_payout_done %}setup-chip-done{% else %}setup-chip-todo{% endif %}"
+             {% if not setup_payout_done %}onclick="openModal('modal-payout')" style="cursor:pointer;"{% endif %}>
+            {% if setup_payout_done %}
+            <i class="fas fa-check-circle"></i> Payout info
+            {% else %}
+            <span class="setup-badge">2</span> Payout info &rarr;
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# 3. Stats Bar #}
     <div class="dashboard-stats-bar">
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Potential Earnings</div>
@@ -31,426 +61,451 @@
         </div>
         <div class="dashboard-stat">
             <div class="dashboard-stat-label">Items</div>
-            <div class="dashboard-stat-value">{{ live_items|length }} live · {{ sold_items|length }} sold</div>
-            {% if pending_items or pending_logistics %}
-            <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ pending_items|length + pending_logistics|length }} pending</div>
+            <div class="dashboard-stat-value">{{ live_items|length }} live · {{ (my_items|selectattr('status', 'equalto', 'sold')|list)|length }} sold</div>
+            {% set _pending_count = (my_items|selectattr('status', 'equalto', 'pending_valuation')|list)|length + (my_items|selectattr('status', 'equalto', 'needs_info')|list)|length %}
+            {% if _pending_count > 0 %}
+            <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ _pending_count }} pending</div>
             {% endif %}
         </div>
-        <div class="dashboard-stat dashboard-stat-pickup" id="pickup-stat-cell" style="cursor:pointer;" onclick="openPickupWeekModal()" title="Set or change your pickup week">
-            <div class="dashboard-stat-label">Pickup window <span style="font-size:0.7rem;color:var(--accent);margin-left:4px;"><i class="fas fa-edit"></i></span></div>
-            {% if user_pickup_week %}
+        <div class="dashboard-stat" style="cursor: pointer;" onclick="openModal('modal-pickupaddr')" title="Set or change your pickup week">
+            <div class="dashboard-stat-label">Pickup Window <span style="font-size:0.7rem; color:var(--accent); margin-left:4px;"><i class="fas fa-edit"></i></span></div>
+            {% if current_user.pickup_week %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;" id="pickup-stat-value">{{ pickup_method_label }}</div>
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Scheduled</div>
-            <p style="font-size: 0.7rem; color: var(--text-muted); margin: 6px 0 0; line-height: 1.4;">We optimize our pickup routes and will let you know more specifically when we're coming.</p>
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: #d97706;" id="pickup-stat-value">Not scheduled</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-                <a href="#" onclick="event.stopPropagation(); openPickupWeekModal(); return false;" style="color: var(--accent); font-weight:600;">Set now &rarr;</a>
-            </div>
+            <div style="font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 4px;">Set now &rarr;</div>
             {% endif %}
         </div>
     </div>
 
-    {# Pickup address nag — secondary, only for sellers without address #}
-    {% if not has_pickup_location and current_user.is_seller and current_user.phone %}
-    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:12px; padding:14px 20px; margin-bottom:20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-        <i class="fas fa-map-marker-alt" style="color:var(--text-muted); font-size:1.1rem;"></i>
-        <span style="color:var(--text-muted); font-size:0.9rem; flex:1;">Add your pickup address so we know where to find you.</span>
-        <a href="{{ url_for('account_settings') }}" class="btn btn-outline" style="padding:7px 16px; font-size:0.85rem;">Add address &rarr;</a>
+    {# 4. SellerAlert banners — needs_info and pickup_reminder only #}
+    {% for alert in unresolved_alerts %}
+    {% if alert.alert_type == 'needs_info' and alert.item %}
+    <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <i class="fas fa-exclamation-circle" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
+            <div style="flex: 1;">
+                <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">Action Needed — {{ alert.item.description }}</h3>
+                <ul style="margin: 0 0 10px; padding-left: 18px; color: #92400e; font-size: 0.9rem; line-height: 1.7;">
+                    {% for reason in (alert.reasons | fromjson if alert.reasons else []) %}
+                    <li>{{ reason }}</li>
+                    {% endfor %}
+                </ul>
+                {% if alert.custom_note %}
+                <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px; font-style: italic;">"{{ alert.custom_note }}"</p>
+                {% endif %}
+                <a href="/edit_item/{{ alert.item_id }}" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; text-decoration: none; display: inline-block;">
+                    <i class="fas fa-edit"></i> Update Item
+                </a>
+            </div>
+        </div>
+    </div>
+    {% elif alert.alert_type == 'pickup_reminder' %}
+    <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <i class="fas fa-truck" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
+            <div style="flex: 1;">
+                <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">Action needed: Please select your pickup week.</h3>
+                <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px;">Your items are approved and ready — we just need to know when to pick them up.</p>
+                <button type="button" onclick="openModal('modal-pickupaddr')" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <i class="fas fa-calendar-check"></i> Select Pickup Week
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {# 5. Phone nag banner #}
+    {% if not current_user.phone %}
+    <div id="phone-nag-banner" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+            <i class="fas fa-phone" style="color: #d97706;"></i>
+            <span style="font-weight: 600; color: #92400e; font-size: 0.95rem;">Add your phone number</span>
+            <span style="color: #92400e; font-size: 0.9rem;">— We'll text you when we're on our way for pickup.</span>
+        </div>
+        <form action="/update_account_info" method="POST" style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="full_name" value="{{ current_user.full_name or '' }}"/>
+            <input type="tel" name="phone" id="phone-input" placeholder="(555) 555-5555"
+                   style="flex: 1; min-width: 180px; padding: 10px 14px; border: 1px solid #fde68a; border-radius: 8px; font-size: 0.95rem; background: white; font-family: inherit;"
+                   pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}|^$"
+                   title="Please enter a valid 10-digit US phone number"/>
+            <button type="submit" class="btn btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">Save</button>
+        </form>
     </div>
     {% endif %}
 
-    <div class="dashboard-main-grid">
-        <div>
+    {# Guest mode card #}
+    {% if current_user.is_guest_account %}
+    <div class="dashboard-section guest-mode-card" style="margin-bottom: 24px;">
+        <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-lock"></i> Save Your Progress</h3>
+        <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
+        <form action="/set_password" method="POST" style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="password" name="password" placeholder="Create Password" required style="flex: 1; min-width: 180px;">
+            <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
+        </form>
+    </div>
+    {% endif %}
 
-            {# Guest mode card #}
-            {% if current_user.is_guest_account %}
-            <div class="dashboard-section guest-mode-card" style="margin-bottom: 24px;">
-                <h3 style="color: #92400e; margin-bottom: 8px; font-size: 1.1rem;"><i class="fas fa-lock"></i> Save Your Progress</h3>
-                <p style="color: #92400e; font-size: 0.9rem;">You are in <strong>Guest Mode</strong>. Create a password so you can log back in later.</p>
-                <form action="/set_password" method="POST" style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+    {# 6. Saved Drafts #}
+    <div id="drafts-section" style="display:none; margin-bottom:24px;">
+        <h3 style="font-size:1rem; color:var(--text-muted); font-weight:600; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.05em;">Saved Drafts</h3>
+        <div id="drafts-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+
+    {# 7. My Shop — full-width 3-col grid #}
+    <div class="dashboard-section no-hover">
+        <h3 class="dashboard-section-title"><i class="fas fa-store"></i> My Shop</h3>
+        {% if my_items %}
+        <div class="dashboard-shop-grid-v2">
+            {% for item in my_items %}
+            {% if item.status == 'needs_info' %}
+                {% set bg_class = 'item-card-bg-yellow item-card-border-amber' %}
+            {% elif item.status == 'rejected' %}
+                {% set bg_class = 'item-card-bg-red' %}
+            {% elif item.status == 'sold' %}
+                {% set bg_class = 'item-card-bg-green' %}
+            {% elif item.status == 'available' %}
+                {% set _all_complete = item.arrived_at_store_at is not none %}
+                {% set bg_class = ('item-card-bg-green item-card-border-sage' if _all_complete else 'item-card-bg-yellow') %}
+            {% elif item.status == 'pending_logistics' %}
+                {% set bg_class = 'item-card-bg-yellow' %}
+            {% else %}
+                {% set bg_class = '' %}
+            {% endif %}
+            <div class="dashboard-item-square {{ bg_class }}">
+                <div class="dashboard-item-square-inner dashboard-item-clickable" data-item-id="{{ item.id }}" onclick="openListingModal({{ item.id }})" style="text-decoration: none; color: inherit; cursor: pointer;">
+                    <div class="dashboard-item-square-img" style="position: relative;">
+                        {% if item.photo_url %}
+                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}">
+                        {% else %}
+                        <div class="dashboard-item-square-placeholder"><i class="fas fa-image"></i></div>
+                        {% endif %}
+                        {% if item.status == 'pending_valuation' %}
+                        <div class="item-pending-overlay">Pending review</div>
+                        {% elif item.status == 'needs_info' %}
+                        <div class="item-pending-overlay item-pending-overlay-amber">Needs update</div>
+                        {% endif %}
+                    </div>
+                    <div class="dashboard-item-square-body">
+                        {% if item.status not in ('pending_valuation', 'rejected') %}
+                        <div class="dashboard-item-square-header">
+                            <span class="dashboard-item-square-price">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
+                            {% set _diff = ((item.price or 0) - (item.suggested_price or 0))|abs if (item.price is not none and item.suggested_price is not none) else 0 %}
+                            {% set _price_updated = item.price_updated_at is not none or (item.suggested_price is not none and item.price is not none and _diff > 0.01) %}
+                            {% set _show_badge = _price_updated and not (item.price_changed_acknowledged | default(false)) %}
+                            {% if _show_badge %}
+                            <span class="price-change-badge" data-item-id="{{ item.id }}" onclick="event.stopPropagation(); acknowledgePriceChange({{ item.id }}, this);" title="We updated the price">Pricing update</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <p class="dashboard-item-square-desc">{{ item.description }}</p>
+                        <ul class="dashboard-item-checklist">
+                            {% if item.status == 'needs_info' %}
+                            <li class="check-fail" style="color:#d97706;"><i class="fas fa-exclamation-circle"></i> Action needed — see above</li>
+                            {% elif item.status == 'pending_valuation' %}
+                            <li class="check-pending"><i class="fas fa-circle"></i> Pending approval</li>
+                            {% elif item.status == 'rejected' %}
+                            <li class="check-fail"><i class="fas fa-times-circle"></i> Rejected</li>
+                            {% elif item.status == 'sold' %}
+                            <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
+                            {% elif item.status == 'available' %}
+                            <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
+                            <li class="check-done"><i class="fas fa-check-circle"></i> Pickup confirmed</li>
+                            {% if item.picked_up_at or item.arrived_at_store_at %}
+                            <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
+                            {% else %}
+                            <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                            {% endif %}
+                            {% if item.arrived_at_store_at %}
+                            <li class="check-done"><i class="fas fa-check-circle"></i> In store</li>
+                            {% else %}
+                            <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
+                            {% endif %}
+                            {% elif item.status == 'pending_logistics' %}
+                            <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
+                            <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
+                            <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
+                            {% endif %}
+                        </ul>
+                        {% if not item_is_picked_up(item) and item.status in ('pending_valuation', 'pending_logistics', 'available', 'rejected', 'needs_info') %}
+                        <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
+                        {% elif item_is_picked_up(item) and item.status == 'available' %}
+                        <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Request edit</a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if item.status == 'sold' %}
+                <div class="dashboard-item-sold-overlay"><span>SOLD</span></div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        {# Hidden listing content for modal (one per item) #}
+        <div id="listing-modal-sources" style="display: none;">
+            {% for item in my_items %}
+            <div id="listing-content-{{ item.id }}" class="listing-modal-source">
+                <div class="listing-modal-gallery">
+                    {% if item.photo_url %}
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="listing-modal-main-img">
+                    {% else %}
+                    <div class="listing-modal-placeholder"><i class="fas fa-image"></i> No image</div>
+                    {% endif %}
+                    {% if not item_is_picked_up(item) and item.status in ('pending_valuation', 'pending_logistics', 'available', 'rejected', 'needs_info') %}
+                    <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.9rem; text-align: center; text-decoration: none; display: block;"><i class="fas fa-edit"></i> Edit listing</a>
+                    {% elif item_is_picked_up(item) and item.status == 'available' %}
+                    <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.9rem; text-align: center; text-decoration: none; display: block;"><i class="fas fa-edit"></i> Request edit</a>
+                    {% endif %}
+                </div>
+                <div class="listing-modal-details">
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+                        <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">Item ID #{{ item.id }}</span>
+                        {% if item.status == 'sold' %}<span class="badge bg-red">SOLD</span>
+                        {% elif item.status == 'available' %}{% if item.id in live_item_ids %}<span class="badge bg-green">Live</span>{% else %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>{% endif %}
+                        {% elif item.status == 'pending_valuation' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
+                        {% elif item.status == 'pending_logistics' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
+                        {% elif item.status == 'rejected' %}<span class="badge bg-red">Rejected</span>
+                        {% elif item.status == 'needs_info' %}<span class="badge" style="background: #f59e0b; color: white;">Action Needed</span>
+                        {% endif %}
+                    </div>
+                    <h3 style="font-size: 1.25rem; margin-bottom: 8px;">{{ item.description }}</h3>
+                    {% if item.status != 'pending_valuation' %}
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+                        Item type: {% if item.is_large %}Oversized{% else %}Standard{% endif %}
+                    </div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 12px;">${{ "%.2f"|format(item.price) if item.price else "—" }}</div>
+                    {% endif %}
+                    <div style="margin-bottom: 12px;">
+                        <span style="font-size: 0.85rem; color: var(--text-muted);">{{ item.quality|quality_label }}</span>
+                    </div>
+                    <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
+                    {% if item.status == 'pending_valuation' %}
+                    <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Edit listing</a>
+                    <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" name="withdraw_item" value="1"/>
+                        <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
+                    </form>
+                    {% elif item.status == 'pending_logistics' or (item.status == 'available' and not item_is_picked_up(item)) %}
+                    <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Edit listing</a>
+                    <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" name="withdraw_item" value="1"/>
+                        <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
+                    </form>
+                    {% elif item.status == 'rejected' %}
+                    <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" name="withdraw_item" value="1"/>
+                        <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
+                    </form>
+                    {% elif item.status == 'available' and item_is_picked_up(item) %}
+                    <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Request edit</a>
+                    <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
+                    {% elif item.status == 'available' %}
+                    <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <a href="/add_item" class="btn btn-outline dashboard-add-item-btn" style="margin-top: 20px;">
+            <i class="fas fa-plus"></i> Add More Items
+        </a>
+        {% else %}
+        <p style="color: var(--text-muted);">Upload photos of your items.</p>
+        <a href="/add_item" class="btn btn-primary" style="margin-top: 16px;">Draft Items &rarr;</a>
+        {% endif %}
+    </div>
+
+    {# 8. Refer & Earn — full-width dark green card #}
+    {% if current_user.referral_code %}
+    {% set total_needed = ((referral_max - 20) // 10) %}
+    {% set progress_pct = [((current_user.payout_rate - 20) * 100 // 80), 100] | min %}
+    <div class="refer-earn-card">
+        <div class="refer-earn-left">
+            <div style="font-size: 2.8rem; font-weight: 800; color: var(--bg-cream); line-height: 1;">{{ current_user.payout_rate }}%</div>
+            <div style="color: var(--sage); font-size: 0.9rem; margin-top: 4px;">your payout rate</div>
+            <div style="margin: 16px 0 8px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--sage); margin-bottom: 5px;">
+                    <span>20%</span><span>100%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.18); border-radius: 999px; height: 8px; overflow: hidden;">
+                    <div style="height: 100%; width: {{ progress_pct }}%; background: var(--accent); border-radius: 999px;"></div>
+                </div>
+            </div>
+            <div style="color: var(--sage); font-size: 0.85rem; margin-bottom: 8px;">{{ confirmed_referral_count }} of {{ total_needed }} referrals completed</div>
+            <p style="color: var(--sage); font-size: 0.85rem; margin: 0; line-height: 1.5;">Each friend whose item arrives at our warehouse earns you +10%. Refer {{ total_needed }} friends and keep 100%.</p>
+        </div>
+        <div class="refer-earn-divider"></div>
+        <div class="refer-earn-right">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--sage); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;">Your code</div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+                <code style="font-size: 1.3rem; font-weight: 800; letter-spacing: 0.12em; color: var(--bg-cream); background: rgba(255,255,255,0.15); padding: 8px 16px; border-radius: 8px;">{{ current_user.referral_code }}</code>
+                <button type="button" onclick="copyToClipboard('{{ current_user.referral_code }}', 'copied-code')" class="btn btn-outline" style="padding: 8px 12px; font-size: 0.85rem; border-color: rgba(255,255,255,0.4); color: var(--bg-cream);">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <span id="copied-code" style="font-size:0.8rem; color:var(--sage); opacity:0; transition:opacity 0.3s;">Copied!</span>
+            </div>
+            <button type="button" onclick="shareReferral('{{ app_base_url }}/register?ref={{ current_user.referral_code }}', '{{ current_user.referral_code }}')" class="btn btn-outline" style="width: 100%; margin-bottom: 16px; border-color: rgba(255,255,255,0.4); color: var(--bg-cream); background: none;">
+                <i class="fas fa-share-alt"></i> Share with friends
+            </button>
+            {% if not current_user.has_paid_boost and current_user.payout_rate < 100 %}
+            <div style="background: rgba(200,131,42,0.2); border: 1px solid rgba(200,131,42,0.35); border-radius: 12px; padding: 16px;">
+                <p style="color: var(--amber-lt); font-weight: 700; font-size: 0.95rem; margin: 0 0 6px;">⚡ Boost Your Payout</p>
+                <p style="color: var(--sage-lt); font-size: 0.85rem; margin: 0 0 12px; line-height: 1.5;">Pay $15 once and instantly add +30% to your current rate. You're at {{ current_user.payout_rate }}% — this takes you to {{ [current_user.payout_rate + 30, 100] | min }}%.</p>
+                <form method="POST" action="/upgrade_payout_boost">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                    <input type="password" name="password" placeholder="Create Password" required style="flex: 1; min-width: 180px;">
-                    <button type="submit" class="btn btn-primary" style="background-color: #d97706; border-color: #d97706;">Save Account</button>
+                    <button type="submit" class="btn" style="background: var(--accent); color: white; border: none; padding: 9px 18px; font-size: 0.88rem; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%;">
+                        Boost to {{ [current_user.payout_rate + 30, 100] | min }}% for $15
+                    </button>
                 </form>
             </div>
             {% endif %}
-
-            {# Pickup status cards #}
-            {% if pickup_method_type in ('free_waiting', 'free_confirmed') %}
-            <div class="dashboard-section" style="margin-bottom: 24px; background: {% if has_approved_free_items %}#f0fdf4; border: 2px solid #bbf7d0;{% else %}#fffbeb; border: 2px solid #fde68a;{% endif %}">
-                <div style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
-                    <div style="flex: 1; min-width: 200px;">
-                        {% if has_approved_free_items %}
-                        <h3 style="color: #166534; margin-bottom: 6px; font-size: 1.05rem;"><i class="fas fa-check-circle"></i> Items Approved — Set Your Pickup Week</h3>
-                        <p style="color: #166534; font-size: 0.9rem; margin-bottom: 12px;">Your items are approved. Select a pickup week to get on the route.</p>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                            <button type="button" onclick="openPickupWeekModal()" class="btn btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">
-                                <i class="fas fa-calendar-check"></i> Set Pickup Week
-                            </button>
-                        </div>
-                        {% else %}
-                        <h3 style="color: #92400e; margin-bottom: 6px; font-size: 1.05rem;"><i class="fas fa-clock"></i> Items Awaiting Approval</h3>
-                        <p style="color: #92400e; font-size: 0.9rem; margin-bottom: 12px;">Your items are under review. You'll be able to set your pickup week once approved.</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            {% elif pickup_method_type == 'free_rejected' %}
-            <div class="dashboard-section" style="margin-bottom: 24px; background: #fef2f2; border: 2px solid #fecaca;">
-                <h3 style="color: #991b1b; margin-bottom: 6px; font-size: 1.05rem;"><i class="fas fa-exclamation-triangle"></i> Pickup Slots Are Full</h3>
-                <p style="color: #991b1b; font-size: 0.9rem; margin-bottom: 0;">Unfortunately, our pickup capacity for this season is full. Contact us at <a href="mailto:team@usecampusswap.com" style="color:#991b1b; font-weight:600;">team@usecampusswap.com</a> if you have questions.</p>
-            </div>
-            {% endif %}
-
-            {# Seller Action Needed alerts #}
-            {% for alert in unresolved_alerts %}
-            {% if alert.alert_type == 'needs_info' and alert.item %}
-            <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
-                <div style="display: flex; align-items: flex-start; gap: 12px;">
-                    <i class="fas fa-exclamation-circle" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
-                    <div style="flex: 1;">
-                        <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">Action Needed — {{ alert.item.description }}</h3>
-                        <ul style="margin: 0 0 10px; padding-left: 18px; color: #92400e; font-size: 0.9rem; line-height: 1.7;">
-                            {% for reason in (alert.reasons | fromjson if alert.reasons else []) %}
-                            <li>{{ reason }}</li>
-                            {% endfor %}
-                        </ul>
-                        {% if alert.custom_note %}
-                        <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px; font-style: italic;">"{{ alert.custom_note }}"</p>
-                        {% endif %}
-                        <a href="/edit_item/{{ alert.item_id }}" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; text-decoration: none; display: inline-block;">
-                            <i class="fas fa-edit"></i> Update Item
-                        </a>
-                    </div>
-                </div>
-            </div>
-            {% elif alert.alert_type in ('preset', 'custom') %}
-            <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
-                <div style="display: flex; align-items: flex-start; gap: 12px;">
-                    <i class="fas fa-bell" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
-                    <div style="flex: 1;">
-                        <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">
-                            Message from Campus Swap{% if alert.item %} — {{ alert.item.description }}{% endif %}
-                        </h3>
-                        {% for reason in (alert.reasons | fromjson if alert.reasons else []) %}
-                        <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 6px;">{{ reason }}</p>
-                        {% endfor %}
-                        {% if alert.custom_note %}
-                        <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px; font-style: italic;">"{{ alert.custom_note }}"</p>
-                        {% endif %}
-                        {% if alert.item %}
-                        <a href="/edit_item/{{ alert.item_id }}" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; text-decoration: none; display: inline-block;">
-                            <i class="fas fa-edit"></i> Update Item
-                        </a>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            {% elif alert.alert_type == 'pickup_reminder' %}
-            <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
-                <div style="display: flex; align-items: flex-start; gap: 12px;">
-                    <i class="fas fa-truck" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
-                    <div style="flex: 1;">
-                        <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">Action needed: Please select your pickup week.</h3>
-                        <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px;">Your items are approved and ready to go — we just need to know when to pick them up.</p>
-                        <button type="button" onclick="openPickupWeekModal()" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
-                            <i class="fas fa-calendar-check"></i> Select Pickup Week
-                        </button>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-            {% endfor %}
-
-
-            {# My Inventory - Personal shop with small squares + mini checklist #}
-            <div class="dashboard-section no-hover">
-                <h3 class="dashboard-section-title"><i class="fas fa-store"></i> My Shop</h3>
-                {% if my_items %}
-                <div class="dashboard-shop-grid">
-                    {% for item in my_items %}
-                    {% if item.status == 'needs_info' %}
-                        {% set bg_class = 'item-card-bg-yellow' %}
-                    {% elif item.status == 'rejected' %}
-                        {% set bg_class = 'item-card-bg-red' %}
-                    {% elif item.status == 'sold' %}
-                        {% set bg_class = 'item-card-bg-green' %}
-                    {% elif item.status == 'available' %}
-                        {# Green only when all bullets complete: in store (arrived) #}
-                        {% set _all_complete = item.arrived_at_store_at is not none %}
-                        {% set bg_class = 'item-card-bg-green' if _all_complete else 'item-card-bg-yellow' %}
-                    {% elif item.status == 'pending_logistics' %}
-                        {% set bg_class = 'item-card-bg-yellow' %}
-                    {% else %}
-                        {% set bg_class = 'item-card-bg-yellow' %}
-                    {% endif %}
-                    <div class="dashboard-item-square {{ bg_class }}">
-                        <div class="dashboard-item-square-inner dashboard-item-clickable" data-item-id="{{ item.id }}" onclick="openListingModal({{ item.id }})" style="text-decoration: none; color: inherit; cursor: pointer;">
-                            <div class="dashboard-item-square-img">
-                                {% if item.photo_url %}
-                                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}">
-                                {% else %}
-                                <div class="dashboard-item-square-placeholder"><i class="fas fa-image"></i></div>
-                                {% endif %}
-                            </div>
-                            <div class="dashboard-item-square-body">
-                                {% if item.status not in ('pending_valuation', 'rejected') %}
-                                <div class="dashboard-item-square-header">
-                                    <span class="dashboard-item-square-price">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
-                                    {% set _diff = ((item.price or 0) - (item.suggested_price or 0))|abs if (item.price is not none and item.suggested_price is not none) else 0 %}
-                                    {% set _price_updated = item.price_updated_at is not none or (item.suggested_price is not none and item.price is not none and _diff > 0.01) %}
-                                    {% set _show_badge = _price_updated and not (item.price_changed_acknowledged | default(false)) %}
-                                    {% if _show_badge %}
-                                    <span class="price-change-badge" data-item-id="{{ item.id }}" onclick="event.stopPropagation(); acknowledgePriceChange({{ item.id }}, this);" title="We updated the price">Pricing update</span>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                                <p class="dashboard-item-square-desc">{{ item.description }}</p>
-                                <ul class="dashboard-item-checklist">
-                                    {% if item.status == 'needs_info' %}
-                                    <li class="check-fail" style="color:#d97706;"><i class="fas fa-exclamation-circle"></i> Action needed — see above</li>
-                                    {% elif item.status == 'pending_valuation' %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Pending approval</li>
-                                    {% elif item.status == 'rejected' %}
-                                    <li class="check-fail"><i class="fas fa-times-circle"></i> Rejected</li>
-                                    {% elif item.status == 'sold' %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
-                                    {% elif item.status == 'available' %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Pickup confirmed</li>
-                                    {% if item.picked_up_at or item.arrived_at_store_at %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
-                                    {% else %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
-                                    {% endif %}
-                                    {% if item.arrived_at_store_at %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> In store</li>
-                                    {% else %}
-                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
-                                    {% endif %}
-                                    {% elif item.status == 'pending_logistics' %}
-                                    <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                                    <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
-                                    <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
-                                    {% endif %}
-                                </ul>
-                                {% if not item_is_picked_up(item) and item.status in ('pending_valuation', 'pending_logistics', 'available', 'rejected', 'needs_info') %}
-                                <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
-                                {% elif item_is_picked_up(item) and item.status == 'available' %}
-                                <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Request edit</a>
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% if item.status == 'sold' %}
-                        <div class="dashboard-item-sold-overlay"><span>SOLD</span></div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-
-                {# Hidden listing content for modal (one per item) #}
-                <div id="listing-modal-sources" style="display: none;">
-                    {% for item in my_items %}
-                    <div id="listing-content-{{ item.id }}" class="listing-modal-source">
-                        <div class="listing-modal-gallery">
-                            {% if item.photo_url %}
-                            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="listing-modal-main-img">
-                            {% else %}
-                            <div class="listing-modal-placeholder"><i class="fas fa-image"></i> No image</div>
-                            {% endif %}
-                            {% if not item_is_picked_up(item) and item.status in ('pending_valuation', 'pending_logistics', 'available', 'rejected', 'needs_info') %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.9rem; text-align: center; text-decoration: none; display: block;"><i class="fas fa-edit"></i> Edit listing</a>
-                            {% elif item_is_picked_up(item) and item.status == 'available' %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; margin-top: 12px; padding: 10px; font-size: 0.9rem; text-align: center; text-decoration: none; display: block;"><i class="fas fa-edit"></i> Request edit</a>
-                            {% endif %}
-                        </div>
-                        <div class="listing-modal-details">
-                            <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
-                                <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">Item ID #{{ item.id }}</span>
-                                {% if item.status == 'sold' %}<span class="badge bg-red">SOLD</span>
-                                {% elif item.status == 'available' %}{% if item.id in live_item_ids %}<span class="badge bg-green">Live</span>{% else %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>{% endif %}
-                                {% elif item.status == 'pending_valuation' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
-                                {% elif item.status == 'pending_logistics' %}<span class="badge" style="background: #fef3c7; color: #92400e;">Pending</span>
-                                {% elif item.status == 'rejected' %}<span class="badge bg-red">Rejected</span>
-                                {% elif item.status == 'needs_info' %}<span class="badge" style="background: #f59e0b; color: white;">Action Needed</span>
-                                {% endif %}
-                            </div>
-                            <h3 style="font-size: 1.25rem; margin-bottom: 8px;">{{ item.description }}</h3>
-                            {% if item.status != 'pending_valuation' %}
-                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-                                Item type: {% if item.is_large %}Oversized{% else %}Standard{% endif %}
-                            </div>
-                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 12px;">${{ "%.2f"|format(item.price) if item.price else "—" }}</div>
-                            {% endif %}
-                            <div style="margin-bottom: 12px;">
-                                <span style="font-size: 0.85rem; color: var(--text-muted);">{{ item.quality|quality_label }}</span>
-                            </div>
-                            <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">{{ item.long_description or "No detailed description." }}</p>
-                            {% if item.status == 'pending_valuation' %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Edit listing</a>
-                            <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <input type="hidden" name="withdraw_item" value="1"/>
-                                <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
-                            </form>
-                            {% elif item.status == 'pending_logistics' or (item.status == 'available' and not item_is_picked_up(item)) %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Edit listing</a>
-                            <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <input type="hidden" name="withdraw_item" value="1"/>
-                                <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
-                            </form>
-                            {% elif item.status == 'rejected' %}
-                            <form method="POST" action="{{ url_for('edit_item', item_id=item.id) }}" style="margin: 0;" onsubmit="return confirm('Remove this item permanently? This cannot be undone.');">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <input type="hidden" name="withdraw_item" value="1"/>
-                                <button type="submit" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; border-color: #dc2626; color: #dc2626; background: none; border-width: 2px; cursor: pointer; font-size: 1rem;">Remove item</button>
-                            </form>
-                            {% elif item.status == 'available' and item_is_picked_up(item) %}
-                            <a href="/edit_item/{{ item.id }}" class="btn btn-primary" style="width: 100%; padding: 12px; text-align: center; text-decoration: none; margin-bottom: 8px;"><i class="fas fa-edit"></i> Request edit</a>
-                            <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
-                            {% elif item.status == 'available' %}
-                            <a href="/item/{{ item.id }}" target="_blank" class="btn btn-outline" style="width: 100%; padding: 12px; text-align: center; text-decoration: none;">View in shop</a>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-
-                <a href="/add_item" class="btn btn-outline dashboard-add-item-btn">
-                    <i class="fas fa-plus"></i> Add More Items
-                </a>
-                {% else %}
-                <p style="color: var(--text-muted);">Upload photos of your items.</p>
-                <a href="/add_item" class="btn btn-primary" style="margin-top: 16px;">Draft Items &rarr;</a>
-                {% endif %}
-            </div>
         </div>
-
-        {# ——— Refer & Earn (right column) ——— #}
-        {% if current_user.referral_code %}
-        <div class="dashboard-section no-hover">
-            <h3 class="dashboard-section-title" style="margin-bottom: 4px;"><i class="fas fa-user-plus"></i> Refer &amp; Earn</h3>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Each friend whose item arrives at our warehouse earns you +10%. Refer 8 friends and keep 100%.</p>
-
-            {# Current payout rate + progress #}
-            <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
-                <span style="font-size: 2.5rem; font-weight: 800; color: var(--primary); line-height: 1;">{{ current_user.payout_rate }}%</span>
-                <span style="color: var(--text-muted); font-size: 0.9rem;">your current payout rate</span>
-            </div>
-
-            {# Step indicator #}
-            <div style="display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap;">
-                {% for step in referral_steps %}
-                <div style="flex: 1; min-width: 28px; max-width: 48px; text-align: center;">
-                    <div style="height: 8px; border-radius: 4px; background: {% if current_user.payout_rate >= step %}var(--primary){% else %}var(--rule){% endif %}; margin-bottom: 4px;"></div>
-                    <span style="font-size: 0.65rem; color: {% if current_user.payout_rate >= step %}var(--primary){% else %}var(--text-muted){% endif %}; font-weight: {% if current_user.payout_rate == step %}700{% else %}400{% endif %};">{{ step }}%</span>
-                </div>
-                {% endfor %}
-            </div>
-
-            {% set total_needed = ((referral_max - 20) // 10) %}
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px;">{{ confirmed_referral_count }} of {{ total_needed }} referrals completed</p>
-
-            {# Referral code + actions #}
-            <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Your Code</div>
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <code style="font-size: 1.4rem; font-weight: 800; letter-spacing: 0.12em; color: var(--primary); background: var(--bg-cream); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--rule);">{{ current_user.referral_code }}</code>
-                <button type="button" onclick="copyToClipboard('{{ current_user.referral_code }}', 'copied-code')" class="btn btn-outline" style="padding: 8px 12px; font-size: 0.85rem;"><i class="fas fa-copy"></i> Copy</button>
-                <button type="button" onclick="shareReferral('{{ app_base_url }}/register?ref={{ current_user.referral_code }}', '{{ current_user.referral_code }}')" class="btn btn-outline" style="padding: 8px 12px; font-size: 0.85rem;"><i class="fas fa-share-alt"></i> Share</button>
-                <span id="copied-code" style="font-size:0.8rem; color:#15803d; opacity:0; transition:opacity 0.3s;">Copied!</span>
-            </div>
-        </div>
-        {% endif %}
-
-    </div>{# end .dashboard-main-grid #}
+    </div>
+    {% endif %}
 
 </div>
 
-<script>
-function shareReferral(url, code) {
-    if (navigator.share) {
-        navigator.share({
-            title: 'Campus Swap',
-            text: 'Use my referral code ' + code + ' to sign up for Campus Swap and start at 30%!',
-            url: url
-        });
-    } else {
-        // Fallback: copy the link
-        copyToClipboard(url, 'copied-code');
-        var el = document.getElementById('copied-code');
-        if (el) el.textContent = 'Link copied!';
-        setTimeout(function() { if (el) el.textContent = 'Copied!'; }, 2000);
-    }
-}
+{# ====================== MODALS ====================== #}
 
-function copyToClipboard(text, feedbackId) {
-    navigator.clipboard.writeText(text).then(function() {
-        var el = document.getElementById(feedbackId);
-        if (el) { el.style.opacity = '1'; setTimeout(function() { el.style.opacity = '0'; }, 1800); }
-    }).catch(function() {
-        // fallback for non-https
-        var ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta);
-        var el = document.getElementById(feedbackId);
-        if (el) { el.style.opacity = '1'; setTimeout(function() { el.style.opacity = '0'; }, 1800); }
-    });
-}
-</script>
-
-{# Claim Your Space Modal - Receipt Style #}
-
-{# Pickup Week Modal #}
-<div id="pickupWeekModal" class="dashboard-modal-overlay" style="display:none;" onclick="closePickupWeekModal()">
-    <div class="dashboard-modal" onclick="event.stopPropagation()" style="max-width:560px; padding:32px;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px;">
+{# Modal: Pickup Week & Address #}
+<div id="modal-pickupaddr" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-pickupaddr')">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
             <div>
-                <h3 style="margin:0; font-size:1.3rem;">Your Pickup Week</h3>
-                <p style="margin:8px 0 0; color:var(--text-muted); font-size:0.9rem;">We'll assign a specific time and text you to confirm.</p>
+                <h3 style="margin: 0; font-size: 1.3rem;">Pickup Week &amp; Address</h3>
+                <p style="margin: 6px 0 0; color: var(--text-muted); font-size: 0.9rem;">We'll route around your week and text you a specific window.</p>
             </div>
-            <button type="button" onclick="closePickupWeekModal()" style="background:none; border:none; cursor:pointer; padding:4px 8px; color:var(--text-muted); font-size:1.3rem;" aria-label="Close">&times;</button>
+            <button type="button" onclick="closeModal('modal-pickupaddr')" style="background: none; border: none; cursor: pointer; padding: 4px 8px; color: var(--text-muted); font-size: 1.4rem; line-height: 1;" aria-label="Close">&times;</button>
         </div>
 
-        <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; margin-bottom:24px;">
-            <label class="modal-week-card" id="modal-week-1" data-week="week1" onclick="selectModalWeek('week1')" style="cursor:pointer; border:2px solid #e2e8f0; border-radius:14px; padding:20px 16px; display:flex; flex-direction:column; gap:6px; transition:all 0.15s; {% if user_pickup_week == 'week1' %}border-color:var(--primary); background:#f0fdf4;{% endif %}">
-                <span style="font-weight:700; font-size:1rem; color:var(--primary);">Week 1</span>
-                <span style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">Apr 27 – May 3</span>
-            </label>
-            <label class="modal-week-card" id="modal-week-2" data-week="week2" onclick="selectModalWeek('week2')" style="cursor:pointer; border:2px solid #e2e8f0; border-radius:14px; padding:20px 16px; display:flex; flex-direction:column; gap:6px; transition:all 0.15s; {% if user_pickup_week == 'week2' %}border-color:var(--primary); background:#f0fdf4;{% endif %}">
-                <span style="font-weight:700; font-size:1rem; color:var(--primary);">Week 2</span>
-                <span style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">May 4 – May 10</span>
-            </label>
-            <label class="modal-week-card" id="modal-week-3" data-week="week3" onclick="selectModalWeek('week3')" style="cursor:pointer; border:2px solid #e2e8f0; border-radius:14px; padding:20px 16px; display:flex; flex-direction:column; gap:6px; transition:all 0.15s; {% if user_pickup_week == 'week3' %}border-color:var(--primary); background:#f0fdf4;{% endif %}">
-                <span style="font-weight:700; font-size:1rem; color:var(--primary);">Week 3</span>
-                <span style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">May 11 – May 17</span>
-            </label>
+        {# Week selection #}
+        <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Week</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px;">
+            {% for week_val, week_label in pickup_weeks %}
+            <button type="button" class="sel-card pickup-week-card" data-week="{{ week_val }}"
+                    onclick="selectPickupWeek('{{ week_val }}')"
+                    {% if current_user.pickup_week == week_val %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                <div style="font-weight: 700; font-size: 0.95rem; color: inherit;">{{ week_val|replace('week', 'Week ') }}</div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; font-weight: 400;">{{ week_label }}</div>
+            </button>
+            {% endfor %}
         </div>
 
-        <div id="modal-time-section" style="margin-bottom:20px; {% if not user_pickup_week %}display:none;{% endif %}">
-            <p style="font-size:0.88rem; font-weight:700; color:var(--text-main); margin:0 0 10px;">Preferred time of day</p>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button type="button" class="modal-time-btn" id="modal-time-am" data-time="am" onclick="selectModalTime('am')" style="border:2px solid {% if user_pickup_time_pref == 'am' %}var(--primary); background:#f0fdf4; color:var(--primary){% else %}#e2e8f0; background:none; color:var(--text-muted){% endif %}; border-radius:8px; padding:10px 16px; font-size:0.88rem; font-weight:600; cursor:pointer; transition:all 0.15s;">
-                    AM <span style="font-weight:400;">(9am–1pm)</span>
+        {# Time preference #}
+        <div id="pickup-time-section" style="margin-bottom: 20px; {% if not current_user.pickup_week %}display:none;{% endif %}">
+            <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Time preference</p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="sel-btn pickup-time-btn" data-time="morning" onclick="selectPickupTime('morning')"
+                        {% if current_user.pickup_time_preference == 'morning' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    Morning <span style="font-weight: 400;">(9am–1pm)</span>
                 </button>
-                <button type="button" class="modal-time-btn" id="modal-time-pm" data-time="pm" onclick="selectModalTime('pm')" style="border:2px solid {% if user_pickup_time_pref == 'pm' %}var(--primary); background:#f0fdf4; color:var(--primary){% else %}#e2e8f0; background:none; color:var(--text-muted){% endif %}; border-radius:8px; padding:10px 16px; font-size:0.88rem; font-weight:600; cursor:pointer; transition:all 0.15s;">
-                    PM <span style="font-weight:400;">(1pm–5pm)</span>
+                <button type="button" class="sel-btn pickup-time-btn" data-time="afternoon" onclick="selectPickupTime('afternoon')"
+                        {% if current_user.pickup_time_preference == 'afternoon' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    Afternoon <span style="font-weight: 400;">(1pm–5pm)</span>
                 </button>
             </div>
         </div>
 
-        <div id="modal-error" style="display:none; color:#dc2626; font-size:0.88rem; margin-bottom:12px;"></div>
+        {# Location type #}
+        <div style="border-top: 1px solid #e2e8f0; margin: 20px 0 16px;"></div>
+        <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Where do you live?</p>
+        <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+            <button type="button" class="sel-btn pickup-loc-card" data-loc="on_campus" onclick="selectPickupLocType('on_campus')" style="flex: 1;"
+                    {% if current_user.pickup_location_type == 'on_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                <i class="fas fa-building" style="margin-right: 6px;"></i> On campus (dorm)
+            </button>
+            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus" onclick="selectPickupLocType('off_campus')" style="flex: 1;"
+                    {% if current_user.pickup_location_type == 'off_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                <i class="fas fa-home" style="margin-right: 6px;"></i> Off campus
+            </button>
+        </div>
 
-        <button type="button" onclick="savePickupWeek()" id="modal-save-btn" class="btn btn-primary" style="width:100%; padding:14px; font-size:1rem; margin-bottom:12px;">
+        <div id="pickup-oncampus-fields" style="display: {% if current_user.pickup_location_type == 'on_campus' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <select id="pickup-dorm-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
+                <option value="">Select dorm / building...</option>
+                {% for group, halls in dorms.items() %}
+                <optgroup label="{{ group }}">
+                    {% for hall in halls %}
+                    <option value="{{ hall }}" {% if current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+            <input type="text" id="pickup-room-input" placeholder="Room number (e.g. 204)" value="{{ current_user.pickup_room or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        </div>
+
+        <div id="pickup-offcampus-fields" style="display: {% if current_user.pickup_location_type == 'off_campus' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <input type="text" id="pickup-address-input" placeholder="Full address (street, city, state, zip)" value="{{ current_user.pickup_address or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        </div>
+
+        <div id="pickup-note-wrap" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <input type="text" id="pickup-note-input" placeholder="Additional directions (gate code, parking note, etc.) — optional" value="{{ current_user.pickup_note or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        </div>
+
+        <div id="pickupaddr-modal-error" style="display: none; color: #dc2626; font-size: 0.88rem; margin: 8px 0;"></div>
+
+        <button type="button" id="pickupaddr-save-btn" onclick="savePickupModal()" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem; margin-top: 8px;">
             <i class="fas fa-check"></i> Save
         </button>
-
-        <p style="font-size:0.82rem; color:var(--text-muted); text-align:center; margin:0;">We optimize our routes and will give you a specific window before pickup day.</p>
+        <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin: 10px 0 0;">We'll text you a specific pickup window once routes are set.</p>
     </div>
 </div>
 
-{# Listing modal - popup when clicking an item in My Shop #}
+{# Modal: Payout Info #}
+<div id="modal-payout" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-payout')">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+            <div>
+                <h3 style="margin: 0; font-size: 1.3rem;">Payout Info</h3>
+                <p style="margin: 6px 0 0; color: var(--text-muted); font-size: 0.9rem;">Where we send your earnings after each item sells.</p>
+            </div>
+            <button type="button" onclick="closeModal('modal-payout')" style="background: none; border: none; cursor: pointer; padding: 4px 8px; color: var(--text-muted); font-size: 1.4rem; line-height: 1;" aria-label="Close">&times;</button>
+        </div>
+
+        {# Method selection #}
+        <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Method</p>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px;">
+            <button type="button" class="sel-card payout-method-card" data-method="Venmo" onclick="selectPayoutMethod('Venmo')"
+                    {% if current_user.payout_method == 'Venmo' or not current_user.payout_method %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                Venmo
+            </button>
+            <button type="button" class="sel-card payout-method-card" data-method="PayPal" onclick="selectPayoutMethod('PayPal')"
+                    {% if current_user.payout_method == 'PayPal' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                PayPal
+            </button>
+            <button type="button" class="sel-card payout-method-card" data-method="Zelle" onclick="selectPayoutMethod('Zelle')"
+                    {% if current_user.payout_method == 'Zelle' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                Zelle
+            </button>
+        </div>
+
+        {# Handle input #}
+        <label id="payout-handle-label" style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); display: block; margin-bottom: 6px;">Handle</label>
+        <input type="text" id="payout-handle-input" placeholder="@ username"
+               value="{{ current_user.payout_handle or '' }}"
+               style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; margin-bottom: 12px;"/>
+
+        <label id="payout-handle-confirm-label" style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); display: block; margin-bottom: 6px;">Confirm handle</label>
+        <input type="text" id="payout-handle-confirm-input" placeholder="Re-enter to confirm"
+               style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; margin-bottom: 4px;"/>
+
+        <div id="payout-modal-error" style="display: none; color: #dc2626; font-size: 0.88rem; margin: 8px 0;"></div>
+
+        <button type="button" id="payout-save-btn" onclick="savePayoutModal()" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem; margin-top: 12px;">
+            <i class="fas fa-check"></i> Save Payout Info
+        </button>
+    </div>
+</div>
+
+{# Listing modal #}
 {% if my_items %}
 <div id="listingModal" class="dashboard-modal-overlay" style="display: none;">
     <div class="dashboard-modal listing-modal" onclick="event.stopPropagation()">
@@ -461,185 +516,323 @@ function copyToClipboard(text, feedbackId) {
         <div id="listingModalBody" class="listing-modal-body"></div>
     </div>
 </div>
-
 {% endif %}
 
 <script>
-    // Pickup Week Modal
-    var _selectedModalWeek = '{{ user_pickup_week or "" }}';
-    var _selectedModalTime = '{{ user_pickup_time_pref or "" }}';
+// ——— Modal system ———
+function openModal(id) {
+    var el = document.getElementById(id);
+    if (el) { el.classList.add('open'); document.body.style.overflow = 'hidden'; }
+}
+function closeModal(id) {
+    var el = document.getElementById(id);
+    if (el) { el.classList.remove('open'); document.body.style.overflow = ''; }
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(function(m) {
+            m.classList.remove('open');
+        });
+        document.body.style.overflow = '';
+        closeListingModal();
+    }
+});
 
-    function openPickupWeekModal() {
-        var m = document.getElementById('pickupWeekModal');
-        if (m) { m.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
-        updateModalWeekUI();
-        updateModalTimeUI();
-        if (_selectedModalWeek) {
-            document.getElementById('modal-time-section').style.display = 'block';
+// ——— Phone nag scroll ———
+function scrollToPhoneNag() {
+    var banner = document.getElementById('phone-nag-banner');
+    var input = document.getElementById('phone-input');
+    if (banner) banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (input) setTimeout(function() { input.focus(); }, 300);
+}
+
+// ——— Modal error helpers ———
+function showModalError(id, msg) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function clearModalError(id) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.style.display = 'none'; }
+}
+
+// ——— Pickup modal ———
+var _pickupWeek = '{{ current_user.pickup_week or "" }}';
+var _pickupTime = '{{ current_user.pickup_time_preference or "" }}';
+var _pickupLocType = '{{ current_user.pickup_location_type or "" }}';
+
+function selectPickupWeek(week) {
+    _pickupWeek = week;
+    document.querySelectorAll('.pickup-week-card').forEach(function(card) {
+        var sel = card.dataset.week === week;
+        card.style.borderColor = sel ? 'var(--primary)' : '#e2e8f0';
+        card.style.background = sel ? '#f0fdf4' : '';
+        card.style.color = sel ? 'var(--primary)' : '';
+    });
+    document.getElementById('pickup-time-section').style.display = 'block';
+    clearModalError('pickupaddr-modal-error');
+}
+function selectPickupTime(time) {
+    _pickupTime = time;
+    document.querySelectorAll('.pickup-time-btn').forEach(function(btn) {
+        var sel = btn.dataset.time === time;
+        btn.style.borderColor = sel ? 'var(--primary)' : '#e2e8f0';
+        btn.style.background = sel ? '#f0fdf4' : '';
+        btn.style.color = sel ? 'var(--primary)' : '';
+    });
+    clearModalError('pickupaddr-modal-error');
+}
+function selectPickupLocType(type) {
+    _pickupLocType = type;
+    document.querySelectorAll('.pickup-loc-card').forEach(function(card) {
+        var sel = card.dataset.loc === type;
+        card.style.borderColor = sel ? 'var(--primary)' : '#e2e8f0';
+        card.style.background = sel ? '#f0fdf4' : '';
+        card.style.color = sel ? 'var(--primary)' : '';
+    });
+    document.getElementById('pickup-oncampus-fields').style.display = type === 'on_campus' ? 'block' : 'none';
+    document.getElementById('pickup-offcampus-fields').style.display = type === 'off_campus' ? 'block' : 'none';
+    document.getElementById('pickup-note-wrap').style.display = 'block';
+    clearModalError('pickupaddr-modal-error');
+}
+
+function savePickupModal() {
+    if (!_pickupWeek) { showModalError('pickupaddr-modal-error', 'Please select a pickup week.'); return; }
+    if (!_pickupTime) { showModalError('pickupaddr-modal-error', 'Please select a time preference.'); return; }
+    var btn = document.getElementById('pickupaddr-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    clearModalError('pickupaddr-modal-error');
+
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ csrf_token() }}');
+    fd.append('pickup_week', _pickupWeek);
+    fd.append('pickup_time_preference', _pickupTime);
+    if (_pickupLocType) {
+        fd.append('pickup_location_type', _pickupLocType);
+        if (_pickupLocType === 'on_campus') {
+            fd.append('pickup_dorm', (document.getElementById('pickup-dorm-select') || {}).value || '');
+            fd.append('pickup_room', (document.getElementById('pickup-room-input') || {}).value || '');
+        } else {
+            fd.append('pickup_address', (document.getElementById('pickup-address-input') || {}).value || '');
         }
     }
-    function closePickupWeekModal() {
-        var m = document.getElementById('pickupWeekModal');
-        if (m) { m.style.display = 'none'; document.body.style.overflow = ''; }
-        clearModalError();
-    }
-    function selectModalWeek(week) {
-        _selectedModalWeek = week;
-        updateModalWeekUI();
-        document.getElementById('modal-time-section').style.display = 'block';
-        clearModalError();
-    }
-    function selectModalTime(time) {
-        _selectedModalTime = time;
-        updateModalTimeUI();
-        clearModalError();
-    }
-    function updateModalWeekUI() {
-        ['week1','week2','week3'].forEach(function(w) {
-            var el = document.getElementById('modal-week-' + w.replace('week',''));
-            if (!el) return;
-            if (w === _selectedModalWeek) {
-                el.style.borderColor = 'var(--primary)';
-                el.style.background = '#f0fdf4';
-            } else {
-                el.style.borderColor = '#e2e8f0';
-                el.style.background = '';
-            }
-        });
-    }
-    function updateModalTimeUI() {
-        ['am','pm'].forEach(function(t) {
-            var el = document.getElementById('modal-time-' + t);
-            if (!el) return;
-            if (t === _selectedModalTime) {
-                el.style.borderColor = 'var(--primary)';
-                el.style.background = '#f0fdf4';
-                el.style.color = 'var(--primary)';
-            } else {
-                el.style.borderColor = '#e2e8f0';
-                el.style.background = '';
-                el.style.color = 'var(--text-muted)';
-            }
-        });
-    }
-    function clearModalError() {
-        var e = document.getElementById('modal-error');
-        if (e) { e.style.display = 'none'; e.textContent = ''; }
-    }
-    function showModalError(msg) {
-        var e = document.getElementById('modal-error');
-        if (e) { e.textContent = msg; e.style.display = 'block'; }
-    }
-    function savePickupWeek() {
-        if (!_selectedModalWeek) { showModalError('Please select a pickup week.'); return; }
-        if (!_selectedModalTime) { showModalError('Please select a preferred time of day.'); return; }
-        var btn = document.getElementById('modal-save-btn');
-        btn.disabled = true;
-        btn.textContent = 'Saving…';
-        clearModalError();
-        var fd = new FormData();
-        fd.append('pickup_week', _selectedModalWeek);
-        fd.append('pickup_time_preference', _selectedModalTime);
-        fd.append('csrf_token', '{{ csrf_token() }}');
-        fetch('/api/user/set_pickup_week', { method: 'POST', body: fd })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    // Update stats bar inline
-                    var sv = document.getElementById('pickup-stat-value');
-                    var weekLabels = {week1: 'Wk 1', week2: 'Wk 2', week3: 'Wk 3'};
-                    var timeLabels = {am: 'AM', pm: 'PM'};
-                    if (sv) sv.textContent = (weekLabels[data.pickup_week] || data.pickup_week) + ' · ' + (timeLabels[data.pickup_time_preference] || data.pickup_time_preference);
-                    // Remove amber styling from stat value
-                    if (sv) sv.style.color = '';
-                    closePickupWeekModal();
-                    // Reload page to refresh all banners/cards
-                    window.location.reload();
-                } else {
-                    showModalError(data.error || 'Something went wrong. Please try again.');
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-check"></i> Save';
+    var noteEl = document.getElementById('pickup-note-input');
+    if (noteEl) fd.append('pickup_note', noteEl.value || '');
+
+    fetch('/api/user/set_pickup_week', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var sv = document.getElementById('pickup-stat-value');
+                var wLabels = { week1: 'Wk 1', week2: 'Wk 2', week3: 'Wk 3' };
+                var tLabels = { morning: 'Morning', afternoon: 'Afternoon', am: 'AM', pm: 'PM' };
+                if (sv) {
+                    sv.textContent = (wLabels[data.pickup_week] || data.pickup_week) + ' · ' + (tLabels[data.pickup_time_preference] || data.pickup_time_preference);
+                    sv.style.color = '';
                 }
-            })
-            .catch(function() {
-                showModalError('Network error. Please try again.');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-check"></i> Save';
-            });
-    }
-
-    // Listing modal (item popup)
-    function openListingModal(itemId) {
-        var src = document.getElementById('listing-content-' + itemId);
-        var body = document.getElementById('listingModalBody');
-        var modal = document.getElementById('listingModal');
-        if (src && body && modal) {
-            body.innerHTML = src.innerHTML;
-            modal.style.display = 'flex';
-            document.body.style.overflow = 'hidden';
-        }
-    }
-    function closeListingModal() {
-        var modal = document.getElementById('listingModal');
-        if (modal) { modal.style.display = 'none'; document.body.style.overflow = ''; }
-    }
-    var listingModalEl = document.getElementById('listingModal');
-    if (listingModalEl) listingModalEl.addEventListener('click', function(e) {
-        if (e.target === this) closeListingModal();
-    });
-
-    // Claim modal
-    function openClaimModal() {
-        var m = document.getElementById('claimModal');
-        if (m) { m.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
-    }
-    function closeClaimModal() {
-        var m = document.getElementById('claimModal');
-        if (m) { m.style.display = 'none'; document.body.style.overflow = ''; }
-    }
-    var claimModal = document.getElementById('claimModal');
-    if (claimModal) claimModal.addEventListener('click', function(e) {
-        if (e.target === this) closeClaimModal();
-    });
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            closeClaimModal();
-            closeListingModal();
-        }
-    });
-
-    // Price change acknowledgment
-    function acknowledgePriceChange(itemId, badgeEl) {
-        if (!badgeEl) return;
-        var csrf = document.querySelector('input[name="csrf_token"]');
-        if (!csrf) return;
-        badgeEl.style.opacity = '0.5';
-        badgeEl.style.pointerEvents = 'none';
-        fetch('/api/item/' + itemId + '/acknowledge_price_change', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
-            body: 'csrf_token=' + encodeURIComponent(csrf.value)
-        }).then(function(r) {
-            if (r.ok) {
-                badgeEl.remove();
+                closeModal('modal-pickupaddr');
+                // Reload to refresh setup strip
+                window.location.reload();
             } else {
-                badgeEl.style.opacity = '';
-                badgeEl.style.pointerEvents = '';
+                showModalError('pickupaddr-modal-error', data.error || 'Something went wrong. Please try again.');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save'; }
             }
-        }).catch(function() {
-            badgeEl.style.opacity = '';
-            badgeEl.style.pointerEvents = '';
+        })
+        .catch(function() {
+            showModalError('pickupaddr-modal-error', 'Network error. Please try again.');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save'; }
         });
+}
+
+// ——— Payout modal ———
+var _payoutMethod = '{{ current_user.payout_method or "Venmo" }}';
+
+function selectPayoutMethod(method) {
+    _payoutMethod = method;
+    document.querySelectorAll('.payout-method-card').forEach(function(card) {
+        var sel = card.dataset.method === method;
+        card.style.borderColor = sel ? 'var(--primary)' : '#e2e8f0';
+        card.style.background = sel ? '#f0fdf4' : '';
+        card.style.color = sel ? 'var(--primary)' : '';
+    });
+    var label = document.getElementById('payout-handle-label');
+    var input = document.getElementById('payout-handle-input');
+    var confirmLabel = document.getElementById('payout-handle-confirm-label');
+    var confirmInput = document.getElementById('payout-handle-confirm-input');
+    if (method === 'Zelle') {
+        if (label) label.textContent = 'Phone or email';
+        if (input) input.placeholder = 'e.g. 919-555-0123 or you@email.com';
+        if (confirmLabel) confirmLabel.textContent = 'Confirm phone or email';
+        if (confirmInput) confirmInput.placeholder = 'Re-enter to confirm';
+    } else {
+        if (label) label.textContent = 'Handle';
+        if (input) input.placeholder = '@ username';
+        if (confirmLabel) confirmLabel.textContent = 'Confirm handle';
+        if (confirmInput) confirmInput.placeholder = 'Re-enter to confirm';
+    }
+}
+
+function savePayoutModal() {
+    var handle = (document.getElementById('payout-handle-input').value || '').trim();
+    var confirm = (document.getElementById('payout-handle-confirm-input').value || '').trim();
+    clearModalError('payout-modal-error');
+
+    if (!handle) {
+        showModalError('payout-modal-error', _payoutMethod === 'Zelle' ? 'Please enter your phone or email.' : 'Please enter your handle.');
+        return;
+    }
+    var cleanHandle = handle.replace(/^@/, '');
+    var cleanConfirm = confirm.replace(/^@/, '');
+    if (cleanHandle.toLowerCase() !== cleanConfirm.toLowerCase()) {
+        showModalError('payout-modal-error', "Handles don\u2019t match.");
+        return;
     }
 
-    // Scroll to anchor
-    const urlParams = new URLSearchParams(window.location.search);
-    const scrollTarget = urlParams.get('scroll');
-    if (scrollTarget) {
-        window.addEventListener('DOMContentLoaded', function() {
-            const el = document.getElementById(scrollTarget);
-            if (el) requestAnimationFrame(function() { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
-        }, { once: true });
+    var btn = document.getElementById('payout-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ csrf_token() }}');
+    fd.append('payout_method', _payoutMethod);
+    fd.append('payout_handle', handle);
+    fd.append('payout_handle_confirm', confirm);
+
+    fetch('/update_payout', { method: 'POST', body: fd })
+        .then(function(r) {
+            if (r.ok) {
+                closeModal('modal-payout');
+                window.location.reload();
+            } else {
+                showModalError('payout-modal-error', 'Failed to save. Please try again.');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save Payout Info'; }
+            }
+        })
+        .catch(function() {
+            showModalError('payout-modal-error', 'Network error. Please try again.');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Save Payout Info'; }
+        });
+}
+
+// Init payout modal method on page load
+selectPayoutMethod(_payoutMethod);
+
+// ——— Share & copy ———
+function shareReferral(url, code) {
+    if (navigator.share) {
+        navigator.share({ title: 'Campus Swap', text: 'Use my referral code ' + code + ' to sign up for Campus Swap!', url: url });
+    } else {
+        copyToClipboard(url, 'copied-code');
+        var el = document.getElementById('copied-code');
+        if (el) el.textContent = 'Link copied!';
+        setTimeout(function() { if (el) el.textContent = 'Copied!'; }, 2000);
     }
+}
+function copyToClipboard(text, feedbackId) {
+    navigator.clipboard.writeText(text).then(function() {
+        var el = document.getElementById(feedbackId);
+        if (el) { el.style.opacity = '1'; setTimeout(function() { el.style.opacity = '0'; }, 1800); }
+    }).catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        var el = document.getElementById(feedbackId);
+        if (el) { el.style.opacity = '1'; setTimeout(function() { el.style.opacity = '0'; }, 1800); }
+    });
+}
+
+// ——— Listing modal ———
+function openListingModal(itemId) {
+    var src = document.getElementById('listing-content-' + itemId);
+    var body = document.getElementById('listingModalBody');
+    var modal = document.getElementById('listingModal');
+    if (src && body && modal) {
+        body.innerHTML = src.innerHTML;
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+}
+function closeListingModal() {
+    var modal = document.getElementById('listingModal');
+    if (modal) { modal.style.display = 'none'; document.body.style.overflow = ''; }
+}
+var listingModalEl = document.getElementById('listingModal');
+if (listingModalEl) listingModalEl.addEventListener('click', function(e) {
+    if (e.target === this) closeListingModal();
+});
+
+// ——— Price change acknowledgment ———
+function acknowledgePriceChange(itemId, badgeEl) {
+    if (!badgeEl) return;
+    var csrf = document.querySelector('input[name="csrf_token"]');
+    if (!csrf) return;
+    badgeEl.style.opacity = '0.5';
+    badgeEl.style.pointerEvents = 'none';
+    fetch('/api/item/' + itemId + '/acknowledge_price_change', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+        body: 'csrf_token=' + encodeURIComponent(csrf.value)
+    }).then(function(r) {
+        if (r.ok) { badgeEl.remove(); }
+        else { badgeEl.style.opacity = ''; badgeEl.style.pointerEvents = ''; }
+    }).catch(function() { badgeEl.style.opacity = ''; badgeEl.style.pointerEvents = ''; });
+}
+
+// ——— URL scroll-to anchor ———
+const urlParams = new URLSearchParams(window.location.search);
+const scrollTarget = urlParams.get('scroll');
+if (scrollTarget) {
+    window.addEventListener('DOMContentLoaded', function() {
+        const el = document.getElementById(scrollTarget);
+        if (el) requestAnimationFrame(function() { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    }, { once: true });
+}
 </script>
+
+<script>
+(function() {
+    var week = 7 * 24 * 60 * 60 * 1000;
+    var allDrafts = [];
+    try {
+        var raw = JSON.parse(localStorage.getItem('cs_item_drafts') || '[]');
+        allDrafts = raw.filter(function(d) { return d.savedAt && Date.now() - d.savedAt < week; });
+        if (allDrafts.length !== raw.length) {
+            if (allDrafts.length) localStorage.setItem('cs_item_drafts', JSON.stringify(allDrafts));
+            else localStorage.removeItem('cs_item_drafts');
+        }
+    } catch(e) {}
+
+    if (!allDrafts.length) return;
+
+    var section = document.getElementById('drafts-section');
+    var list = document.getElementById('drafts-list');
+    section.style.display = 'block';
+
+    allDrafts.forEach(function(d) {
+        var title = d.description || d.categoryName || 'Untitled item';
+        var savedDate = d.savedAt ? new Date(d.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        var card = document.createElement('div');
+        card.style.cssText = 'background:white; border:1px solid #d8d0c4; border-radius:12px; padding:14px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;';
+        card.innerHTML = '<div style="flex:1; min-width:120px;">'
+            + '<div style="font-weight:600; font-size:0.95rem; color:var(--text-main);">' + title + '</div>'
+            + (savedDate ? '<div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Saved ' + savedDate + '</div>' : '')
+            + '</div>'
+            + '<div style="display:flex; gap:8px;">'
+            + '<a href="/add_item?draft=' + d.id + '" class="btn btn-primary" style="padding:8px 16px; font-size:0.85rem;">Continue &rarr;</a>'
+            + '<button type="button" style="background:none; border:none; color:var(--text-muted); font-size:0.85rem; cursor:pointer; padding:8px;" data-draft-id="' + d.id + '">Discard</button>'
+            + '</div>';
+        card.querySelector('[data-draft-id]').addEventListener('click', function() {
+            var id = this.dataset.draftId;
+            try {
+                var drafts = JSON.parse(localStorage.getItem('cs_item_drafts') || '[]').filter(function(x) { return x.id !== id; });
+                if (drafts.length) localStorage.setItem('cs_item_drafts', JSON.stringify(drafts));
+                else localStorage.removeItem('cs_item_drafts');
+            } catch(e) {}
+            card.remove();
+            if (!list.children.length) section.style.display = 'none';
+        });
+        list.appendChild(card);
+    });
+})();
+</script>
+
 {% endblock %}

@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-06
+> **Last updated:** 2026-04-13
 
 ---
 
@@ -90,7 +90,16 @@
 ---
 
 ### Shop Front (`/inventory`)
-**What buyers see:**
+
+**Pre-launch Teaser Mode (`shop_teaser_mode = 'true'` AppSetting):**
+- Full-viewport blurred mosaic of real approved item photos (up to 16 real + placeholder tiles to fill 12 minimum)
+- Dark overlay + centered card: "Shop Drop — Opens June 1st"
+- Email capture form → `POST /shop/notify` → `ShopNotifySignup` table
+- `noindex` meta tag injected; no category/search UI shown
+- `/item/<id>` redirects to `/inventory` with flash "Items go on sale June 1st — sign up to be notified."
+- Toggle in admin panel header bar; CSV export of signups at `/admin/export/notify-signups`
+
+**Live Mode (`shop_teaser_mode = 'false'` or absent):**
 - Store indicator: "Showing items from [STORE NAME]"
 - Banner with opening date if store not yet open
 - Category cards grid (from `_category_grid.html` partial) with "View All" option
@@ -117,19 +126,24 @@
 - Item title and long description
 - Price (large, prominent)
 - Condition label + quality rating (Like New / Good / Fair) — mapped from integer: 5=Like New, 4=Good, 3=Fair
-- Delivery method: "In-Store Pickup" (no shipping)
+- Delivery method: "Weekly Delivery · Free"
 - Share button with card preview + copy link (generates OG share card image via `/share/item/<id>/card.png`)
+- **In teaser mode:** redirects to `/inventory` with flash (no item pages accessible)
 
 **Action buttons (conditional):**
 | Condition | Button Shown |
 |---|---|
 | Item sold | Disabled "Item Sold" button |
-| Store not open yet | "Reservations open [DATE]" |
-| Already reserved by this user | "Cancel Reservation" |
-| Reserved by someone else | "Reserved" badge (no action) |
+| Store not open yet | "Shop opens [DATE]" message |
 | Reserve-only mode ON | "Reserve Item" |
-| Item physically in store | "Buy Now" (Stripe checkout) |
-| Item approved but not in store | "Reserve Item" |
+| Store open, item available | "Buy Now" → links to `/checkout/delivery/<id>` |
+
+**Delivery purchase flow:**
+1. "Buy Now" → `GET /checkout/delivery/<id>` — address form (street/city/state/zip)
+2. `POST /checkout/delivery/<id>` — geocodes via Nominatim (geopy), checks ≤50 miles of warehouse
+3. On success → session stores `pending_delivery` → redirect to `GET /checkout/pay/<id>`
+4. `checkout_pay` creates Stripe Checkout Session with delivery metadata → redirect to Stripe
+5. Stripe webhook creates `BuyerOrder` record from metadata
 
 **Data NOT shown to buyers:** Seller name/contact, pickup logistics, admin notes, suggested price vs. final price, collection method
 
@@ -141,8 +155,9 @@
 **What buyers see:**
 - Success confirmation with item thumbnail and description
 - Next steps:
-  1. Check email for receipt and pickup instructions
-  2. Visit Campus Swap Warehouse during store hours
+  1. Check your email — confirmation with delivery details
+  2. We deliver once per week — heads-up before delivery day
+  3. Questions? Reply to confirmation email
   3. Show email receipt to claim item
 - "Back to Shop" button
 
@@ -211,31 +226,83 @@
 - Saves to `User.pickup_week` and `User.pickup_time_preference` on submit
 - **Service tier selection removed from onboarding** — all sellers start Free. `collection_method` is hardcoded to `'free'` on item creation.
 
-**Step 8: Payout Method**
-- Fields: `payout_method` (Venmo/PayPal/Zelle), `payout_handle`, `payout_handle_confirm`
-- Dynamic UI: prefix and placeholder change per method
-  - Venmo: @username
-  - PayPal: email
-  - Zelle: email or phone
-
-**Step 9: Review & Submit**
-- Display-only summary of all entered data
+**Step 7: Review & Submit** *(was Step 9 before payout removal)*
+- Display-only summary: photos, category, title, condition, suggested price
 - Action: "Submit for Approval"
+- **Note:** Payout step removed from wizard as of 2026-04-13 — collected in account settings instead
 
-**Steps 10-11 (Guests Only): Account Creation**
+**Steps 8-9 (Guests Only): Account Creation**
 - Fields: `full_name`, `email`, `phone` (required), `password` (min 6 chars)
 - Google OAuth option, Cloudflare Turnstile captcha
-- Guest save progress: POST to `/onboard/guest/save` stores session data (includes pickup_week/time_pref if set)
+- Guest save progress: POST to `/onboard/guest/save` stores session data
+- **Note:** Payout no longer collected here — `payout_method` and `payout_handle` are `None` at account creation
+
+**Exit button:** Plain link back to dashboard/index — no draft saving. Onboarding has no draft functionality.
 
 **Post-onboard routes:**
 - `/onboard_complete` — redirect destination on success
-- `/onboard_cancel` — cancel button destination
+- `/onboard_cancel` — redirects to dashboard
 - `/onboard/complete_account` — separate page for completing account setup after onboarding
 
 ---
 
 ### Add Additional Item (`/add_item`) — 7 Steps
-Same as onboarding steps 1-6 + review, minus tier selection, payout, and account creation. Uses seller's existing preferences. Only available to users who are already sellers.
+Same as onboarding steps 1–6 + review, minus payout and account creation. Uses seller's existing preferences. Only available to logged-in sellers.
+
+**Draft system:**
+- Sellers can save in-progress listings as drafts via the X button → "Save Draft & Exit" modal
+- Drafts stored in `localStorage` as `cs_item_drafts` array (supports multiple concurrent drafts)
+- Computer-picked photos staged to server at save time (`/api/photos/stage` → `draft_temp_` files) so they survive page navigation
+- Dashboard shows all saved drafts with "Continue →" (links to `/add_item?draft=<id>` for direct restore) and per-draft Discard
+- "Exit without saving" preserves the last-saved draft state — discard requires explicit dashboard action
+- Drafts expire after 7 days (client-side check + server-side file cleanup)
+
+---
+
+### Seller Dashboard (`/dashboard`) — Seller Studio
+
+Seller Dashboard (/dashboard) — "Seller Studio"
+Layout (top to bottom):
+
+Page header — title, subtitle, Log Out
+Setup strip — shown until phone + pickup week/address + payout are all complete. Three chips: Phone (display-only ✓), Pickup week & address (opens modal), Payout info (opens modal). Hidden once all done.
+Stats bar — 4 cards: Potential Earnings, Paid Out, Items, Pickup Window. Pickup Window is clickable → opens pickup week & address modal.
+SellerAlert banners — needs_info and pickup_reminder types only. pickup_reminder opens pickup modal instead of linking away. No generic "items awaiting approval" banner.
+Saved drafts — slim row per draft, only if drafts exist.
+My shop — full-width item grid, 3 col desktop / 2 col mobile. Pending items show a frosted "Pending review" overlay on the thumbnail. needs_info items show "Needs update".
+Refer & Earn — always-visible dark green card. All text white/cream/sage. Left: rate, progress bar, referral count, description. Right: referral code, share button, boost CTA (hidden once purchased or rate = 100%).
+
+Modals (vanilla JS, no page navigation):
+
+Pickup week & address modal: week cards (Week 1 / Week 2), time preference (Morning / Afternoon), location type, address, directions. Two sequential fetch POSTs on save: /update_profile then /api/user/set_pickup_week.
+Payout modal: method cards (Venmo / PayPal / Zelle), handle input (label/placeholder updates dynamically for Zelle). POST to /update_payout.
+Both modals are bottom sheets on mobile (≤540px).
+
+Removed from old layout:
+
+Two-column layout with referral sidebar
+"Items Awaiting Approval" banner
+"Boost Your Payout" standalone card
+Address nag banner (replaced by setup strip)
+Upgrade card (legacy free/pro tier remnant)
+---
+
+### Payout Boost (`/upgrade_payout_boost`, `/upgrade_boost_success`)
+
+**Entry points:** Dashboard "Refer & Earn" card + Account Settings inline panel
+
+**Flow:**
+1. Seller clicks "Boost to X% for $15" → POST `/upgrade_payout_boost`
+2. Route validates: logged in, `not has_paid_boost`, `payout_rate < 100`
+3. Creates Stripe Checkout Session ($15, metadata: `type=payout_boost`, `boost_amount=30`)
+4. Seller completes Stripe checkout → webhook fires → `user.payout_rate += 30` (capped at 100), `user.has_paid_boost = True`, confirmation email sent
+5. Stripe redirects to `/upgrade_boost_success` — shows new rate, encourages continued referring
+
+**Idempotency:** Webhook checks `not user.has_paid_boost` before applying — safe against Stripe redelivery.
+
+**Stacking:** Boost and referrals are fully independent. Both move toward the 100% ceiling and can be used in any order.
+
+**Legacy routes** `/upgrade_pickup`, `/upgrade_checkout`, `/upgrade_pickup_success` redirect to `/dashboard` (not deleted — old email links may still point here).
 
 ---
 

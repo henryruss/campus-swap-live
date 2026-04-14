@@ -64,6 +64,11 @@ class User(UserMixin, db.Model):
     payout_rate = db.Column(db.Integer, default=20, nullable=False)
     # Stored integer percentage (20, 30, 40 ... 100). Updated when a referral is confirmed.
 
+    # PAYOUT BOOST ($15 one-time purchase for +30%)
+    has_paid_boost = db.Column(db.Boolean, default=False, nullable=False)
+    # True once the seller has completed the $15 payout boost purchase this season.
+    # Separate from has_paid (legacy Pro tier flag). Reset annually by the fall cleanup script.
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 
@@ -527,6 +532,28 @@ class IntakeFlag(db.Model):
 # =========================================================
 # REFERRAL PROGRAM
 # =========================================================
+
+class ShopNotifySignup(db.Model):
+    """Email capture for pre-launch shop drop teaser. Duplicates allowed — no unique constraint."""
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ip_address = db.Column(db.String(45), nullable=True)  # for spam review; never displayed
+
+
+class BuyerOrder(db.Model):
+    """Delivery details for each completed item purchase. One record per sold item."""
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), unique=True, nullable=False)
+    buyer_email = db.Column(db.String(120), nullable=False)
+    delivery_address = db.Column(db.String(300), nullable=False)
+    delivery_lat = db.Column(db.Float, nullable=True)
+    delivery_lng = db.Column(db.Float, nullable=True)
+    stripe_session_id = db.Column(db.String(120), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    item = db.relationship('InventoryItem', backref=db.backref('buyer_order', uselist=False))
+
 
 class Referral(db.Model):
     """One record per (referrer, referred) pair. confirmed=True when referred seller's item arrives."""

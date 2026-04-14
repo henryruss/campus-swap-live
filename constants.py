@@ -1,6 +1,7 @@
 """
 Application-wide constants for Campus Swap
 """
+import re
 
 # Payout Configuration (by collection method)
 PAYOUT_PERCENTAGE_ONLINE = 0.50   # Sellers receive 50% when submitting through site
@@ -43,7 +44,7 @@ def category_requires_video(category_name: str, subcategory_name: str = '') -> b
     names = ' '.join(n for n in (category_name, subcategory_name) if n).lower()
     if not names:
         return False
-    return any(key in names for key in VIDEO_REQUIRED_CATEGORIES)
+    return any(re.search(r'\b' + re.escape(key) + r'\b', names) for key in VIDEO_REQUIRED_CATEGORIES)
 
 
 # Image Processing Configuration
@@ -84,7 +85,7 @@ PICKUP_WEEK_DATE_RANGES = {
 }
 
 # Time-of-day options for pickup preference
-PICKUP_TIME_OPTIONS = ['am', 'pm']
+PICKUP_TIME_OPTIONS = ['am', 'pm', 'morning', 'afternoon', 'evening']
 
 # Reserve-only mode: before this date (month, day), items are reserve-only (no Stripe charges)
 RESERVE_ONLY_DEADLINE = (4, 20)  # April 20th

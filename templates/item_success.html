@@ -6,28 +6,28 @@
         <div style="font-size: 4rem; margin-bottom: 20px; color: var(--primary);">
             <i class="fas fa-check-circle"></i>
         </div>
-        <h1 style="color: var(--primary); margin-bottom: 10px;">Item Reserved!</h1>
+        <h1 style="color: var(--primary); margin-bottom: 10px;">Purchase Complete!</h1>
         <p style="font-size: 1.1rem; margin-bottom: 30px;">
-            Your item has been reserved. Visit our store to pick it up.
+            Your order has been confirmed. Check your email for a receipt and delivery details.
         </p>
 
         {% if item %}
             <div style="margin-bottom: 30px; border: 1px solid #eee; border-radius: 8px; padding: 15px;">
                 {% if item.photo_url %}
-                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" 
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
                          style="width: 150px; height: 150px; object-fit: cover; border-radius: 8px; margin-bottom: 15px;">
                 {% endif %}
                 <h3 style="margin-bottom: 5px;">{{ item.description }}</h3>
-                <p style="color: #15803d; font-weight: bold;">RESERVED</p>
+                <p style="color: var(--primary); font-weight: bold;">${{ "%.2f"|format(item.price) if item.price else "—" }}</p>
             </div>
         {% endif %}
 
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; text-align: left;">
-            <h4 style="margin-bottom: 10px;">Next Steps:</h4>
-            <ol style="margin-left: 20px; line-height: 1.6;">
-                <li>Check your email for the receipt and pickup instructions. If you don't see it, check your spam or promotions folder.</li>
-                <li>Visit the <strong>Campus Swap Warehouse</strong> during store hours.</li>
-                <li>Show your email receipt to claim your item.</li>
+        <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin-bottom: 30px; text-align: left; border: 1px solid #bbf7d0;">
+            <h4 style="margin-bottom: 12px;"><i class="fas fa-truck"></i> What happens next?</h4>
+            <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                <li>Check your email — we've sent a confirmation with your delivery details.</li>
+                <li>We deliver once per week. You'll get a heads-up before your delivery day.</li>
+                <li>Questions? Reply to your confirmation email and we'll sort it out.</li>
             </ol>
         </div>
 

@@ -56,3 +56,72 @@ def patch_flask_app_context():
     flask.ctx.AppContext.pop = _safe_pop
     yield
     flask.ctx.AppContext.pop = _original_pop
+
+
+import os
+import secrets
+import tempfile
+
+@pytest.fixture(scope='function')
+def app():
+    """App fixture for unified item submission tests."""
+    from app import app as flask_app, db as _db
+
+    db_fd, db_path = tempfile.mkstemp()
+    flask_app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+    flask_app.config['TESTING'] = True
+    flask_app.config['WTF_CSRF_ENABLED'] = False
+    flask_app.config['SECRET_KEY'] = 'test-secret-key'
+    flask_app.config['SERVER_NAME'] = 'localhost'
+
+    # Disable rate limiting
+    if hasattr(flask_app, 'limiter') and flask_app.limiter:
+        flask_app.limiter.enabled = False
+
+    with flask_app.app_context():
+        _db.create_all()
+        # Seed at least one category so /onboard renders (not no_categories path)
+        from models import InventoryCategory, AppSetting
+        cat = InventoryCategory(name='Furniture', image_url='fa-couch', count_in_stock=0)
+        _db.session.add(cat)
+        # Make sure pickup period is active
+        AppSetting.set('pickup_period_active', 'true')
+        _db.session.commit()
+        yield flask_app
+        _db.session.remove()
+        _db.drop_all()
+
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+@pytest.fixture
+def db(app):
+    """Database fixture."""
+    from app import db as _db
+    return _db
+
+
+@pytest.fixture
+def make_user(app, db):
+    """Factory fixture that creates User objects."""
+    from werkzeug.security import generate_password_hash
+
+    def _factory(**kwargs):
+        from models import User
+        uid = secrets.token_hex(4)
+        user = User(
+            email=kwargs.get('email', f'user_{uid}@test.edu'),
+            password_hash=generate_password_hash('testpass123'),
+            full_name=kwargs.get('full_name', f'Test User {uid}'),
+            payout_method=kwargs.get('payout_method', None),
+            payout_handle=kwargs.get('payout_handle', None),
+            is_seller=kwargs.get('is_seller', True),
+            pickup_week=kwargs.get('pickup_week', None),
+            pickup_time_preference=kwargs.get('pickup_time_preference', None),
+        )
+        db.session.add(user)
+        db.session.commit()
+        return user
+
+    return _factory
