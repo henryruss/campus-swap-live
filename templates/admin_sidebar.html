@@ -1,11 +1,44 @@
 <aside class="admin-sidebar">
     <nav>
-        <a href="{{ url_for('admin_panel') }}#overview" data-section="overview" class="{% if not active or active == 'overview' %}active{% endif %}"><i class="fas fa-chart-pie"></i> Overview</a>
+        <div style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 4px 16px 8px; margin-top: 4px;">Inventory</div>
+        <a href="{{ url_for('admin_panel') }}#overview" data-section="overview" class="{% if not active or active == 'overview' %}active{% endif %}">
+            <i class="fas fa-chart-pie"></i> Overview
+        </a>
         {% if is_super_admin() %}
-        <a href="{{ url_for('admin_approve') }}" data-section="approve" class="{% if active == 'approve' %}active{% endif %}"><i class="fas fa-th-large"></i> Approve Items{% if pending_count %} ({{ pending_count }}){% endif %}</a>
+        <a href="{{ url_for('admin_approve') }}" data-section="approve" class="{% if active == 'approve' %}active{% endif %}">
+            <i class="fas fa-th-large"></i> Approve Items
+            {% if pending_count %}
+            <span style="background:var(--accent);color:white;border-radius:999px;padding:1px 7px;font-size:0.7rem;margin-left:auto;font-weight:700;">{{ pending_count }}</span>
+            {% endif %}
+        </a>
         {% endif %}
-        <a href="{{ url_for('admin_panel') }}#add-item" data-section="add-item" class="{% if active == 'add-item' %}active{% endif %}"><i class="fas fa-plus-circle"></i> Add Item</a>
-        <a href="{{ url_for('admin_panel') }}#categories" data-section="categories" class="{% if active == 'categories' %}active{% endif %}"><i class="fas fa-tags"></i> Categories</a>
-        <a href="{{ url_for('admin_panel') }}#items" data-section="items" class="{% if active == 'items' %}active{% endif %}"><i class="fas fa-boxes"></i> Item Lifecycle</a>
+        <a href="{{ url_for('admin_panel') }}#add-item" data-section="add-item" class="{% if active == 'add-item' %}active{% endif %}">
+            <i class="fas fa-plus-circle"></i> Add Item
+        </a>
+        <a href="{{ url_for('admin_panel') }}#categories" data-section="categories" class="{% if active == 'categories' %}active{% endif %}">
+            <i class="fas fa-tags"></i> Categories
+        </a>
+        <a href="{{ url_for('admin_panel') }}#items" data-section="items" class="{% if active == 'items' %}active{% endif %}">
+            <i class="fas fa-boxes"></i> Item Lifecycle
+        </a>
+        <a href="{{ url_for('admin_intake_flagged') }}" class="{% if active == 'flagged' %}active{% endif %}">
+            <i class="fas fa-flag"></i> Flagged Items
+        </a>
+
+        <div style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 16px 16px 8px; border-top: 1px solid var(--rule); margin-top: 8px;">Pickup Ops</div>
+        <a href="{{ url_for('admin_routes_index') }}" class="{% if active == 'routes' %}active{% endif %}">
+            <i class="fas fa-route"></i> Route Planner
+        </a>
+        <a href="{{ url_for('admin_schedule_index') }}" class="{% if active == 'schedule' %}active{% endif %}">
+            <i class="fas fa-calendar-alt"></i> Schedule
+        </a>
+        {% if is_super_admin() %}
+        <a href="{{ url_for('admin_storage_index') }}" class="{% if active == 'storage' %}active{% endif %}">
+            <i class="fas fa-warehouse"></i> Storage
+        </a>
+        <a href="{{ url_for('admin_route_settings') }}" class="{% if active == 'route-settings' %}active{% endif %}">
+            <i class="fas fa-sliders-h"></i> Route Settings
+        </a>
+        {% endif %}
     </nav>
 </aside>
