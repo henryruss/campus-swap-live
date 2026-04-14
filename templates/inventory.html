@@ -203,10 +203,7 @@
                 <div style="padding: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</span>
-                        {% if item.status == 'sold' %}
-                        {% elif item.id in active_reservations %}
-                            <span class="badge" style="background: #fef3c7; color: #92400e;">Reserved</span>
-                        {% else %}
+                        {% if item.status != 'sold' %}
                             <span class="badge bg-green">Available</span>
                         {% endif %}
                     </div>

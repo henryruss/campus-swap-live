@@ -1,153 +1,130 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="container" style="max-width: 600px; margin-top: 40px;">
+<div class="container" style="max-width: 600px; margin-top: 40px; padding-bottom: 48px;">
     <div style="margin-bottom: 30px;">
         <a href="{{ url_for('admin_panel') if current_user.is_admin else url_for('dashboard') }}" style="color: var(--text-muted); font-weight: 600;">
             <i class="fas fa-arrow-left"></i> Back
         </a>
     </div>
-    
+
     <h1 style="margin-bottom: 30px;">Account Settings</h1>
-    
-    <div class="card">
-        <h3 style="margin-bottom: 20px;">Change Password</h3>
-        <form method="POST" action="/change_password">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            
-            {% if current_user.password_hash %}
-            <label>Current Password</label>
-            <input type="password" name="current_password" placeholder="Enter current password" required>
-            {% endif %}
-            
-            <label>New Password</label>
-            <input type="password" name="new_password" placeholder="Enter new password" required 
-                   minlength="6">
-            
-            <label>Confirm New Password</label>
-            <input type="password" name="confirm_password" placeholder="Confirm new password" required>
-            
-            <button type="submit" class="btn btn-primary" style="margin-top: 20px; width: 100%;">
-                Update Password
-            </button>
-        </form>
-    </div>
-    
+
+    {# Section 1: Account Info #}
     <div class="card">
         <h3 style="margin-bottom: 20px;">Account Information</h3>
         <form method="POST" action="/update_account_info">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            
+
             <div style="margin-bottom: 15px;">
                 <label>Email</label>
-                <input type="email" value="{{ current_user.email }}" disabled 
+                <input type="email" value="{{ current_user.email }}" disabled
                        style="background: #f8fafc; color: var(--text-muted);">
-                <small style="color: var(--text-muted); font-size: 0.85rem;">Email cannot be changed</small>
+                <small style="color: var(--text-muted); font-size: 0.85rem;">
+                    {% if current_user.oauth_provider %}Managed via Google{% else %}Email cannot be changed{% endif %}
+                </small>
             </div>
-            
+
             <div style="margin-bottom: 15px;">
                 <label>Full Name</label>
-                <input type="text" name="full_name" value="{{ current_user.full_name or '' }}" 
+                <input type="text" name="full_name" value="{{ current_user.full_name or '' }}"
                        placeholder="Enter your full name">
-                <small style="color: var(--text-muted); font-size: 0.85rem;">This name will be used for payouts and communications</small>
+                <small style="color: var(--text-muted); font-size: 0.85rem;">Used for payouts and communications</small>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <label>Phone Number</label>
-                <input type="tel" name="phone" value="{{ current_user.phone or '' }}" 
+                <input type="tel" name="phone" value="{{ current_user.phone or '' }}"
                        placeholder="555-123-4567"
                        pattern="[0-9]{3}[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}|\([0-9]{3}\)\s?[0-9]{3}[-.\s]?[0-9]{4}|^$"
                        title="Please enter a valid 10-digit US phone number (e.g. 555-123-4567), or leave blank to clear">
                 <small style="color: var(--text-muted); font-size: 0.85rem;">We'll text or call when we're on our way for pickup</small>
             </div>
-            
+
             <button type="submit" class="btn btn-primary" style="width: 100%;">
                 Save Changes
             </button>
         </form>
     </div>
 
+    {# Section 2: Change Password #}
+    {% if current_user.oauth_provider is none %}
     <div class="card">
-        <h3 style="margin-bottom: 20px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup Location</h3>
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Where should we pick up your items? We'll text you when we're on our way.</p>
-        {% set standalone = true %}
-        {% include 'dashboard_pickup_form.html' %}
-    </div>
-
-    {% set user_has_week = current_user.items|selectattr('pickup_week')|list|length > 0 %}
-    {% if user_has_week %}
-    <div class="card">
-        <h3 style="margin-bottom: 20px;"><i class="fas fa-calendar-alt" style="color: var(--primary);"></i> Pickup Preferences</h3>
-        {% set item_week = current_user.items|selectattr('pickup_week')|map(attribute='pickup_week')|first %}
-        <div style="margin-bottom: 15px;">
-            <label>Pickup Week</label>
-            <input type="text" value="{{ 'April 27 – May 3' if item_week == 'week1' else 'May 4 – May 10' }}" disabled style="background: #f8fafc; color: var(--text-muted);">
-            <small style="color: var(--text-muted); font-size: 0.85rem;">Pickup week cannot be changed after confirmation</small>
-        </div>
-        <form method="POST" action="/update_account_info">
+        <h3 style="margin-bottom: 20px;">Change Password</h3>
+        <form method="POST" action="/change_password">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="hidden" name="full_name" value="{{ current_user.full_name or '' }}">
-            <input type="hidden" name="phone" value="{{ current_user.phone or '' }}">
-            <div style="margin-bottom: 15px;">
-                <label>Preferred Time of Day</label>
-                <select name="pickup_time_preference" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
-                    <option value="">— Not set —</option>
-                    <option value="am" {% if current_user.pickup_time_preference == 'am' %}selected{% endif %}>AM (9am–1pm)</option>
-                    <option value="pm" {% if current_user.pickup_time_preference == 'pm' %}selected{% endif %}>PM (1pm–5pm)</option>
-                </select>
-            </div>
-            <div style="margin-bottom: 20px;">
-                <label>Move-Out Date <span style="font-weight: 400; font-size: 0.85rem; color: var(--text-muted);">(optional)</span></label>
-                <input type="date" name="moveout_date" value="{{ current_user.moveout_date.isoformat() if current_user.moveout_date else '' }}"
-                       min="{{ '2026-04-27' if item_week == 'week1' else '2026-05-04' }}"
-                       max="{{ '2026-05-03' if item_week == 'week1' else '2026-05-10' }}"
-                       style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Save Preferences</button>
+
+            {% if current_user.password_hash %}
+            <label>Current Password</label>
+            <input type="password" name="current_password" placeholder="Enter current password" required>
+            {% endif %}
+
+            <label>New Password</label>
+            <input type="password" name="new_password" placeholder="Enter new password" required minlength="6">
+
+            <label>Confirm New Password</label>
+            <input type="password" name="confirm_password" placeholder="Confirm new password" required>
+
+            <button type="submit" class="btn btn-primary" style="margin-top: 20px; width: 100%;">
+                Update Password
+            </button>
         </form>
+    </div>
+    {% else %}
+    <div class="card">
+        <h3 style="margin-bottom: 12px;">Password</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">Your account uses Google sign-in. Password is managed by Google.</p>
     </div>
     {% endif %}
 
-    {% if current_user.payout_handle %}
+    {# Section 3: Pickup & Payout #}
     <div class="card">
-        <h3 style="margin-bottom: 20px;"><i class="fas fa-wallet" style="color: var(--primary);"></i> Payout Info</h3>
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">
-            <strong>{{ current_user.payout_method }}</strong> @{{ current_user.payout_handle }}
-        </p>
-        <form action="/update_payout" method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                <div>
+        <h3 style="margin-bottom: 4px;"><i class="fas fa-map-marker-alt" style="color: var(--primary);"></i> Pickup &amp; Payout</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px;">Where we pick up your items and where we send your earnings.</p>
+
+        {# Pickup Location sub-card #}
+        <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+            <h4 style="margin: 0 0 14px; font-size: 1rem; font-weight: 600; color: var(--text-main);">Pickup Location</h4>
+            <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 16px;">Where should we come to pick up your items?</p>
+            {% set standalone = true %}
+            {% include 'dashboard_pickup_form.html' %}
+        </div>
+
+        {# Payout Info sub-card #}
+        <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;">
+            <h4 style="margin: 0 0 6px; font-size: 1rem; font-weight: 600; color: var(--text-main);">Payout Info</h4>
+            <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 16px;">Where we send your earnings after each item sells.</p>
+            {% if current_user.payout_handle %}
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Current: <strong>{{ current_user.payout_method }}</strong> — {{ current_user.payout_handle }}</p>
+            {% else %}
+            <p style="color: #d97706; font-size: 0.9rem; margin-bottom: 16px;"><i class="fas fa-exclamation-circle"></i> Not set up yet — add your info so we know where to send your money.</p>
+            {% endif %}
+            <form action="/update_payout" method="POST" id="payout-settings-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div style="margin-bottom: 15px;">
                     <label style="margin-top: 0;">Method</label>
-                    <select name="payout_method">
-                        <option value="Venmo" {% if current_user.payout_method == 'Venmo' %}selected{% endif %}>Venmo</option>
-                        <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
+                    <select name="payout_method" id="settings-payout-method" onchange="updatePayoutHandleLabel(this.value)" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
+                        <option value="Venmo" {% if current_user.payout_method == 'Venmo' or not current_user.payout_method %}selected{% endif %}>Venmo</option>
                         <option value="PayPal" {% if current_user.payout_method == 'PayPal' %}selected{% endif %}>PayPal</option>
+                        <option value="Zelle" {% if current_user.payout_method == 'Zelle' %}selected{% endif %}>Zelle</option>
                     </select>
                 </div>
-                <div>
-                    <label style="margin-top: 0;">Handle</label>
-                    <div style="display: flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden;">
-                        <span style="background: #f1f5f9; padding: 12px 15px; font-weight: 700; color: var(--text-muted);">@</span>
-                        <input type="text" name="payout_handle" value="{{ current_user.payout_handle }}" style="border: none; flex: 1;" required>
-                    </div>
+                <div style="margin-bottom: 15px;">
+                    <label id="settings-handle-label" style="margin-top: 0;">Handle</label>
+                    <input type="text" name="payout_handle" id="settings-handle-input"
+                           value="{{ current_user.payout_handle or '' }}"
+                           placeholder="{{ 'e.g. 919-555-0123 or you@email.com' if current_user.payout_method == 'Zelle' else '@ username' }}"
+                           required>
                 </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-bottom: 15px;">
-                <div>
-                    <label style="margin-top: 0;">Confirm handle</label>
+                <div style="margin-bottom: 20px;">
+                    <label id="settings-handle-confirm-label" style="margin-top: 0;">Confirm handle</label>
+                    <input type="text" name="payout_handle_confirm" id="settings-handle-confirm-input"
+                           placeholder="Re-enter to confirm" required>
                 </div>
-                <div>
-                    <div style="display: flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden;">
-                        <span style="background: #f1f5f9; padding: 12px 15px; font-weight: 700; color: var(--text-muted);">@</span>
-                        <input type="text" name="payout_handle_confirm" placeholder="Retype to confirm" style="border: none; flex: 1;" required>
-                    </div>
-                </div>
-            </div>
-            <button type="submit" class="btn btn-primary">Update Payout</button>
-        </form>
+                <button type="submit" class="btn btn-primary">Save Payout Info</button>
+            </form>
+        </div>
     </div>
-    {% endif %}
 
     {% if current_user.is_admin %}
     <div class="card" style="background: #f0fdf4; border-color: #bbf7d0;">
@@ -158,4 +135,29 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+function updatePayoutHandleLabel(method) {
+    var label = document.getElementById('settings-handle-label');
+    var input = document.getElementById('settings-handle-input');
+    var confirmLabel = document.getElementById('settings-handle-confirm-label');
+    var confirmInput = document.getElementById('settings-handle-confirm-input');
+    if (method === 'Zelle') {
+        if (label) label.textContent = 'Phone or email';
+        if (input) input.placeholder = 'e.g. 919-555-0123 or you@email.com';
+        if (confirmLabel) confirmLabel.textContent = 'Confirm phone or email';
+        if (confirmInput) confirmInput.placeholder = 'Re-enter to confirm';
+    } else {
+        if (label) label.textContent = 'Handle';
+        if (input) input.placeholder = '@ username';
+        if (confirmLabel) confirmLabel.textContent = 'Confirm handle';
+        if (confirmInput) confirmInput.placeholder = 'Re-enter to confirm';
+    }
+}
+// Init on load
+(function() {
+    var sel = document.getElementById('settings-payout-method');
+    if (sel) updatePayoutHandleLabel(sel.value);
+})();
+</script>
 {% endblock %}

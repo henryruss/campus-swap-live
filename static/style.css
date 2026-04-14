@@ -21,6 +21,8 @@
 
     /* Utility */
     --sage: #8AB88A;
+    --sage-lt: #C2D9C2;
+    --amber-lt: #F2DDB7;
     --rule: #D8D0C4;
     --slate: #3D4F5C;
     --glass-shadow: 0 20px 40px -10px rgba(0,0,0,0.1);
@@ -1098,4 +1100,271 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     .description-columns {
         grid-template-columns: 1fr;
     }
+}
+/* =========================================
+   DASHBOARD REDESIGN — Setup Strip, Modals,
+   Refer & Earn, Item Grid
+   ========================================= */
+
+/* Setup Strip */
+.setup-strip {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    padding: 14px 18px;
+    background: var(--bg-cream);
+    border: var(--card-border);
+    border-radius: 14px;
+    align-items: center;
+}
+.setup-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: none;
+    background: none;
+    font-family: inherit;
+    cursor: default;
+    transition: all 0.15s;
+}
+.setup-chip-done {
+    color: #15803d;
+    background: #f0fdf4;
+    border: 1.5px solid #bbf7d0;
+}
+.setup-chip-todo {
+    color: #92400e;
+    background: #fffbeb;
+    border: 1.5px solid #fde68a;
+}
+.setup-chip-todo:hover { background: #fef3c7; }
+.setup-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #d97706;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Modal System (new, replaces per-page inline styles) */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+    max-width: 560px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 32px;
+}
+
+/* Selection cards used in modals */
+.sel-card {
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: none;
+    font-family: inherit;
+    text-align: left;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.sel-card:hover { border-color: #cbd5e1; background: #f8fafc; }
+.sel-card.selected { border-color: var(--primary); background: #f0fdf4; color: var(--primary); }
+
+/* Time preference / payout method selection buttons */
+.sel-btn {
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: none;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.sel-btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+.sel-btn.selected { border-color: var(--primary); background: #f0fdf4; color: var(--primary); }
+
+/* Pending overlay on item thumbnails */
+.item-pending-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    text-align: center;
+    z-index: 5;
+}
+.item-pending-overlay-amber { color: #92400e; background: rgba(255,251,235,0.75); }
+
+/* Item card border overrides for status */
+.item-card-border-amber { border-color: #fde68a !important; }
+.item-card-border-sage { border-color: var(--sage) !important; }
+
+/* Dashboard shop grid — full-width, 3 cols desktop / 2 cols mobile */
+.dashboard-shop-grid-v2 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+@media (max-width: 640px) {
+    .dashboard-shop-grid-v2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+
+/* Refer & Earn card */
+.refer-earn-card {
+    background: var(--primary);
+    border-radius: 20px;
+    padding: 32px;
+    display: flex;
+    gap: 32px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.refer-earn-left {
+    flex: 1;
+    min-width: 200px;
+}
+.refer-earn-divider {
+    width: 1px;
+    background: rgba(255,255,255,0.15);
+    align-self: stretch;
+    min-height: 80px;
+    flex-shrink: 0;
+}
+.refer-earn-right {
+    flex: 1;
+    min-width: 200px;
+}
+@media (max-width: 640px) {
+    .refer-earn-card { flex-direction: column; padding: 24px; gap: 24px; }
+    .refer-earn-divider { width: 100%; height: 1px; min-height: 0; }
+}
+
+/* Mobile bottom-sheet modals */
+@media (max-width: 540px) {
+    .modal-overlay { align-items: flex-end; padding: 0; }
+    .modal { border-radius: 20px 20px 0 0; max-width: 100%; max-height: 85vh; }
+}
+
+/* =========================================
+   Teaser — Shop Drop Pre-Launch
+   ========================================= */
+.teaser-bg-grid {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    filter: blur(12px);
+    transform: scale(1.05);
+    z-index: 0;
+}
+.teaser-tile {
+    overflow: hidden;
+    background: var(--bg-cream);
+}
+.teaser-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.teaser-tile--placeholder {
+    background: var(--primary);
+    opacity: 0.15;
+}
+.teaser-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 1;
+}
+.teaser-card {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    max-width: 420px;
+    width: calc(100vw - 32px);
+    padding: 48px 40px;
+    background: var(--bg-cream);
+    border-radius: 12px;
+    text-align: center;
+}
+.teaser-eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.teaser-headline {
+    font-size: 2.5rem;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+.teaser-date {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 12px;
+}
+.teaser-sub {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+}
+.teaser-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.teaser-input {
+    padding: 10px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    font-size: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+    background: #fff;
+}
+@media (max-width: 500px) {
+    .teaser-card { padding: 32px 24px; }
+    .teaser-bg-grid { grid-template-columns: repeat(2, 1fr); }
 }

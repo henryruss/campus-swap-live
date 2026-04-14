@@ -1,0 +1,177 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .delivery-page {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 32px;
+    max-width: 900px;
+    margin: 48px auto;
+    padding: 0 24px;
+    align-items: start;
+  }
+  .delivery-item-summary {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .delivery-item-summary img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 8px;
+  }
+  .delivery-item-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text-main);
+    margin: 0 0 4px;
+  }
+  .delivery-item-price {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--primary);
+    margin: 0;
+  }
+  .delivery-form-card {
+    padding: 32px;
+  }
+  .delivery-form-card h1 {
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 8px;
+  }
+  .text-muted {
+    color: var(--text-muted);
+    margin: 0 0 24px;
+    line-height: 1.5;
+  }
+  .alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 16px;
+  }
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+  .form-group input {
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 1rem;
+    color: var(--text-main);
+    background: var(--bg-body);
+    transition: border-color 0.15s;
+  }
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+  .btn--full {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.05rem;
+    justify-content: center;
+    margin-top: 8px;
+  }
+  .delivery-fine-print {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-top: 16px;
+    line-height: 1.5;
+  }
+  @media (max-width: 640px) {
+    .delivery-page {
+      grid-template-columns: 1fr;
+    }
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="delivery-page">
+
+  <div class="card delivery-item-summary">
+    {% if item.photo_url %}
+      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+    {% else %}
+      <div style="width: 100%; aspect-ratio: 1; background: var(--bg-cream); border-radius: 8px;"></div>
+    {% endif %}
+    <div>
+      <p class="delivery-item-title">{{ item.description }}</p>
+      <p class="delivery-item-price">${{ "%.2f"|format(item.price) if item.price else "—" }}</p>
+    </div>
+  </div>
+
+  <div class="card delivery-form-card">
+    <h1>Where should we deliver this?</h1>
+    <p class="text-muted">
+      We deliver once per week to addresses within
+      {{ radius }} miles of Chapel Hill, NC. Delivery is free.
+    </p>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="form-group">
+        <label for="street">Street Address</label>
+        <input type="text" id="street" name="street" required
+               value="{{ form.street or '' }}" placeholder="123 Main St">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="city">City</label>
+          <input type="text" id="city" name="city" required
+                 value="{{ form.city or '' }}">
+        </div>
+        <div class="form-group">
+          <label for="state">State</label>
+          <input type="text" id="state" name="state" required
+                 value="{{ form.state or 'NC' }}" maxlength="2">
+        </div>
+        <div class="form-group">
+          <label for="zip">ZIP</label>
+          <input type="text" id="zip" name="zip" required
+                 value="{{ form.zip or '' }}" maxlength="10">
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary btn--full">
+        Continue to Payment →
+      </button>
+    </form>
+
+    <p class="delivery-fine-print">
+      Your address is only used to schedule your delivery.
+      It is never shared or sold.
+    </p>
+  </div>
+
+</div>
+{% endblock %}

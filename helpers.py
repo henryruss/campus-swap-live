@@ -11,6 +11,12 @@ from app import (
 )
 
 
+def maybe_confirm_referral(item):
+    """Adapter: call maybe_confirm_referral_for_seller with the item's seller.
+    Used by tests and intake code that has an item, not a seller object."""
+    maybe_confirm_referral_for_seller(item.seller)
+
+
 def backfill_referral_codes():
     from app import db, generate_unique_referral_code
     from models import User

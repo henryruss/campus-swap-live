@@ -540,3 +540,48 @@ The grid is already intuitive enough without a shortcut.
 **New behavior:** `return 'STRIPE_WEBHOOK_SECRET not configured', 400`
 
 **Reasoning:** A 500 implies a server error. Missing webhook secret is a configuration problem, not an unexpected crash. 400 (Bad Request) is semantically cleaner — the request can't be verified, not because the server is broken but because the credentials aren't available. Also allows tests to assert the route doesn't 404 without needing a valid Stripe secret in the test environment.
+
+---
+
+## Seller Experience (continued)
+
+### Decision: Payout boost ($15 for +30%) coexists with referral program; both paths stack
+**Date:** 2026-04-13
+**Context:** Referral program gives sellers +10% per confirmed referral, starting at 20%. Some sellers want a faster path to a higher rate.
+
+**Decision:** Add a one-time $15 Stripe payment that instantly adds +30% to current rate, capped at 100%. Stacks freely with referrals.
+
+**Reasoning:** The referral program is the primary growth mechanic (viral loop, costs nothing). The boost is a secondary, optional shortcut for sellers who want to move faster and are willing to pay. Keeping them independent and stackable means we don't have to arbitrate between paths — the seller chooses how much to optimize. Revenue from boosts is a bonus, not the primary model.
+
+**Implementation notes:**
+- `has_paid_boost` is a separate Boolean from legacy `has_paid`. Existing field left untouched.
+- Boost amount ($15, +30%) is hardcoded this season. AppSetting path documented if configurability is needed later.
+- Idempotency guard in webhook: check `not user.has_paid_boost` before applying — Stripe can redeliver.
+- Boost card hidden (not just disabled) once purchased — no "you've upgraded" badge. The rate number itself is the feedback.
+- Season reset (Fall): run one-time script to reset `has_paid_boost=False` and `payout_rate=20`. See HANDOFF for script.
+
+---
+
+### Decision: Payout collection removed from onboarding wizard
+**Date:** 2026-04-13
+**Old behavior:** Step 7 of the onboarding wizard collected Venmo/PayPal/Zelle handle. Required for guests before account creation.
+**New behavior:** Payout info collected in account settings only. Onboarding skips it entirely.
+
+**Reasoning:** Asking a new seller to enter payment info before their first item is approved adds friction at the worst moment — when they're least sure they'll actually get paid. The amber nag on the dashboard is a lighter-touch reminder at a time when they've already committed. Moving it out of onboarding also eliminated the `skip_payout` conditional that made the step count different for different users, simplifying the wizard code significantly.
+
+**Tradeoff accepted:** Some sellers will submit an item without payout info set up. The dashboard nag addresses this. Admins can see payout status in the seller panel before initiating any payout.
+
+---
+
+### Decision: Item drafts stored as array in localStorage, not a single key
+**Date:** 2026-04-13
+**Old behavior:** `cs_item_draft` — single JSON object. Saving overwrites the previous draft.
+**New behavior:** `cs_item_drafts` — JSON array. Each entry has a unique `id`. Multiple drafts coexist.
+
+**Reasoning:** A seller working on multiple listings (which is the common case — most sellers list several items) would lose in-progress work every time they started a second item. The array model lets them save, exit, start a new item, and come back to each one independently.
+
+**Key implementation details:**
+- `currentDraftId` (IIFE-level var) tracks the active draft. Re-saves in the same session update the existing entry by ID. Fresh sessions generate a new ID.
+- Computer-picked photos (File objects) are staged to the server at save time via `/api/photos/stage` → `draft_temp_` files served from disk. This is the only way to preserve them across a page navigation.
+- "Exit without saving" preserves the last-saved state of the draft. Discarding is only possible from the dashboard Discard button. This prevents accidental data loss.
+- No draft banner inside add_item page — dashboard is the single place to manage drafts.

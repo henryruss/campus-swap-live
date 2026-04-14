@@ -6,7 +6,7 @@
 <script>if('scrollRestoration'in history)history.scrollRestoration='manual';window.scrollTo(0,0);</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
 <style>
-    .add-item-wizard .wizard-container { max-width: 660px; margin: 0 auto; padding: 40px 24px 80px; }
+    .add-item-wizard .wizard-container { max-width: 660px; margin: 0 auto; padding: 40px 24px 80px; position: relative; }
     .wizard-header { text-align: center; margin-bottom: 40px; }
     .wizard-header h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 8px; }
     .wizard-header .sub { color: var(--text-muted); font-size: 1rem; }
@@ -97,7 +97,9 @@
 </style>
 
 <div class="wizard-container">
-    <a href="/dashboard" style="position: absolute; top: 40px; left: 24px; color: var(--text-muted); font-size: 1.5rem; text-decoration: none;"><i class="fas fa-times"></i></a>
+    <button type="button" id="exit-btn" style="position: absolute; top: 40px; left: 24px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.5rem; padding: 0; line-height: 1; z-index: 10;" title="Save & exit"><i class="fas fa-times"></i></button>
+
+
     <div class="wizard-header">
         <h1>Add Another Item</h1>
         <p class="sub">Same smooth flow. Your settings are saved.</p>
@@ -268,6 +270,19 @@
     </div>
 </div>
 
+<!-- Exit confirmation modal -->
+<div id="exit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:3000; align-items:center; justify-content:center; padding:16px;">
+    <div style="background:white; border-radius:20px; padding:32px; max-width:400px; width:100%; box-shadow:0 24px 48px -12px rgba(0,0,0,0.2);">
+        <h3 style="margin:0 0 8px; font-size:1.25rem; font-weight:700;">Save your progress?</h3>
+        <p style="margin:0 0 24px; color:var(--text-muted); font-size:0.95rem; line-height:1.5;">Your category, condition, title, description, and price will be saved. Photos need to be re-uploaded when you return.</p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <button id="exit-save-btn" class="btn btn-primary" style="width:100%; padding:14px;">Save draft & exit</button>
+            <button id="exit-discard-btn" class="btn btn-outline" style="width:100%; padding:14px;">Exit without saving</button>
+            <button id="exit-cancel-btn" type="button" style="background:none; border:none; color:var(--text-muted); font-size:0.9rem; cursor:pointer; padding:8px;">Cancel — keep editing</button>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 <script>
 (function() {
@@ -281,12 +296,13 @@
     let selectedCategoryName = '';
     let selectedVideoFile = null;
     let tempVideoFilename = '';
+    let currentDraftId = null;
 
     const VIDEO_REQUIRED_KEYWORDS = {{ video_required_keywords | tojson }};
     function categoryRequiresVideo(name) {
         if (!name) return false;
         const lower = name.toLowerCase();
-        return VIDEO_REQUIRED_KEYWORDS.some(k => lower.includes(k));
+        return VIDEO_REQUIRED_KEYWORDS.some(k => new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(lower));
     }
     const form = document.getElementById('item-form');
     const fileInput = document.getElementById('file-input');
@@ -744,7 +760,140 @@
             selectedFiles.forEach(f => dt.items.add(f));
             fileInput.files = dt.files;
         }
+        if (currentDraftId) removeDraftEntry(currentDraftId);
     };
+
+    // --- Draft save/restore (array-based — supports multiple concurrent drafts) ---
+    const DRAFTS_KEY = 'cs_item_drafts';
+    // currentDraftId declared at top of IIFE — tracks which draft this session is editing
+
+    function getDrafts() {
+        try {
+            const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '[]');
+            const week = 7 * 24 * 60 * 60 * 1000;
+            const fresh = all.filter(d => d.savedAt && Date.now() - d.savedAt < week);
+            if (fresh.length !== all.length) localStorage.setItem(DRAFTS_KEY, JSON.stringify(fresh));
+            return fresh;
+        } catch(e) { return []; }
+    }
+    function saveDraftEntry(draft) {
+        const drafts = getDrafts().filter(d => d.id !== draft.id);
+        drafts.push(draft);
+        localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    }
+    function removeDraftEntry(id) {
+        const drafts = getDrafts().filter(d => d.id !== id);
+        if (drafts.length) localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+        else localStorage.removeItem(DRAFTS_KEY);
+    }
+
+    function _buildDraftData() {
+        const catCard = document.querySelector('.category-card.selected');
+        const condRadio = form.querySelector('input[name="condition_radio"]:checked');
+        const subPill = document.querySelector('.subcategory-pill.selected');
+        return {
+            id: currentDraftId || String(Date.now()),
+            categoryId: document.getElementById('category-id-input').value,
+            categoryName: catCard ? catCard.dataset.categoryName : '',
+            subcategoryId: document.getElementById('selected_subcategory_id').value,
+            subcategoryName: subPill ? subPill.textContent.trim() : '',
+            condition: condRadio ? condRadio.value : '',
+            description: form.querySelector('input[name="description"]').value,
+            longDescription: form.querySelector('textarea[name="long_description"]').value,
+            suggestedPrice: form.querySelector('input[name="suggested_price"]').value,
+            tempPhotoFilenames: tempPhotoFilenames.slice(),
+            tempPhotoUrls: Object.assign({}, tempPhotoUrls),
+            step: currentStep,
+            savedAt: Date.now()
+        };
+    }
+
+    async function stageAndSaveDraft() {
+        const saveBtn = document.getElementById('exit-save-btn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        // Upload any unsaved file-picker photos to temp storage first
+        if (selectedFiles.length) {
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', form.querySelector('input[name="csrf_token"]').value);
+                selectedFiles.forEach(f => fd.append('photos', f));
+                const r = await fetch('/api/photos/stage', { method: 'POST', body: fd });
+                const data = await r.json();
+                if (data.success && data.photos) {
+                    data.photos.forEach(p => {
+                        if (!tempPhotoFilenames.includes(p.filename)) {
+                            tempPhotoFilenames.push(p.filename);
+                            tempPhotoUrls[p.filename] = p.url;
+                        }
+                    });
+                    // These are now staged — clear from selectedFiles
+                    selectedFiles = [];
+                    document.getElementById('temp-photo-ids').value = tempPhotoFilenames.join(',');
+                    const dt = new DataTransfer();
+                    fileInput.files = dt.files;
+                }
+            } catch(e) { /* non-fatal — draft saves without photos */ }
+        }
+
+        const draft = _buildDraftData();
+        if (!currentDraftId) currentDraftId = draft.id;
+        saveDraftEntry(draft);
+        window.location.href = '/dashboard';
+    }
+
+    function saveDraftAndExit() {
+        document.getElementById('exit-modal').style.display = 'flex';
+    }
+
+    document.getElementById('exit-btn').addEventListener('click', saveDraftAndExit);
+    document.getElementById('exit-save-btn').addEventListener('click', stageAndSaveDraft);
+    document.getElementById('exit-discard-btn').addEventListener('click', function() {
+        window.location.href = '/dashboard';
+    });
+    document.getElementById('exit-cancel-btn').addEventListener('click', function() {
+        document.getElementById('exit-modal').style.display = 'none';
+    });
+
+    function restoreDraftData(d) {
+        currentDraftId = d.id;
+
+        if (d.categoryId) {
+            const card = document.querySelector('.category-card[data-category-id="' + d.categoryId + '"]');
+            if (card) card.click();
+        }
+        if (d.condition) {
+            const radio = form.querySelector('input[name="condition_radio"][value="' + d.condition + '"]');
+            if (radio) { radio.checked = true; document.getElementById('quality-input').value = radio.dataset.quality || radio.value; }
+        }
+        if (d.description) form.querySelector('input[name="description"]').value = d.description;
+        if (d.longDescription) form.querySelector('textarea[name="long_description"]').value = d.longDescription;
+        if (d.suggestedPrice) form.querySelector('input[name="suggested_price"]').value = d.suggestedPrice;
+        if (d.tempPhotoFilenames && d.tempPhotoFilenames.length) {
+            const urls = d.tempPhotoFilenames.map(fn => (d.tempPhotoUrls || {})[fn] || '');
+            addTemp(d.tempPhotoFilenames, urls);
+        }
+        if (d.subcategoryId) {
+            setTimeout(function() {
+                const pill = document.querySelector('.subcategory-pill[data-sub-id="' + d.subcategoryId + '"]');
+                if (pill) pill.click();
+            }, 600);
+        }
+        const hasPhotos = d.tempPhotoFilenames && d.tempPhotoFilenames.length > 0;
+        goStep(hasPhotos ? (d.step || 1) : Math.min(d.step || 3, 3));
+    }
+
+    // Auto-restore a specific draft if linked from dashboard (?draft=<id>)
+    (function() {
+        const urlDraftId = new URLSearchParams(window.location.search).get('draft');
+        if (!urlDraftId) return;
+        const target = getDrafts().find(function(d) { return d.id === urlDraftId; });
+        if (target) {
+            history.replaceState(null, '', window.location.pathname);
+            restoreDraftData(target);
+        }
+    })();
 })();
 </script>
 {% endblock %}

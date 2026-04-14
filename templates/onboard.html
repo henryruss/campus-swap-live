@@ -11,6 +11,7 @@
         max-width: 900px;
         margin: 0 auto;
         padding: 40px 24px 80px;
+        position: relative;
     }
     .wizard-header {
         text-align: center;
@@ -383,6 +384,8 @@
         <a href="{{ url_for('index') }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px;">Back to Home</a>
     </div>
     {% else %}
+    <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('index') }}" id="exit-btn" style="position: absolute; top: 40px; left: 24px; color: var(--text-muted); font-size: 1.5rem; line-height: 1; z-index: 10; text-decoration: none;" title="Exit"><i class="fas fa-times"></i></a>
+
     <div class="wizard-header">
         <h1>List Your First Item</h1>
         <p class="sub">Quick setup. We'll walk you through it.</p>
@@ -523,78 +526,8 @@
             <p class="price-disclaimer" style="font-size:0.85rem; color:var(--text-muted); margin-top:12px; line-height:1.5;">This is just a recommendation. Every item is different. We take into account brand, quality, and market trends when setting final prices.</p>
         </div>
 
-        <!-- Step 8: Payout (Venmo / PayPal / Zelle) -->
+        <!-- Step 8: Review -->
         <div class="wizard-step" id="step-8" data-step="8">
-            <h2 class="step-title">How would you like to get paid?</h2>
-            <p class="step-sub">We'll send your earnings here once the item sells.</p>
-            <div class="payout-method-btns">
-                <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="Venmo" {% if not current_user.is_authenticated or not current_user.payout_method or current_user.payout_method == 'Venmo' %}checked{% endif %}>
-                    <span>Venmo</span>
-                </label>
-                <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="PayPal" {% if current_user.is_authenticated and current_user.payout_method == 'PayPal' %}checked{% endif %}>
-                    <span>PayPal</span>
-                </label>
-                <label class="payout-method-btn">
-                    <input type="radio" name="payout_method" value="Zelle" {% if current_user.is_authenticated and current_user.payout_method == 'Zelle' %}checked{% endif %}>
-                    <span>Zelle</span>
-                </label>
-            </div>
-            <div id="payout-input-wrap" class="payout-input-wrap">
-                <span id="payout-prefix" class="payout-prefix">@</span>
-                <input type="text" name="payout_handle" id="payout-handle-input" value="{% if current_user.is_authenticated %}{{ current_user.payout_handle or '' }}{% endif %}" placeholder="username" required>
-            </div>
-            <label style="margin-top:16px;display:block;font-size:0.9rem;">Confirm handle</label>
-            <div id="payout-input-wrap-confirm" class="payout-input-wrap" style="margin-top:6px;">
-                <span id="payout-prefix-confirm" class="payout-prefix">@</span>
-                <input type="text" name="payout_handle_confirm" id="payout-handle-confirm-input" placeholder="username" required>
-            </div>
-            <p id="payout-hint" class="payout-hint" style="font-size:0.85rem;color:var(--text-muted);margin-top:8px;">Venmo username (without @)</p>
-        </div>
-
-        <!-- Step 7: Pickup Week (optional) -->
-        <div class="wizard-step" id="step-7" data-step="7">
-            <h2 class="step-title">When are you moving out?</h2>
-            <p class="step-sub">Pick the week that works best. We'll assign a specific time closer to pickup.</p>
-
-            <div class="pickup-week-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px;">
-                <label class="onboard-week-card" id="onboard-week-1" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
-                    <input type="radio" name="onboard_pickup_week" value="week1" style="display:none;">
-                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 1</span>
-                    <span style="font-size:0.88rem;color:var(--text-muted);">April 27 – May 3</span>
-                </label>
-                <label class="onboard-week-card" id="onboard-week-2" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
-                    <input type="radio" name="onboard_pickup_week" value="week2" style="display:none;">
-                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 2</span>
-                    <span style="font-size:0.88rem;color:var(--text-muted);">May 4 – May 10</span>
-                </label>
-                <label class="onboard-week-card" id="onboard-week-3" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;transition:all 0.15s;">
-                    <input type="radio" name="onboard_pickup_week" value="week3" style="display:none;">
-                    <span style="font-weight:700;font-size:1rem;color:var(--primary);">Week 3</span>
-                    <span style="font-size:0.88rem;color:var(--text-muted);">May 11 – May 17</span>
-                </label>
-            </div>
-
-            <div id="onboard-time-pref-section" style="display:none;margin-bottom:20px;">
-                <p style="font-size:0.9rem;font-weight:600;color:var(--text-main);margin-bottom:10px;">Preferred time of day</p>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <label class="onboard-time-card" id="onboard-time-am" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
-                        <input type="radio" name="onboard_time_preference" value="am" style="display:none;">
-                        AM <span style="font-weight:400;font-size:0.82rem;">(9am–1pm)</span>
-                    </label>
-                    <label class="onboard-time-card" id="onboard-time-pm" style="cursor:pointer;border:2px solid #e2e8f0;border-radius:10px;padding:12px 18px;font-size:0.9rem;font-weight:600;color:var(--text-muted);transition:all 0.15s;">
-                        <input type="radio" name="onboard_time_preference" value="pm" style="display:none;">
-                        PM <span style="font-weight:400;font-size:0.82rem;">(1pm–5pm)</span>
-                    </label>
-                </div>
-            </div>
-
-            <input type="hidden" name="collection_method" value="free">
-        </div>
-
-        <!-- Step 9: Review -->
-        <div class="wizard-step" id="step-9" data-step="9">
             <h2 class="step-title">Review & publish</h2>
             <p class="step-sub">Almost done! Double-check and hit publish.</p>
             <div class="review-block">
@@ -610,14 +543,6 @@
                 <p id="review-price" style="font-size:0.95rem;margin-top:8px;"></p>
             </div>
 
-            <div class="review-block">
-                <h5>Payout</h5>
-                <p id="review-venmo"></p>
-            </div>
-            <div class="review-block">
-                <h5>Pickup week</h5>
-                <p id="review-pickup-week" style="color:var(--text-muted);font-size:0.9rem;"></p>
-            </div>
             <button type="button" class="btn btn-primary" style="width:100%;padding:18px;font-size:1.1rem;" id="publish-btn">
                 <i class="fas fa-check"></i> Submit for Approval
             </button>
@@ -625,8 +550,8 @@
     </form>
 
         {% if is_guest %}
-        <!-- Step 11: Create account (guests only) - embedded in wizard -->
-        <div class="wizard-step" id="step-11" data-step="11">
+        <!-- Step 9: Create account (guests only) - embedded in wizard -->
+        <div class="wizard-step" id="step-9" data-step="9">
             <h2 class="step-title">Last step, create an account to secure your listing</h2>
             <p class="step-sub">Your listing is ready. Create an account to submit it for approval.</p>
             {% if google_oauth_enabled %}
@@ -770,10 +695,11 @@
     })();
 </script>
 {% endif %}
+
 <script>
 (function() {
     const isGuest = document.querySelector('.wizard-container').dataset.isGuest === 'true';
-    const TOTAL_STEPS = isGuest ? 10 : 9;
+    const TOTAL_STEPS = isGuest ? 8 : 7;
     let currentStep = 1;
     let selectedFiles = [];
     let tempPhotoFilenames = [];
@@ -789,7 +715,7 @@
     function categoryRequiresVideo(name) {
         if (!name) return false;
         const lower = name.toLowerCase();
-        return VIDEO_REQUIRED_KEYWORDS.some(k => lower.includes(k));
+        return VIDEO_REQUIRED_KEYWORDS.some(k => new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(lower));
     }
 
     const progressFill = document.getElementById('progress-fill');
@@ -811,52 +737,25 @@
         validationErrorEl.classList.remove('visible');
     }
 
-    // Skip button for step 7
-    let skipBtn = null;
-    function getOrCreateSkipBtn() {
-        if (!skipBtn) {
-            skipBtn = document.createElement('button');
-            skipBtn.type = 'button';
-            skipBtn.className = 'btn-back';
-            skipBtn.id = 'btn-skip-week';
-            skipBtn.innerHTML = 'Skip for now';
-            skipBtn.style.visibility = 'visible';
-            skipBtn.addEventListener('click', function() {
-                // Clear any week/time selections before skipping
-                form.querySelectorAll('input[name="onboard_pickup_week"]').forEach(r => r.checked = false);
-                form.querySelectorAll('input[name="onboard_time_preference"]').forEach(r => r.checked = false);
-                updateWeekCardStyles();
-                updateTimeCardStyles();
-                if (timePrefSection) timePrefSection.style.display = 'none';
-                hideValidationError();
-                goStep(currentStep + 1);
-            });
-            const navRow = document.getElementById('wizard-nav');
-            navRow.insertBefore(skipBtn, btnNext);
-        }
-        return skipBtn;
-    }
-
     function goStep(step) {
         hideValidationError();
         document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
         const s = document.getElementById('step-' + step);
         if (s) s.classList.add('active');
-        progressFill.style.width = (step / TOTAL_STEPS * 100) + '%';
+        // Step 7 is removed (payout); step 8+ gets shifted back for progress
+        let effectivePos = step >= 8 ? step - 1 : step;
+        progressFill.style.width = (effectivePos / TOTAL_STEPS * 100) + '%';
         currentStep = step;
         btnBack.style.visibility = step > 1 ? 'visible' : 'hidden';
         if (step === 3 && !uploadSessionToken && document.querySelector('.upload-tab[data-tab="phone"].active')) {
             loadQr();
         }
-        // Show/hide skip button on step 7
-        const sb = getOrCreateSkipBtn();
-        sb.style.display = step === 7 ? 'inline-flex' : 'none';
-        if (step >= 9) {
+        if (step >= 8) {
             btnNext.style.display = 'none';
-            if (step === 9) populateReview();
+            if (step === 8) populateReview();
         } else {
             btnNext.style.display = 'flex';
-            btnNext.textContent = step === 7 ? 'Confirm week' : 'Next';
+            btnNext.textContent = 'Next';
         }
         window.scrollTo(0, 0);
     }
@@ -883,42 +782,18 @@
             const desc = form.querySelector('input[name="description"]').value.trim();
             if (!desc) { showValidationError('Please give your item a name before continuing.'); return false; }
         }
-        if (step === 7) {
-            // Pickup week is optional — but if a week is selected, time preference is required
-            const selectedWeek = form.querySelector('input[name="onboard_pickup_week"]:checked');
-            const selectedTime = form.querySelector('input[name="onboard_time_preference"]:checked');
-            if (selectedWeek && !selectedTime) {
-                showValidationError('Please select a preferred time of day before continuing.');
-                return false;
-            }
-        }
-        if (step === 8) {
-            const method = form.querySelector('input[name="payout_method"]:checked');
-            const handle = form.querySelector('input[name="payout_handle"]').value.trim();
-            const confirmHandle = form.querySelector('input[name="payout_handle_confirm"]').value.trim();
-            if (!handle) { showValidationError('Please enter your payout information before continuing.'); return false; }
-            if (method && method.value === 'Venmo' && !handle.replace(/^@/,'').trim()) {
-                showValidationError('Please enter your Venmo username before continuing.'); return false;
-            }
-            const norm = (s) => (method && method.value === 'Venmo' ? s.replace(/^@/,'').trim().toLowerCase() : s.trim().toLowerCase());
-            if (norm(handle) !== norm(confirmHandle)) {
-                showValidationError('Handles do not match. Please re-enter to confirm.');
-                return false;
-            }
-        }
         return true;
     }
 
-    // Initialize skip button (hidden) immediately so it exists in DOM
-    getOrCreateSkipBtn().style.display = 'none';
-
     btnNext.addEventListener('click', function() {
         if (!validateStep(currentStep)) return;
-        if (currentStep < TOTAL_STEPS) goStep(currentStep + 1);
+        let nextStep = currentStep === 6 ? 8 : currentStep + 1; // step 7 removed (payout)
+        goStep(nextStep);
     });
     btnBack.addEventListener('click', function(e) {
         e.preventDefault();
-        if (currentStep > 1) goStep(currentStep - 1);
+        let prevStep = currentStep === 8 ? 6 : currentStep - 1; // step 7 removed (payout)
+        if (prevStep >= 1) goStep(prevStep);
     });
 
     // Category selection
@@ -1043,93 +918,9 @@
         }
     });
 
-    // Step 7: Pickup week selection
-    const weekCards = document.querySelectorAll('.onboard-week-card');
-    const timePrefSection = document.getElementById('onboard-time-pref-section');
-
-    function updateWeekCardStyles() {
-        weekCards.forEach(card => {
-            const radio = card.querySelector('input[type="radio"]');
-            if (radio && radio.checked) {
-                card.style.borderColor = 'var(--primary)';
-                card.style.background = '#f0fdf4';
-            } else {
-                card.style.borderColor = '#e2e8f0';
-                card.style.background = '';
-            }
-        });
-    }
-
-    function updateTimeCardStyles() {
-        document.querySelectorAll('.onboard-time-card').forEach(card => {
-            const radio = card.querySelector('input[type="radio"]');
-            if (radio && radio.checked) {
-                card.style.borderColor = 'var(--primary)';
-                card.style.color = 'var(--primary)';
-                card.style.background = '#f0fdf4';
-            } else {
-                card.style.borderColor = '#e2e8f0';
-                card.style.color = 'var(--text-muted)';
-                card.style.background = '';
-            }
-        });
-    }
-
-    weekCards.forEach(card => {
-        card.addEventListener('click', function() {
-            const radio = this.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
-            updateWeekCardStyles();
-            timePrefSection.style.display = 'block';
-            hideValidationError();
-        });
-    });
-
-    document.querySelectorAll('.onboard-time-card').forEach(card => {
-        card.addEventListener('click', function() {
-            const radio = this.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
-            updateTimeCardStyles();
-            hideValidationError();
-        });
-    });
 
 
 
-    // Payout method toggle - update prefix and placeholder
-    function syncPayoutUI() {
-        const checked = form.querySelector('input[name="payout_method"]:checked');
-        if (!checked) return;
-        const prefix = document.getElementById('payout-prefix');
-        const prefixConfirm = document.getElementById('payout-prefix-confirm');
-        const input = document.getElementById('payout-handle-input');
-        const inputConfirm = document.getElementById('payout-handle-confirm-input');
-        const hint = document.getElementById('payout-hint');
-        if (checked.value === 'Venmo') {
-            prefix.textContent = prefixConfirm.textContent = '@';
-            prefix.style.display = prefixConfirm.style.display = 'flex';
-            input.placeholder = inputConfirm.placeholder = 'username';
-            hint.textContent = 'Venmo username (without @)';
-        } else if (checked.value === 'PayPal') {
-            prefix.textContent = prefixConfirm.textContent = '';
-            prefix.style.display = prefixConfirm.style.display = 'none';
-            input.placeholder = inputConfirm.placeholder = 'your@email.com';
-            hint.textContent = 'PayPal email address';
-        } else {
-            prefix.textContent = prefixConfirm.textContent = '';
-            prefix.style.display = prefixConfirm.style.display = 'none';
-            input.placeholder = inputConfirm.placeholder = 'email or phone';
-            hint.textContent = 'Zelle email or phone number';
-        }
-    }
-    form.querySelectorAll('input[name="payout_method"]').forEach(radio => {
-        radio.addEventListener('change', function() { syncPayoutUI(); hideValidationError(); });
-    });
-    syncPayoutUI();
-
-
-
-    // Hide validation error when user corrects step 4, 7, 8 inputs
     document.getElementById('price-input')?.addEventListener('input', function() {
         let v = this.value.replace(/[^0-9.]/g, '');
         const parts = v.split('.');
@@ -1138,8 +929,6 @@
         this.value = v;
     });
     form.querySelector('input[name="description"]')?.addEventListener('input', hideValidationError);
-    document.getElementById('payout-handle-input')?.addEventListener('input', hideValidationError);
-    document.getElementById('payout-handle-confirm-input')?.addEventListener('input', hideValidationError);
 
     // Populate review
     function populateReview() {
@@ -1176,22 +965,6 @@
         const priceNum = parseFloat(priceVal);
         document.getElementById('review-price').textContent = priceVal && !isNaN(priceNum) ? 'Suggested Price: $' + priceNum.toFixed(2) : 'No suggested price';
 
-        const pm = form.querySelector('input[name="payout_method"]:checked');
-        const ph = form.querySelector('input[name="payout_handle"]').value.replace('@','').trim();
-        const payoutText = pm && ph ? (pm.value === 'Venmo' ? 'Venmo: @' + ph : pm.value + ': ' + ph) : '';
-        document.getElementById('review-venmo').textContent = payoutText;
-        // Pickup week summary
-        const weekEl = document.getElementById('review-pickup-week');
-        const selectedWeekR = form.querySelector('input[name="onboard_pickup_week"]:checked');
-        const selectedTimeR = form.querySelector('input[name="onboard_time_preference"]:checked');
-        const weekLabels = {week1: 'Week 1 (Apr 27–May 3)', week2: 'Week 2 (May 4–May 10)', week3: 'Week 3 (May 11–May 17)'};
-        if (selectedWeekR) {
-            const timeText = selectedTimeR ? ' · ' + selectedTimeR.value.charAt(0).toUpperCase() + selectedTimeR.value.slice(1) : '';
-            weekEl.textContent = (weekLabels[selectedWeekR.value] || selectedWeekR.value) + timeText;
-        } else {
-            weekEl.textContent = 'Not set — you can add from dashboard';
-            weekEl.style.color = 'var(--text-muted)';
-        }
         // Hide old location review block if present
         const reviewLocBlock = document.getElementById('review-loc-block');
         if (reviewLocBlock) reviewLocBlock.style.display = 'none';
@@ -1488,9 +1261,7 @@
 
     // Publish button - ONLY way to submit; prevents accidental submit on Back/Enter
     document.getElementById('publish-btn').addEventListener('click', async function() {
-        if (currentStep !== 9) return;
-        if (!validateStep(7)) return;  // Re-validate location
-        if (!validateStep(8)) return;  // Re-validate Venmo
+        if (currentStep !== 8) return;
         if (getTotalPhotoCount() === 0) { showValidationError('Please add photos before continuing.'); return; }
         const desc = form.querySelector('input[name="description"]').value.trim();
         if (!desc) { showValidationError('Please give your item a name before continuing.'); return; }
@@ -1499,13 +1270,6 @@
             const dt = new DataTransfer();
             selectedFiles.forEach(f => dt.items.add(f));
             fileInput.files = dt.files;
-        }
-        const phInput = form.querySelector('input[name="payout_handle"]');
-        const phConfirmInput = form.querySelector('input[name="payout_handle_confirm"]');
-        const pm = form.querySelector('input[name="payout_method"]:checked');
-        if (pm && pm.value === 'Venmo') {
-            phInput.value = phInput.value.replace(/^@/,'').trim();
-            phConfirmInput.value = phConfirmInput.value.replace(/^@/,'').trim();
         }
 
         if (isGuest) {
@@ -1521,7 +1285,7 @@
                 });
                 const data = await r.json().catch(() => ({}));
                 if (r.ok && data.success) {
-                    goStep(11);
+                    goStep(9);
                 } else {
                     showValidationError(data.error || 'Something went wrong. Please try again.');
                 }
