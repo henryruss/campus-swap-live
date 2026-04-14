@@ -192,8 +192,8 @@ The ops system connects back to the seller experience in three ways:
 | 3 | `feature_driver_shift_view.md` | ✅ Done (signed off 2026-04-07) | Phone-optimized mover shift view, ops page, partner preferences, shift history |
 | 4 | `feature_organizer_intake.md` | ✅ Done (signed off 2026-04-08) | Organizer intake page, storage locations, IntakeRecord/IntakeFlag, damaged/missing queue |
 | 5 | `feature_payout_reconciliation.md` | 🔲 Not yet designed | Close loop between intake and existing seller payout workflow |
-| 6 | `feature_route_planning.md` | 🔲 Not yet designed | Admin route-building tools, bulk vs. scattered pickup handling |
-| 7 | `feature_seller_progress_tracker.md` | 🔲 Not yet designed | Visual status pipeline on seller dashboard |
+| 6 | `feature_route_planning.md` | ✅ Done (signed off 2026-04-14) | Admin route-building tools, bulk vs. scattered pickup handling |
+| 7 | `feature_seller_progress_tracker.md` | ✅ Done (signed off 2026-04-14) | Visual status pipeline on seller dashboard |
 | 8 | `feature_seller_rescheduling.md` | 🔲 Not yet designed | Self-serve reschedule flow, overflow truck slots |
 | 9 | `feature_sms_notifications.md` | 🔲 Not yet designed | Twilio integration, automated texts at route milestones |
 

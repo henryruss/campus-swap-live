@@ -666,14 +666,76 @@
 
 ---
 
-**Sign-off date:**
-**Signed off by:**
+**Sign-off date: 4/14/26**
+**Signed off by: Henry Russell**
+
+---
+## Spec #7 — Seller Progress Tracker
+
+**Sign-off status:** ✅ Signed off
+
+### No Migration
+- [✅] Confirm no `flask db migrate` was run — `git diff --name-only` confirmed `models.py` not in diff; no new migration file created
+
+### Tracker Visibility Logic
+- [✅] Log in as a seller with setup strip incomplete (missing phone, pickup week, or payout) — tracker is NOT shown, setup strip is shown as normal *(manual + automated)*
+- [✅] Complete all three setup tasks — setup strip disappears, tracker appears in its place *(manual + automated)*
+- [✅] Both are never visible simultaneously *(manual + automated)*
+
+### Stage 1 — Submitted
+- [✅] Seller with at least one non-rejected item sees Stage 1 as completed, Stage 2 as active *(automated)*
+
+### Stage 2 — Approved
+- [✅] Item in `pending_valuation` → Stage 2 is active *(automated)*
+- [✅] Item approved (status `available`) → Stage 2 completed, Stage 3 active *(automated)*
+- [✅] Item in `needs_info` → Stage 2 still active + amber interrupt callout appears below tracker with link to edit item *(automated)*
+
+### Stage 3 — Scheduled
+- [✅] Seller has no `ShiftPickup` → Stage 3 active *(automated)*
+- [✅] Admin adds seller to a route → Stage 3 completed, Stage 4 active *(automated)*
+- [✅] `ShiftPickup.status = 'issue'` → Stage 3 stays active + amber interrupt "There was an issue with your pickup" appears *(automated)*
+- [✅] Issue resolved (stop re-completed) → interrupt disappears, Stage 3 completes on next page load *(automated)*
+
+### Stage 4 — Picked Up
+- [✅] Before mover completes stop → Stage 4 active *(automated)*
+- [✅] Mover completes stop (sets `picked_up_at`) → Stage 4 completed on next dashboard load *(automated)*
+
+### Stage 5 — At Campus Swap
+- [✅] Before organizer intake → Stage 5 active *(automated)*
+- [✅] Organizer submits intake (sets `arrived_at_store_at`) → Stage 5 completed on next dashboard load *(automated)*
+
+### Stage 6 — In the Shop
+- [✅] `shop_teaser_mode = 'true'` → Stage 6 active (not yet complete) even if items are available *(automated)*
+- [✅] `shop_teaser_mode = 'false'` and at least one item is `available` or `sold` → Stage 6 completed *(automated)*
+- [✅] All 6 stages completed → tracker remains visible, all nodes green, message "Your items are in the shop. Good luck! 🎉" *(automated)*
+
+### Visual
+- [✅] Completed nodes are filled green with a checkmark *(manual)*
+- [✅] Active node is filled amber with a pulse animation *(manual)*
+- [✅] Upcoming nodes are grey stroke only *(manual)*
+- [✅] Connecting line is solid green between completed nodes, dashed grey after active node *(manual)*
+- [✅] Active stage label is bolder than upcoming labels *(manual)*
+- [✅] Contextual message below track matches the active stage (see spec for copy) *(manual)*
+
+### Item Tile
+- [✅] The 4-item checklist (Approved / Pickup confirmed / Awaiting pickup / In store) is removed from item tiles *(automated)*
+- [✅] "Pricing update" badge on price row is present; UX improved — hover reveals × to dismiss, click acknowledges *(manual)*
+- [✅] Tile color-coded backgrounds present; scheme updated: gray (waiting), yellow (action needed / unacknowledged price change), green (sold), red (rejected) *(manual)*
+
+### Mobile
+- [✅] On a narrow screen (< 600px) — tracker renders without breaking layout *(manual)*
+- [✅] Non-active stage labels are hidden; active stage label is visible below the track *(manual)*
+
+### Regression Check
+- [✅] Seller dashboard still loads with no errors for sellers who have NOT completed setup (setup strip shows normally) *(automated)*
+- [✅] Seller dashboard still loads for sellers with zero items *(automated)*
+- [✅] Admin panel still loads *(manual)*
+- [✅] `_get_payout_percentage` untouched *(confirmed via git diff)*
 
 ---
 
-## Spec #7 — Seller Progress Tracker
-
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off date: 2026-04-14**
+**Signed off by: Henry Russell**
 
 ---
 

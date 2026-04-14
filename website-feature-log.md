@@ -325,9 +325,22 @@ Upgrade card (legacy free/pro tier remnant)
 
 ### Seller Dashboard (`/dashboard`) — "Seller Studio"
 
+**Setup Strip / Progress Tracker (mutually exclusive — one or the other, never both):**
+
+*Setup Strip* — shown when setup is incomplete (missing phone, pickup week + address, payout method, or payout handle). Three chips: Phone, Pickup week & address, Payout info. Each chip is a CTA that opens the relevant modal or scrolls to the phone nag. Chips turn green with a checkmark once completed.
+
+*Progress Tracker* — shown once setup is fully complete. A horizontal 6-step pipeline:
+1. **Submitted** — at least one non-rejected item
+2. **Approved** — at least one item not in `pending_valuation`/`needs_info`/`rejected`
+3. **Scheduled** — `ShiftPickup` exists with `status != 'issue'`
+4. **Picked Up** — any item has `picked_up_at` set
+5. **At Campus Swap** — any item has `arrived_at_store_at` set
+6. **In the Shop** — `shop_teaser_mode != 'true'` AND any item `available` or `sold`
+
+Active stage shown in amber with pulse animation. Completed stages green with checkmark. Upcoming stages grey. Contextual message below track describes current stage. Amber interrupt callout shown beneath message for `needs_info` items (links to edit) or pickup issue stops. Computed by `_compute_seller_tracker()` in `app.py` — one `ShiftPickup` query per dashboard load.
+
 **Nag Banners (above stats bar):**
 - **Phone nag** (amber): shown if `current_user.phone is None`. Inline phone input + Save button, POSTs to `/update_account_info`. Not dismissible without saving.
-- **Address nag** (grey): shown if no pickup location AND phone is set. "Add your pickup address..." link → `/account_settings`. Secondary priority.
 
 **Alert Banners (action cards area):**
 - Unresolved `SellerAlert` records rendered as amber cards
@@ -364,18 +377,16 @@ Upgrade card (legacy free/pro tier remnant)
 
 **Item grid — "My Shop":**
 Each item tile shows:
-- Thumbnail (100x100)
-- Price badge (top-right)
-- Title (2 lines max)
-- Item type: Standard or Oversized
-- Status checklist with icons:
-  - Pending approval / Approved
-  - Pickup confirmed / Pickup fee paid
-  - Oversize fee status (if applicable)
-  - Picked up / Dropped off
-  - Arrived at store
-- Color-coded background: Red (rejected), Green (sold/complete), Yellow (in process), Amber (needs_info / action needed)
-- Price change badge (if admin adjusted price, until acknowledged)
+- Thumbnail (100x100) with "Pending review" or "Needs update" overlay if applicable
+- Price badge (top-right, hidden for `pending_valuation` and `rejected`)
+- Title
+- Edit listing / Request edit button (context-dependent)
+- Color-coded background:
+  - **Gray** — default; item is waiting on Campus Swap (pending review, approved, picked up, at storage)
+  - **Yellow** — seller action required: `needs_info` (amber border) or unacknowledged price change
+  - **Green** — sold
+  - **Red** — rejected
+- Price change badge (if admin adjusted price, until acknowledged). Hover reveals × to dismiss; click anywhere on badge calls POST `/api/item/<id>/acknowledge_price_change` and removes badge. Tile returns to gray on next load.
 
 **Actions:** "Add Another Item" button, item tiles link to edit, upgrade buttons
 

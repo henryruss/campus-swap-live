@@ -528,7 +528,8 @@ index.html                     — Homepage (hero, waitlist form, interactive ro
 about.html
 inventory.html                 — Shop front (category grid + item cards)
 product.html                   — Product detail page (gallery, buy button)
-dashboard.html                 — Seller dashboard (items, status, upgrade prompts)
+dashboard.html                 — Seller dashboard (setup strip OR progress tracker, stats bar, item grid, referral card)
+_seller_tracker.html           — Seller progress tracker partial (included by dashboard.html when setup_complete=True)
 admin.html                     — Admin panel (bulk edit, mark sold, exports); Crew section has quick links + static "Crew" badge
 admin_approve.html             — Item approval queue
 admin_seller_panel.html        — Slide-out seller profile panel partial (no layout extends)
@@ -601,6 +602,24 @@ Operational milestones (don't change status):
 
 Admin can set status='rejected' via the damaged/missing queue to remove flagged items from the marketplace.
 ```
+
+### Seller Progress Tracker
+Account-level pipeline shown on `/dashboard` in place of the setup strip once setup is complete.
+
+- `setup_complete` (bool, computed in `dashboard()` route) — True when `phone`, `pickup_week`, `has_pickup_location`, `payout_method`, and `payout_handle` are all set.
+- When `setup_complete=False`: setup strip shown (Phone / Pickup week & address / Payout info chips).
+- When `setup_complete=True` and `current_user.is_seller`: `_seller_tracker.html` partial included instead. Never both simultaneously.
+- `_compute_seller_tracker(seller, items)` — helper in `app.py`. One `ShiftPickup` query total. Returns `{stages, active_message, interrupt}`.
+
+Six stages (account-level, not per-item):
+1. Submitted — has at least one non-rejected item
+2. Approved — at least one item not in pending/needs_info/rejected
+3. Scheduled — ShiftPickup exists with status != 'issue'
+4. Picked Up — any item has `picked_up_at`
+5. At Campus Swap — any item has `arrived_at_store_at`
+6. In the Shop — `shop_teaser_mode != 'true'` AND any item `available` or `sold`
+
+Active stage = first False condition. Interrupt callout (amber, below message) for `needs_info` items or pickup issue stops.
 
 ### Payout Rate / Referral Program
 The two-tier Pro/Free system is replaced by a referral-driven payout rate stored on `User.payout_rate`.

@@ -11,7 +11,7 @@
 
 **Last updated:** 2026-04-14
 **Active spec:** None
-**Overall status:** Specs #1–4, Mini-Spec, Referral, Boost, Draft, Delivery, Teaser, Pickup Location, Dashboard Redesign, Spec #5 Payout Reconciliation, and **Spec #6 Route Planning** all done.
+**Overall status:** Specs #1–6, Mini-Spec, Referral, Boost, Draft, Delivery, Teaser, Pickup Location, Dashboard Redesign, Payout Reconciliation, Route Planning, and **Spec #7 Seller Progress Tracker** all done.
 
 ---
 
@@ -30,7 +30,44 @@
 - Shop Drop Teaser ✅ Complete 2026-04-13
 - Pickup Location Improvements ✅ Complete 2026-04-14 (50/50 tests passing)
 - **Spec #5 — Payout Reconciliation ✅ Complete 2026-04-14 (signed off)**
-- **Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)**
+- Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)
+- **Spec #7 — Seller Progress Tracker ✅ Complete 2026-04-14 (39/39 tests passing)**
+
+---
+
+## Spec #7 — Seller Progress Tracker (Complete)
+
+**Status:** ✅ Complete 2026-04-14 (39/39 tests passing)
+**Spec file:** `feature_seller_progress_tracker.md`
+
+### What Was Built
+
+**New helper (`app.py`)**
+- `_compute_seller_tracker(seller, items)` — account-level tracker state. One `ShiftPickup.query.filter_by()` call per dashboard load (never per item). Returns `{stages, active_message, interrupt}`.
+
+**Dashboard route (`app.py`)**
+- `setup_complete` computed in route (not template); requires `phone`, `pickup_week`, `has_pickup_location`, `payout_method`, AND `payout_handle`.
+- `tracker = _compute_seller_tracker(...)` called only when `setup_complete=True`, else `None`.
+- Both passed to `render_template`.
+
+**`templates/dashboard.html`**
+- Removed `{% set setup_complete %}` from template (route-passed value used).
+- Setup strip slot now mutual exclusivity: `{% if not setup_complete %}` strip / `{% elif current_user.is_seller and tracker %}` includes `_seller_tracker.html`.
+- Item tile checklist (`dashboard-item-checklist`) removed entirely — superseded by tracker.
+- Tile color logic simplified: `needs_info` → yellow, `rejected` → red, `sold` → green, unacknowledged pricing update → yellow, everything else → gray. `_show_badge` computed once at top of loop and reused for both tile color and badge rendering.
+- Pricing update badge: "Pricing update" text always visible; × fades in alongside it on hover (no layout shift/flicker).
+
+**`templates/_seller_tracker.html`** — new partial. 6-step track, contextual message, optional amber interrupt callout.
+
+**`static/style.css`**
+- New `item-card-bg-gray` tile class.
+- Pricing badge hover: opacity fade on `__dismiss` span (no display toggle — eliminates flicker).
+- Full `/* Seller Progress Tracker */` section: node styles, pulse animation, line styles (solid green filled, dashed grey empty via `repeating-linear-gradient`), message, interrupt callout, mobile responsive block.
+
+### Deviations from Spec
+- `setup_complete` in spec does not mention `payout_handle`, but the route adds it — consistent with what the setup strip actually requires to be "done."
+- Item tile checklist removal applied unconditionally (not gated on `setup_complete`) — cleaner; the tracker is the replacement at the account level.
+- Pricing badge and tile color improvements made during sign-off: badge hover shows × without flicker; tile color scheme simplified to action-required-only yellowing.
 
 ---
 Seller Dashboard & Account Settings Redesign — Complete. 🔲 Spec written 2026-04-13, Built.

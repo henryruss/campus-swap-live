@@ -1,0 +1,29 @@
+<div class="seller-tracker card">
+  <div class="seller-tracker__track">
+    {% for stage in tracker.stages %}
+      <div class="seller-tracker__step seller-tracker__step--{{ stage.state }}">
+        <div class="seller-tracker__node">
+          {% if stage.state == 'completed' %}<i class="fas fa-check"></i>{% endif %}
+        </div>
+        <span class="seller-tracker__label">{{ stage.label }}</span>
+      </div>
+      {% if not loop.last %}
+        <div class="seller-tracker__line seller-tracker__line--{{ 'filled' if stage.state == 'completed' else 'empty' }}"></div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if tracker.active_message %}
+    <p class="seller-tracker__message">{{ tracker.active_message }}</p>
+  {% endif %}
+
+  {% if tracker.interrupt %}
+    <div class="seller-tracker__interrupt">
+      <span>&#9888;</span>
+      {{ tracker.interrupt.message }}
+      {% if tracker.interrupt.link %}
+        <a href="{{ tracker.interrupt.link }}">View item &rarr;</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
