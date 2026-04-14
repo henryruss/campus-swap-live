@@ -20,9 +20,11 @@ class User(UserMixin, db.Model):
     pickup_location_type = db.Column(db.String(20), nullable=True)  # 'on_campus' or 'off_campus'
     pickup_dorm = db.Column(db.String(80), nullable=True)  # Dorm name for on_campus
     pickup_room = db.Column(db.String(20), nullable=True)  # Room number for on_campus
-    pickup_note = db.Column(db.String(200), nullable=True)  # Optional directions (e.g. "third floor")
+    pickup_note = db.Column(db.String(500), nullable=True)  # Optional directions / mover notes
     pickup_lat = db.Column(db.Float, nullable=True)  # Latitude for map preview (off_campus)
     pickup_lng = db.Column(db.Float, nullable=True)  # Longitude for map preview (off_campus)
+    pickup_access_type = db.Column(db.String(20), nullable=True)  # 'elevator' | 'stairs_only' | 'ground_floor'
+    pickup_floor = db.Column(db.Integer, nullable=True)  # Floor number (1–30)
     
     # PAYOUT INFO
     payout_method = db.Column(db.String(20), nullable=True)
@@ -65,7 +67,7 @@ class User(UserMixin, db.Model):
     # Stored integer percentage (20, 30, 40 ... 100). Updated when a referral is confirmed.
 
     # PAYOUT BOOST ($15 one-time purchase for +30%)
-    has_paid_boost = db.Column(db.Boolean, default=False, nullable=False)
+    has_paid_boost = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     # True once the seller has completed the $15 payout boost purchase this season.
     # Separate from has_paid (legacy Pro tier flag). Reset annually by the fall cleanup script.
 
@@ -74,22 +76,47 @@ class User(UserMixin, db.Model):
 
     @property
     def has_pickup_location(self):
-        """True if user has a valid pickup location set."""
+        """True if user has a complete pickup location set (including access fields)."""
+        # Access fields required for all location types
+        if not self.pickup_access_type or self.pickup_floor is None:
+            return False
         if self.pickup_location_type == 'on_campus':
             return bool(self.pickup_dorm and self.pickup_room)
-        if self.pickup_location_type == 'off_campus' or self.pickup_address:
+        if self.pickup_location_type == 'off_campus_complex':
+            return bool(self.pickup_dorm and self.pickup_room)
+        if self.pickup_location_type in ('off_campus_other', 'off_campus'):
             return bool(self.pickup_address)
         return False
 
     @property
     def pickup_display(self):
-        """Formatted display string for pickup location."""
+        """Formatted display string for pickup location (used by admin panel and mover shift view)."""
+        _access_labels = {
+            'elevator': 'Elevator access',
+            'stairs_only': 'Stairs only',
+            'ground_floor': 'Ground floor',
+        }
+        access_str = _access_labels.get(self.pickup_access_type or '', '')
+        floor_str = f"Floor {self.pickup_floor}" if self.pickup_floor is not None else ''
+
         if self.pickup_location_type == 'on_campus' and self.pickup_dorm:
             base = f"{self.pickup_dorm}, Room {self.pickup_room}" if self.pickup_room else self.pickup_dorm
-            return base
-        if self.pickup_address:
-            return self.pickup_address
-        return ''
+        elif self.pickup_location_type == 'off_campus_complex' and self.pickup_dorm:
+            unit = f" Unit {self.pickup_room}" if self.pickup_room else ''
+            base = f"{self.pickup_dorm}{unit}"
+        elif self.pickup_location_type in ('off_campus_other', 'off_campus') and self.pickup_address:
+            base = self.pickup_address
+        elif self.pickup_address:
+            base = self.pickup_address
+        else:
+            return ''
+
+        parts = [base]
+        if floor_str:
+            parts.append(floor_str)
+        if access_str:
+            parts.append(access_str)
+        return ' · '.join(parts)
 
     def set_password(self, password):
         from werkzeug.security import generate_password_hash

@@ -120,17 +120,40 @@
         <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Pickup Info</h3>
         {% if seller.is_seller %}
         <div style="font-size: 0.9rem; line-height: 1.8;">
-            <div>
-                <strong>Location:</strong>
+            <div style="margin-bottom: 6px;">
+                <strong>Location type:</strong>
                 {% if seller.pickup_location_type == 'on_campus' %}
-                    On-Campus — {{ seller.pickup_dorm or '?' }}, Room {{ seller.pickup_room or '?' }}
-                {% elif seller.pickup_location_type == 'off_campus' or seller.pickup_address %}
-                    Off-Campus — {{ seller.pickup_address or '—' }}
-                    {% if seller.pickup_note %}<div style="font-size: 0.85rem; color: var(--text-muted); margin-left: 16px;">Note: {{ seller.pickup_note }}</div>{% endif %}
+                    <span style="background: #dbeafe; color: #1e40af; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">On-Campus</span>
+                {% elif seller.pickup_location_type == 'off_campus_complex' %}
+                    <span style="background: #dcfce7; color: #166534; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Apartment Complex</span>
+                {% elif seller.pickup_location_type in ('off_campus_other', 'off_campus') %}
+                    <span style="background: #f3f4f6; color: #374151; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Off-Campus Other</span>
                 {% else %}
                     <span style="color: var(--accent);">Not set</span>
                 {% endif %}
             </div>
+            {% if seller.pickup_location_type == 'on_campus' %}
+            <div><strong>Dorm:</strong> {{ seller.pickup_dorm or '—' }}, Room {{ seller.pickup_room or '—' }}</div>
+            {% elif seller.pickup_location_type == 'off_campus_complex' %}
+            <div><strong>Building:</strong> {{ seller.pickup_dorm or '—' }}</div>
+            <div><strong>Unit:</strong> {{ seller.pickup_room or '—' }}</div>
+            {% elif seller.pickup_location_type in ('off_campus_other', 'off_campus') %}
+            <div><strong>Address:</strong> {{ seller.pickup_address or '—' }}</div>
+            {% endif %}
+            {% if seller.pickup_access_type %}
+            <div><strong>Access:</strong>
+                {% if seller.pickup_access_type == 'elevator' %}Elevator access
+                {% elif seller.pickup_access_type == 'stairs_only' %}Stairs only
+                {% elif seller.pickup_access_type == 'ground_floor' %}Ground floor
+                {% else %}{{ seller.pickup_access_type }}{% endif %}
+            </div>
+            {% endif %}
+            {% if seller.pickup_floor %}
+            <div><strong>Floor:</strong> {{ seller.pickup_floor }}</div>
+            {% endif %}
+            {% if seller.pickup_note %}
+            <div style="color: var(--text-muted); font-size: 0.85rem;"><strong>Notes:</strong> {{ seller.pickup_note }}</div>
+            {% endif %}
             <div>
                 <strong>Pickup Week:</strong>
                 {% if seller.pickup_week == 'week1' %}Week 1 (4/27–5/3)

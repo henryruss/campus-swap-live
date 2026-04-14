@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 
+{% block body_class %}teaser-page{% endblock %}
+
 {% block head_extra %}
 <meta name="robots" content="noindex">
 {% endblock %}
@@ -43,7 +45,7 @@
   <form method="POST" action="{{ url_for('shop_notify_signup') }}" class="teaser-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="email" name="email" placeholder="your@email.com" required class="teaser-input">
-    <button type="submit" class="btn-primary">Notify Me</button>
+    <button type="submit" class="btn btn-primary">Notify Me</button>
   </form>
 </div>
 {% endblock %}

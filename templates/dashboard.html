@@ -1,6 +1,40 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<style>
+/* Override global label {} rules for pickup modal access-type radio cards */
+label.pickup-access-opt {
+    display: flex !important;
+    text-transform: none !important;
+    font-size: 0.88rem !important;
+    font-weight: 500 !important;
+    color: var(--text-main) !important;
+    margin: 0 !important;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    box-sizing: border-box;
+}
+label.pickup-access-opt input[type="radio"] {
+    position: absolute; opacity: 0; width: 0; height: 0;
+}
+label.pickup-access-opt .pickup-access-icon {
+    width: 18px; text-align: center; flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+label.pickup-access-opt.is-selected {
+    border-color: var(--primary) !important;
+    background: #f0fdf4 !important;
+}
+label.pickup-access-opt.is-selected .pickup-access-icon {
+    color: var(--primary);
+}
+</style>
 {% set setup_phone_done = current_user.phone is not none %}
 {% set setup_pickup_done = has_pickup_location and current_user.pickup_week is not none %}
 {% set setup_payout_done = current_user.payout_method is not none %}
@@ -417,14 +451,18 @@
         {# Location type #}
         <div style="border-top: 1px solid #e2e8f0; margin: 20px 0 16px;"></div>
         <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Where do you live?</p>
-        <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
-            <button type="button" class="sel-btn pickup-loc-card" data-loc="on_campus" onclick="selectPickupLocType('on_campus')" style="flex: 1;"
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+            <button type="button" class="sel-btn pickup-loc-card" data-loc="on_campus" onclick="selectPickupLocType('on_campus')"
                     {% if current_user.pickup_location_type == 'on_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <i class="fas fa-building" style="margin-right: 6px;"></i> On campus (dorm)
+                <i class="fas fa-building" style="margin-right: 6px;"></i> On campus (UNC dorm)
             </button>
-            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus" onclick="selectPickupLocType('off_campus')" style="flex: 1;"
-                    {% if current_user.pickup_location_type == 'off_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <i class="fas fa-home" style="margin-right: 6px;"></i> Off campus
+            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_complex" onclick="selectPickupLocType('off_campus_complex')"
+                    {% if current_user.pickup_location_type == 'off_campus_complex' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                <i class="fas fa-city" style="margin-right: 6px;"></i> Off-campus apartment complex
+            </button>
+            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_other" onclick="selectPickupLocType('off_campus_other')"
+                    {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                <i class="fas fa-home" style="margin-right: 6px;"></i> Other address
             </button>
         </div>
 
@@ -434,20 +472,59 @@
                 {% for group, halls in dorms.items() %}
                 <optgroup label="{{ group }}">
                     {% for hall in halls %}
-                    <option value="{{ hall }}" {% if current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+                    <option value="{{ hall }}" {% if current_user.pickup_location_type == 'on_campus' and current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
                     {% endfor %}
                 </optgroup>
                 {% endfor %}
             </select>
-            <input type="text" id="pickup-room-input" placeholder="Room number (e.g. 204)" value="{{ current_user.pickup_room or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+            <input type="text" id="pickup-room-input" placeholder="Room number (e.g. 204)"
+                   value="{% if current_user.pickup_location_type == 'on_campus' %}{{ current_user.pickup_room or '' }}{% endif %}"
+                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
         </div>
 
-        <div id="pickup-offcampus-fields" style="display: {% if current_user.pickup_location_type == 'off_campus' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+        <div id="pickup-complex-fields" style="display: {% if current_user.pickup_location_type == 'off_campus_complex' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <select id="pickup-complex-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
+                <option value="">Select building...</option>
+                {% set complexes = ['Granville Towers','Lark Chapel Hill Apartments','The Warehouse','The Edition on Rosemary','Shortbread Lofts','Union Chapel Hill','Carolina Square'] %}
+                {% for c in complexes %}
+                <option value="{{ c }}" {% if current_user.pickup_location_type == 'off_campus_complex' and current_user.pickup_dorm == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" id="pickup-unit-input" placeholder="Unit / Apartment # (e.g. 4B, 312)"
+                   value="{% if current_user.pickup_location_type == 'off_campus_complex' %}{{ current_user.pickup_room or '' }}{% endif %}"
+                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        </div>
+
+        <div id="pickup-offcampus-fields" style="display: {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}block{% else %}none{% endif %}; margin-bottom: 12px;">
             <input type="text" id="pickup-address-input" placeholder="Full address (street, city, state, zip)" value="{{ current_user.pickup_address or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
         </div>
 
-        <div id="pickup-note-wrap" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 12px;">
-            <input type="text" id="pickup-note-input" placeholder="Additional directions (gate code, parking note, etc.) — optional" value="{{ current_user.pickup_note or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        {# Access fields — shown once any location is selected #}
+        <div id="pickup-access-section" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 8px;">How do movers reach your room/unit?</p>
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+                {% for val, icon, title in [
+                ('elevator',    'fa-elevator', 'Elevator access'),
+                ('stairs_only', 'fa-stairs',   'Stairs only'),
+                ('ground_floor','fa-arrow-down','Ground floor')
+            ] %}
+                <label class="pickup-access-opt {% if current_user.pickup_access_type == val %}is-selected{% endif %}" data-val="{{ val }}">
+                    <input type="radio" name="modal_access_type" value="{{ val }}" {% if current_user.pickup_access_type == val %}checked{% endif %}>
+                    <i class="fas {{ icon }} pickup-access-icon"></i>
+                    <span>{{ title }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 6px;">Floor</p>
+            <input type="number" id="pickup-floor-input" min="1" max="30" placeholder="e.g. 2"
+                   value="{{ current_user.pickup_floor or '' }}"
+                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; margin-bottom: 4px;">
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 10px;">Enter 1 if you're on the ground floor.</p>
+            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 6px;">Notes <span style="font-weight:400; color:var(--text-muted);">(optional)</span></p>
+            <input type="text" id="pickup-note-input" placeholder="e.g. building code is 1234#, park in lot B"
+                   value="{{ current_user.pickup_note or '' }}"
+                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+            <div id="pickup-ground-floor-warn" style="display:none; color:var(--accent); font-size:0.82rem; margin-top:4px;">Ground floor is for floor 1 only — did you mean elevator or stairs?</div>
         </div>
 
         <div id="pickupaddr-modal-error" style="display: none; color: #dc2626; font-size: 0.88rem; margin: 8px 0;"></div>
@@ -591,9 +668,36 @@ function selectPickupLocType(type) {
         card.style.color = sel ? 'var(--primary)' : '';
     });
     document.getElementById('pickup-oncampus-fields').style.display = type === 'on_campus' ? 'block' : 'none';
-    document.getElementById('pickup-offcampus-fields').style.display = type === 'off_campus' ? 'block' : 'none';
-    document.getElementById('pickup-note-wrap').style.display = 'block';
+    document.getElementById('pickup-complex-fields').style.display = type === 'off_campus_complex' ? 'block' : 'none';
+    document.getElementById('pickup-offcampus-fields').style.display = type === 'off_campus_other' ? 'block' : 'none';
+    document.getElementById('pickup-access-section').style.display = type ? 'block' : 'none';
     clearModalError('pickupaddr-modal-error');
+}
+
+// Access type radio cards in modal
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.pickup-access-opt').forEach(function(opt) {
+        opt.addEventListener('click', function() {
+            var radio = opt.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+            document.querySelectorAll('.pickup-access-opt').forEach(function(o) {
+                o.classList.toggle('is-selected', o.querySelector('input').checked);
+            });
+            checkModalGroundFloorWarn();
+        });
+    });
+    var floorEl = document.getElementById('pickup-floor-input');
+    if (floorEl) floorEl.addEventListener('input', checkModalGroundFloorWarn);
+});
+
+function checkModalGroundFloorWarn() {
+    var warn = document.getElementById('pickup-ground-floor-warn');
+    if (!warn) return;
+    var floorEl = document.getElementById('pickup-floor-input');
+    var floor = floorEl ? parseInt(floorEl.value) || 0 : 0;
+    var selectedOpt = document.querySelector('.pickup-access-opt.is-selected input[type="radio"]');
+    var accessVal = selectedOpt ? selectedOpt.value : '';
+    warn.style.display = (floor > 1 && accessVal === 'ground_floor') ? 'block' : 'none';
 }
 
 function savePickupModal() {
@@ -612,9 +716,16 @@ function savePickupModal() {
         if (_pickupLocType === 'on_campus') {
             fd.append('pickup_dorm', (document.getElementById('pickup-dorm-select') || {}).value || '');
             fd.append('pickup_room', (document.getElementById('pickup-room-input') || {}).value || '');
+        } else if (_pickupLocType === 'off_campus_complex') {
+            fd.append('pickup_dorm', (document.getElementById('pickup-complex-select') || {}).value || '');
+            fd.append('pickup_room', (document.getElementById('pickup-unit-input') || {}).value || '');
         } else {
             fd.append('pickup_address', (document.getElementById('pickup-address-input') || {}).value || '');
         }
+        var accessEl = document.querySelector('.pickup-access-opt.is-selected input[type="radio"]');
+        if (accessEl) fd.append('pickup_access_type', accessEl.value);
+        var floorEl = document.getElementById('pickup-floor-input');
+        if (floorEl && floorEl.value) fd.append('pickup_floor', floorEl.value);
     }
     var noteEl = document.getElementById('pickup-note-input');
     if (noteEl) fd.append('pickup_note', noteEl.value || '');

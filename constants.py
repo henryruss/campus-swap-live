@@ -131,6 +131,17 @@ def get_price_range_for_category(category_name: str) -> tuple[int, int]:
             return value
     return PRICE_RANGE_FALLBACK
 
+# Known off-campus apartment complexes (validated server-side for off_campus_complex branch)
+OFF_CAMPUS_COMPLEXES = [
+    "Granville Towers",
+    "Lark Chapel Hill Apartments",
+    "The Warehouse",
+    "The Edition on Rosemary",
+    "Shortbread Lofts",
+    "Union Chapel Hill",
+    "Carolina Square",
+]
+
 # Residence halls by store (for on-campus pickup selection)
 RESIDENCE_HALLS_BY_STORE = {
     'UNC Chapel Hill': {

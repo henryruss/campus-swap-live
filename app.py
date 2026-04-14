@@ -56,7 +56,7 @@ from constants import (
     MIN_PRICE, MAX_PRICE, MIN_QUALITY, MAX_QUALITY,
     MAX_DESCRIPTION_LENGTH, MAX_LONG_DESCRIPTION_LENGTH,
     MAX_EMAIL_LENGTH, MAX_NAME_LENGTH,
-    ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE,
+    ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE, OFF_CAMPUS_COMPLEXES,
     PICKUP_WEEKS, PICKUP_WEEK_DATE_RANGES, PICKUP_TIME_OPTIONS,
     WAREHOUSE_CAPACITY,
     get_price_range_for_category
@@ -1131,16 +1131,16 @@ def trigger_ai_lookup(item_id):
 
 # Ticker prices match the become-a-seller interactive room (seller profit per item)
 _TICKER_PRICE_MAP = {
-    "mini fridge": 55, "mini-fridge": 55, "minifridge": 55,
-    "rug": 40,
-    "microwave": 25,
-    "headboard": 40,
-    "mattress": 80, "twin xl mattress": 80,
-    "couch": 70, "sofa": 70, "couch / sofa": 70, "couch/sofa": 70,
-    "ac unit": 50, "acunit": 50, "climate control": 50, "box fan": 50,
-    "tv": 90, "television": 90,
+    "mini fridge": 110, "mini-fridge": 110, "minifridge": 110,
+    "rug": 80,
+    "microwave": 50,
+    "headboard": 80,
+    "mattress": 160, "twin xl mattress": 160,
+    "couch": 140, "sofa": 140, "couch / sofa": 140, "couch/sofa": 140,
+    "ac unit": 100, "acunit": 100, "climate control": 100, "box fan": 100,
+    "tv": 180, "television": 180,
 }
-_TICKER_FALLBACK_PRICES = [55, 40, 25, 40, 80, 70, 50, 90]  # From become-a-seller page
+_TICKER_FALLBACK_PRICES = [110, 80, 50, 80, 160, 140, 100, 180]  # From become-a-seller page
 
 
 def _get_ticker_items():
@@ -1157,12 +1157,12 @@ def _get_ticker_items():
         return result
     # Fallback when no categories - match become-a-seller interactive room
     return [
-        {"icon": "fa-couch", "price": "$70"},
-        {"icon": "fa-snowflake", "price": "$55"},
-        {"icon": "fa-bed", "price": "$80"},
-        {"icon": "fa-tv", "price": "$90"},
-        {"icon": "fa-wind", "price": "$50"},
-        {"icon": "fa-square", "price": "$40"},
+        {"icon": "fa-couch", "price": "$140"},
+        {"icon": "fa-snowflake", "price": "$110"},
+        {"icon": "fa-bed", "price": "$160"},
+        {"icon": "fa-tv", "price": "$180"},
+        {"icon": "fa-wind", "price": "$100"},
+        {"icon": "fa-square", "price": "$80"},
     ]
 
 
@@ -1510,13 +1510,18 @@ def inventory():
     """Display inventory with pagination, search, and optimized queries"""
     # Shop Drop teaser — renders blurred mosaic + email capture before launch
     if AppSetting.get('shop_teaser_mode', 'false') == 'true':
-        preview_items = InventoryItem.query.filter_by(
+        preview_items_raw = InventoryItem.query.filter_by(
             status='available'
         ).order_by(func.random()).limit(16).all()
-        placeholder_count = max(0, 12 - len(preview_items))
+        # Cycle real items to fill 20 tiles so the grid always looks full
+        if preview_items_raw:
+            tiles = [preview_items_raw[i % len(preview_items_raw)] for i in range(20)]
+        else:
+            tiles = []
+        placeholder_count = max(0, 20 - len(tiles))
         return render_template(
             'inventory_teaser.html',
-            preview_items=preview_items,
+            preview_items=tiles,
             placeholder_range=range(placeholder_count),
         )
 
@@ -4042,9 +4047,13 @@ def api_set_pickup_week():
 
     # Save address fields if provided
     loc_type = (request.form.get('pickup_location_type') or _json.get('pickup_location_type') or '').strip()
-    if loc_type in ('on_campus', 'off_campus'):
-        current_user.pickup_location_type = loc_type
+    if loc_type in ('on_campus', 'off_campus_complex', 'off_campus_other', 'off_campus'):
+        current_user.pickup_location_type = 'off_campus_other' if loc_type == 'off_campus' else loc_type
         if loc_type == 'on_campus':
+            current_user.pickup_dorm = (request.form.get('pickup_dorm') or _json.get('pickup_dorm') or '').strip() or None
+            current_user.pickup_room = (request.form.get('pickup_room') or _json.get('pickup_room') or '').strip() or None
+            current_user.pickup_address = None
+        elif loc_type == 'off_campus_complex':
             current_user.pickup_dorm = (request.form.get('pickup_dorm') or _json.get('pickup_dorm') or '').strip() or None
             current_user.pickup_room = (request.form.get('pickup_room') or _json.get('pickup_room') or '').strip() or None
             current_user.pickup_address = None
@@ -4054,6 +4063,18 @@ def api_set_pickup_week():
             current_user.pickup_room = None
         pickup_note = (request.form.get('pickup_note') or _json.get('pickup_note') or '').strip()
         current_user.pickup_note = pickup_note or None
+        # Save access fields if provided
+        _at = (request.form.get('pickup_access_type') or _json.get('pickup_access_type') or '').strip()
+        if _at in ('elevator', 'stairs_only', 'ground_floor'):
+            current_user.pickup_access_type = _at
+        _fl = request.form.get('pickup_floor') or _json.get('pickup_floor')
+        if _fl is not None:
+            try:
+                _floor_val = int(_fl)
+                if 1 <= _floor_val <= 30:
+                    current_user.pickup_floor = _floor_val
+            except (ValueError, TypeError):
+                pass
 
     db.session.commit()
     logger.info(f"User {current_user.id} set pickup week={pickup_week} time={pickup_time} loc={loc_type or 'unchanged'}")
@@ -4092,6 +4113,8 @@ def process_pending_onboard(user):
     user.pickup_address = pending.get('pickup_address')
     user.pickup_lat = pending.get('pickup_lat')
     user.pickup_lng = pending.get('pickup_lng')
+    user.pickup_access_type = pending.get('pickup_access_type')
+    user.pickup_floor = pending.get('pickup_floor')
     user.pickup_note = pending.get('pickup_note')
     user.phone = pending.get('phone')
     if pending.get('pickup_week'):
@@ -4518,7 +4541,7 @@ def auth_google_callback():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
+    if current_user.is_authenticated and request.method == 'GET':
         return redirect(get_user_dashboard())
     
     # Pre-fill form data if passed as query param (from account creation redirect)
@@ -4739,53 +4762,125 @@ def dashboard():
                           referral_max=referral_max,
                           app_base_url=app_base_url)
 
+def _validate_access_fields(form):
+    """Validate pickup_access_type and pickup_floor from a form/dict. Returns (access_type, floor) or (None, None) on failure."""
+    VALID_ACCESS_TYPES = {'elevator', 'stairs_only', 'ground_floor'}
+    access_type = (form.get('pickup_access_type') or '').strip()
+    floor_raw = (form.get('pickup_floor') or '').strip() if isinstance(form.get('pickup_floor'), str) else str(form.get('pickup_floor') or '')
+    if access_type not in VALID_ACCESS_TYPES:
+        return None, None
+    try:
+        floor = int(floor_raw)
+    except (ValueError, TypeError):
+        return None, None
+    if floor < 1 or floor > 30:
+        return None, None
+    if floor > 1 and access_type == 'ground_floor':
+        logger.warning(f"Floor {floor} with access_type=ground_floor submitted by user {getattr(current_user, 'id', '?')} — allowing (edge case)")
+    return access_type, floor
+
+
 @app.route('/update_profile', methods=['POST'])
 @login_required
 def update_profile():
     location_type = request.form.get('pickup_location_type')
+
+    # Shared helper to read access fields
+    class _FormProxy:
+        def get(self, key, default=None):
+            return request.form.get(key, default)
+
+    proxy = _FormProxy()
+
     if location_type == 'on_campus':
         dorm = (request.form.get('pickup_dorm') or '').strip()
         room = (request.form.get('pickup_room') or '').strip()
-        if dorm and room:
+        access_type, floor = _validate_access_fields(proxy)
+        if not dorm:
+            flash("Please select a dorm.", "error")
+        elif not room:
+            flash("Please enter your room number.", "error")
+        elif access_type is None:
+            flash("Please select a valid access type.", "error")
+        elif floor is None:
+            flash("Please enter a valid floor number (1–30).", "error")
+        else:
             current_user.pickup_location_type = 'on_campus'
             current_user.pickup_dorm = dorm[:80]
             current_user.pickup_room = room[:20]
             current_user.pickup_address = None
             current_user.pickup_lat = None
             current_user.pickup_lng = None
-            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            current_user.pickup_access_type = access_type
+            current_user.pickup_floor = floor
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:500] or None
             phone = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
             if len(phone) >= 10:
                 current_user.phone = phone[:20]
             db.session.commit()
             flash("Pickup location saved.", "success")
+
+    elif location_type == 'off_campus_complex':
+        building = (request.form.get('pickup_dorm') or '').strip()
+        unit = (request.form.get('pickup_room') or '').strip()
+        access_type, floor = _validate_access_fields(proxy)
+        if building not in OFF_CAMPUS_COMPLEXES:
+            flash("Please select a valid apartment complex.", "error")
+        elif not unit:
+            flash("Please enter your unit number.", "error")
+        elif access_type is None:
+            flash("Please select a valid access type.", "error")
+        elif floor is None:
+            flash("Please enter a valid floor number (1–30).", "error")
         else:
-            flash("Please select a dorm and enter your room number.", "error")
-    elif location_type == 'off_campus':
+            current_user.pickup_location_type = 'off_campus_complex'
+            current_user.pickup_dorm = building
+            current_user.pickup_room = unit[:20]
+            current_user.pickup_address = None
+            current_user.pickup_lat = None
+            current_user.pickup_lng = None
+            current_user.pickup_access_type = access_type
+            current_user.pickup_floor = floor
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:500] or None
+            phone = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+            if len(phone) >= 10:
+                current_user.phone = phone[:20]
+            db.session.commit()
+            flash("Pickup location saved.", "success")
+
+    elif location_type == 'off_campus_other':
         address = (request.form.get('pickup_address') or '').strip()
-        if address:
-            current_user.pickup_location_type = 'off_campus'
-            current_user.pickup_address = address[:200]
+        access_type, floor = _validate_access_fields(proxy)
+        if not address:
+            flash("Please enter your address.", "error")
+        elif access_type is None:
+            flash("Please select a valid access type.", "error")
+        elif floor is None:
+            flash("Please enter a valid floor number (1–30).", "error")
+        else:
+            current_user.pickup_location_type = 'off_campus_other'
+            current_user.pickup_address = address[:300]
             current_user.pickup_dorm = None
             current_user.pickup_room = None
             lat = request.form.get('pickup_lat')
             lng = request.form.get('pickup_lng')
             current_user.pickup_lat = float(lat) if lat and lat.strip() else None
             current_user.pickup_lng = float(lng) if lng and lng.strip() else None
-            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:200] or None
+            current_user.pickup_access_type = access_type
+            current_user.pickup_floor = floor
+            current_user.pickup_note = (request.form.get('pickup_note') or '').strip()[:500] or None
             phone = (request.form.get('phone') or '').replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
             if len(phone) >= 10:
                 current_user.phone = phone[:20]
             db.session.commit()
             flash("Pickup location saved.", "success")
-        else:
-            flash("Please enter your address.", "error")
+
     else:
         # Legacy: plain address field (backward compat)
         address = request.form.get('address')
         if address:
-            current_user.pickup_location_type = 'off_campus'
-            current_user.pickup_address = address[:200]
+            current_user.pickup_location_type = 'off_campus_other'
+            current_user.pickup_address = address[:300]
             current_user.pickup_dorm = None
             current_user.pickup_room = None
             current_user.pickup_note = None
@@ -4793,6 +4888,7 @@ def update_profile():
             current_user.pickup_lng = None
             db.session.commit()
             flash("Profile updated.", "success")
+
     dest = request.form.get('redirect_to')
     if dest == 'account_settings':
         return redirect(url_for('account_settings'))
@@ -5049,6 +5145,85 @@ def onboard():
 
     if request.method == 'POST':
         _step_param = request.form.get('step', '').strip()
+
+        # ---- Step location: save pickup location to session (guest + authenticated) ----
+        if _step_param == 'location':
+            _loc_type = (request.form.get('pickup_location_type') or '').strip()
+            _render_kwargs = dict(
+                categories=categories, category_price_ranges=category_price_ranges,
+                dorms=dorms, google_maps_key=google_maps_key,
+                is_guest=not current_user.is_authenticated, skip_payout=True,
+            )
+
+            class _FormProxyOnboard:
+                def get(self, key, default=None):
+                    return request.form.get(key, default)
+            _proxy = _FormProxyOnboard()
+            _access_type, _floor = _validate_access_fields(_proxy)
+
+            if _loc_type == 'on_campus':
+                _dorm = (request.form.get('pickup_dorm') or '').strip()
+                _room = (request.form.get('pickup_room') or '').strip()
+                if not _dorm or not _room or _access_type is None or _floor is None:
+                    flash("Please complete all location fields.", "error")
+                    return render_template('onboard.html', **_render_kwargs)
+                session['onboard_pickup_location_type'] = 'on_campus'
+                session['onboard_pickup_dorm'] = _dorm[:80]
+                session['onboard_pickup_room'] = _room[:20]
+                session['onboard_pickup_address'] = None
+                session['onboard_pickup_lat'] = None
+                session['onboard_pickup_lng'] = None
+                session['onboard_pickup_access_type'] = _access_type
+                session['onboard_pickup_floor'] = _floor
+                session['onboard_pickup_note'] = (request.form.get('pickup_note') or '').strip()[:500] or None
+            elif _loc_type == 'off_campus_complex':
+                _building = (request.form.get('pickup_dorm') or '').strip()
+                _unit = (request.form.get('pickup_room') or '').strip()
+                if _building not in OFF_CAMPUS_COMPLEXES or not _unit or _access_type is None or _floor is None:
+                    flash("Please complete all location fields.", "error")
+                    return render_template('onboard.html', **_render_kwargs)
+                session['onboard_pickup_location_type'] = 'off_campus_complex'
+                session['onboard_pickup_dorm'] = _building
+                session['onboard_pickup_room'] = _unit[:20]
+                session['onboard_pickup_address'] = None
+                session['onboard_pickup_lat'] = None
+                session['onboard_pickup_lng'] = None
+                session['onboard_pickup_access_type'] = _access_type
+                session['onboard_pickup_floor'] = _floor
+                session['onboard_pickup_note'] = (request.form.get('pickup_note') or '').strip()[:500] or None
+            elif _loc_type == 'off_campus_other':
+                _address = (request.form.get('pickup_address') or '').strip()
+                if not _address or _access_type is None or _floor is None:
+                    flash("Please complete all location fields.", "error")
+                    return render_template('onboard.html', **_render_kwargs)
+                _lat_raw = request.form.get('pickup_lat')
+                _lng_raw = request.form.get('pickup_lng')
+                session['onboard_pickup_location_type'] = 'off_campus_other'
+                session['onboard_pickup_dorm'] = None
+                session['onboard_pickup_room'] = None
+                session['onboard_pickup_address'] = _address[:300]
+                session['onboard_pickup_lat'] = float(_lat_raw) if _lat_raw and _lat_raw.strip() else None
+                session['onboard_pickup_lng'] = float(_lng_raw) if _lng_raw and _lng_raw.strip() else None
+                session['onboard_pickup_access_type'] = _access_type
+                session['onboard_pickup_floor'] = _floor
+                session['onboard_pickup_note'] = (request.form.get('pickup_note') or '').strip()[:500] or None
+            else:
+                flash("Please select a location type.", "error")
+                return render_template('onboard.html', **_render_kwargs)
+
+            # If authenticated, save directly to user
+            if current_user.is_authenticated:
+                current_user.pickup_location_type = session['onboard_pickup_location_type']
+                current_user.pickup_dorm = session['onboard_pickup_dorm']
+                current_user.pickup_room = session['onboard_pickup_room']
+                current_user.pickup_address = session['onboard_pickup_address']
+                current_user.pickup_lat = session['onboard_pickup_lat']
+                current_user.pickup_lng = session['onboard_pickup_lng']
+                current_user.pickup_access_type = session['onboard_pickup_access_type']
+                current_user.pickup_floor = session['onboard_pickup_floor']
+                current_user.pickup_note = session['onboard_pickup_note']
+                db.session.commit()
+            return redirect(url_for('onboard'))
 
         # ---- Step 7: save payout (authenticated, no photos required) ----
         if _step_param == '7' and current_user.is_authenticated:
@@ -5532,13 +5707,15 @@ def onboard_guest_save():
         'suggested_price': suggested_price,
         'collection_method': 'free',
         'referral_code': guest_referral_code,
-        'pickup_location_type': None,
-        'pickup_dorm': None,
-        'pickup_room': None,
-        'pickup_address': None,
-        'pickup_lat': None,
-        'pickup_lng': None,
-        'pickup_note': None,
+        'pickup_location_type': session.get('onboard_pickup_location_type'),
+        'pickup_dorm': session.get('onboard_pickup_dorm'),
+        'pickup_room': session.get('onboard_pickup_room'),
+        'pickup_address': session.get('onboard_pickup_address'),
+        'pickup_lat': session.get('onboard_pickup_lat'),
+        'pickup_lng': session.get('onboard_pickup_lng'),
+        'pickup_access_type': session.get('onboard_pickup_access_type'),
+        'pickup_floor': session.get('onboard_pickup_floor'),
+        'pickup_note': session.get('onboard_pickup_note'),
         'phone': phone_raw[:20] if len(phone_raw) >= 10 else None,
         'payout_method': None,
         'payout_handle': None,
