@@ -516,6 +516,83 @@ def _get_payout_percentage(item):
     return PAYOUT_PERCENTAGE_ONLINE  # safe fallback
 
 
+def _compute_seller_tracker(seller, items):
+    """
+    Computes account-level tracker state for the seller dashboard.
+    seller: User (current_user)
+    items:  list of InventoryItem for this seller (all statuses)
+    Returns dict for template context key `tracker`.
+    One ShiftPickup query total — never called inside a loop.
+    """
+    seller_pickup = ShiftPickup.query.filter_by(seller_id=seller.id).first()
+
+    active_items = [i for i in items if i.status != 'rejected']
+
+    conds = {
+        'submitted':      len(active_items) > 0,
+        'approved':       any(i.status not in ('pending_valuation', 'needs_info', 'rejected')
+                              for i in active_items),
+        'scheduled':      (seller_pickup is not None and seller_pickup.status != 'issue'),
+        'picked_up':      any(i.picked_up_at for i in active_items),
+        'at_campus_swap': any(i.arrived_at_store_at for i in active_items),
+        'in_the_shop':    (AppSetting.get('shop_teaser_mode', 'false') != 'true'
+                           and any(i.status in ('available', 'sold') for i in active_items)),
+    }
+
+    stage_defs = [
+        ('submitted',      'Submitted'),
+        ('approved',       'Approved'),
+        ('scheduled',      'Scheduled'),
+        ('picked_up',      'Picked Up'),
+        ('at_campus_swap', 'At Campus Swap'),
+        ('in_the_shop',    'In the Shop'),
+    ]
+
+    active_messages = {
+        'submitted':      "We're reviewing your items — approval usually takes 1–2 days.",
+        'approved':       "Items approved! We'll add you to a pickup route soon.",
+        'scheduled':      "Pickup scheduled. We'll text you when the driver is on the way.",
+        'picked_up':      "Driver has your items — they're headed to our storage facility.",
+        'at_campus_swap': "Your items are in storage and will go live when the shop opens.",
+        'in_the_shop':    "Your items are live! Buyers can shop them now.",
+    }
+
+    stages = []
+    found_active = False
+    for key, label in stage_defs:
+        if not found_active and not conds[key]:
+            state = 'active'
+            found_active = True
+        elif conds[key]:
+            state = 'completed'
+        else:
+            state = 'upcoming'
+        stages.append({'key': key, 'label': label, 'state': state})
+
+    active_key = next((s['key'] for s in stages if s['state'] == 'active'), None)
+    message = active_messages.get(active_key, "Your items are in the shop. Good luck! 🎉")
+
+    # Interrupts — checked independently of stage states
+    interrupt = None
+    needs_info_item = next((i for i in active_items if i.status == 'needs_info'), None)
+    if needs_info_item:
+        interrupt = {
+            'message': "One of your items needs attention.",
+            'link': f'/edit_item/{needs_info_item.id}'
+        }
+    elif seller_pickup and seller_pickup.status == 'issue':
+        interrupt = {
+            'message': "There was an issue with your pickup. We'll be in touch.",
+            'link': None
+        }
+
+    return {
+        'stages':         stages,
+        'active_message': message,
+        'interrupt':      interrupt,
+    }
+
+
 # =========================================================
 # REFERRAL PROGRAM HELPERS
 # =========================================================
@@ -4722,6 +4799,16 @@ def dashboard():
     referral_steps = list(range(referral_base, referral_max + 1, 10))
     app_base_url = os.environ.get('APP_BASE_URL', request.url_root.rstrip('/'))
 
+    # Setup strip vs. tracker
+    setup_complete = bool(
+        current_user.phone and
+        current_user.pickup_week and
+        current_user.has_pickup_location and
+        current_user.payout_method and
+        current_user.payout_handle
+    )
+    tracker = _compute_seller_tracker(current_user, my_items) if setup_complete else None
+
     return render_template('dashboard.html',
                           my_items=my_items,
                           unresolved_alerts=unresolved_alerts,
@@ -4760,7 +4847,9 @@ def dashboard():
                           confirmed_referral_count=confirmed_referral_count,
                           referral_steps=referral_steps,
                           referral_max=referral_max,
-                          app_base_url=app_base_url)
+                          app_base_url=app_base_url,
+                          setup_complete=setup_complete,
+                          tracker=tracker)
 
 def _validate_access_fields(form):
     """Validate pickup_access_type and pickup_floor from a form/dict. Returns (access_type, floor) or (None, None) on failure."""

@@ -38,7 +38,6 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
 {% set setup_phone_done = current_user.phone is not none %}
 {% set setup_pickup_done = has_pickup_location and current_user.pickup_week is not none %}
 {% set setup_payout_done = current_user.payout_method is not none %}
-{% set setup_complete = setup_phone_done and setup_pickup_done and setup_payout_done %}
 
 <div class="container" style="margin-top: 32px; padding-bottom: 48px;">
 
@@ -51,7 +50,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
         <a href="/logout" class="btn btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">Log Out</a>
     </div>
 
-    {# 2. Setup Strip #}
+    {# 2. Setup Strip / Progress Tracker (mutually exclusive) #}
     {% if not setup_complete %}
     <div class="setup-strip">
         <div class="setup-chip {% if setup_phone_done %}setup-chip-done{% else %}setup-chip-todo{% endif %}"
@@ -79,6 +78,8 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             {% endif %}
         </div>
     </div>
+    {% elif current_user.is_seller and tracker %}
+    {% include '_seller_tracker.html' %}
     {% endif %}
 
     {# 3. Stats Bar #}
@@ -196,19 +197,19 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
         {% if my_items %}
         <div class="dashboard-shop-grid-v2">
             {% for item in my_items %}
+            {% set _diff = ((item.price or 0) - (item.suggested_price or 0))|abs if (item.price is not none and item.suggested_price is not none) else 0 %}
+            {% set _price_updated = item.price_updated_at is not none or (item.suggested_price is not none and item.price is not none and _diff > 0.01) %}
+            {% set _show_badge = _price_updated and not (item.price_changed_acknowledged | default(false)) %}
             {% if item.status == 'needs_info' %}
                 {% set bg_class = 'item-card-bg-yellow item-card-border-amber' %}
             {% elif item.status == 'rejected' %}
                 {% set bg_class = 'item-card-bg-red' %}
             {% elif item.status == 'sold' %}
                 {% set bg_class = 'item-card-bg-green' %}
-            {% elif item.status == 'available' %}
-                {% set _all_complete = item.arrived_at_store_at is not none %}
-                {% set bg_class = ('item-card-bg-green item-card-border-sage' if _all_complete else 'item-card-bg-yellow') %}
-            {% elif item.status == 'pending_logistics' %}
+            {% elif _show_badge %}
                 {% set bg_class = 'item-card-bg-yellow' %}
             {% else %}
-                {% set bg_class = '' %}
+                {% set bg_class = 'item-card-bg-gray' %}
             {% endif %}
             <div class="dashboard-item-square {{ bg_class }}">
                 <div class="dashboard-item-square-inner dashboard-item-clickable" data-item-id="{{ item.id }}" onclick="openListingModal({{ item.id }})" style="text-decoration: none; color: inherit; cursor: pointer;">
@@ -228,43 +229,12 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                         {% if item.status not in ('pending_valuation', 'rejected') %}
                         <div class="dashboard-item-square-header">
                             <span class="dashboard-item-square-price">${{ "%.0f"|format(item.price) if item.price else "—" }}</span>
-                            {% set _diff = ((item.price or 0) - (item.suggested_price or 0))|abs if (item.price is not none and item.suggested_price is not none) else 0 %}
-                            {% set _price_updated = item.price_updated_at is not none or (item.suggested_price is not none and item.price is not none and _diff > 0.01) %}
-                            {% set _show_badge = _price_updated and not (item.price_changed_acknowledged | default(false)) %}
                             {% if _show_badge %}
-                            <span class="price-change-badge" data-item-id="{{ item.id }}" onclick="event.stopPropagation(); acknowledgePriceChange({{ item.id }}, this);" title="We updated the price">Pricing update</span>
+                            <span class="price-change-badge" data-item-id="{{ item.id }}" onclick="event.stopPropagation(); acknowledgePriceChange({{ item.id }}, this);" title="We updated the price — click to dismiss"><span class="price-change-badge__label">Pricing update</span><span class="price-change-badge__dismiss">&times;</span></span>
                             {% endif %}
                         </div>
                         {% endif %}
                         <p class="dashboard-item-square-desc">{{ item.description }}</p>
-                        <ul class="dashboard-item-checklist">
-                            {% if item.status == 'needs_info' %}
-                            <li class="check-fail" style="color:#d97706;"><i class="fas fa-exclamation-circle"></i> Action needed — see above</li>
-                            {% elif item.status == 'pending_valuation' %}
-                            <li class="check-pending"><i class="fas fa-circle"></i> Pending approval</li>
-                            {% elif item.status == 'rejected' %}
-                            <li class="check-fail"><i class="fas fa-times-circle"></i> Rejected</li>
-                            {% elif item.status == 'sold' %}
-                            <li class="check-done"><i class="fas fa-check-circle"></i> Sold</li>
-                            {% elif item.status == 'available' %}
-                            <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                            <li class="check-done"><i class="fas fa-check-circle"></i> Pickup confirmed</li>
-                            {% if item.picked_up_at or item.arrived_at_store_at %}
-                            <li class="check-done"><i class="fas fa-check-circle"></i> Picked up</li>
-                            {% else %}
-                            <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
-                            {% endif %}
-                            {% if item.arrived_at_store_at %}
-                            <li class="check-done"><i class="fas fa-check-circle"></i> In store</li>
-                            {% else %}
-                            <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
-                            {% endif %}
-                            {% elif item.status == 'pending_logistics' %}
-                            <li class="check-done"><i class="fas fa-check-circle"></i> Approved</li>
-                            <li class="check-pending"><i class="fas fa-circle"></i> Awaiting pickup</li>
-                            <li class="check-pending"><i class="fas fa-circle"></i> In store</li>
-                            {% endif %}
-                        </ul>
                         {% if not item_is_picked_up(item) and item.status in ('pending_valuation', 'pending_logistics', 'available', 'rejected', 'needs_info') %}
                         <a href="/edit_item/{{ item.id }}" onclick="event.stopPropagation()" class="btn btn-outline" style="width: 100%; margin-top: 10px; padding: 8px; font-size: 0.75rem; text-decoration: none; display: inline-block; text-align: center;"><i class="fas fa-edit"></i> Edit listing</a>
                         {% elif item_is_picked_up(item) and item.status == 'available' %}

@@ -7,6 +7,25 @@
 
 ---
 
+## Spec #7 — Seller Progress Tracker (2026-04-14)
+
+### Decision: Tracker is account-level, not per-item
+**Reasoning:** The logistics pipeline (submitted → approved → scheduled → picked up → at storage → in shop) moves all of a seller's items together. Showing the same pipeline per tile would be redundant and confusing. One tracker at the account level is clearer and matches how sellers actually experience the process.
+
+### Decision: `setup_complete` requires `payout_handle` in addition to `payout_method`
+**Reasoning:** The setup strip's "Payout info" chip is visually complete when payout_method is set, but a seller without a handle can't actually be paid. The tracker only shows when the seller is truly ready — having a method without a handle is an incomplete setup regardless of what the chip shows.
+
+### Decision: Tile color = action required only
+**Reasoning:** Yellow previously appeared on `available` (awaiting pickup) and `pending_valuation` items. Neither requires seller action — they're both just waiting. Yellow was creating anxiety where none is warranted. New scheme: yellow only for `needs_info` (must update item) and unacknowledged pricing changes (must accept or dismiss). Everything waiting is gray. Sold is green. Rejected is red.
+
+### Decision: Pricing update badge shows text + fades in × on hover (no text swap)
+**Reasoning:** Swapping label text for × on hover causes layout reflow and flicker because the element width changes. Keeping "Pricing update" always visible and fading in × alongside it via `opacity` transition avoids any layout shift.
+
+### Decision: `shop_teaser_mode` gates Stage 6 of the tracker
+**Reasoning:** Stage 6 ("In the Shop") condition requires `shop_teaser_mode != 'true'`. This means all sellers are held at Stage 5 until the shop officially launches, even if their items are `available`. Flipping the AppSetting in production auto-advances every eligible seller's tracker on their next dashboard load — no migration, no backfill needed.
+
+---
+
 ## Spec #6 — Route Planning (2026-04-14)
 
 ### Decision: Soft capacity cap only — no hard blocks
