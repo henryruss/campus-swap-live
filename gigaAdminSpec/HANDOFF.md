@@ -11,7 +11,7 @@
 
 **Last updated:** 2026-04-14
 **Active spec:** None
-**Overall status:** Specs #1–4, Mini-Spec, Referral, Boost, Draft, Delivery, Teaser, Pickup Location, Dashboard Redesign, and **Spec #6 Route Planning** all done.
+**Overall status:** Specs #1–4, Mini-Spec, Referral, Boost, Draft, Delivery, Teaser, Pickup Location, Dashboard Redesign, Spec #5 Payout Reconciliation, and **Spec #6 Route Planning** all done.
 
 ---
 
@@ -29,6 +29,7 @@
 - Buyer Delivery Flow ✅ Complete 2026-04-13 (36/37 tests passing; 1 test has wrong expected range hardcoded)
 - Shop Drop Teaser ✅ Complete 2026-04-13
 - Pickup Location Improvements ✅ Complete 2026-04-14 (50/50 tests passing)
+- **Spec #5 — Payout Reconciliation ✅ Complete 2026-04-14 (signed off)**
 - **Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)**
 
 ---
