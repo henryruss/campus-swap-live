@@ -148,9 +148,6 @@
                 {% else %}{{ seller.pickup_access_type }}{% endif %}
             </div>
             {% endif %}
-            {% if seller.pickup_floor %}
-            <div><strong>Floor:</strong> {{ seller.pickup_floor }}</div>
-            {% endif %}
             {% if seller.pickup_note %}
             <div style="color: var(--text-muted); font-size: 0.85rem;"><strong>Notes:</strong> {{ seller.pickup_note }}</div>
             {% endif %}
@@ -158,6 +155,7 @@
                 <strong>Pickup Week:</strong>
                 {% if seller.pickup_week == 'week1' %}Week 1 (4/27–5/3)
                 {% elif seller.pickup_week == 'week2' %}Week 2 (5/4–5/10)
+                {% elif seller.pickup_week == 'week3' %}Week 3 (5/11–5/17)
                 {% else %}<span style="color: var(--accent);">Not selected</span>{% endif %}
             </div>
             <div>

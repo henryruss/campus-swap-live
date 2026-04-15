@@ -263,24 +263,44 @@
         {% endif %}
       </div>
     </div>
-    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <button class="btn-outline" onclick="addTruck({{ shift.id }})">
         <i class="fas fa-plus"></i> Add Truck
       </button>
-      <form method="POST" action="{{ url_for('admin_shift_notify_sellers', shift_id=shift.id) }}" style="display:inline;">
+      <form method="POST" id="notify-form" action="{{ url_for('admin_shift_notify_sellers', shift_id=shift.id) }}" style="display:inline;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <button type="submit" class="btn-outline">
+        <button type="submit" class="btn-outline"
+                data-unnotified-count="{{ unnotified_count }}">
           <i class="fas fa-bell"></i> Notify Sellers
         </button>
       </form>
       {% if shift.sellers_notified %}
         <span style="font-size:0.875rem; color:#166534; align-self:center;">&#10003; Notified</span>
       {% endif %}
+      {# Spec #8: reschedule lock toggle #}
+      <form method="POST" action="{{ url_for('admin_toggle_reschedule_lock', shift_id=shift.id) }}" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-outline" style="{% if shift.reschedule_locked %}border-color:#dc2626; color:#dc2626;{% endif %}">
+          {% if shift.reschedule_locked %}
+            <i class="fas fa-lock"></i> Rescheduling Locked
+          {% else %}
+            <i class="fas fa-lock-open"></i> Lock Rescheduling
+          {% endif %}
+        </button>
+      </form>
     </div>
   </div>
 </div>
 
 <div class="container ops-wrap">
+
+  {# ── Spec #8: Stale route banner ── #}
+  {% if has_stale_route %}
+  <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:14px 18px; margin-bottom:20px;">
+    <strong style="color:#92400e;"><i class="fas fa-exclamation-triangle"></i> Route order may be stale</strong>
+    <span style="color:#92400e; font-size:0.875rem; margin-left:8px;">— a stop was rescheduled in since last ordering. Re-run "Order Route" before this shift starts.</span>
+  </div>
+  {% endif %}
 
   {# ── Issue alert banner ── #}
   {% set issue_stops = pickups_by_truck.values() | sum(start=[]) | selectattr('status', 'equalto', 'issue') | list %}
@@ -308,8 +328,22 @@
     {% set is_full = truck_movers | length >= drivers_per_truck %}
     {% set available_to_add = all_drivers | rejectattr('truck_number') | list %}
     <div class="truck-card">
-      <div class="truck-card-label">
-        <i class="fas fa-truck"></i> Truck {{ truck_num }}
+      <div class="truck-card-label" style="justify-content: space-between;">
+        <span><i class="fas fa-truck"></i> Truck {{ truck_num }}</span>
+        {# Spec #8: overflow toggle #}
+        <form method="POST" action="{{ url_for('admin_set_overflow_truck', shift_id=shift.id) }}" style="display:inline; margin-left:auto;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="truck_number" value="{{ truck_num }}"/>
+          {% if shift.overflow_truck_number == truck_num %}
+            <button type="submit" style="background:#16a34a; color:white; border:none; border-radius:6px; padding:2px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; letter-spacing:0.03em;">
+              OVERFLOW
+            </button>
+          {% else %}
+            <button type="submit" style="background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:2px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;">
+              Set overflow
+            </button>
+          {% endif %}
+        </form>
       </div>
 
       {# ── Destination Unit selector — auto-saves on change, no page reload ── #}
@@ -422,7 +456,7 @@
           {% endif %}
           <div class="stop-address">
             <i class="fas fa-map-marker-alt"></i>
-            {{ pickup.seller.pickup_address if pickup.seller.pickup_address else 'No address on file' }}
+            {{ pickup.seller.pickup_display if pickup.seller.pickup_display else 'No address on file' }}
           </div>
           <div class="stop-item-count">
             <i class="fas fa-box"></i>
@@ -511,10 +545,66 @@
     {% endfor %}
   </div>
 
+  {# ── Spec #8: Reschedule Activity panel ── #}
+  <div style="margin-top: 40px;">
+    <div class="section-divider"><i class="fas fa-exchange-alt"></i> Reschedule Activity</div>
+    {% if rescheduled_in or rescheduled_out %}
+      {% if rescheduled_in %}
+      <div style="margin-bottom: 20px;">
+        <p style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Added via Reschedule</p>
+        {% for pickup in rescheduled_in %}
+        <div style="padding: 10px 14px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 6px; font-size: 0.875rem; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+          <a href="{{ url_for('admin_shift_ops', shift_id=pickup.shift_id) }}"
+             style="font-weight: 700; color: var(--primary); text-decoration: none;">{{ pickup.seller.full_name }}</a>
+          <span style="color: var(--text-muted);">from <strong>{{ pickup.rescheduled_from_shift.label if pickup.rescheduled_from_shift else 'unknown shift' }}</strong></span>
+          {% if pickup.rescheduled_at %}
+          <span style="color: var(--text-muted); margin-left: auto; font-size: 0.78rem;">{{ pickup.rescheduled_at.strftime('%b %-d at %-I:%M %p') }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if rescheduled_out %}
+      <div>
+        <p style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Moved Away</p>
+        {% for pickup in rescheduled_out %}
+        <div style="padding: 10px 14px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-bottom: 6px; font-size: 0.875rem; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+          <a href="{{ url_for('admin_shift_ops', shift_id=pickup.shift_id) }}"
+             style="font-weight: 700; color: var(--primary); text-decoration: none;">{{ pickup.seller.full_name }}</a>
+          <span style="color: var(--text-muted);">to <strong>{{ pickup.shift.label }}</strong></span>
+          {% if pickup.rescheduled_at %}
+          <span style="color: var(--text-muted); margin-left: auto; font-size: 0.78rem;">{{ pickup.rescheduled_at.strftime('%b %-d at %-I:%M %p') }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% else %}
+    <p style="font-size: 0.875rem; color: var(--text-muted);">No reschedule activity for this shift.</p>
+    {% endif %}
+  </div>
+
 </div>
 
 <script>
 var CSRF = '{{ csrf_token() }}';
+
+// ── Spec #8: Notify Sellers confirmation dialog ────────────
+(function () {
+  var notifyForm = document.getElementById('notify-form');
+  if (!notifyForm) return;
+  notifyForm.addEventListener('submit', function (e) {
+    var btn = notifyForm.querySelector('button[data-unnotified-count]');
+    var count = btn ? parseInt(btn.getAttribute('data-unnotified-count'), 10) : 0;
+    var msg = 'This will email ' + count + ' seller' + (count === 1 ? '' : 's') +
+      ' their pickup date and time. Make sure the route is finalized before sending' +
+      ' — sellers who\'ve already been notified won\'t receive a duplicate. Continue?';
+    if (!confirm(msg)) {
+      e.preventDefault();
+    }
+  });
+})();
 var SHIFT_ID = {{ shift.id }};
 
 // ── Destination Unit — auto-save on dropdown change ────────

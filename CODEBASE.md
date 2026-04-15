@@ -174,6 +174,8 @@ Delivery keys: 'warehouse_lat', 'warehouse_lng', 'delivery_radius_miles' (defaul
 Teaser key: 'shop_teaser_mode' ('true' → show pre-launch teaser on /inventory; absent/'false' → normal shop)
 Route planning keys: 'truck_raw_capacity' ('18'), 'truck_capacity_buffer_pct' ('10'),
   'route_am_window' ('9am–1pm'), 'route_pm_window' ('1pm–5pm'), 'maps_static_api_key' ('')
+Rescheduling keys: 'reschedule_token_ttl_days' ('7'), 'reschedule_max_weeks_forward' ('0' = no cap),
+  'reschedule_urgent_alert_days' ('2')
 ```
 
 ### ShopNotifySignup
@@ -237,6 +239,8 @@ created_at
 truck_unit_plan (Text, nullable) — JSON dict {"truck_num": storage_location_id} — planned destination per truck;
   written by admin before pickups exist; synced to ShiftPickup.storage_location_id when pickups are added
 sellers_notified (Boolean, default False) — True once admin has sent pickup confirmation emails for this shift
+overflow_truck_number (Integer, nullable) — overflow-designated truck for rescheduled sellers; NULL = truck 1
+reschedule_locked (Boolean, default False) — excluded from seller reschedule slot grids when True
 Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
 Properties: label, sort_key, drivers_needed, organizers_needed,
             driver_assignments, organizer_assignments, is_fully_staffed, status_label
@@ -264,10 +268,13 @@ storage_location_id (FK → StorageLocation, nullable) — planned destination u
   written by admin only; pre-populated from Shift.truck_unit_plan when seller is added
 notified_at (DateTime, nullable) — timestamp when seller was sent pickup confirmation email
 capacity_warning (Boolean, default False) — True when assigned to an over-capacity truck
+rescheduled_from_shift_id (Integer, FK → Shift, nullable) — shift this stop was moved from; NULL = original assignment
+rescheduled_at (DateTime, nullable) — Eastern timestamp of reschedule
 created_at, created_by_id (FK → User)
 Unique constraint: (shift_id, seller_id) — seller globally unique across all shifts
-Relationships: shift → Shift, seller → User (backref: shift_pickups), created_by → User,
-               storage_location → StorageLocation
+Relationships: shift → Shift (foreign_keys=[shift_id]), seller → User (backref: shift_pickups),
+               created_by → User, storage_location → StorageLocation,
+               rescheduled_from_shift → Shift (foreign_keys=[rescheduled_from_shift_id])
 ```
 
 ### ShiftRun
@@ -276,6 +283,15 @@ Shift-level execution state. Created when mover taps Start Shift.
 id, shift_id (FK → Shift, unique), started_at, started_by_id (FK → User)
 ended_at (DateTime, nullable), status: 'in_progress' | 'completed'
 Relationships: shift → Shift (backref: run, uselist=False), started_by → User
+```
+
+### RescheduleToken
+```
+One-time token for email-linked seller reschedule (no login required).
+id, token (String 64, unique, indexed), pickup_id (FK → ShiftPickup), seller_id (FK → User)
+created_at, used_at (DateTime, nullable — NULL = unused), expires_at (DateTime)
+Datetimes stored naive (no tzinfo). TTL configured via AppSetting 'reschedule_token_ttl_days'.
+Relationships: pickup → ShiftPickup (backref: reschedule_tokens), seller → User
 ```
 
 ### WorkerPreference
@@ -466,6 +482,12 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/storage/create` | `admin_storage_create` | Create StorageLocation. Super admin only. |
 | `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields. Super admin only. |
 | `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
+| `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |
+| `POST /admin/crew/shift/<shift_id>/toggle-reschedule-lock` | `admin_toggle_reschedule_lock` | Lock/unlock shift from appearing in seller reschedule grids |
+| `GET /reschedule/<token>` | `seller_reschedule_get` | Token-gated reschedule page — no login required |
+| `POST /reschedule/<token>` | `seller_reschedule_post` | Submit reschedule via token |
+| `GET /seller/reschedule` | `seller_reschedule_auth_get` | Auth-gated reschedule page for logged-in sellers |
+| `POST /seller/reschedule` | `seller_reschedule_auth_post` | Submit reschedule via auth session |
 
 ### Crew (Worker Accounts)
 | Route | Function | Notes |
@@ -579,6 +601,8 @@ admin/routes.html              — Route builder: unassigned sellers by cluster,
 admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes
 admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
 admin/storage_detail.html      — Items at a given storage location, filterable by status
+seller/reschedule.html         — Full pickup-window week grid (Mon–Sun columns, AM/PM rows), prev/next week navigation, radio cards
+seller/reschedule_confirm.html — Shared success/error page for reschedule flow (already_used, expired, underway, success)
 admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
 admin/intake_flagged.html      — Damaged/missing review queue; checkbox bulk selection + "Remove from Marketplace" bulk action
 ```

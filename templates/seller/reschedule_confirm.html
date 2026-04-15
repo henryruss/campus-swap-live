@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .reschedule-confirm-wrap {
+    max-width: 520px;
+    margin: 80px auto;
+    padding: 0 16px 80px;
+    text-align: center;
+  }
+  .reschedule-confirm-wrap h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 16px;
+  }
+  .confirm-icon {
+    font-size: 3rem;
+    margin-bottom: 20px;
+  }
+  .amber-callout {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 0.9rem;
+    color: #92400e;
+    margin-bottom: 24px;
+    text-align: left;
+  }
+</style>
+
+<div class="container">
+  <div class="reschedule-confirm-wrap">
+    {% if not error %}
+      <div class="confirm-icon" style="color: #16a34a;">&#10003;</div>
+      <h1>You're all set!</h1>
+      <p style="color: var(--text-muted); margin-bottom: 24px; font-size: 0.95rem;">
+        Your pickup has been moved to <strong>{{ new_shift.label }}</strong>.
+        We'll send a new confirmation once the route is finalized.
+      </p>
+      <a href="{{ url_for('dashboard') }}" class="btn-primary" style="display:inline-block; text-decoration:none; padding: 12px 28px;">
+        Back to dashboard &rarr;
+      </a>
+
+    {% elif error == 'already_used' %}
+      <div class="confirm-icon" style="color: #d97706;">&#9888;</div>
+      <h1>Link already used</h1>
+      <div class="amber-callout">
+        <i class="fas fa-info-circle"></i>
+        This reschedule link has already been used. If you need to make another change,
+        reply to your confirmation email or contact us at
+        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+      </div>
+      <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
+
+    {% elif error == 'expired' %}
+      <div class="confirm-icon" style="color: #d97706;">&#9888;</div>
+      <h1>Link expired</h1>
+      <div class="amber-callout">
+        <i class="fas fa-clock"></i>
+        This reschedule link has expired. Reply to your confirmation email and we'll help —
+        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+      </div>
+      <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
+
+    {% elif error == 'underway' %}
+      <div class="confirm-icon" style="color: #dc2626;">&#9888;</div>
+      <h1>Pickup in progress</h1>
+      <div class="amber-callout">
+        <i class="fas fa-truck"></i>
+        Your pickup is already underway — our team is on the way.
+        If you have an issue, call or text us directly.
+      </div>
+      <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
+
+    {% else %}
+      <h1>Something went wrong</h1>
+      <div class="amber-callout">
+        An unexpected error occurred. Please contact
+        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+      </div>
+      <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

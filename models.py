@@ -79,7 +79,7 @@ class User(UserMixin, db.Model):
     def has_pickup_location(self):
         """True if user has a complete pickup location set (including access fields)."""
         # Access fields required for all location types
-        if not self.pickup_access_type or self.pickup_floor is None:
+        if not self.pickup_access_type:
             return False
         if self.pickup_location_type == 'on_campus':
             return bool(self.pickup_dorm and self.pickup_room)
@@ -373,6 +373,8 @@ class Shift(db.Model):
     # JSON: {"1": storage_location_id, "2": storage_location_id} — planned unit per truck
     truck_unit_plan = db.Column(db.Text, nullable=True)
     sellers_notified = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    overflow_truck_number = db.Column(db.Integer, nullable=True)
+    reschedule_locked = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
     assignments  = db.relationship('ShiftAssignment', backref='shift', lazy=True, cascade='all, delete-orphan')
 
@@ -457,10 +459,13 @@ class ShiftPickup(db.Model):
     storage_location_id = db.Column(db.Integer, db.ForeignKey('storage_location.id'), nullable=True)
     notified_at     = db.Column(db.DateTime, nullable=True)   # per-seller notification timestamp
     capacity_warning = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    rescheduled_from_shift_id = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=True)
+    rescheduled_at  = db.Column(db.DateTime, nullable=True)
 
-    shift      = db.relationship('Shift', backref='pickups')
+    shift      = db.relationship('Shift', backref='pickups', foreign_keys=[shift_id])
     seller     = db.relationship('User', foreign_keys=[seller_id], backref='shift_pickups')
     created_by = db.relationship('User', foreign_keys=[created_by_id])
+    rescheduled_from_shift = db.relationship('Shift', foreign_keys=[rescheduled_from_shift_id])
 
     __table_args__ = (
         db.UniqueConstraint('shift_id', 'seller_id', name='uq_shift_pickup_shift_seller'),
@@ -602,3 +607,21 @@ class Referral(db.Model):
 
     referrer = db.relationship('User', foreign_keys=[referrer_id], backref='referrals_given')
     referred = db.relationship('User', foreign_keys=[referred_id], backref='referral_received', uselist=False)
+
+
+# =========================================================
+# SPEC #8 — SELLER RESCHEDULING
+# =========================================================
+
+class RescheduleToken(db.Model):
+    """One-time-use token that lets a seller reschedule their pickup without logging in."""
+    id         = db.Column(db.Integer, primary_key=True)
+    token      = db.Column(db.String(64), unique=True, index=True, nullable=False)
+    pickup_id  = db.Column(db.Integer, db.ForeignKey('shift_pickup.id'), nullable=False)
+    seller_id  = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    used_at    = db.Column(db.DateTime, nullable=True)    # NULL = unused; set on successful reschedule
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+    pickup = db.relationship('ShiftPickup', backref='reschedule_tokens')
+    seller = db.relationship('User')
