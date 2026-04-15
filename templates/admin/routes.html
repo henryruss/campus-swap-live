@@ -155,6 +155,11 @@
           {{ seller.pickup_week | replace('week', 'Week ') if seller.pickup_week else 'No week' }}
           &nbsp;·&nbsp; {{ (seller_unit_counts.get(seller.id, 0)) | round(1) }} units
         </div>
+        {% if seller.moveout_date %}
+        <div class="seller-meta" style="color: var(--accent); font-size: 0.78rem; margin-top: 2px;">
+          Moves out: {{ seller.moveout_date.strftime('%b %-d') }}
+        </div>
+        {% endif %}
       </div>
       {% if seller.pickup_time_preference == 'morning' %}
         <span class="badge-pref badge-am">AM</span>

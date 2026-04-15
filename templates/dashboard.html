@@ -34,6 +34,28 @@ label.pickup-access-opt.is-selected {
 label.pickup-access-opt.is-selected .pickup-access-icon {
     color: var(--primary);
 }
+/* 3-column access type grid */
+.pickup-access-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+@media (max-width: 400px) {
+    .pickup-access-grid { grid-template-columns: 1fr; }
+}
+.pickup-access-grid label.pickup-access-opt {
+    flex-direction: column !important;
+    text-align: center !important;
+    padding: 10px 6px !important;
+    gap: 4px !important;
+    justify-content: center;
+    font-size: 0.82rem !important;
+}
+.pickup-access-grid label.pickup-access-opt .pickup-access-icon {
+    font-size: 1.1rem;
+    width: auto !important;
+}
 </style>
 {% set setup_phone_done = current_user.phone is not none %}
 {% set setup_pickup_done = has_pickup_location and current_user.pickup_week is not none %}
@@ -62,7 +84,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             {% endif %}
         </div>
         <div class="setup-chip {% if setup_pickup_done %}setup-chip-done{% else %}setup-chip-todo{% endif %}"
-             {% if not setup_pickup_done %}onclick="openModal('modal-pickupaddr')" style="cursor:pointer;"{% endif %}>
+             {% if not setup_pickup_done %}onclick="openPickupModal()" style="cursor:pointer;"{% endif %}>
             {% if setup_pickup_done %}
             <i class="fas fa-check-circle"></i> Pickup week &amp; address
             {% else %}
@@ -102,16 +124,43 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 4px;">{{ _pending_count }} pending</div>
             {% endif %}
         </div>
-        <div class="dashboard-stat" style="cursor: pointer;" onclick="openModal('modal-pickupaddr')" title="Set or change your pickup week">
+        {% if shift_pickup and assigned_shift_date_str %}
+        {# Assigned to a route — show actual date, non-clickable, reschedule link #}
+        <div class="dashboard-stat" title="Your pickup has been scheduled">
+            <div class="dashboard-stat-label">Pickup Window</div>
+            <div class="dashboard-stat-value" style="font-size: 0.85rem;" id="pickup-stat-value">
+              {{ assigned_shift_date_str }} · {{ shift_pickup.shift.slot | upper }}
+            </div>
+            {% if shift_pickup.notified_at %}
+            <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Confirmed</div>
+            {% else %}
+            <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-calendar-check"></i> Scheduled</div>
+            {% endif %}
+            {% if not shift_pickup.shift.run or shift_pickup.shift.run.status != 'in_progress' %}
+            <div style="margin-top: 6px;">
+              <a href="{{ url_for('seller_reschedule_auth_get') }}"
+                 style="font-size: 0.78rem; color: var(--accent); font-weight: 600; text-decoration: none;">
+                Need to reschedule? &rarr;
+              </a>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="dashboard-stat" style="cursor: pointer;" onclick="openPickupModal()" title="Set or change your pickup week">
             <div class="dashboard-stat-label">Pickup Window <span style="font-size:0.7rem; color:var(--accent); margin-left:4px;"><i class="fas fa-edit"></i></span></div>
             {% if current_user.pickup_week %}
             <div class="dashboard-stat-value" style="font-size: 0.95rem;" id="pickup-stat-value">{{ pickup_method_label }}</div>
+            {% if has_pickup_location %}
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Scheduled</div>
+            {% else %}
+            <div style="font-size: 0.75rem; color: #d97706; margin-top: 4px;"><i class="fas fa-exclamation-circle"></i> Add address</div>
+            {% endif %}
             {% else %}
             <div class="dashboard-stat-value" style="font-size: 0.9rem; color: #d97706;" id="pickup-stat-value">Not scheduled</div>
             <div style="font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 4px;">Set now &rarr;</div>
             {% endif %}
         </div>
+        {% endif %}
     </div>
 
     {# 4. SellerAlert banners — needs_info and pickup_reminder only #}
@@ -143,7 +192,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             <div style="flex: 1;">
                 <h3 style="color: #92400e; margin: 0 0 8px; font-size: 1rem;">Action needed: Please select your pickup week.</h3>
                 <p style="color: #92400e; font-size: 0.9rem; margin: 0 0 10px;">Your items are approved and ready — we just need to know when to pick them up.</p>
-                <button type="button" onclick="openModal('modal-pickupaddr')" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                <button type="button" onclick="openPickupModal()" class="btn" style="background: #d97706; color: white; border: none; padding: 8px 16px; font-size: 0.85rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
                     <i class="fas fa-calendar-check"></i> Select Pickup Week
                 </button>
             </div>
@@ -379,129 +428,160 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
 
 {# ====================== MODALS ====================== #}
 
-{# Modal: Pickup Week & Address #}
+{# Modal: Pickup Week & Address (3-step wizard) #}
 <div id="modal-pickupaddr" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-pickupaddr')">
     <div class="modal">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
-            <div>
-                <h3 style="margin: 0; font-size: 1.3rem;">Pickup Week &amp; Address</h3>
-                <p style="margin: 6px 0 0; color: var(--text-muted); font-size: 0.9rem;">We'll route around your week and text you a specific window.</p>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+            <div style="flex: 1; min-width: 0;">
+                <p id="pickup-step-indicator" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.05em;">Step 1 of 3</p>
+                <h3 id="pickup-step-title" style="margin: 0 0 2px; font-size: 1.2rem;">When should we pick up?</h3>
+                <p id="pickup-step-sub" style="margin: 0; color: var(--text-muted); font-size: 0.87rem;">We'll route around your week and text you a specific window.</p>
             </div>
-            <button type="button" onclick="closeModal('modal-pickupaddr')" style="background: none; border: none; cursor: pointer; padding: 4px 8px; color: var(--text-muted); font-size: 1.4rem; line-height: 1;" aria-label="Close">&times;</button>
+            <button type="button" onclick="closeModal('modal-pickupaddr')" style="background: none; border: none; cursor: pointer; padding: 4px 8px; color: var(--text-muted); font-size: 1.4rem; line-height: 1; flex-shrink: 0; margin-left: 8px;" aria-label="Close">&times;</button>
         </div>
 
-        {# Week selection #}
-        <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Week</p>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px;">
-            {% for week_val, week_label in pickup_weeks %}
-            <button type="button" class="sel-card pickup-week-card" data-week="{{ week_val }}"
-                    onclick="selectPickupWeek('{{ week_val }}')"
-                    {% if current_user.pickup_week == week_val %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <div style="font-weight: 700; font-size: 0.95rem; color: inherit;">{{ week_val|replace('week', 'Week ') }}</div>
-                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; font-weight: 400;">{{ week_label }}</div>
-            </button>
-            {% endfor %}
-        </div>
-
-        {# Time preference #}
-        <div id="pickup-time-section" style="margin-bottom: 20px; {% if not current_user.pickup_week %}display:none;{% endif %}">
-            <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Time preference</p>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button type="button" class="sel-btn pickup-time-btn" data-time="morning" onclick="selectPickupTime('morning')"
-                        {% if current_user.pickup_time_preference == 'morning' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                    Morning <span style="font-weight: 400;">(9am–1pm)</span>
+        {# ── STEP 1 — When ── #}
+        <div class="pickup-step" id="pickup-step-1">
+            {% if shift_pickup %}
+            <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 16px 0 6px;">Week</p>
+            <div style="padding: 10px 14px; background: var(--bg-cream); border-radius: 8px; font-size: 0.9rem; color: var(--text-main); margin-bottom: 16px;">
+              {{ current_user.pickup_week | replace('week', 'Week ') if current_user.pickup_week else '—' }}
+              <span style="font-size: 0.78rem; color: var(--text-muted); margin-left: 8px;">(set by ops)</span>
+            </div>
+            <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 6px;">Time preference</p>
+            <div style="padding: 10px 14px; background: var(--bg-cream); border-radius: 8px; font-size: 0.9rem; color: var(--text-main); margin-bottom: 16px;">
+              {{ current_user.pickup_time_preference | capitalize if current_user.pickup_time_preference else '—' }}
+              <span style="font-size: 0.78rem; color: var(--text-muted); margin-left: 8px;">(set by ops)</span>
+            </div>
+            <p style="font-size: 0.85rem; margin: 0 0 8px;">
+              <a href="{{ url_for('seller_reschedule_auth_get') }}" style="color: var(--accent); font-weight: 600; text-decoration: none;">
+                Need a different time? Reschedule &rarr;
+              </a>
+            </p>
+            {% else %}
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 0;">
+                {% for week_val, week_label in pickup_weeks %}
+                <button type="button" class="sel-card pickup-week-card" data-week="{{ week_val }}"
+                        onclick="selectPickupWeek('{{ week_val }}')"
+                        {% if current_user.pickup_week == week_val %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    <div style="font-weight: 700; font-size: 0.9rem; color: inherit;">{{ week_val|replace('week', 'Week ') }}</div>
+                    <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px; font-weight: 400; line-height: 1.3;">{{ week_label }}</div>
                 </button>
-                <button type="button" class="sel-btn pickup-time-btn" data-time="afternoon" onclick="selectPickupTime('afternoon')"
-                        {% if current_user.pickup_time_preference == 'afternoon' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                    Afternoon <span style="font-weight: 400;">(1pm–5pm)</span>
+                {% endfor %}
+            </div>
+            <div id="pickup-time-section" style="margin-top: 16px; {% if not current_user.pickup_week %}display:none;{% endif %}">
+                <p style="font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin: 0 0 8px;">Time preference</p>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="sel-btn pickup-time-btn" data-time="morning" onclick="selectPickupTime('morning')"
+                            style="flex: 1; {% if current_user.pickup_time_preference == 'morning' %}border-color: var(--primary); background: #f0fdf4; color: var(--primary);{% endif %}">
+                        Morning <span style="font-weight: 400;">(9am–1pm)</span>
+                    </button>
+                    <button type="button" class="sel-btn pickup-time-btn" data-time="afternoon" onclick="selectPickupTime('afternoon')"
+                            style="flex: 1; {% if current_user.pickup_time_preference == 'afternoon' %}border-color: var(--primary); background: #f0fdf4; color: var(--primary);{% endif %}">
+                        Afternoon <span style="font-weight: 400;">(1pm–5pm)</span>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {# ── STEP 2 — Where & How ── #}
+        <div class="pickup-step" id="pickup-step-2" style="display: none;">
+            <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
+                <button type="button" class="sel-btn pickup-loc-card" data-loc="on_campus" onclick="selectPickupLocType('on_campus')"
+                        {% if current_user.pickup_location_type == 'on_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    On campus (UNC dorm)
+                </button>
+                <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_complex" onclick="selectPickupLocType('off_campus_complex')"
+                        {% if current_user.pickup_location_type == 'off_campus_complex' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    Off-campus apartment complex
+                </button>
+                <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_other" onclick="selectPickupLocType('off_campus_other')"
+                        {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
+                    Other address
                 </button>
             </div>
-        </div>
 
-        {# Location type #}
-        <div style="border-top: 1px solid #e2e8f0; margin: 20px 0 16px;"></div>
-        <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 10px;">Where do you live?</p>
-        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
-            <button type="button" class="sel-btn pickup-loc-card" data-loc="on_campus" onclick="selectPickupLocType('on_campus')"
-                    {% if current_user.pickup_location_type == 'on_campus' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <i class="fas fa-building" style="margin-right: 6px;"></i> On campus (UNC dorm)
-            </button>
-            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_complex" onclick="selectPickupLocType('off_campus_complex')"
-                    {% if current_user.pickup_location_type == 'off_campus_complex' %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <i class="fas fa-city" style="margin-right: 6px;"></i> Off-campus apartment complex
-            </button>
-            <button type="button" class="sel-btn pickup-loc-card" data-loc="off_campus_other" onclick="selectPickupLocType('off_campus_other')"
-                    {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}style="border-color: var(--primary); background: #f0fdf4; color: var(--primary);"{% endif %}>
-                <i class="fas fa-home" style="margin-right: 6px;"></i> Other address
-            </button>
-        </div>
-
-        <div id="pickup-oncampus-fields" style="display: {% if current_user.pickup_location_type == 'on_campus' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
-            <select id="pickup-dorm-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
-                <option value="">Select dorm / building...</option>
-                {% for group, halls in dorms.items() %}
-                <optgroup label="{{ group }}">
-                    {% for hall in halls %}
-                    <option value="{{ hall }}" {% if current_user.pickup_location_type == 'on_campus' and current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+            <div id="pickup-oncampus-fields" style="display: {% if current_user.pickup_location_type == 'on_campus' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+                <select id="pickup-dorm-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
+                    <option value="">Select dorm / building...</option>
+                    {% for group, halls in dorms.items() %}
+                    <optgroup label="{{ group }}">
+                        {% for hall in halls %}
+                        <option value="{{ hall }}" {% if current_user.pickup_location_type == 'on_campus' and current_user.pickup_dorm == hall %}selected{% endif %}>{{ hall }}</option>
+                        {% endfor %}
+                    </optgroup>
                     {% endfor %}
-                </optgroup>
-                {% endfor %}
-            </select>
-            <input type="text" id="pickup-room-input" placeholder="Room number (e.g. 204)"
-                   value="{% if current_user.pickup_location_type == 'on_campus' %}{{ current_user.pickup_room or '' }}{% endif %}"
-                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
-        </div>
-
-        <div id="pickup-complex-fields" style="display: {% if current_user.pickup_location_type == 'off_campus_complex' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
-            <select id="pickup-complex-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
-                <option value="">Select building...</option>
-                {% set complexes = ['Granville Towers','Lark Chapel Hill Apartments','The Warehouse','The Edition on Rosemary','Shortbread Lofts','Union Chapel Hill','Carolina Square'] %}
-                {% for c in complexes %}
-                <option value="{{ c }}" {% if current_user.pickup_location_type == 'off_campus_complex' and current_user.pickup_dorm == c %}selected{% endif %}>{{ c }}</option>
-                {% endfor %}
-            </select>
-            <input type="text" id="pickup-unit-input" placeholder="Unit / Apartment # (e.g. 4B, 312)"
-                   value="{% if current_user.pickup_location_type == 'off_campus_complex' %}{{ current_user.pickup_room or '' }}{% endif %}"
-                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
-        </div>
-
-        <div id="pickup-offcampus-fields" style="display: {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}block{% else %}none{% endif %}; margin-bottom: 12px;">
-            <input type="text" id="pickup-address-input" placeholder="Full address (street, city, state, zip)" value="{{ current_user.pickup_address or '' }}" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
-        </div>
-
-        {# Access fields — shown once any location is selected #}
-        <div id="pickup-access-section" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 12px;">
-            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 8px;">How do movers reach your room/unit?</p>
-            <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
-                {% for val, icon, title in [
-                ('elevator',    'fa-elevator', 'Elevator access'),
-                ('stairs_only', 'fa-stairs',   'Stairs only'),
-                ('ground_floor','fa-arrow-down','Ground floor')
-            ] %}
-                <label class="pickup-access-opt {% if current_user.pickup_access_type == val %}is-selected{% endif %}" data-val="{{ val }}">
-                    <input type="radio" name="modal_access_type" value="{{ val }}" {% if current_user.pickup_access_type == val %}checked{% endif %}>
-                    <i class="fas {{ icon }} pickup-access-icon"></i>
-                    <span>{{ title }}</span>
-                </label>
-                {% endfor %}
+                </select>
+                <input type="text" id="pickup-room-input" placeholder="Room number (e.g. 204)"
+                       value="{% if current_user.pickup_location_type == 'on_campus' %}{{ current_user.pickup_room or '' }}{% endif %}"
+                       style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
             </div>
-            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 6px;">Floor</p>
-            <input type="number" id="pickup-floor-input" min="1" max="30" placeholder="e.g. 2"
-                   value="{{ current_user.pickup_floor or '' }}"
-                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; margin-bottom: 4px;">
-            <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 10px;">Enter 1 if you're on the ground floor.</p>
-            <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 6px;">Notes <span style="font-weight:400; color:var(--text-muted);">(optional)</span></p>
-            <input type="text" id="pickup-note-input" placeholder="e.g. building code is 1234#, park in lot B"
-                   value="{{ current_user.pickup_note or '' }}"
-                   style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
-            <div id="pickup-ground-floor-warn" style="display:none; color:var(--accent); font-size:0.82rem; margin-top:4px;">Ground floor is for floor 1 only — did you mean elevator or stairs?</div>
+
+            <div id="pickup-complex-fields" style="display: {% if current_user.pickup_location_type == 'off_campus_complex' %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+                <select id="pickup-complex-select" style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; margin-bottom: 10px; background: white;">
+                    <option value="">Select building...</option>
+                    {% set complexes = ['Granville Towers','Lark Chapel Hill Apartments','The Warehouse','The Edition on Rosemary','Shortbread Lofts','Union Chapel Hill','Carolina Square'] %}
+                    {% for c in complexes %}
+                    <option value="{{ c }}" {% if current_user.pickup_location_type == 'off_campus_complex' and current_user.pickup_dorm == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" id="pickup-unit-input" placeholder="Unit / Apartment # (e.g. 4B, 312)"
+                       value="{% if current_user.pickup_location_type == 'off_campus_complex' %}{{ current_user.pickup_room or '' }}{% endif %}"
+                       style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+            </div>
+
+            <div id="pickup-offcampus-fields" style="display: {% if current_user.pickup_location_type in ('off_campus_other', 'off_campus') %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+                <input type="text" id="pickup-address-input" placeholder="Full address (street, city, state, zip)"
+                       value="{{ current_user.pickup_address or '' }}"
+                       style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+            </div>
+
+            <div id="pickup-access-section" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %}; margin-bottom: 0;">
+                <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 8px;">How do movers reach your room/unit?</p>
+                <div class="pickup-access-grid">
+                    {% for val, icon, title in [
+                    ('elevator',    'fa-elevator',  'Elevator'),
+                    ('stairs_only', 'fa-stairs',    'Stairs only'),
+                    ('ground_floor','fa-arrow-down', 'Ground floor')
+                ] %}
+                    <label class="pickup-access-opt {% if current_user.pickup_access_type == val %}is-selected{% endif %}" data-val="{{ val }}">
+                        <input type="radio" name="modal_access_type" value="{{ val }}" {% if current_user.pickup_access_type == val %}checked{% endif %}>
+                        <i class="fas {{ icon }} pickup-access-icon"></i>
+                        <span>{{ title }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div id="pickup-notes-section" style="display: {% if current_user.pickup_location_type %}block{% else %}none{% endif %};">
+                <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin: 0 0 6px;">Notes <span style="font-weight:400; color:var(--text-muted);">(optional)</span></p>
+                <input type="text" id="pickup-note-input" placeholder="e.g. building code is 1234#, park in lot B"
+                       value="{{ current_user.pickup_note or '' }}"
+                       style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+            </div>
         </div>
 
-        <div id="pickupaddr-modal-error" style="display: none; color: #dc2626; font-size: 0.88rem; margin: 8px 0;"></div>
+        {# ── STEP 3 — Move-out date ── #}
+        <div class="pickup-step" id="pickup-step-3" style="display: none;">
+            <div style="margin-top: 16px;">
+                <label for="moveout-date-input" style="font-size: 0.88rem; font-weight: 600; color: var(--text-main); display: block; margin-bottom: 6px;">
+                    Move-out date <span style="font-weight: 400; color: var(--text-muted);">(optional)</span>
+                </label>
+                <input type="date" id="moveout-date-input"
+                       value="{{ current_user.moveout_date.isoformat() if current_user.moveout_date else '' }}"
+                       style="width: 100%; padding: 12px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; margin-bottom: 8px;">
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">Enter your last day in your room. We'll do our best to pick up before then.</p>
+            </div>
+        </div>
 
-        <button type="button" id="pickupaddr-save-btn" onclick="savePickupModal()" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem; margin-top: 8px;">
-            <i class="fas fa-check"></i> Save
-        </button>
+        <div id="pickupaddr-modal-error" style="display: none; color: #dc2626; font-size: 0.88rem; margin: 12px 0 0;"></div>
+
+        <div style="display: flex; gap: 10px; margin-top: 16px;">
+            <button type="button" id="pickup-back-btn" onclick="retreatPickupStep()" class="btn btn-outline" style="display: none;">← Back</button>
+            <button type="button" id="pickup-next-btn" onclick="advancePickupStep()" class="btn btn-primary" style="flex: 1;">Next →</button>
+            <button type="button" id="pickupaddr-save-btn" onclick="savePickupModal()" class="btn btn-primary" style="flex: 1; display: none;"><i class="fas fa-check"></i> Save</button>
+        </div>
         <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin: 10px 0 0;">We'll text you a specific pickup window once routes are set.</p>
     </div>
 </div>
@@ -603,10 +683,83 @@ function clearModalError(id) {
     if (el) { el.textContent = ''; el.style.display = 'none'; }
 }
 
-// ——— Pickup modal ———
+// ——— Pickup modal (multi-step) ———
 var _pickupWeek = '{{ current_user.pickup_week or "" }}';
 var _pickupTime = '{{ current_user.pickup_time_preference or "" }}';
 var _pickupLocType = '{{ current_user.pickup_location_type or "" }}';
+var _currentPickupStep = 1;
+
+var _pickupStepTitles = [
+    'When should we pick up?',
+    'Where are you located?',
+    'When do you move out?'
+];
+var _pickupStepSubs = [
+    'We\'ll route around your week and text you a specific window.',
+    'Helps our movers find you quickly.',
+    'Optional — helps us schedule your pickup before you leave.'
+];
+
+function openPickupModal() {
+    _currentPickupStep = 1;
+    updatePickupStepUI();
+    openModal('modal-pickupaddr');
+}
+
+function updatePickupStepUI() {
+    for (var i = 1; i <= 3; i++) {
+        var el = document.getElementById('pickup-step-' + i);
+        if (el) el.style.display = (i === _currentPickupStep) ? 'block' : 'none';
+    }
+    var ind = document.getElementById('pickup-step-indicator');
+    if (ind) ind.textContent = 'Step ' + _currentPickupStep + ' of 3';
+    var titleEl = document.getElementById('pickup-step-title');
+    var subEl = document.getElementById('pickup-step-sub');
+    if (titleEl) titleEl.textContent = _pickupStepTitles[_currentPickupStep - 1];
+    if (subEl) subEl.textContent = _pickupStepSubs[_currentPickupStep - 1];
+    var backBtn = document.getElementById('pickup-back-btn');
+    var nextBtn = document.getElementById('pickup-next-btn');
+    var saveBtn = document.getElementById('pickupaddr-save-btn');
+    if (backBtn) backBtn.style.display = (_currentPickupStep > 1) ? 'block' : 'none';
+    if (nextBtn) nextBtn.style.display = (_currentPickupStep < 3) ? 'block' : 'none';
+    if (saveBtn) saveBtn.style.display = (_currentPickupStep === 3) ? 'block' : 'none';
+    clearModalError('pickupaddr-modal-error');
+}
+
+function advancePickupStep() {
+    if (_currentPickupStep === 1) {
+        if (_pickupWeek && !_pickupTime) {
+            showModalError('pickupaddr-modal-error', 'Please select a time preference.');
+            return;
+        }
+    } else if (_currentPickupStep === 2) {
+        if (!_pickupLocType) {
+            showModalError('pickupaddr-modal-error', 'Please select where you live.');
+            return;
+        }
+        if (_pickupLocType === 'on_campus') {
+            var dorm = (document.getElementById('pickup-dorm-select') || {}).value || '';
+            var room = ((document.getElementById('pickup-room-input') || {}).value || '').trim();
+            if (!dorm || !room) { showModalError('pickupaddr-modal-error', 'Please select a dorm and enter your room number.'); return; }
+        } else if (_pickupLocType === 'off_campus_complex') {
+            var bld = (document.getElementById('pickup-complex-select') || {}).value || '';
+            var unit = ((document.getElementById('pickup-unit-input') || {}).value || '').trim();
+            if (!bld || !unit) { showModalError('pickupaddr-modal-error', 'Please select a building and enter your unit number.'); return; }
+        } else {
+            var addr = ((document.getElementById('pickup-address-input') || {}).value || '').trim();
+            if (!addr) { showModalError('pickupaddr-modal-error', 'Please enter your address.'); return; }
+        }
+        var accessEl = document.querySelector('.pickup-access-opt.is-selected input[type="radio"]');
+        if (!accessEl) { showModalError('pickupaddr-modal-error', 'Please select an access type.'); return; }
+    }
+    _currentPickupStep = Math.min(_currentPickupStep + 1, 3);
+    updatePickupStepUI();
+}
+
+function retreatPickupStep() {
+    _currentPickupStep = Math.max(_currentPickupStep - 1, 1);
+    updatePickupStepUI();
+}
 
 function selectPickupWeek(week) {
     _pickupWeek = week;
@@ -641,6 +794,7 @@ function selectPickupLocType(type) {
     document.getElementById('pickup-complex-fields').style.display = type === 'off_campus_complex' ? 'block' : 'none';
     document.getElementById('pickup-offcampus-fields').style.display = type === 'off_campus_other' ? 'block' : 'none';
     document.getElementById('pickup-access-section').style.display = type ? 'block' : 'none';
+    document.getElementById('pickup-notes-section').style.display = type ? 'block' : 'none';
     clearModalError('pickupaddr-modal-error');
 }
 
@@ -653,26 +807,11 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.pickup-access-opt').forEach(function(o) {
                 o.classList.toggle('is-selected', o.querySelector('input').checked);
             });
-            checkModalGroundFloorWarn();
         });
     });
-    var floorEl = document.getElementById('pickup-floor-input');
-    if (floorEl) floorEl.addEventListener('input', checkModalGroundFloorWarn);
 });
 
-function checkModalGroundFloorWarn() {
-    var warn = document.getElementById('pickup-ground-floor-warn');
-    if (!warn) return;
-    var floorEl = document.getElementById('pickup-floor-input');
-    var floor = floorEl ? parseInt(floorEl.value) || 0 : 0;
-    var selectedOpt = document.querySelector('.pickup-access-opt.is-selected input[type="radio"]');
-    var accessVal = selectedOpt ? selectedOpt.value : '';
-    warn.style.display = (floor > 1 && accessVal === 'ground_floor') ? 'block' : 'none';
-}
-
 function savePickupModal() {
-    if (!_pickupWeek) { showModalError('pickupaddr-modal-error', 'Please select a pickup week.'); return; }
-    if (!_pickupTime) { showModalError('pickupaddr-modal-error', 'Please select a time preference.'); return; }
     var btn = document.getElementById('pickupaddr-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     clearModalError('pickupaddr-modal-error');
@@ -680,7 +819,7 @@ function savePickupModal() {
     var fd = new FormData();
     fd.append('csrf_token', '{{ csrf_token() }}');
     fd.append('pickup_week', _pickupWeek);
-    fd.append('pickup_time_preference', _pickupTime);
+    if (_pickupWeek) fd.append('pickup_time_preference', _pickupTime);
     if (_pickupLocType) {
         fd.append('pickup_location_type', _pickupLocType);
         if (_pickupLocType === 'on_campus') {
@@ -694,25 +833,17 @@ function savePickupModal() {
         }
         var accessEl = document.querySelector('.pickup-access-opt.is-selected input[type="radio"]');
         if (accessEl) fd.append('pickup_access_type', accessEl.value);
-        var floorEl = document.getElementById('pickup-floor-input');
-        if (floorEl && floorEl.value) fd.append('pickup_floor', floorEl.value);
     }
     var noteEl = document.getElementById('pickup-note-input');
     if (noteEl) fd.append('pickup_note', noteEl.value || '');
+    var moveoutEl = document.getElementById('moveout-date-input');
+    if (moveoutEl) fd.append('moveout_date', moveoutEl.value || '');
 
     fetch('/api/user/set_pickup_week', { method: 'POST', body: fd })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                var sv = document.getElementById('pickup-stat-value');
-                var wLabels = { week1: 'Wk 1', week2: 'Wk 2', week3: 'Wk 3' };
-                var tLabels = { morning: 'Morning', afternoon: 'Afternoon', am: 'AM', pm: 'PM' };
-                if (sv) {
-                    sv.textContent = (wLabels[data.pickup_week] || data.pickup_week) + ' · ' + (tLabels[data.pickup_time_preference] || data.pickup_time_preference);
-                    sv.style.color = '';
-                }
                 closeModal('modal-pickupaddr');
-                // Reload to refresh setup strip
                 window.location.reload();
             } else {
                 showModalError('pickupaddr-modal-error', data.error || 'Something went wrong. Please try again.');

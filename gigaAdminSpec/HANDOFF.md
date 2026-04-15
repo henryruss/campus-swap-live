@@ -11,7 +11,7 @@
 
 **Last updated:** 2026-04-14
 **Active spec:** None
-**Overall status:** Specs #1–6, Mini-Spec, Referral, Boost, Draft, Delivery, Teaser, Pickup Location, Dashboard Redesign, Payout Reconciliation, Route Planning, and **Spec #7 Seller Progress Tracker** all done.
+**Overall status:** Specs #1–8 all signed off. Spec #9 (SMS Notifications) is next.
 
 ---
 
@@ -32,6 +32,68 @@
 - **Spec #5 — Payout Reconciliation ✅ Complete 2026-04-14 (signed off)**
 - Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)
 - **Spec #7 — Seller Progress Tracker ✅ Complete 2026-04-14 (39/39 tests passing)**
+- **Spec #8 — Seller Rescheduling ✅ Signed off 2026-04-14 (69/69 route planning tests passing)**
+
+---
+
+## Spec #8 — Seller Rescheduling (Complete)
+
+**Status:** ✅ Signed off 2026-04-14
+**Spec file:** `feature_seller_rescheduling.md`
+
+### What Was Built
+
+**New model (`models.py`)**
+- `RescheduleToken` — one-time token for email-linked reschedule. Fields: token, pickup_id, seller_id, created_at, used_at (nullable), expires_at.
+- `ShiftPickup` gains: `rescheduled_from_shift_id` (FK→Shift), `rescheduled_at` (DateTime). `shift` relationship updated to explicit `foreign_keys`.
+- `Shift` gains: `overflow_truck_number` (Integer, nullable), `reschedule_locked` (Boolean, server_default '0').
+
+**Migration:** `add_seller_rescheduling` (revision chain: add_route_planning_fields → add_seller_rescheduling). Idempotent — checks column/table existence. Seeds 3 AppSettings.
+
+**New helpers (`app.py`)**
+- `_shift_date(shift)` — compute actual calendar date from Shift object.
+- `_get_or_create_reschedule_token(pickup)` — idempotent token lookup/create using naive datetimes.
+- `_get_eligible_reschedule_slots(pickup)` — returns `set of (date, slot)` tuples covering the full `PICKUP_WEEK_DATE_RANGES` window. Checks moveout_date gate, locked/in_progress on existing shifts. No dependency on Shift records existing.
+- `_get_or_create_shift_for_date(target_date, slot)` — auto-creates ShiftWeek + Shift if admin hasn't built them yet. Called at reschedule submission time.
+- `_build_reschedule_grid(eligible_slots, current_shift)` — builds week-grouped grid data from `PICKUP_WEEK_DATE_RANGES` (all 3 pickup weeks always shown). Returns `(weeks, initial_week_idx)`.
+- `_do_reschedule(pickup, new_shift)` — moves ShiftPickup cleanly: repacks old route with `nullslast`, moves to overflow truck, sets rescheduled_from_shift_id, rescheduled_at, clears notified_at and stop_order.
+- `_send_admin_reschedule_alert(pickup, old_shift, new_shift)` — immediate admin email when reschedule is within `reschedule_urgent_alert_days`.
+- `_parse_and_validate_slot(pickup, redirect_fn)` — shared slot validation for both POST routes.
+
+**New routes (`app.py`)**
+- `GET/POST /reschedule/<token>` — unauthenticated, token-gated
+- `GET/POST /seller/reschedule` — login-required
+- `POST /admin/crew/shift/<id>/set-overflow-truck` — toggle overflow designation
+- `POST /admin/crew/shift/<id>/toggle-reschedule-lock` — lock/unlock shift
+
+**Modified routes (`app.py`)**
+- `api_set_pickup_week` — saves `moveout_date` from form/JSON
+- `admin_shift_notify_sellers` — generates token per seller, injects reschedule CTA into email
+- `admin_routes_move_stop` — clears `notified_at` when shift_id changes (not on truck-only reassignment)
+- `_run_auto_assignment` — skips shifts on/after seller's moveout_date; skips sellers without `has_pickup_location`
+- `admin_shift_ops` — passes `unnotified_count`, `rescheduled_in`, `rescheduled_out`, `has_stale_route`
+- `admin_shift_assign_seller` / `admin_routes_assign_seller` / `admin_routes_index` — gate on `has_pickup_location`
+- `dashboard` — computes `assigned_shift_date_str` from ShiftPickup (not just notified_at); passes `shift_pickup`
+- `_compute_seller_tracker` — fixed active_messages: messages now describe current wait state, not completed state
+
+**New templates**
+- `templates/seller/reschedule.html` — full pickup-window week grid, Mon–Sun columns, AM/PM rows, prev/next week navigation, radio cards with `change` event, `new_slot_key` submission
+- `templates/seller/reschedule_confirm.html` — shared success/error (already_used, expired, underway)
+
+**Modified templates**
+- `dashboard.html` — Pickup Window cell locked (non-clickable, shows actual date) as soon as ShiftPickup exists; modal week/time read-only when ShiftPickup exists; moveout_date input always editable; Reschedule link
+- `admin/shift_ops.html` — notify confirm dialog, overflow toggle per truck, reschedule lock toggle, stale route banner, Reschedule Activity panel
+- `admin/routes.html` — "Moves out: Apr 29" on seller cards
+- `crew/shift.html` — amber notice for rescheduled-in stops with NULL stop_order
+
+### Deviations from Spec
+- Eligibility is window-based (full `PICKUP_WEEK_DATE_RANGES`) not Shift-record-based. Admin does not need to pre-create all shifts — they're auto-created on submission.
+- `reschedule_max_weeks_forward` default changed from `'1'` to `'0'` (no cap). Sellers can reschedule to any date in the pickup window.
+- Pickup Window stat cell locks on `ShiftPickup` existing, not just `notified_at` set — more accurate UX.
+- `_compute_seller_tracker` active_messages corrected (bug: messages were one stage off); "Pickup scheduled!" now shows correctly when ShiftPickup exists.
+- Naive datetimes used in RescheduleToken (not timezone-aware) to avoid SQLite comparison errors.
+- `has_pickup_location` guard added to auto-assign and all manual assign paths (not in original spec — discovered during testing).
+- Test fixtures for `test_route_planning.py` updated to include `pickup_access_type`, `pickup_floor`, `pickup_room`.
 
 ---
 

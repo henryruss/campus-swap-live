@@ -109,6 +109,9 @@ def seller_week1_am(app, db):
         pickup_time_preference='morning',
         pickup_location_type='on_campus',
         pickup_dorm='Granville Towers',
+        pickup_room='204',
+        pickup_access_type='elevator',
+        pickup_floor=2,
         pickup_lat=35.9132,
         pickup_lng=-79.0558,
     )
@@ -130,6 +133,9 @@ def seller_week1_pm(app, db):
         pickup_time_preference='afternoon',
         pickup_location_type='on_campus',
         pickup_dorm='Ehringhaus',
+        pickup_room='112',
+        pickup_access_type='stairs_only',
+        pickup_floor=1,
         pickup_lat=35.9100,
         pickup_lng=-79.0530,
     )
@@ -167,8 +173,11 @@ def seller_partner_apt(app, db):
         is_seller=True,
         pickup_week='week1',
         pickup_time_preference='morning',
-        pickup_location_type='off_campus',
+        pickup_location_type='off_campus_other',
+        pickup_address='140 West Franklin St, Chapel Hill, NC',
         pickup_partner_building='The Lofts at 140',
+        pickup_access_type='elevator',
+        pickup_floor=3,
         pickup_lat=35.9200,
         pickup_lng=-79.0600,
     )
@@ -188,8 +197,10 @@ def seller_off_campus_nearby(app, db):
         is_seller=True,
         pickup_week='week1',
         pickup_time_preference='morning',
-        pickup_location_type='off_campus',
+        pickup_location_type='off_campus_other',
         pickup_address='123 Franklin St, Chapel Hill, NC',
+        pickup_access_type='ground_floor',
+        pickup_floor=1,
         pickup_lat=35.9133,   # very close to seller_week1_am
         pickup_lng=-79.0559,
     )
@@ -551,11 +562,15 @@ class TestAutoAssignment:
 
         big_seller = User(email='big@test.com', full_name='Big Seller',
                           is_seller=True, pickup_week='week1',
-                          pickup_time_preference='morning')
+                          pickup_time_preference='morning',
+                          pickup_location_type='on_campus', pickup_dorm='Morrison',
+                          pickup_room='101', pickup_access_type='elevator', pickup_floor=1)
         big_seller.set_password('x')
         small_seller = User(email='small@test.com', full_name='Small Seller',
                             is_seller=True, pickup_week='week1',
-                            pickup_time_preference='morning')
+                            pickup_time_preference='morning',
+                            pickup_location_type='on_campus', pickup_dorm='Morrison',
+                            pickup_room='102', pickup_access_type='elevator', pickup_floor=1)
         small_seller.set_password('x')
         db.session.add_all([big_seller, small_seller])
         db.session.flush()

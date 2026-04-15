@@ -42,7 +42,7 @@ from sqlalchemy import or_, and_, func, nulls_last
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, ItemAIResult, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken
 
 # Import Constants
 from constants import (
@@ -550,11 +550,11 @@ def _compute_seller_tracker(seller, items):
 
     active_messages = {
         'submitted':      "We're reviewing your items — approval usually takes 1–2 days.",
-        'approved':       "Items approved! We'll add you to a pickup route soon.",
-        'scheduled':      "Pickup scheduled. We'll text you when the driver is on the way.",
-        'picked_up':      "Driver has your items — they're headed to our storage facility.",
-        'at_campus_swap': "Your items are in storage and will go live when the shop opens.",
-        'in_the_shop':    "Your items are live! Buyers can shop them now.",
+        'approved':       "We're reviewing your items — approval usually takes 1–2 days.",
+        'scheduled':      "Items approved! We'll be adding you to a pickup route soon.",
+        'picked_up':      "Pickup scheduled! We'll send you the details and notify you when your driver is on the way.",
+        'at_campus_swap': "Driver has your items — they're headed to our storage facility.",
+        'in_the_shop':    "Your items are in storage and will go live when the shop opens.",
     }
 
     stages = []
@@ -4114,13 +4114,27 @@ def api_set_pickup_week():
     pickup_time = (request.form.get('pickup_time_preference') or _json.get('pickup_time_preference') or '').strip()
 
     valid_weeks = dict(PICKUP_WEEKS)
-    if pickup_week not in valid_weeks:
-        return jsonify({'success': False, 'error': 'Invalid pickup week.'}), 400
-    if pickup_time not in PICKUP_TIME_OPTIONS:
-        return jsonify({'success': False, 'error': 'Invalid time preference.'}), 400
+    if pickup_week:
+        if pickup_week not in valid_weeks:
+            return jsonify({'success': False, 'error': 'Invalid pickup week.'}), 400
+        if pickup_time not in PICKUP_TIME_OPTIONS:
+            return jsonify({'success': False, 'error': 'Invalid time preference.'}), 400
+        current_user.pickup_week = pickup_week
+        current_user.pickup_time_preference = pickup_time
+    else:
+        current_user.pickup_week = None
+        current_user.pickup_time_preference = None
 
-    current_user.pickup_week = pickup_week
-    current_user.pickup_time_preference = pickup_time
+    # Save moveout_date if provided
+    moveout_raw = (request.form.get('moveout_date') or _json.get('moveout_date') or '').strip()
+    if moveout_raw:
+        try:
+            from datetime import date as _date
+            current_user.moveout_date = _date.fromisoformat(moveout_raw)
+        except ValueError:
+            pass  # ignore malformed silently
+    else:
+        current_user.moveout_date = None
 
     # Save address fields if provided
     loc_type = (request.form.get('pickup_location_type') or _json.get('pickup_location_type') or '').strip()
@@ -4154,12 +4168,12 @@ def api_set_pickup_week():
                 pass
 
     db.session.commit()
-    logger.info(f"User {current_user.id} set pickup week={pickup_week} time={pickup_time} loc={loc_type or 'unchanged'}")
+    logger.info(f"User {current_user.id} set pickup week={current_user.pickup_week} time={current_user.pickup_time_preference} loc={loc_type or 'unchanged'}")
     return jsonify({
         'success': True,
-        'pickup_week': pickup_week,
-        'pickup_week_label': valid_weeks[pickup_week],
-        'pickup_time_preference': pickup_time,
+        'pickup_week': current_user.pickup_week,
+        'pickup_week_label': valid_weeks.get(current_user.pickup_week, '') if current_user.pickup_week else '',
+        'pickup_time_preference': current_user.pickup_time_preference,
     })
 
 
@@ -4809,6 +4823,16 @@ def dashboard():
     )
     tracker = _compute_seller_tracker(current_user, my_items) if setup_complete else None
 
+    # ShiftPickup for the current user (if assigned)
+    shift_pickup = ShiftPickup.query.filter_by(seller_id=current_user.id).first()
+    # Compute actual shift date as soon as a ShiftPickup exists (not just after notification)
+    assigned_shift_date_str = None
+    if shift_pickup and shift_pickup.shift and shift_pickup.shift.week:
+        _day_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        _sp = shift_pickup.shift
+        _sd = _sp.week.week_start + timedelta(days=_day_order.index(_sp.day_of_week))
+        assigned_shift_date_str = _sd.strftime('%a, %b %-d')
+
     return render_template('dashboard.html',
                           my_items=my_items,
                           unresolved_alerts=unresolved_alerts,
@@ -4849,7 +4873,9 @@ def dashboard():
                           referral_max=referral_max,
                           app_base_url=app_base_url,
                           setup_complete=setup_complete,
-                          tracker=tracker)
+                          tracker=tracker,
+                          shift_pickup=shift_pickup,
+                          assigned_shift_date_str=assigned_shift_date_str)
 
 def _validate_access_fields(form):
     """Validate pickup_access_type and pickup_floor from a form/dict. Returns (access_type, floor) or (None, None) on failure."""
@@ -8325,15 +8351,18 @@ def admin_shift_ops(shift_id):
         p.seller_id for p in ShiftPickup.query.all()
     }
     # Available sellers: have 'available' items and not already on any shift
-    available_sellers = (
-        User.query
-        .join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(InventoryItem.status == 'available')
-        .filter(User.id.notin_(assigned_seller_ids))
-        .group_by(User.id)
-        .order_by(User.full_name)
-        .all()
-    )
+    available_sellers = [
+        s for s in (
+            User.query
+            .join(InventoryItem, InventoryItem.seller_id == User.id)
+            .filter(InventoryItem.status == 'available')
+            .filter(User.id.notin_(assigned_seller_ids))
+            .group_by(User.id)
+            .order_by(User.full_name)
+            .all()
+        )
+        if s.pickup_week and s.has_pickup_location
+    ]
     # Item counts for available sellers
     seller_item_counts = {}
     for s in available_sellers:
@@ -8416,6 +8445,21 @@ def admin_shift_ops(shift_id):
         else:
             # unknown_item flags — attach to truck 1 for display
             open_flags_by_truck[truck_numbers[0]].append(f)
+    # Spec #8: unnotified count for confirmation dialog
+    unnotified_count = sum(1 for p in pickups if p.notified_at is None)
+
+    # Spec #8: reschedule activity lists
+    rescheduled_in = [p for p in pickups if p.rescheduled_from_shift_id is not None]
+    rescheduled_out = ShiftPickup.query.filter(
+        ShiftPickup.rescheduled_from_shift_id == shift.id
+    ).all()
+
+    # Spec #8: stale route flag — any pickup rescheduled in with no stop_order yet
+    has_stale_route = any(
+        p.rescheduled_at is not None and p.stop_order is None
+        for p in pickups
+    )
+
     return render_template(
         'admin/shift_ops.html',
         shift=shift,
@@ -8433,6 +8477,10 @@ def admin_shift_ops(shift_id):
         item_ids_by_truck=item_ids_by_truck,
         received_by_truck=received_by_truck,
         open_flags_by_truck=open_flags_by_truck,
+        unnotified_count=unnotified_count,
+        rescheduled_in=rescheduled_in,
+        rescheduled_out=rescheduled_out,
+        has_stale_route=has_stale_route,
     )
 
 
@@ -8520,6 +8568,9 @@ def admin_shift_assign_seller(shift_id):
         flash("Seller and truck number are required.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     seller = User.query.get_or_404(seller_id)
+    if not seller.pickup_week or not seller.has_pickup_location:
+        flash(f"{seller.full_name} hasn't set their pickup week and address yet.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     # Check for duplicate — a seller should only appear on one shift total
     existing = ShiftPickup.query.filter_by(seller_id=seller_id).first()
     if existing:
@@ -9970,18 +10021,21 @@ def _run_auto_assignment():
     # All seller_ids that already have a ShiftPickup
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.all()}
 
-    # Eligible sellers: has available items, no pickup yet, pickup_week set
-    eligible_sellers = (
-        User.query
-        .join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(
-            InventoryItem.status == 'available',
-            User.pickup_week.isnot(None),
-            User.id.notin_(existing_pickup_ids),
+    # Eligible sellers: has available items, no pickup yet, pickup_week set, address complete
+    eligible_sellers = [
+        s for s in (
+            User.query
+            .join(InventoryItem, InventoryItem.seller_id == User.id)
+            .filter(
+                InventoryItem.status == 'available',
+                User.pickup_week.isnot(None),
+                User.id.notin_(existing_pickup_ids),
+            )
+            .group_by(User.id)
+            .all()
         )
-        .group_by(User.id)
-        .all()
-    )
+        if s.has_pickup_location
+    ]
 
     # Sort by unit count DESC (largest loads placed first)
     seller_units = [(s, get_seller_unit_count(s)) for s in eligible_sellers]
@@ -10020,6 +10074,21 @@ def _run_auto_assignment():
             query = query.filter(Shift.slot == pref_slot)
 
         candidates = query.filter(Shift.is_active == True).all()
+
+        # Spec #8: filter out shifts on or after seller's move-out date
+        if seller.moveout_date:
+            from datetime import date as _date
+            _day_order_aa = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+            filtered = []
+            for _s in candidates:
+                if _s.week and _s.week.week_start:
+                    _sd = _s.week.week_start + timedelta(days=_day_order_aa.index(_s.day_of_week))
+                    if _sd < seller.moveout_date:
+                        filtered.append(_s)
+            candidates = filtered
+            if not candidates:
+                tbd.append({'seller_id': seller.id, 'reason': f'No eligible shift before move-out date ({seller.moveout_date})'})
+                continue
 
         if not candidates:
             slot_label = pref_slot.upper() if pref_slot in ('am', 'pm') else 'any'
@@ -10185,6 +10254,7 @@ def admin_shift_notify_sellers(shift_id):
 
     shift_day_str = shift.label  # e.g. "Monday AM"
 
+    base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
     sent_count = 0
     for pickup in pickups:
         seller = pickup.seller
@@ -10192,6 +10262,9 @@ def admin_shift_notify_sellers(shift_id):
             continue
         first_name = seller.full_name.split()[0] if seller.full_name else 'there'
         try:
+            # Spec #8: generate reschedule token (idempotent — piggybacks on notify loop)
+            token_rec = _get_or_create_reschedule_token(pickup)
+            reschedule_url = f"{base_url}/reschedule/{token_rec.token}"
             html = wrap_email_template(f"""
                 <h2>Your Campus Swap pickup is confirmed!</h2>
                 <p>Hi {first_name},</p>
@@ -10201,6 +10274,12 @@ def admin_shift_notify_sellers(shift_id):
                 <p>If you have any questions, reply to this email or reach out at
                 <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
                 <p>Thanks for selling with Campus Swap!</p>
+                <p style="margin-top:24px; padding-top:20px; border-top:1px solid #e2e8f0; text-align:center;">
+                  <a href="{reschedule_url}"
+                     style="display:inline-block; padding:10px 22px; background:#f5f0e8; color:#1A3D1A; border:1px solid #d8d0c4; border-radius:8px; text-decoration:none; font-size:0.9rem; font-weight:600;">
+                    Need to reschedule? Pick a new time &rarr;
+                  </a>
+                </p>
             """)
             send_email(seller.email, f"Your Campus Swap pickup is {shift_day_str}", html)
             pickup.notified_at = _now_eastern()
@@ -10227,18 +10306,21 @@ def admin_routes_index():
 
     # Sellers with available items and a pickup_week set (include only those)
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
-    unassigned_sellers = (
-        User.query
-        .join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(
-            InventoryItem.status == 'available',
-            User.pickup_week.isnot(None),
-            User.id.notin_(assigned_seller_ids),
+    unassigned_sellers = [
+        s for s in (
+            User.query
+            .join(InventoryItem, InventoryItem.seller_id == User.id)
+            .filter(
+                InventoryItem.status == 'available',
+                User.pickup_week.isnot(None),
+                User.id.notin_(assigned_seller_ids),
+            )
+            .group_by(User.id)
+            .order_by(User.full_name)
+            .all()
         )
-        .group_by(User.id)
-        .order_by(User.full_name)
-        .all()
-    )
+        if s.has_pickup_location
+    ]
 
     clusters = build_geographic_clusters(unassigned_sellers)
 
@@ -10281,18 +10363,19 @@ def admin_routes_index():
                 'label': f"{shift.label} (week of {shift.week.week_start.strftime('%b %-d')}) — Truck {t}",
             })
 
-    # Count stats
-    total_with_items = (
-        User.query
-        .join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(InventoryItem.status == 'available', User.pickup_week.isnot(None))
-        .group_by(User.id)
-        .count()
-    )
-    total_assigned = len(assigned_seller_ids & {
-        s.id for s in User.query.join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(InventoryItem.status == 'available', User.pickup_week.isnot(None)).group_by(User.id).all()
-    })
+    # Count stats — "ready" means pickup_week set + address complete (matches assignment eligibility)
+    all_ready_sellers = [
+        s for s in (
+            User.query
+            .join(InventoryItem, InventoryItem.seller_id == User.id)
+            .filter(InventoryItem.status == 'available', User.pickup_week.isnot(None))
+            .group_by(User.id)
+            .all()
+        )
+        if s.has_pickup_location
+    ]
+    total_with_items = len(all_ready_sellers)
+    total_assigned = len(assigned_seller_ids & {s.id for s in all_ready_sellers})
     total_unassigned = len(unassigned_sellers)
 
     # Over-cap warnings
@@ -10336,8 +10419,13 @@ def admin_routes_move_stop(pickup_id):
     if not new_shift_id or not new_truck:
         return jsonify({'error': 'shift_id and truck_number required'}), 400
 
+    original_shift_id = pickup.shift_id
     pickup.shift_id = int(new_shift_id)
     pickup.truck_number = int(new_truck)
+
+    # Spec #8: clear notified_at when shift identity changes (email copy would be wrong)
+    if pickup.shift_id != original_shift_id:
+        pickup.notified_at = None
 
     # Recompute capacity warning for this pickup on the new truck
     effective_cap = get_effective_capacity()
@@ -10358,6 +10446,9 @@ def admin_routes_assign_seller(user_id):
     if not current_user.is_admin:
         abort(403)
     seller = User.query.get_or_404(user_id)
+
+    if not seller.pickup_week or not seller.has_pickup_location:
+        return jsonify({'error': 'Seller has not set their pickup week and address'}), 422
 
     # Global uniqueness check
     existing = ShiftPickup.query.filter_by(seller_id=user_id).first()
@@ -10426,6 +10517,384 @@ def admin_route_settings():
         maps_static_api_key=AppSetting.get('maps_static_api_key', ''),
         effective_cap=get_effective_capacity(),
     )
+
+
+# ── Spec #8 — Seller Rescheduling ────────────────────────────────────────────
+
+_DAY_ORDER_RS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+
+def _shift_date(shift):
+    """Return the calendar date of a Shift object."""
+    return shift.week.week_start + timedelta(days=_DAY_ORDER_RS.index(shift.day_of_week))
+
+
+def _get_or_create_reschedule_token(pickup):
+    """Return a valid unused token for this pickup, creating one if needed. Caller commits."""
+    ttl = int(AppSetting.get('reschedule_token_ttl_days', '7'))
+    # Use naive datetime — SQLite/Postgres store datetimes without tzinfo
+    now = _now_eastern().replace(tzinfo=None)
+    existing = (RescheduleToken.query
+        .filter_by(pickup_id=pickup.id)
+        .filter(RescheduleToken.used_at.is_(None))
+        .filter(RescheduleToken.expires_at > now)
+        .order_by(RescheduleToken.created_at.desc())
+        .first())
+    if existing:
+        return existing
+    rec = RescheduleToken(
+        token=secrets.token_urlsafe(48),
+        pickup_id=pickup.id,
+        seller_id=pickup.seller_id,
+        created_at=now,
+        expires_at=now + timedelta(days=ttl),
+    )
+    db.session.add(rec)
+    return rec
+
+
+def _get_eligible_reschedule_slots(pickup):
+    """
+    Return a set of (date, slot) tuples the seller can reschedule into.
+    Covers ALL dates in the defined pickup window — not just days with existing Shift records.
+    Uncreated slots are auto-created in _get_or_create_shift_for_date when submitted.
+    """
+    from constants import PICKUP_WEEK_DATE_RANGES
+    from datetime import date as _date_type
+
+    seller = pickup.seller
+    today = _today_eastern()
+    current_shift = pickup.shift
+    current_date = _shift_date(current_shift)
+
+    # Full set of date/slot combos across all defined pickup weeks
+    all_slots = set()
+    for _wk, (start_str, end_str) in PICKUP_WEEK_DATE_RANGES.items():
+        d = _date_type.fromisoformat(start_str)
+        end = _date_type.fromisoformat(end_str)
+        while d <= end:
+            all_slots.add((d, 'am'))
+            all_slots.add((d, 'pm'))
+            d += timedelta(days=1)
+
+    # Existing Shift lookup for locked / in-progress checks
+    _day_names_rs = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    existing_shifts = {}
+    for s in Shift.query.join(ShiftWeek, Shift.week_id == ShiftWeek.id).all():
+        if s.week and s.week.week_start:
+            sd = s.week.week_start + timedelta(days=_day_names_rs.index(s.day_of_week))
+            existing_shifts[(sd, s.slot)] = s
+
+    eligible = set()
+    for (d, slot) in all_slots:
+        if d < today:
+            continue
+        if d == today:
+            if not (current_date == today and current_shift.slot == 'am' and slot == 'pm'):
+                continue
+        if seller.moveout_date and d >= seller.moveout_date:
+            continue
+        existing = existing_shifts.get((d, slot))
+        if existing:
+            if existing.reschedule_locked:
+                continue
+            if existing.run and existing.run.status == 'in_progress':
+                continue
+        eligible.add((d, slot))
+
+    return eligible
+
+
+def _get_or_create_shift_for_date(target_date, slot):
+    """
+    Get or create a ShiftWeek + Shift for the given date and slot.
+    Called when a seller reschedules to a slot admin hasn't created yet.
+    Caller must commit after this returns.
+    """
+    _day_names_rs = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    day_of_week = _day_names_rs[target_date.weekday()]
+    week_start = target_date - timedelta(days=target_date.weekday())
+
+    week = ShiftWeek.query.filter_by(week_start=week_start).first()
+    if not week:
+        week = ShiftWeek(week_start=week_start, status='published', created_by_id=None)
+        db.session.add(week)
+        db.session.flush()
+
+    shift = Shift.query.filter_by(week_id=week.id, day_of_week=day_of_week, slot=slot).first()
+    if not shift:
+        shift = Shift(week_id=week.id, day_of_week=day_of_week, slot=slot, trucks=1, is_active=True)
+        db.session.add(shift)
+        db.session.flush()
+
+    return shift
+
+
+def _build_reschedule_grid(eligible_slots, current_shift):
+    """
+    Build week-grouped grid data for the reschedule page.
+    Shows all weeks defined in PICKUP_WEEK_DATE_RANGES (the full pickup window).
+    eligible_slots is a set of (date, slot) tuples from _get_eligible_reschedule_slots.
+    Returns (weeks, initial_week_idx).
+    """
+    from constants import PICKUP_WEEK_DATE_RANGES
+    from datetime import date as _date_type
+
+    current_shift_date = _shift_date(current_shift)
+    cs_monday = current_shift_date - timedelta(days=current_shift_date.weekday())
+    current_key = (current_shift_date, current_shift.slot)
+
+    # The weeks to show = all pickup window weeks + the current shift's week if outside
+    week_mondays = set()
+    for _wk, (start_str, _end_str) in PICKUP_WEEK_DATE_RANGES.items():
+        week_mondays.add(_date_type.fromisoformat(start_str))
+    week_mondays.add(cs_monday)
+
+    weeks = []
+    initial_week_idx = 0
+    for ws in sorted(week_mondays):
+        dates = [ws + timedelta(days=i) for i in range(7)]
+        rows = {'am': [], 'pm': []}
+        for d in dates:
+            for slot in ('am', 'pm'):
+                key = (d, slot)
+                rows[slot].append({
+                    'date': d,
+                    'slot': slot,
+                    'is_current': key == current_key,
+                    'eligible': key in eligible_slots,
+                    'disabled': key not in eligible_slots and key != current_key,
+                })
+        end_of_week = ws + timedelta(days=6)
+        label = ws.strftime('%b %-d') + ' – ' + end_of_week.strftime('%b %-d')
+        weeks.append({'week_start': ws, 'label': label, 'dates': dates, 'rows': rows})
+        if ws == cs_monday:
+            initial_week_idx = len(weeks) - 1
+
+    return weeks, initial_week_idx
+
+
+def _send_admin_reschedule_alert(pickup, old_shift, new_shift):
+    """Send an immediate email alert to admin when a seller reschedules urgently."""
+    admin_email = os.environ.get('ADMIN_EMAIL')
+    if not admin_email:
+        return
+    seller = pickup.seller
+    old_date = _shift_date(old_shift).strftime('%A, %b %-d')
+    new_date = _shift_date(new_shift).strftime('%A, %b %-d')
+    base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
+    seller_link = f"{base_url}/admin/seller/{seller.id}"
+    now_str = _now_eastern().strftime('%b %-d at %-I:%M %p ET')
+    subject = f"Reschedule alert: {seller.full_name} — {old_shift.label} -> {new_shift.label}"
+    html = wrap_email_template(f"""
+        <h2>Seller Reschedule Alert</h2>
+        <p><strong>{seller.full_name}</strong> has rescheduled their pickup.</p>
+        <ul>
+          <li><strong>From:</strong> {old_shift.label} ({old_date})</li>
+          <li><strong>To:</strong> {new_shift.label} ({new_date})</li>
+          <li><strong>Rescheduled at:</strong> {now_str}</li>
+        </ul>
+        <p><a href="{seller_link}">View seller profile &rarr;</a></p>
+    """)
+    try:
+        send_email(admin_email, subject, html)
+    except Exception as e:
+        logger.error(f"Failed to send admin reschedule alert: {e}")
+
+
+def _do_reschedule(pickup, new_shift):
+    """Move a ShiftPickup to new_shift cleanly. Commits the session."""
+    overflow_truck = new_shift.overflow_truck_number or 1
+    old_shift = pickup.shift  # hold reference before mutation
+
+    # Repack remaining stop_order values on old route
+    remaining = (ShiftPickup.query
+        .filter_by(shift_id=old_shift.id)
+        .filter(ShiftPickup.id != pickup.id)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id)
+        .all())
+    for i, p in enumerate(remaining, start=1):
+        p.stop_order = i
+
+    # Move to new shift
+    pickup.shift_id = new_shift.id
+    pickup.truck_number = overflow_truck
+    pickup.stop_order = None          # appended last; shown at bottom of mover list
+    pickup.rescheduled_from_shift_id = old_shift.id
+    pickup.rescheduled_at = _now_eastern()
+    pickup.notified_at = None         # fresh notification needed for new shift
+
+    # Capacity warning on overflow truck
+    existing_count = ShiftPickup.query.filter_by(
+        shift_id=new_shift.id, truck_number=overflow_truck
+    ).count()
+    effective_cap = get_effective_capacity()
+    pickup.capacity_warning = (existing_count >= effective_cap)
+
+    db.session.commit()
+
+    # Admin alert — immediate email only if shift is soon
+    days_until = (_shift_date(new_shift) - _today_eastern()).days
+    threshold = int(AppSetting.get('reschedule_urgent_alert_days', '2'))
+    if days_until <= threshold:
+        _send_admin_reschedule_alert(pickup, old_shift, new_shift)
+
+
+@app.route('/reschedule/<token>', methods=['GET'])
+def seller_reschedule_get(token):
+    """Token-gated reschedule page — no login required."""
+    rec = RescheduleToken.query.filter_by(token=token).first_or_404()
+    if rec.used_at:
+        return render_template('seller/reschedule_confirm.html',
+                               error='already_used', new_shift=None, token=token)
+    if rec.expires_at < _now_eastern().replace(tzinfo=None):
+        return render_template('seller/reschedule_confirm.html',
+                               error='expired', new_shift=None, token=token)
+    pickup = rec.pickup
+    run = pickup.shift.run
+    if run and run.status == 'in_progress':
+        return render_template('seller/reschedule_confirm.html',
+                               error='underway', new_shift=None, token=token)
+    eligible_slots = _get_eligible_reschedule_slots(pickup)
+    weeks, initial_week_idx = _build_reschedule_grid(eligible_slots, pickup.shift)
+    current_shift = pickup.shift
+    current_shift_date_str = _shift_date(current_shift).strftime('%B %-d') if current_shift.week else ''
+    return render_template('seller/reschedule.html',
+                           token=token, pickup=pickup,
+                           weeks=weeks, initial_week_idx=initial_week_idx,
+                           has_eligible=bool(eligible_slots),
+                           current_shift=current_shift,
+                           current_shift_date_str=current_shift_date_str,
+                           form_action=url_for('seller_reschedule_post', token=token))
+
+
+def _parse_and_validate_slot(pickup, redirect_fn):
+    """
+    Parse new_slot_key from form (format 'YYYY-MM-DD:am'/'YYYY-MM-DD:pm'),
+    validate eligibility. Returns (new_date, slot, error_response).
+    error_response is non-None if validation failed.
+    """
+    from datetime import date as _date_type
+    slot_key = request.form.get('new_slot_key', '')
+    try:
+        date_str, slot = slot_key.rsplit(':', 1)
+        new_date = _date_type.fromisoformat(date_str)
+        assert slot in ('am', 'pm')
+    except Exception:
+        flash("Please select a new time slot.", "error")
+        return None, None, redirect_fn()
+    eligible_slots = _get_eligible_reschedule_slots(pickup)
+    if (new_date, slot) not in eligible_slots:
+        return None, None, (abort(400) or '')
+    current_date = _shift_date(pickup.shift)
+    if new_date == current_date and slot == pickup.shift.slot:
+        flash("No changes made.", "info")
+        return None, None, redirect(url_for('dashboard'))
+    return new_date, slot, None
+
+
+@app.route('/reschedule/<token>', methods=['POST'])
+def seller_reschedule_post(token):
+    """Submit reschedule via token — no login required."""
+    rec = RescheduleToken.query.filter_by(token=token).first_or_404()
+    if rec.used_at:
+        return render_template('seller/reschedule_confirm.html',
+                               error='already_used', new_shift=None, token=token)
+    if rec.expires_at < _now_eastern().replace(tzinfo=None):
+        return render_template('seller/reschedule_confirm.html',
+                               error='expired', new_shift=None, token=token)
+    pickup = rec.pickup
+    run = pickup.shift.run
+    if run and run.status == 'in_progress':
+        return render_template('seller/reschedule_confirm.html',
+                               error='underway', new_shift=None, token=token)
+
+    new_date, slot, err = _parse_and_validate_slot(pickup, lambda: redirect(url_for('seller_reschedule_get', token=token)))
+    if err is not None:
+        return err
+    new_shift = _get_or_create_shift_for_date(new_date, slot)
+    _do_reschedule(pickup, new_shift)
+    rec.used_at = _now_eastern().replace(tzinfo=None)
+    db.session.commit()
+    return render_template('seller/reschedule_confirm.html',
+                           error=None, new_shift=new_shift, token=None)
+
+
+@app.route('/seller/reschedule', methods=['GET'])
+@login_required
+def seller_reschedule_auth_get():
+    """Auth-gated reschedule page for logged-in sellers."""
+    pickup = ShiftPickup.query.filter_by(seller_id=current_user.id).first()
+    if not pickup:
+        abort(404)
+    run = pickup.shift.run
+    if run and run.status == 'in_progress':
+        return render_template('seller/reschedule_confirm.html',
+                               error='underway', new_shift=None, token=None)
+    eligible_slots = _get_eligible_reschedule_slots(pickup)
+    weeks, initial_week_idx = _build_reschedule_grid(eligible_slots, pickup.shift)
+    current_shift = pickup.shift
+    current_shift_date_str = _shift_date(current_shift).strftime('%B %-d') if current_shift.week else ''
+    return render_template('seller/reschedule.html',
+                           token=None, pickup=pickup,
+                           weeks=weeks, initial_week_idx=initial_week_idx,
+                           has_eligible=bool(eligible_slots),
+                           current_shift=current_shift,
+                           current_shift_date_str=current_shift_date_str,
+                           form_action=url_for('seller_reschedule_auth_post'))
+
+
+@app.route('/seller/reschedule', methods=['POST'])
+@login_required
+def seller_reschedule_auth_post():
+    """Submit reschedule via auth session."""
+    pickup = ShiftPickup.query.filter_by(seller_id=current_user.id).first()
+    if not pickup:
+        abort(404)
+    run = pickup.shift.run
+    if run and run.status == 'in_progress':
+        return render_template('seller/reschedule_confirm.html',
+                               error='underway', new_shift=None, token=None)
+    new_date, slot, err = _parse_and_validate_slot(pickup, lambda: redirect(url_for('seller_reschedule_auth_get')))
+    if err is not None:
+        return err
+    new_shift = _get_or_create_shift_for_date(new_date, slot)
+    _do_reschedule(pickup, new_shift)
+    return render_template('seller/reschedule_confirm.html',
+                           error=None, new_shift=new_shift, token=None)
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/set-overflow-truck', methods=['POST'])
+@login_required
+def admin_set_overflow_truck(shift_id):
+    """Set or toggle the overflow truck designation for a shift."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    truck_number = request.form.get('truck_number', type=int)
+    if truck_number is None:
+        flash("truck_number required.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    shift.overflow_truck_number = (
+        None if shift.overflow_truck_number == truck_number else truck_number
+    )
+    db.session.commit()
+    flash("Overflow truck updated.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/toggle-reschedule-lock', methods=['POST'])
+@login_required
+def admin_toggle_reschedule_lock(shift_id):
+    """Toggle the reschedule lock on a shift."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    shift.reschedule_locked = not shift.reschedule_locked
+    db.session.commit()
+    msg = "Rescheduling locked." if shift.reschedule_locked else "Rescheduling unlocked."
+    flash(msg, "success")
+    return redirect(url_for('admin_shift_ops', shift_id=shift_id))
 
 
 @app.route('/crew/shift/<int:shift_id>/stops_partial')

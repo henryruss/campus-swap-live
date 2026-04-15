@@ -7,6 +7,31 @@
 
 ---
 
+## Spec #8 — Seller Rescheduling (2026-04-14)
+
+### Decision: Reschedule grid covers full pickup window, not just existing Shift records
+**Reasoning:** Admin shouldn't need to pre-build every day/slot before sellers can reschedule. The pickup window is already defined in `PICKUP_WEEK_DATE_RANGES`. Shifts are auto-created on demand when a seller picks an unmapped slot. This makes the system robust to admin incomplete setup.
+
+### Decision: `reschedule_max_weeks_forward` defaults to `'0'` (no cap)
+**Reasoning:** Sellers should be able to move to any future date in the pickup window freely. A forward cap adds friction with no operational benefit — the overflow truck can handle any slot.
+
+### Decision: Pickup Window stat cell locks on ShiftPickup existing (not notified_at)
+**Reasoning:** Once admin assigns a seller to a route, they shouldn't be able to change their week/time preference — that would break route planning. The lock triggers at assignment, not at email notification. `notified_at` still controls the "Confirmed" vs "Scheduled" label.
+
+### Decision: Naive datetimes in RescheduleToken
+**Reasoning:** SQLite reads datetimes back without timezone info. `_now_eastern()` returns timezone-aware. Comparing them raises TypeError. All RescheduleToken datetimes stored and compared using `.replace(tzinfo=None)` to stay consistent with the rest of the codebase's datetime storage pattern.
+
+### Decision: `has_pickup_location` required for auto-assign and manual assign
+**Reasoning:** Assigning a seller without a complete address (access type + floor + location) would create a pickup stop the mover can't navigate to. Gate enforced at both the route builder UI (sellers without complete addresses don't appear) and server-side on all assignment routes.
+
+### Decision: _do_reschedule repacks old route with nullslast
+**Reasoning:** Stops with NULL stop_order (rescheduled-in or newly added) must stay at the end after repacking. `nullslast(ShiftPickup.stop_order.asc())` ensures they sort after ordered stops rather than before.
+
+### Decision: `_compute_seller_tracker` active_messages corrected
+**Reasoning:** Messages were one stage off — each message described what happened *at* a milestone but was displayed while waiting *for* that milestone. A seller with ShiftPickup (scheduled=True) saw "Driver has your items" because the active stage advanced to `picked_up`. Fixed by shifting messages one stage earlier to describe the current wait state.
+
+---
+
 ## Spec #7 — Seller Progress Tracker (2026-04-14)
 
 ### Decision: Tracker is account-level, not per-item

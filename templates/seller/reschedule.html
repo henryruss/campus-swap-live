@@ -1,0 +1,345 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .reschedule-wrap {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 40px 16px 80px;
+  }
+  .reschedule-wrap h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 8px;
+  }
+  .current-pickup-card {
+    background: var(--bg-cream);
+    border: var(--card-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    color: var(--text-main);
+  }
+  .current-pickup-card strong { color: var(--primary); }
+  .amber-callout {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 0.88rem;
+    color: #92400e;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .amber-callout i { margin-top: 2px; flex-shrink: 0; }
+
+  /* ── Week navigation ── */
+  .rs-week-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 12px;
+  }
+  .rs-week-nav-btn {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--primary);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    white-space: nowrap;
+  }
+  .rs-week-nav-btn:hover:not(:disabled) {
+    background: var(--bg-cream);
+    border-color: var(--primary);
+  }
+  .rs-week-nav-btn:disabled {
+    color: #d1d5db;
+    border-color: #e5e7eb;
+    cursor: not-allowed;
+  }
+  .rs-week-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--primary);
+    text-align: center;
+    flex: 1;
+  }
+
+  /* ── Grid ── */
+  .rs-grid-wrap { margin-bottom: 28px; overflow-x: auto; }
+  .rs-grid {
+    display: grid;
+    grid-template-columns: 36px repeat(7, minmax(64px, 1fr));
+    gap: 4px;
+    min-width: 500px;
+  }
+  .rs-col-header {
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    padding-bottom: 6px;
+    white-space: nowrap;
+  }
+  .rs-col-header .rs-col-date {
+    font-size: 0.68rem;
+    font-weight: 400;
+    display: block;
+  }
+  .rs-row-label {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+  .rs-card {
+    min-height: 52px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    user-select: none;
+    -webkit-user-select: none;
+    position: relative;
+    text-align: center;
+    padding: 4px 2px;
+    line-height: 1.3;
+    width: 100%;
+  }
+  .rs-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+  .rs-card.available {
+    background: #f8faf8;
+    border-color: var(--rule);
+    color: var(--primary);
+  }
+  .rs-card.available:hover { background: #edf5ed; border-color: var(--sage); }
+  .rs-card.available.is-selected {
+    background: #dcfce7;
+    border-color: #16a34a;
+    color: #15803d;
+  }
+  .rs-card.is-current {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    cursor: default;
+  }
+  .rs-card.is-current.is-selected {
+    background: #dbeafe;
+    border-color: #3b82f6;
+  }
+  .rs-card.disabled {
+    background: #f9fafb;
+    border-color: #f1f1f1;
+    color: #e5e7eb;
+    cursor: default;
+  }
+  .rs-current-label {
+    font-size: 0.6rem;
+    display: block;
+    color: #1d4ed8;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .rs-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+    margin-top: 8px;
+  }
+  #rs-submit-btn { padding: 12px 28px; font-size: 1rem; }
+  .rs-keep-link {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .rs-keep-link:hover { color: var(--primary); text-decoration: underline; }
+</style>
+
+<div class="container">
+  <div class="reschedule-wrap">
+    <h1>Reschedule Pickup</h1>
+    <p style="color: var(--text-muted); margin: 0 0 28px; font-size: 0.95rem;">
+      Select a new pickup time below. Your items will move to the new slot.
+    </p>
+
+    <div class="current-pickup-card">
+      <i class="fas fa-calendar-check" style="color: var(--primary); margin-right: 8px;"></i>
+      Your current pickup: <strong>{{ current_shift.label }}{% if current_shift_date_str %}, {{ current_shift_date_str }}{% endif %}</strong>
+    </div>
+
+    <div class="amber-callout">
+      <i class="fas fa-exclamation-triangle"></i>
+      <span>Selecting a new time will move you off your current slot. Your items may be picked up on a different day than originally scheduled.</span>
+    </div>
+
+    {% if has_eligible %}
+    <form method="POST" action="{{ form_action }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      {% if token %}
+      <input type="hidden" name="token" value="{{ token }}"/>
+      {% endif %}
+
+      {# ── Week navigation ── #}
+      <div class="rs-week-nav">
+        <button type="button" class="rs-week-nav-btn" id="rs-prev-btn" onclick="changeWeek(-1)">
+          &larr; Prev week
+        </button>
+        <span class="rs-week-label" id="rs-week-label"></span>
+        <button type="button" class="rs-week-nav-btn" id="rs-next-btn" onclick="changeWeek(1)">
+          Next week &rarr;
+        </button>
+      </div>
+
+      {# ── Week grids — all rendered, JS shows one at a time ── #}
+      {% for week in weeks %}
+      <div class="rs-week rs-grid-wrap" style="display:none;" data-week-label="{{ week.label }}">
+        <div class="rs-grid">
+
+          {# Corner + day headers #}
+          <div></div>
+          {% for d in week.dates %}
+          <div class="rs-col-header">
+            {{ d.strftime('%a') }}
+            <span class="rs-col-date">{{ d.strftime('%-m/%-d') }}</span>
+          </div>
+          {% endfor %}
+
+          {# AM row #}
+          <div class="rs-row-label">AM</div>
+          {% for cell in week.rows.am %}
+          {% set slot_key = cell.date.isoformat() ~ ':' ~ cell.slot %}
+          <div>
+            {% if cell.is_current %}
+              <label class="rs-card is-current available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                <span>AM<span class="rs-current-label">current</span></span>
+              </label>
+            {% elif cell.eligible %}
+              <label class="rs-card available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                AM
+              </label>
+            {% else %}
+              <div class="rs-card disabled">—</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+
+          {# PM row #}
+          <div class="rs-row-label">PM</div>
+          {% for cell in week.rows.pm %}
+          {% set slot_key = cell.date.isoformat() ~ ':' ~ cell.slot %}
+          <div>
+            {% if cell.is_current %}
+              <label class="rs-card is-current available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                <span>PM<span class="rs-current-label">current</span></span>
+              </label>
+            {% elif cell.eligible %}
+              <label class="rs-card available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                PM
+              </label>
+            {% else %}
+              <div class="rs-card disabled">—</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+
+        </div>
+      </div>
+      {% endfor %}
+
+      <div class="rs-actions">
+        <button type="submit" id="rs-submit-btn" class="btn-primary" disabled>
+          Confirm Reschedule
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="rs-keep-link">
+          Keep my current pickup &rarr;
+        </a>
+      </div>
+    </form>
+
+    {% else %}
+    <div class="amber-callout" style="margin-top: 8px;">
+      <i class="fas fa-clock"></i>
+      <span>No open slots available right now — all pickup days may be in the past or locked.
+        Reply to your confirmation email and we'll sort it out —
+        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</span>
+    </div>
+    <p style="margin-top: 16px;">
+      <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  var weekEls = Array.from(document.querySelectorAll('.rs-week'));
+  var weekLabels = weekEls.map(function (w) { return w.dataset.weekLabel; });
+  var currentIdx = {{ initial_week_idx }};
+  var totalWeeks = weekEls.length;
+  var submitBtn = document.getElementById('rs-submit-btn');
+  var prevBtn = document.getElementById('rs-prev-btn');
+  var nextBtn = document.getElementById('rs-next-btn');
+  var weekLabel = document.getElementById('rs-week-label');
+
+  function showWeek(idx) {
+    weekEls.forEach(function (w, i) { w.style.display = i === idx ? '' : 'none'; });
+    weekLabel.textContent = weekLabels[idx] || '';
+    prevBtn.disabled = idx === 0;
+    nextBtn.disabled = idx === totalWeeks - 1;
+    currentIdx = idx;
+  }
+
+  window.changeWeek = function (delta) {
+    var next = currentIdx + delta;
+    if (next >= 0 && next < totalWeeks) showWeek(next);
+  };
+
+  // Radio change → toggle .is-selected + enable submit
+  document.querySelectorAll('input[type="radio"][name="new_slot_key"]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      document.querySelectorAll('.rs-card.available').forEach(function (lbl) {
+        lbl.classList.remove('is-selected');
+      });
+      var parent = radio.closest('label');
+      if (parent) parent.classList.add('is-selected');
+      if (submitBtn) submitBtn.disabled = false;
+    });
+  });
+
+  // Show the week containing the current shift on load
+  showWeek(currentIdx);
+})();
+</script>
+{% endblock %}

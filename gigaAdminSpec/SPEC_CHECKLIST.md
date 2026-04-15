@@ -741,9 +741,155 @@
 
 ## Spec #8 — Seller Rescheduling
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ✅ Signed off 2026-04-14
+
+### Database & Migrations
+- [x] `flask db migrate -m "add_seller_rescheduling"` runs with no errors
+- [x] `flask db upgrade` runs with no errors
+- [x] `reschedule_token` table exists with correct schema (token, pickup_id, seller_id, created_at, used_at, expires_at)
+- [x] `shift_pickup` table has new columns: `rescheduled_from_shift_id`, `rescheduled_at`
+- [x] `shift` table has new columns: `overflow_truck_number`, `reschedule_locked`
+- [x] AppSettings seeded: `reschedule_token_ttl_days`, `reschedule_max_weeks_forward`, `reschedule_urgent_alert_days`
+- [x] `User.moveout_date` column already exists — no migration error
+
+### Move-Out Date — Pickup Modal
+- [x] Open pickup week modal on dashboard — move-out date input appears below time preference buttons
+- [x] Input is pre-populated if `moveout_date` is already set on the user
+- [x] Save with a date — `User.moveout_date` updated in DB
+- [x] Save with blank date — `User.moveout_date` set to NULL in DB
+- [x] Modal does not break for sellers with no `ShiftPickup` yet
+
+### Pickup Window Stat Cell — Post-Notification Upgrade
+- [x] Before notification: cell shows "Wk 1 · Morning" format *(or equivalent)*
+- [x] After notification (`notified_at IS NOT NULL`): cell shows specific date "Tue, Apr 29 · Morning"
+- [x] "Reschedule →" link appears in cell when notified and shift not started
+- [x] If seller is moved to a new shift and `notified_at` is cleared: cell reverts to week format
+- [x] Clicking cell still opens pickup modal
+
+### Pickup Modal — Post-Notification Read-Only State
+- [x] When `notified_at IS NOT NULL`: week and time preference fields are read-only (not inputs)
+- [x] "Need a different time? Reschedule →" link appears inside modal, links to `/seller/reschedule`
+- [x] Move-out date input remains editable regardless of notification state
+
+### Notify Sellers — Confirmation Dialog
+- [x] "Notify Sellers" button has `data-unnotified-count` attribute with correct count
+- [x] Clicking Notify Sellers triggers a JS confirmation dialog before submitting
+- [x] Dialog copy references the correct seller count
+- [x] "Go Back" cancels the form; "Send Notifications" proceeds
+- [x] Sellers with `notified_at` already set do NOT receive a duplicate email *(existing idempotency)*
+
+### Reschedule Token — Email Entry
+- [x] After admin sends notifications, check a seller's email — reschedule CTA button present
+- [x] Button URL contains a token: `https://usecampusswap.com/reschedule/<token>`
+- [x] `reschedule_token` record exists in DB with correct `pickup_id`, `seller_id`, `expires_at`
+- [x] Re-running Notify Sellers for a new seller — their token is fresh; existing seller token unchanged
+- [x] Visit token URL without being logged in — reschedule page loads correctly
+
+### Reschedule Page — Grid UI
+- [x] Grid renders as day-columns × AM/PM rows *(mirrors worker availability style)*
+- [x] Eligible slots appear as selectable cards; ineligible dates are greyed/disabled
+- [x] Seller's current pickup cell is visually distinguished ("current" badge or style)
+- [x] Clicking a card selects it (`.is-selected` class applied), deselects all others
+- [x] Submit button starts disabled; enables once a card is selected
+- [x] "Keep my current pickup →" link present, returns to dashboard
+- [x] If zero eligible slots: grid hidden, amber callout shown with contact info
+
+### Reschedule — Bidirectional Eligibility
+- [x] Seller can select a slot earlier than their current pickup (if still in future)
+- [x] Seller can select a slot later than their current pickup
+- [x] Same-day AM→PM move is available when seller is on AM and PM shift exists today
+- [x] Seller CANNOT select a date on or after their `moveout_date` (if set)
+- [x] Locked shifts (`reschedule_locked=True`) do not appear as options
+- [x] Shifts with `ShiftRun.status='in_progress'` do not appear as options
+
+### Reschedule — Submission (Token Path)
+- [x] Selecting an eligible slot and submitting moves `ShiftPickup.shift_id` to new shift
+- [x] `pickup.truck_number` set to overflow truck (or truck 1 if none designated)
+- [x] `pickup.stop_order` set to NULL on new shift
+- [x] `pickup.rescheduled_from_shift_id` set to old shift ID
+- [x] `pickup.rescheduled_at` set to current Eastern time
+- [x] `pickup.notified_at` set to NULL
+- [x] Token `used_at` set — token cannot be reused
+- [x] Confirmation page shown with new shift label
+- [x] Revisiting the used token URL shows "already used" error page
+
+### Reschedule — Submission (Auth / Dashboard Path)
+- [x] Visit `/seller/reschedule` as logged-in seller with a `ShiftPickup` — page loads with grid
+- [x] Submitting a valid slot moves the pickup correctly (same checks as token path above)
+- [x] Visit `/seller/reschedule` as seller with no `ShiftPickup` — 404
+
+### Reschedule — Old Route Repacking
+- [x] After reschedule, remaining stops on old shift have sequential `stop_order` values (no gaps)
+- [x] Stops that had NULL `stop_order` before remain at the end after repacking
+- [x] Rescheduled seller is gone from old shift stop list entirely
+
+### Reschedule — Edge Cases
+- [x] Expired token (manually set `expires_at` to past) → "link expired" error page
+- [x] Selecting current shift → redirect to dashboard, "No changes made" flash
+- [x] Shift starts mid-reschedule (ShiftRun created between GET and POST) → abort(400) or clean error
+
+### Admin Ops — Overflow Truck
+- [x] Each truck card on ops page has an "Overflow" toggle button
+- [x] Clicking toggle sets `Shift.overflow_truck_number` to that truck; green "Overflow" badge appears
+- [x] Clicking the active truck's toggle clears it (sets to NULL)
+- [x] Only one truck per shift can be overflow at a time
+- [x] Rescheduled seller lands on overflow truck; falls back to truck 1 if none set
+
+### Admin Ops — Reschedule Lock
+- [x] "Lock Rescheduling" button appears in shift header
+- [x] Clicking it sets `reschedule_locked=True`; red "Rescheduling Locked" badge appears
+- [x] Locked shift does not appear in any seller's reschedule slot grid
+- [x] Clicking again unlocks it
+
+### Admin Ops — Reschedule Activity Panel
+- [x] Panel appears at bottom of ops page
+- [x] "Added via Reschedule" section shows sellers who rescheduled onto this shift with old shift label + timestamp
+- [x] "Moved Away" section shows sellers who left this shift with new shift label + timestamp
+- [x] Each entry links to correct `/admin/seller/<id>`
+- [x] Empty state shown when no reschedule activity
+
+### Admin Ops — Stale Route Notice
+- [x] Amber banner appears on ops page when any pickup has `rescheduled_at IS NOT NULL` and `stop_order IS NULL`
+- [x] Banner disappears after "Order Route" is run and all stops have `stop_order` set
+
+### Mover Shift View — Rescheduled Stop Notice
+- [x] Amber notice appears above stop list when a rescheduled-in stop with NULL `stop_order` exists on that truck
+- [x] Notice shows correct count if multiple rescheduled stops
+- [x] Rescheduled stop appears at bottom of stop list (NULL stop_order sorts last)
+
+### Admin Route Builder — Move-Out Date
+- [x] Seller card in unassigned panel shows "Moves out: Apr 29" when `moveout_date` is set
+- [x] Seller with no `moveout_date` shows no move-out line (no blank/null display)
+
+### Auto-Assign — Move-Out Date Gate
+- [x] Run auto-assign with a seller who has `moveout_date` set — seller is not placed on any shift on or after that date
+- [x] If no valid shift exists before move-out date, seller appears in TBD with reason "No eligible shift before move-out date"
+- [x] Seller with no `moveout_date` — auto-assign behavior unchanged
+
+### `notified_at` Clear Rules
+- [x] Move seller to a different shift via stop movement — `notified_at` is cleared
+- [x] Reassign seller to a different truck on the same shift — `notified_at` is NOT cleared
+- [x] Reorder stops (run "Order Route") — `notified_at` is NOT cleared
+
+### Admin Alert Email
+- [x] Reschedule a seller whose new shift is within 2 days — admin alert email sent
+- [x] Check email: subject contains seller name and both shift labels
+- [x] Body contains link to `/admin/seller/<id>`
+- [x] Reschedule a seller whose new shift is > 2 days out — no email sent, ops panel only
+
+### Regression Check
+- [x] Seller dashboard loads normally for sellers with no `ShiftPickup`
+- [x] Existing pickup week modal save (week + time preference) still works without `moveout_date`
+- [x] "Notify Sellers" still works and sends correct email for sellers without a reschedule token yet
+- [x] Admin ops page loads with no errors for shifts with no reschedule activity
+- [x] Worker shift view loads normally for movers with no rescheduled stops
+- [x] Auto-assign runs cleanly for sellers with no `moveout_date`
+- [x] `_get_payout_percentage` untouched
 
 ---
+
+**Sign-off date:** 2026-04-14
+**Signed off by:** Henry Russell
 
 ## Spec #9 — SMS Notifications
 

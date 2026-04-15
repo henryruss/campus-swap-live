@@ -373,6 +373,21 @@
     </div>
   </div>
 
+  {# Spec #8: stale route notice for rescheduled-in stops with no stop_order #}
+  {% set rescheduled_unordered = pickups | selectattr('rescheduled_at') | rejectattr('stop_order') | list %}
+  {% if rescheduled_unordered %}
+  <div class="not-today-banner" style="margin-bottom: 12px;">
+    <i class="fas fa-exclamation-triangle"></i>
+    <span>
+      {% if rescheduled_unordered | length == 1 %}
+        1 stop was added after the route was ordered — it appears at the bottom.
+      {% else %}
+        {{ rescheduled_unordered | length }} stops were added after the route was ordered — they appear at the bottom.
+      {% endif %}
+    </span>
+  </div>
+  {% endif %}
+
   <div id="stop-list">
   {% if pickups %}
     {% for pickup in pickups %}
@@ -387,15 +402,16 @@
         {% endif %}
       </div>
       <div class="stop-address">
-        {% if pickup.seller.pickup_address %}
-          <i class="fas fa-map-marker-alt"></i> {{ pickup.seller.pickup_address }}
+        {% set _addr = pickup.seller.pickup_display %}
+        {% if _addr %}
+          <i class="fas fa-map-marker-alt"></i> {{ _addr }}
         {% else %}
           <i class="fas fa-map-marker-alt"></i> No address on file
         {% endif %}
       </div>
-      {% if pickup.seller.pickup_address %}
+      {% if pickup.seller.pickup_display %}
       <div style="margin:6px 0;">
-        <a href="https://maps.google.com/?q={{ pickup.seller.pickup_address | urlencode }}"
+        <a href="https://maps.google.com/?q={{ pickup.seller.pickup_display | urlencode }}"
            target="_blank" class="btn-outline" style="font-size:0.82rem; padding:6px 14px; display:inline-block; text-decoration:none;">
           Navigate &rarr;
         </a>
