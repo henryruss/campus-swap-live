@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-14
+> **Last updated:** 2026-04-15 (Admin UI Redesign built)
 
 ---
 
@@ -39,12 +39,12 @@
 - Store selector dropdown (currently only "UNC Chapel Hill") — stores selection in `sessionStorage`, redirects to `/inventory?store=` on change
 - "Become a Seller" link
 - "Shop The Drop" link
-- **Logged in:** Dashboard link, user icon dropdown (Admin Panel if admin, Dashboard if not, Account Settings, Logout)
+- **Logged in:** Dashboard link, user icon dropdown (single "Admin" link to `/admin/ops` if admin, Dashboard if not, Account Settings, Logout)
 - **Logged out:** Sign In icon
 
 ### Header (Mobile)
 - Logo + hamburger menu
-- Slide-in menu with: About Us, Become a Seller, Shop The Drop, store selector, and auth-conditional items (Dashboard, Account Settings, Admin Panel, Logout / Sign In)
+- Slide-in menu with: About Us, Become a Seller, Shop The Drop, store selector, and auth-conditional items (Dashboard, Account Settings, single "Admin" link if admin, Logout / Sign In)
 
 ### Footer
 - Links: Shop, Become a Seller, About Us, FAQ, Login, Privacy Policy, Terms & Conditions, Refund Policy, Contact Us
@@ -451,116 +451,113 @@ For Free-tier sellers upgrading to Pro.
 ## Admin Features
 
 ### Role Hierarchy
-- **Super Admin:** Full access — user management, database reset, mass email, category management, approvals, exports
-- **Admin (Helper):** Approvals, item management, free-tier selection, quick add
+- **Super Admin:** Full access — user management, database reset, mass email, category management, approvals, exports, settings tab
+- **Admin (Helper):** Ops, items, sellers, crew, payouts tabs
 - **Pre-approved via `AdminEmail` table** — role assigned automatically at signup when email matches
 
-### Admin Dashboard (`/admin`)
+### Admin Shell (Admin UI Redesign — Built 2026-04-15)
 
-**Overview Stats:**
-- Total users, total items, sold items, pending items, available items
-- Pickup Period toggle (OPEN/CLOSED) — sets `AppSetting('pickup_period_active')`
-- Store open date (editable) — sets `AppSetting('store_open_date')`
-- Reserve-only mode toggle — sets `AppSetting('reserve_only_mode')`
+All admin pages share a unified layout: **52px icon-only persistent sidebar** on the left, page content on the right. On mobile (≤768px) the sidebar collapses to a horizontal icon bar at the top. Active tab icon highlighted in `--sage` green. Tooltips on hover.
 
-**Item Lifecycle Table:**
-- Filterable by: category, seller email, item title
-- Columns: Item thumbnail, subcategory, seller (clickable → profile panel), picked up (timestamp), at store (timestamp), status, reservation info, payout status, actions
-- Status badges include: `needs_info` → "Awaiting Seller" (amber)
-- Per-item actions: mark sold, mark payout sent, edit, delete, undo mark-sold, "Cancel Request" (for needs_info items → returns to pending_valuation)
-- Bulk actions available
-- Seller names are clickable → opens slide-out seller profile panel
+**Sidebar tabs:**
+| Icon | Label | URL | Access |
+|---|---|---|---|
+| Route | Ops | `/admin/ops` | is_admin |
+| Checkmark | Items | `/admin/items` | is_admin |
+| Dollar | Payouts | `/admin/payouts` | is_admin |
+| Person | Sellers | `/admin/sellers` | is_admin |
+| People | Crew | `/admin/crew` | is_admin |
+| Gear | Settings | `/admin/settings` | is_super_admin |
+| Calendar | Schedule | `/admin/schedule` | is_super_admin |
 
-**Free Tier Management:**
-- Warehouse capacity counter (color-coded: green/yellow/red vs. 2000 limit)
-- Ranked list of free-tier sellers by total approved item value
-- Per user: name, email, item count + prices, total value, status badge
-- Actions: Confirm (grants pickup), Reject (sends upgrade notice), Bulk notify all unconfirmed
+**Redirects:** `GET /admin` → `/admin/ops`, `GET /admin/routes` → `/admin/ops`, `GET /admin/approve` → `/admin/items?view=approve`, `GET /admin/settings/route` → `/admin/settings#route`, `GET /admin/storage` → `/admin/settings#storage`. All POST routes unchanged.
 
-**Pickup Nudge Section (collapsible, collapsed by default):**
-- Header: "Pickup Week Not Selected (X sellers)" — amber badge if X > 0
-- Table: checkbox, seller name (panel trigger), email, phone, tier badge (Free/Pro), approved item count, days since approval (color-coded: >7d red, >3d amber), last nudged date
-- "Remind All" button: sends pickup_reminder SellerAlert to all eligible sellers (re-queries at send time, deduplicates)
-- "Remind Selected" button: sends to checked sellers only
-- Select/deselect all checkbox
-- AJAX updates: "Last nudged" column updates inline on send success
-- Sellers disappear from list only when they actually select a pickup week
+### Ops Tab (`/admin/ops`) — Primary Admin View
 
-**Seller Profile Panel (slide-out drawer):**
+**URL behavior:** `GET /admin/ops` selects default shift (earliest upcoming or most recent past). `GET /admin/ops?shift_id=<id>` selects specific shift. Full page reload on shift selection. Browser back works.
+
+**Four-zone layout:**
+1. **Shift list panel (220px left):** All shifts grouped by ShiftWeek with "Week of [date]" headers. Slot badge (AM=amber, PM=blue). Status indicator: green "Notified ✓", amber "X new", or muted "X trucks · Y stops". Click navigates to `?shift_id=<id>`. Week overview link at bottom to schedule builder.
+2. **Truck cards (main area):** One card per truck on selected shift. Header: truck label, storage location chip (green=assigned, amber=unassigned), live run pill (blue "In progress" / green "Complete"), capacity bar (color-coded at 75%/100%), unit count. Pre-shift: full stop list with stop number circles, seller name, address, badges ("new" amber = created after `last_notified_at`, "moved" blue = rescheduled). Live: compact summary row (stops done/total, items, current stop). Issue alert strip when `status='issue'` stop exists.
+3. **Unassigned panel (210px right):** Sellers eligible to assign, filtered by shift slot match. Grouped by geographic cluster. Seller cards show name, cluster, unit count, week, AM/PM pref badge. Orange dot = joined in last 24h. Click to expand inline assign form. "Show all unassigned" toggle reveals slot-unmatched sellers (dimmed). Auto-Assign button at top.
+4. **Truck detail drawer:** Right-side 480px drawer, triggered by "View stops" or clicking live truck card. Fetched as HTML partial via `GET /admin/ops/truck-detail?shift_id=<id>&truck=<n>`. Shows truck header, capacity bar, assigned movers, full stop list with per-stop status circles (gray=pending, green=completed+timestamp, red=issue+type). Pre-shift: Remove button on pending stops.
+
+**Top bar actions:**
+- Refresh button (reloads `?shift_id=<id>`)
+- Add Truck → POST `/admin/crew/shift/<id>/add-truck` (form, page reload)
+- Order Routes → fetch POST, page reload
+- Notify Sellers → confirmation dialog ("Send pickup confirmation to X sellers?") → POST → page reload
+- Alert bar (amber) when `unnotified_count > 0` + `sellers_notified=True`: "Re-order & notify" button chains both
+
+**`Shift.last_notified_at`** — new field set by `admin_shift_notify_sellers`. Used to compute "new" badge on stops created after last notification.
+
+### Items Tab (`/admin/items`)
+
+- **Stats bar:** Total items, Pending approval, Available, Sold
+- **Sub-tab pills:** All Items | Approval Queue (super admin only, count badge)
+- **Store controls (collapsible):** Pickup period toggle, reserve-only toggle, shop teaser toggle, store open date input — all POST to `/admin`
+- **All Items:** Filter bar (category, seller email, item title). Table: description, seller (→ panel), category, price, status pill, date added, payout sent indicator. Mark Sold + Edit buttons per row.
+- **Approval Queue:** Card grid of `pending_valuation` items. Price input + Approve / Reject / Need Info per card. Seller name → panel.
+- `GET /admin/approve` → 302 to `/admin/items?view=approve`
+
+### Sellers Tab (`/admin/sellers`)
+
+- Client-side search by name or email (no page reload)
+- Table: name, email, phone, pickup week, item count, payout rate, days since joined. Seller name → slide-out panel.
+- **Pickup nudge section (collapsible):** sellers with approved items but no pickup week. Checkbox table, "Remind Selected" + "Remind All" buttons → POST `/admin/pickup-nudge/send` (unchanged)
+- **Free-tier queue (collapsible):** pending free-tier sellers. Approve/Reject → existing POST routes unchanged
+
+### Crew Tab (`/admin/crew`)
+
+- **Pending applications:** expandable rows (click to reveal availability grid + why blurb). AM/PM grid cells color-coded. Approve / Reject buttons → existing POST routes unchanged.
+- **Approved workers:** table with name, email, role badge, shifts completed count
+
+### Settings Tab (`/admin/settings`) — Super Admin Only
+
+Nine anchor-linked sections on one scrollable page:
+1. **Pickup window** — `pickup_week_start` + `pickup_week_end` AppSettings (ISO dates). "Generate shifts" button → `POST /admin/settings/generate-shifts` — idempotent, creates AM+PM `Shift` skeletons for each date in range. Uses `pickup_week_start`/`pickup_week_end` AppSettings.
+2. **Route & capacity** — same fields as `/admin/settings/route` (now a redirect). Saves via `_action=save_route_settings` to `/admin/settings`.
+3. **Storage locations** — list of all locations with active/inactive dot, capacity note. Inline create form. Links to `/admin/storage/<id>` detail pages.
+4. **Referral program** — program active toggle + base/signup/per-referral/max rate fields.
+5. **SMS notifications** — master switch toggle, no-show email toggle, hour fields.
+6. **User management** — current admin list with revoke button; grant admin form (email + super admin checkbox).
+7. **Data exports** — CSV download buttons + preview links.
+8. **Mass email** — subject + HTML body textarea + "test only" checkbox.
+9. **Database reset** — requires typing "reset database". Dangerous confirm.
+
+### Auto-assignment: Cluster-First Sort (Admin UI Redesign update)
+
+`_run_auto_assignment()` now sorts eligible sellers cluster-first before the placement loop:
+1. Partner buildings (alphabetical) — sellers with `pickup_partner_building` set
+2. On-campus dorms (alphabetical) — `pickup_location_type='on_campus'`
+3. Proximity clusters (street address label) — off-campus within 0.25 miles of each other
+4. Unlocated — no lat/lng, no building
+Within each cluster: unit count descending (largest first). Tertiary: existing best-fit shift/truck logic.
+
+**Effect:** Sellers from same building assigned to same truck(s). Nearest-neighbor ordering tightens the geographic loop naturally afterward.
+
+### Seller Profile Panel (unchanged from prior specs)
 - 480px right-side drawer, opened by clicking seller names anywhere in admin views
 - Fetched as HTML partial via GET `/admin/seller/<id>/panel`
-- 5 sections:
-  1. **Identity:** name, email (mailto), phone, date joined, account type badges
-  2. **Seller Status:** service tier, payment status, payout method/handle, referral source
-  3. **Pickup Info:** location type, dorm/address, pickup week, time preference, moveout date
-  4. **Items:** scrollable list with thumbnails, title, category, price, status badges, "View" links
-  5. **Send Alert:** radio toggle (preset/custom), preset dropdown (5 options), item selector, custom textarea (500 chars), inline success/error
+- 5 sections: Identity, Seller Status, Pickup Info, Items, Send Alert
 - Close: X button, Escape key, overlay click
 
-**Quick Add Item (Admin Helper):**
-- For quickly adding items at events
-- Fields: category, condition, description, long description, photo, seller name, seller email
-- Creates pending item; links to existing user if email matches, creates new user if not
-
-### Item Approval Queue (`/admin/approve`)
-- Card grid view or single-item detail view
-- Sort by: Price high/low, Date added oldest first
-- Per item, admin sets:
-  - `price` (final sale price — may differ from seller's `suggested_price`)
-  - `category_id` / `subcategory_id`
-  - `quality` (condition)
-- Approve, Reject, or **"More Info Needed"** (keyboard shortcuts: A=approve, R=reject, I=info needed)
-- "More Info Needed" opens modal with: 4 preset reason checkboxes (better photos, video required, better description, different angle) + custom note textarea (500 chars). Sends to `/admin/item/<id>/request_info` → sets item to `needs_info`, creates SellerAlert
-- "Resubmitted" badge (blue) shown on items that were previously sent back and resubmitted by seller
-- Seller names are clickable → opens slide-out seller profile panel
-- Progress counter ("X of Y reviewed")
-
-### Category Management (Super Admin)
-- Add/edit/delete top-level categories with FontAwesome icons
-- Subcategory management (add/edit/delete under parent categories)
-- Essentials stock counts (Couch, Mattress, Mini-Fridge, Climate Control, TV) — `count_in_stock` field
-- Bulk update stock counts
-
-### User & Data Management (Super Admin)
-- **Grant/revoke admin access** by email (POST `/admin/user/make-admin`, `/admin/user/revoke-admin`)
-- **Delete user** + all their items (POST `/admin/user/delete/<id>`)
-- **Data preview** (view before download): Users, Items, Sales (GET `/admin/preview/users|items|sales` → renders `data_preview.html`)
-- **Data export** (CSV download): Users, Items, Sales (GET `/admin/export/users|items|sales`)
-  - Users CSV: email, full_name, phone, payout_method, items_count, total_items_value, pickup_time_preference, moveout_date
-  - Items CSV: item_id, subcategory, seller, price, picked_up, at_store, status
-  - Sales CSV: item_id, seller, price, payout_percentage, payout_amount, payout_sent, sold_at
-- **Mass email** (POST `/admin/mass-email`): custom subject + HTML body, sent to all non-unsubscribed users, rate-limited at 0.55s/email
-- **Database reset** (POST `/admin/database/reset`): Super admin only, requires typing "reset database" to confirm
-
 ### Route Planning (Spec #6 — Complete 2026-04-14)
-- **Route builder** (`GET /admin/routes`): unassigned sellers grouped by geographic cluster (dorm, partner building, proximity, unlocated); shift capacity board per truck; "Run Auto-Assignment" button (fetch POST, page reload on success)
-- **Auto-assignment** (`POST /admin/routes/auto-assign`): places eligible sellers (available items + pickup_week set, no existing ShiftPickup) into best-fit shift+truck; largest unit counts placed first; soft cap only — always assigns, sets `capacity_warning=True` if over cap; returns JSON `{assigned, tbd, over_cap_warnings}`
-- **TBD sellers** shown with reason when no matching week+slot shift exists; over-cap sellers still assigned (soft cap)
-- **Stop movement** (`POST /admin/routes/stop/<id>/move`): move ShiftPickup to different shift+truck inline; recalculates capacity_warning
-- **Manual assign** (`POST /admin/routes/seller/<id>/assign`): manually place an unassigned seller; 409 if already has a pickup
-- **Add Truck** (`POST /admin/crew/shift/<id>/add-truck`): increments `Shift.trucks` by 1, available anytime including mid-shift; returns `{new_truck_number}`
-- **Order Route** (`POST /admin/crew/shift/<id>/order`): nearest-neighbor from storage unit coordinates; assigns sequential `stop_order` values; stops without lat/lng appended last; flash warning if storage unit has no coordinates
-- **Manual reorder** (`POST /admin/crew/shift/<id>/stop/<id>/reorder`): set specific `stop_order` value
-- **Notify Sellers** (`POST /admin/crew/shift/<id>/notify`): sends pickup confirmation email to all stops where `notified_at IS NULL`; idempotent on re-run; sets `Shift.sellers_notified=True`
-- **Stops partial** (`GET /crew/shift/<id>/stops_partial`): HTML partial for mover's truck stops; crew-only; used by 30s auto-refresh
-- **Route settings** (`GET+POST /admin/settings/route`): configure raw capacity, buffer%, time windows, Maps API key, per-category unit sizes; super admin only
+- **`GET /admin/routes`** now redirects to `/admin/ops` (all route planning moved to Ops tab)
+- **Auto-assignment** (`POST /admin/routes/auto-assign`): cluster-first sort (Admin UI Redesign), then best-fit shift+truck; soft cap only; returns JSON `{assigned, tbd, over_cap_warnings}`
+- **Stop movement** (`POST /admin/routes/stop/<id>/move`): move ShiftPickup to different shift+truck; recalculates capacity_warning
+- **Manual assign** (`POST /admin/routes/seller/<id>/assign`): now also accepts form-encoded `shift_truck="<id>_<truck>"` from ops panel form; redirects to `admin_ops` on form submit
+- **Add Truck** (`POST /admin/crew/shift/<id>/add-truck`): increments `Shift.trucks`; redirects to `admin_ops` for browser form submissions
+- **Order Route** (`POST /admin/crew/shift/<id>/order`): nearest-neighbor ordering; redirects to `admin_ops` when called from ops page
+- **Notify Sellers** (`POST /admin/crew/shift/<id>/notify`): sends email + SMS; sets `sellers_notified=True` + `last_notified_at`; redirects to `admin_ops` when called from ops page
+- **Route settings** — `GET /admin/settings/route` redirects to `admin/settings#route`; POST still saves
 
-**Ops page upgrades (shift_ops.html):**
-- Issue alert banner at top (red card, lists all `status='issue'` stops with seller name + notes)
-- Stop cards show stop number, stairs/elevator badge, capacity warning badge
-- Order Route button per truck, Notify Sellers + Add Truck buttons in shift header
-- "Notified ✓" badge shown when `shift.sellers_notified=True`
-
-**Mover shift view upgrades (crew/shift.html):**
-- Stops in `stop_order` sequence (nulls last)
-- Navigate → button per stop (opens Google Maps)
-- Stairs/elevator access badge per stop
-- 30-second `setInterval` auto-refresh of `#stop-list` via `/crew/shift/<id>/stops_partial`
+**Ops page (`/admin/crew/shift/<id>/ops`)** — still exists and works, now inside admin shell (sidebar active tab = Ops). Still accessible from schedule builder "View Ops →" links. All existing functionality preserved.
 
 **Capacity system:**
-- `truck_raw_capacity` (default 18 units) × `truck_capacity_buffer_pct` (default 10%) = effective capacity (default 16 units)
-- Green gauge ≤75%, yellow 75–100%, red >100% — no hard blocks anywhere
-- `InventoryCategory.default_unit_size` seeded: Couch=3.0, Mattress Full/Queen=2.0, Misc=0.5, etc.
+- `truck_raw_capacity` (default 18 units) × buffer% (default 10%) = effective capacity (default 16 units)
+- Color-coded capacity bar: green ≤75%, amber 75–100%, red >100% — no hard blocks
+- `InventoryCategory.default_unit_size` seeded: Couch=3.0, Mattress=2.0, Misc=0.5, etc.
 
 ---
 
@@ -603,9 +600,44 @@ For Free-tier sellers upgrading to Pro.
 - **Approve:** role selector (Driver/Organizer/Both) → sets `is_worker=True`, `worker_status='approved'`, `worker_role` → sends approval email
 - **Reject:** optional rejection email toggle → sets `worker_status='rejected'`
 
+### Mover Shift View (`/crew/shift/<id>`)
+- Phone-optimized view showing ordered stop cards for the mover's truck
+- Each stop card shows: seller name, address, **phone number as `tel:` link** (tap to call/text), access type badge (elevator/stairs), item preview strip, item count
+- **Start Shift** → creates `ShiftRun`; sends "crew started today's route" SMS to all pending sellers on mover's truck (Spec #9)
+- **Mark Completed** → records `picked_up_at` on items; revokes open `RescheduleToken` for that stop; sends "you're next" SMS to next pending seller on same truck
+- **Flag Issue** → two-option inline picker before submitting:
+  - "Seller wasn't home" (`issue_type=no_show`) — extends reschedule token TTL; end-of-day cron sends recovery email
+  - "Item or access problem" (`issue_type=other`) — token untouched; admin reviews on ops page
+  - Notes textarea optional for both types
+- **Mark incomplete** (revert) → clears `issue_type`; preserves `no_show_email_sent_at`
+- 30-second auto-refresh of stop list via `stops_partial` endpoint
+
+### SMS Notifications (Spec #9)
+Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env vars set):
+
+| Moment | Message | Trigger |
+|--------|---------|---------|
+| Pickup confirmed | "Your Campus Swap pickup is scheduled for [Day, Mon D] AM/PM. We'll text you the day before as a reminder. Reply STOP to opt out." | Admin fires "Notify Sellers" |
+| 24hr reminder | "Reminder: Campus Swap is picking up your stuff tomorrow, [Day Mon D] AM/PM. See you then! Reply STOP to opt out." | Daily 9am cron `POST /admin/cron/sms-reminders` |
+| Route started | "Your Campus Swap pickup crew has started today's route! We'll text you again when you're up next." | Mover taps Start Shift |
+| You're next | "You're up next! Your Campus Swap driver is heading to you now." | Previous stop marked complete |
+
+**Opt-out:** Sellers reply STOP → `sms_opted_out=True`; reply START/UNSTOP → re-opt-in. Handled by `POST /sms/webhook` (Twilio inbound webhook, signature-validated).
+
+**Guards:** SMS silently skipped if `sms_enabled='false'`, no phone on file, `sms_opted_out=True`, or Twilio env vars not set.
+
+### No-Show Recovery (Spec #9)
+- Mover flags stop as "Seller wasn't home" → `issue_type='no_show'`
+- Daily 6pm cron (`POST /admin/cron/no-show-emails`) emails sellers whose stop was flagged no-show that day
+- Email: "We're sorry we missed you, [first_name]!" — warm tone, reschedule link (`/reschedule/<token>`)
+- Token extended +7 days at flag time so seller has time to rebook
+- `no_show_email_sent_at` guards against duplicates (never cleared, even if stop is reverted)
+
 ### Emails
 - **Approval:** "You're on the Campus Swap Crew!" — role confirmed, $130/shift, link to `/crew`, availability deadline reminder
 - **Rejection (optional):** Brief, kind decline — admin toggles on/off per applicant
+- **Pickup notification:** sent by `admin_shift_notify_sellers` alongside SMS (Spec #8/9)
+- **No-show recovery:** "We're sorry we missed you!" sent by `cron_no_show_emails` at end of day (Spec #9)
 
 ---
 
@@ -650,7 +682,7 @@ For Free-tier sellers upgrading to Pro.
 
 ## Emails Sent
 
-### Transactional (11 emails)
+### Transactional (13 emails)
 
 | # | Trigger | Recipient | Subject | Key Content |
 |---|---------|-----------|---------|-------------|
@@ -665,6 +697,8 @@ For Free-tier sellers upgrading to Pro.
 | 9 | Admin rejects free-tier pickup | Seller | "Update on Your Free Plan Pickup — Campus Swap" | Capacity full, alternative: upgrade to Pro ($15/50%) |
 | 10 | Admin bulk notifies free-tier users | Sellers | "Our Warehouse Is at Capacity — Campus Swap" | Same as #9, sent to all unconfirmed free-tier users |
 | 11 | New account created | User | "Welcome to Campus Swap!" | Platform overview, quick start guide, dashboard link |
+| 12 | Admin fires "Notify Sellers" (Spec #8) | Seller | "Your Campus Swap pickup is {shift_day_str}" | Pickup day/window confirmed, reschedule CTA with token link |
+| 13 | Mover flags stop as no-show — end-of-day cron (Spec #9) | Seller | "We're sorry we missed you, {first_name}!" | Warm apology, reschedule link (`/reschedule/<token>` with extended TTL). Sent once per stop via `no_show_email_sent_at` guard. |
 
 ### Internal (2 types)
 

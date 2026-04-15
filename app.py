@@ -2517,7 +2517,11 @@ def admin_panel():
     if not current_user.is_authenticated or not current_user.is_admin:
          flash("Access denied.", "error")
          return redirect(url_for('index'))
-    
+
+    # GET /admin → redirect to new ops hub (spec: Admin UI Redesign)
+    if request.method == 'GET':
+        return redirect(url_for('admin_ops'), 302)
+
     if request.method == 'POST':
         logger.info(f"ADMIN_POST form_keys={list(request.form.keys())}")
     
@@ -3059,14 +3063,17 @@ def admin_panel():
 @app.route('/admin/approve', methods=['GET', 'POST'])
 @login_required
 def admin_approve():
-    """Tinder-style approval flow for pending items. Super admin only."""
+    """Approval queue — GET redirects to /admin/items?view=approve (Admin UI Redesign)."""
     if not current_user.is_authenticated or not current_user.is_admin:
         flash("Access denied.", "error")
         return redirect(url_for('index'))
     if not is_super_admin():
         flash("Item approval requires super admin access.", "error")
-        return redirect(url_for('admin_panel'))
-    
+        return redirect(url_for('admin_ops'))
+    if request.method == 'GET' and not request.args.get('item'):
+        # Bare GET → new items tab. Single-item GET (?item=<id>) passes through to the old full view.
+        return redirect(url_for('admin_items', view='approve'), 302)
+
     all_cats = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
 
     if request.method == 'POST':
@@ -5460,7 +5467,18 @@ def onboard():
 
         has_files = files and files[0].filename and files[0].filename != ''
         has_temp_photos = len(temp_photo_ids) > 0
-        if not has_files and not has_temp_photos:
+
+        # Mattress photo exemption — check category name before photo validation
+        try:
+            _cat_early = db.session.get(InventoryCategory, int(cat_id)) if cat_id else None
+            is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
+        except (ValueError, TypeError):
+            is_mattress = False
+        if is_mattress and request.form.get('mattress_condition_acknowledged') != '1':
+            flash("Please confirm the mattress condition policy.", "error")
+            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
+
+        if not is_mattress and not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
             return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
         if not cat_id:
@@ -6282,11 +6300,21 @@ def add_item():
         
         has_files = files and files[0].filename and files[0].filename != ''
         has_temp_photos = len(temp_photo_ids) > 0
-        
-        if not has_files and not has_temp_photos:
+
+        # Mattress photo exemption — check category name before photo validation
+        try:
+            _cat_early = InventoryCategory.query.get(int(cat_id)) if cat_id else None
+            is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
+        except (ValueError, TypeError):
+            is_mattress = False
+        if is_mattress and request.form.get('mattress_condition_acknowledged') != '1':
+            flash("Please confirm the mattress condition policy.", "error")
+            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+
+        if not is_mattress and not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
             return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
-        
+
         # Validate category_id
         if not cat_id:
             flash("Please select a category.", "error")
@@ -7920,7 +7948,19 @@ def crew_shift_start(shift_id):
     run = ShiftRun(shift_id=shift.id, started_by_id=current_user.id)
     db.session.add(run)
     db.session.commit()
-    _notify_next_seller(shift)
+    # Spec #9: SMS every pending seller assigned to this mover's truck
+    pending_stops = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift.id, truck_number=assignment.truck_number, status='pending')
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc())
+        .all()
+    )
+    for stop in pending_stops:
+        _send_sms(
+            stop.seller,
+            "Your Campus Swap pickup crew has started today's route! "
+            "We'll text you again when you're up next."
+        )
     flash("Shift started — good luck out there!", "success")
     return redirect(url_for('crew_shift_view', shift_id=shift_id))
 
@@ -7977,9 +8017,6 @@ def crew_shift_stop_update(shift_id, pickup_id):
         return redirect(url_for('crew_shift_view', shift_id=shift_id))
 
     notes = request.form.get('notes', '').strip()
-    if new_status == 'issue' and not notes:
-        flash("Notes are required when reporting an issue.", "error")
-        return redirect(url_for('crew_shift_view', shift_id=shift_id))
 
     pickup.status = new_status
     pickup.completed_at = datetime.utcnow()
@@ -7995,6 +8032,27 @@ def crew_shift_stop_update(shift_id, pickup_id):
                 item.picked_up_at = datetime.utcnow()
         # Confirm referral for this seller — stop completion is the trigger, not warehouse arrival
         maybe_confirm_referral_for_seller(pickup.seller)
+
+        # Spec #9: revoke any open reschedule tokens for this pickup
+        open_tokens = RescheduleToken.query.filter_by(
+            pickup_id=pickup.id, used_at=None, revoked_at=None
+        ).all()
+        for tok in open_tokens:
+            tok.revoked_at = _now_eastern().replace(tzinfo=None)
+
+    elif new_status == 'issue':
+        # Spec #9: save issue_type; default 'other' if not supplied (graceful degradation)
+        raw_issue_type = request.form.get('issue_type', '').strip()
+        pickup.issue_type = raw_issue_type if raw_issue_type in ('no_show', 'other') else 'other'
+
+        if pickup.issue_type == 'no_show':
+            # Extend reschedule token TTL so seller has time to rebook
+            token = RescheduleToken.query.filter_by(
+                pickup_id=pickup.id, used_at=None, revoked_at=None
+            ).first()
+            if token:
+                ttl = int(AppSetting.get('reschedule_token_ttl_days', '7'))
+                token.expires_at = (_now_eastern() + timedelta(days=ttl)).replace(tzinfo=None)
 
     db.session.commit()
     _notify_next_seller(shift, pickup)
@@ -8019,7 +8077,9 @@ def crew_shift_stop_revert(shift_id, pickup_id):
     pickup.status = 'pending'
     pickup.notes = None
     pickup.completed_at = None
+    pickup.issue_type = None  # Spec #9: clear issue type on revert
     # picked_up_at is intentionally left as-is — items were physically collected
+    # no_show_email_sent_at intentionally NOT cleared — no duplicate emails if re-flagged
     db.session.commit()
     return redirect(url_for('crew_shift_view', shift_id=shift_id))
 
@@ -8618,20 +8678,11 @@ def admin_shift_remove_stop(shift_id, pickup_id):
 @app.route('/admin/storage')
 @login_required
 def admin_storage_index():
-    """List and manage all storage locations. Super admin only."""
+    """Storage locations — GET redirects to /admin/settings#storage (Admin UI Redesign)."""
     if not current_user.is_super_admin:
         flash("Super admin access required.", "error")
-        return redirect(url_for('admin_panel'))
-    locations = (
-        StorageLocation.query
-        .order_by(StorageLocation.is_active.desc(), StorageLocation.name.asc())
-        .all()
-    )
-    # Live item count per location
-    item_counts = {}
-    for loc in locations:
-        item_counts[loc.id] = InventoryItem.query.filter_by(storage_location_id=loc.id).count()
-    return render_template('admin/storage_index.html', locations=locations, item_counts=item_counts)
+        return redirect(url_for('admin_ops'))
+    return redirect(url_for('admin_settings') + '#storage', 302)
 
 
 @app.route('/admin/storage/create', methods=['POST'])
@@ -9264,18 +9315,20 @@ def _worker_available_for_slot(worker, shift, week_start):
 
 
 def _notify_next_seller(shift, current_pickup=None):
-    # TODO (spec #9): Send SMS to next seller in queue via Twilio.
-    # Next stop = lowest stop_order (nulls last) / id among status='pending' stops on this shift.
-    next_pickup = (
+    """Send 'you're up next' SMS to the next pending seller on current_pickup's truck."""
+    if not current_pickup:
+        return
+    next_stop = (
         ShiftPickup.query
-        .filter_by(shift_id=shift.id, status='pending')
+        .filter_by(shift_id=shift.id, truck_number=current_pickup.truck_number, status='pending')
         .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc())
         .first()
     )
-    if next_pickup:
-        app.logger.info(
-            f"[SMS HOOK] Would notify seller {next_pickup.seller_id} "
-            f"for shift {shift.id}, stop {next_pickup.id}"
+    # Skip if next stop already has an issue_type flagged (e.g. known access problem)
+    if next_stop and next_stop.issue_type is None:
+        _send_sms(
+            next_stop.seller,
+            "You're up next! Your Campus Swap driver is heading to you now."
         )
 
 
@@ -9877,6 +9930,9 @@ def seed_crew_app_settings():
         'referral_bonus_per_referral': '10',
         'referral_max_rate': '100',
         'referral_program_active': 'true',
+        # Admin UI Redesign: pickup window for shift auto-generation
+        'pickup_week_start': '',
+        'pickup_week_end': '',
     }
     for key, value in defaults.items():
         if AppSetting.get(key) is None:
@@ -10037,9 +10093,39 @@ def _run_auto_assignment():
         if s.has_pickup_location
     ]
 
-    # Sort by unit count DESC (largest loads placed first)
-    seller_units = [(s, get_seller_unit_count(s)) for s in eligible_sellers]
-    seller_units.sort(key=lambda x: x[1], reverse=True)
+    # Cluster-first sort (Admin UI Redesign spec):
+    # 1. Partner buildings (alphabetical) → dorms/on-campus (alphabetical) → proximity → Unlocated
+    # 2. Within cluster: unit count descending
+    _clusters = build_geographic_clusters(eligible_sellers)
+
+    def _cluster_sort_key(label):
+        """Return a tuple for ordering cluster labels by priority."""
+        from constants import OFF_CAMPUS_COMPLEXES
+        if label == 'Unlocated':
+            return (3, label)
+        # Partner building: pickup_partner_building set — these appear as named buildings
+        # Check if label matches any seller's pickup_partner_building
+        for c in _clusters:
+            if c['label'] == label and c['sellers']:
+                s0 = c['sellers'][0]
+                if s0.pickup_partner_building and s0.pickup_partner_building == label:
+                    return (0, label)
+                if s0.pickup_location_type == 'on_campus':
+                    return (1, label)
+        return (2, label)  # proximity cluster
+
+    ordered_sellers = []
+    sorted_cluster_labels = sorted([c['label'] for c in _clusters], key=_cluster_sort_key)
+    cluster_by_label = {c['label']: c['sellers'] for c in _clusters}
+    for lbl in sorted_cluster_labels:
+        cluster_sellers = sorted(
+            cluster_by_label.get(lbl, []),
+            key=lambda s: get_seller_unit_count(s),
+            reverse=True,
+        )
+        ordered_sellers.extend(cluster_sellers)
+
+    seller_units = [(s, get_seller_unit_count(s)) for s in ordered_sellers]
 
     assigned = []
     tbd = []
@@ -10160,6 +10246,10 @@ def admin_shift_add_truck(shift_id):
     new_truck_number = row[0] + 1
     db.session.execute(_text("UPDATE shift SET trucks=:t WHERE id=:id"), {'t': new_truck_number, 'id': shift_id})
     db.session.commit()
+    # If called from the ops panel form (has Accept: text/html and no JSON), redirect back
+    accept = request.headers.get('Accept', '')
+    if 'text/html' in accept and not request.is_json and not request.headers.get('X-Requested-With'):
+        return redirect(url_for('admin_ops', shift_id=shift_id))
     return jsonify({'new_truck_number': new_truck_number})
 
 
@@ -10217,6 +10307,9 @@ def admin_shift_order_stops(shift_id):
 
     db.session.commit()
     flash("Route ordered.", "success")
+    referrer = request.referrer or ''
+    if '/admin/ops' in referrer:
+        return redirect(url_for('admin_ops', shift_id=shift_id))
     return redirect(url_for('admin_shift_ops', shift_id=shift_id))
 
 
@@ -10282,6 +10375,15 @@ def admin_shift_notify_sellers(shift_id):
                 </p>
             """)
             send_email(seller.email, f"Your Campus Swap pickup is {shift_day_str}", html)
+            # Spec #9: also send SMS alongside email
+            shift_date_obj = _shift_date(shift)
+            day_label = shift_date_obj.strftime('%A, %b %-d')
+            slot_label = 'AM' if shift.slot == 'am' else 'PM'
+            _send_sms(
+                seller,
+                f"Your Campus Swap pickup is scheduled for {day_label} {slot_label}. "
+                f"We'll text you the day before as a reminder. Reply STOP to opt out."
+            )
             pickup.notified_at = _now_eastern()
             sent_count += 1
         except Exception as e:
@@ -10289,10 +10391,221 @@ def admin_shift_notify_sellers(shift_id):
 
     if sent_count > 0 or not pickups:
         shift.sellers_notified = True
+        shift.last_notified_at = _now_eastern()
     db.session.commit()
 
     flash(f"Notified {sent_count} seller(s).", "success")
+    # Redirect to new ops page if coming from there, otherwise fall back to old shift ops
+    referrer = request.referrer or ''
+    if '/admin/ops' in referrer:
+        return redirect(url_for('admin_ops', shift_id=shift_id))
     return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+# ── Spec #9 — Cron Routes & SMS Webhook ──────────────────────────────────────
+
+def _cron_auth_ok():
+    """Return True if the request carries a valid CRON_SECRET Bearer token."""
+    secret = os.environ.get('CRON_SECRET', '')
+    if not secret:
+        return False
+    auth_header = request.headers.get('Authorization', '')
+    provided = auth_header.removeprefix('Bearer ').strip()
+    return provided == secret
+
+
+@app.route('/admin/cron/sms-reminders', methods=['POST'])
+@csrf.exempt
+def cron_sms_reminders():
+    """
+    Daily cron — send 24hr SMS reminder to sellers whose pickup is tomorrow.
+    Auth: Authorization: Bearer <CRON_SECRET>
+    Schedule: 9am ET (or sms_reminder_hour_eastern AppSetting).
+    NOTE: This cron is NOT idempotent — if run twice in one day it sends duplicate SMS.
+    """
+    if not _cron_auth_ok():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    tomorrow = _today_eastern() + timedelta(days=1)
+    sent = 0
+    skipped = 0
+
+    # Load all active shifts and filter to those falling on tomorrow
+    _DAY_ORDER_C = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shifts_tomorrow = [
+        s for s in Shift.query.filter_by(is_active=True).all()
+        if s.week and (s.week.week_start + timedelta(days=_DAY_ORDER_C.index(s.day_of_week))) == tomorrow
+    ]
+
+    for shift in shifts_tomorrow:
+        day_label = tomorrow.strftime('%A, %b %-d')
+        slot_label = 'AM' if shift.slot == 'am' else 'PM'
+        for pickup in shift.pickups:
+            # Only remind sellers who were notified and aren't in an issue state
+            if not pickup.notified_at or pickup.status == 'issue':
+                skipped += 1
+                continue
+            ok = _send_sms(
+                pickup.seller,
+                f"Reminder: Campus Swap is picking up your stuff tomorrow, "
+                f"{day_label} {slot_label}. See you then! Reply STOP to opt out."
+            )
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+
+    return jsonify({'sent': sent, 'skipped': skipped})
+
+
+@app.route('/admin/cron/no-show-emails', methods=['POST'])
+@csrf.exempt
+def cron_no_show_emails():
+    """
+    End-of-day cron — send warm recovery email to sellers whose stop was flagged no-show today.
+    Auth: Authorization: Bearer <CRON_SECRET>
+    Schedule: 6pm ET (or no_show_email_hour_eastern AppSetting).
+    Idempotent: no_show_email_sent_at guards against duplicate sends.
+    """
+    if not _cron_auth_ok():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if AppSetting.get('no_show_email_enabled', 'true').lower() != 'true':
+        # Count pending stops for reporting
+        pending_count = ShiftPickup.query.filter_by(
+            issue_type='no_show', no_show_email_sent_at=None
+        ).count()
+        return jsonify({'sent': 0, 'skipped': pending_count})
+
+    base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
+    today = _today_eastern()
+    _DAY_ORDER_C = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    sent = 0
+    skipped = 0
+
+    candidates = ShiftPickup.query.filter_by(
+        issue_type='no_show', no_show_email_sent_at=None
+    ).all()
+
+    for pickup in candidates:
+        # Only email for shifts on or before today (don't email before pickup day)
+        if not pickup.shift or not pickup.shift.week:
+            skipped += 1
+            continue
+        shift_date = pickup.shift.week.week_start + timedelta(
+            days=_DAY_ORDER_C.index(pickup.shift.day_of_week)
+        )
+        if shift_date > today:
+            skipped += 1
+            continue
+
+        # Find an active reschedule token
+        token = RescheduleToken.query.filter_by(
+            pickup_id=pickup.id, used_at=None, revoked_at=None
+        ).first()
+        if not token:
+            logger.warning(
+                f'cron_no_show_emails: no active token for pickup {pickup.id} '
+                f'(seller {pickup.seller_id}) — skipped'
+            )
+            skipped += 1
+            continue
+
+        reschedule_url = f"{base_url}/reschedule/{token.token}"
+        seller = pickup.seller
+        first_name = seller.full_name.split()[0] if seller.full_name else 'there'
+
+        try:
+            html = wrap_email_template(f"""
+                <h2>We're sorry we missed you, {first_name}!</h2>
+                <p>Hi {first_name},</p>
+                <p>We stopped by today for your Campus Swap pickup but it looks like we missed
+                each other — no worries at all, things come up!</p>
+                <p>We'd love to come back and grab your stuff. Click below to pick a new time
+                that works for you:</p>
+                <p style="text-align:center; margin:28px 0;">
+                  <a href="{reschedule_url}"
+                     style="display:inline-block; padding:14px 28px; background:#C8832A; color:white; border-radius:10px; text-decoration:none; font-size:1rem; font-weight:700;">
+                    Reschedule My Pickup &rarr;
+                  </a>
+                </p>
+                <p>If you have any questions, reply to this email or reach out at
+                <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                <p>Thanks for your patience — we'll make it work!</p>
+            """)
+            send_email(seller.email, f"We're sorry we missed you, {first_name}!", html)
+            pickup.no_show_email_sent_at = _now_eastern().replace(tzinfo=None)
+            db.session.commit()
+            sent += 1
+        except Exception as e:
+            logger.error(
+                f'cron_no_show_emails: failed to email seller {seller.id} '
+                f'for pickup {pickup.id}: {e}'
+            )
+            skipped += 1
+
+    return jsonify({'sent': sent, 'skipped': skipped})
+
+
+@app.route('/sms/webhook', methods=['POST'])
+@csrf.exempt
+def sms_inbound_webhook():
+    """
+    Twilio inbound SMS webhook — handles STOP/UNSTOP replies.
+    No login required. Twilio signature validated.
+    After deploy, set webhook URL in Twilio console:
+    Phone Numbers → Manage → Active Numbers → [your number] → Messaging → Webhook URL
+    Set to: https://usecampusswap.com/sms/webhook (HTTP POST)
+    """
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '')
+    if auth_token:
+        # Validate Twilio signature
+        try:
+            from twilio.request_validator import RequestValidator
+            validator = RequestValidator(auth_token)
+            # Use the full HTTPS URL for signature validation
+            base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
+            url = f"{base_url}/sms/webhook"
+            signature = request.headers.get('X-Twilio-Signature', '')
+            if not validator.validate(url, request.form, signature):
+                logger.warning('sms_inbound_webhook: invalid Twilio signature — 403')
+                return Response('Forbidden', status=403)
+        except Exception as e:
+            logger.error(f'sms_inbound_webhook: signature validation error: {e}')
+            return Response('Forbidden', status=403)
+    else:
+        # No auth token configured — skip validation (dev/test environment)
+        logger.warning('sms_inbound_webhook: TWILIO_AUTH_TOKEN not set, skipping signature check')
+
+    body = (request.form.get('Body') or '').strip().upper()
+    from_number = request.form.get('From', '').strip()
+
+    # Opt-out keywords (per CTIA/Twilio standards)
+    OPT_OUT_KEYWORDS  = {'STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'}
+    OPT_IN_KEYWORDS   = {'START', 'UNSTOP', 'YES'}
+
+    if body in OPT_OUT_KEYWORDS or body in OPT_IN_KEYWORDS:
+        normalized = _normalize_phone(from_number)
+        user = None
+        if normalized:
+            # Match on both stored formats (normalized and raw)
+            all_users = User.query.filter(User.phone.isnot(None)).all()
+            for u in all_users:
+                if _normalize_phone(u.phone) == normalized:
+                    user = u
+                    break
+        if not user:
+            logger.warning(f'sms_inbound_webhook: no user found for {from_number}')
+        else:
+            user.sms_opted_out = body in OPT_OUT_KEYWORDS
+            db.session.commit()
+            logger.info(
+                f'sms_inbound_webhook: user {user.id} sms_opted_out={user.sms_opted_out} '
+                f'(keyword: {body})'
+            )
+
+    # Always return empty TwiML — never 404 (Twilio retries on errors)
+    return Response('<Response/>', status=200, mimetype='text/xml')
 
 
 # ── Route Builder ────────────────────────────────────────────────────────────
@@ -10300,10 +10613,14 @@ def admin_shift_notify_sellers(shift_id):
 @app.route('/admin/routes')
 @login_required
 def admin_routes_index():
-    """Route planner — unassigned sellers + shift capacity board."""
+    """Route planner — redirects to /admin/ops (Admin UI Redesign)."""
     if not current_user.is_admin:
         abort(403)
+    return redirect(url_for('admin_ops'), 302)
 
+
+def _admin_routes_index_data():
+    """Internal: build the route planner data (used by admin_ops)."""
     # Sellers with available items and a pickup_week set (include only those)
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
     unassigned_sellers = [
@@ -10381,19 +10698,18 @@ def admin_routes_index():
     # Over-cap warnings
     overcap_pickups = ShiftPickup.query.filter_by(capacity_warning=True).all()
 
-    return render_template(
-        'admin/routes.html',
-        clusters=clusters,
-        all_shifts=all_shifts,
-        shift_truck_data=shift_truck_data,
-        seller_unit_counts=seller_unit_counts,
-        shift_truck_options=shift_truck_options,
-        effective_cap=effective_cap,
-        total_with_items=total_with_items,
-        total_assigned=total_assigned,
-        total_unassigned=total_unassigned,
-        overcap_pickups=overcap_pickups,
-    )
+    return {
+        'clusters': clusters,
+        'all_shifts': all_shifts,
+        'shift_truck_data': shift_truck_data,
+        'seller_unit_counts': seller_unit_counts,
+        'shift_truck_options': shift_truck_options,
+        'effective_cap': effective_cap,
+        'total_with_items': total_with_items,
+        'total_assigned': total_assigned,
+        'total_unassigned': total_unassigned,
+        'overcap_pickups': overcap_pickups,
+    }
 
 
 @app.route('/admin/routes/auto-assign', methods=['POST'])
@@ -10455,11 +10771,21 @@ def admin_routes_assign_seller(user_id):
     if existing:
         return jsonify({'error': 'Seller already has a pickup assignment'}), 409
 
+    # Accept JSON body OR form-encoded shift_truck="shift_id_truck_num" (from ops panel)
     data = request.get_json(silent=True) or {}
     shift_id = data.get('shift_id')
     truck_number = data.get('truck_number')
     if not shift_id or not truck_number:
-        return jsonify({'error': 'shift_id and truck_number required'}), 400
+        # Fall back to form data: shift_truck = "<shift_id>_<truck_number>"
+        shift_truck_raw = request.form.get('shift_truck', '')
+        parts = shift_truck_raw.split('_') if shift_truck_raw else []
+        if len(parts) == 2:
+            shift_id, truck_number = parts[0], parts[1]
+    if not shift_id or not truck_number:
+        if request.is_json or not request.form:
+            return jsonify({'error': 'shift_id and truck_number required'}), 400
+        flash("Could not determine shift and truck for assignment.", "error")
+        return redirect(url_for('admin_ops'))
 
     shift = Shift.query.get_or_404(int(shift_id))
     effective_cap = get_effective_capacity()
@@ -10478,6 +10804,9 @@ def admin_routes_assign_seller(user_id):
     )
     db.session.add(pickup)
     db.session.commit()
+    # If request came from the ops panel form (not JSON), redirect back
+    if not request.is_json and request.form:
+        return redirect(url_for('admin_ops', shift_id=shift.id))
     return jsonify({'ok': True, 'pickup_id': pickup.id, 'capacity_warning': over_cap})
 
 
@@ -10487,11 +10816,15 @@ def admin_route_settings():
     """Route capacity + category unit size settings. Super admin only."""
     if not current_user.is_super_admin:
         abort(403)
+    if request.method == 'GET':
+        return redirect(url_for('admin_settings') + '#route', 302)
     categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
     if request.method == 'POST':
         # Save AppSettings
         for key in ['truck_raw_capacity', 'truck_capacity_buffer_pct',
-                    'route_am_window', 'route_pm_window', 'maps_static_api_key']:
+                    'route_am_window', 'route_pm_window', 'maps_static_api_key',
+                    'sms_enabled', 'sms_reminder_hour_eastern',
+                    'no_show_email_enabled', 'no_show_email_hour_eastern']:
             val = request.form.get(key)
             if val is not None:
                 AppSetting.set(key, val.strip())
@@ -10516,7 +10849,70 @@ def admin_route_settings():
         route_pm_window=AppSetting.get('route_pm_window', '1pm–5pm'),
         maps_static_api_key=AppSetting.get('maps_static_api_key', ''),
         effective_cap=get_effective_capacity(),
+        sms_enabled=AppSetting.get('sms_enabled', 'true'),
+        sms_reminder_hour_eastern=AppSetting.get('sms_reminder_hour_eastern', '9'),
+        no_show_email_enabled=AppSetting.get('no_show_email_enabled', 'true'),
+        no_show_email_hour_eastern=AppSetting.get('no_show_email_hour_eastern', '18'),
     )
+
+
+# ── Spec #9 — SMS Helpers ────────────────────────────────────────────────────
+
+def _normalize_phone(raw):
+    """
+    Normalize a raw phone string to E.164 (+1XXXXXXXXXX).
+    Returns normalized string on success, None on failure.
+    """
+    if not raw:
+        return None
+    digits = re.sub(r'\D', '', raw)
+    if len(digits) == 10:
+        return f'+1{digits}'
+    if len(digits) == 11 and digits.startswith('1'):
+        return f'+{digits}'
+    if raw.startswith('+') and len(digits) == 11:
+        return f'+{digits}'
+    return None
+
+
+def _send_sms(user, body):
+    """
+    Send an SMS via Twilio. Silently returns False (no exception raised) if:
+      - sms_enabled AppSetting is 'false'
+      - user.phone is None or empty
+      - user.sms_opted_out is True
+      - TWILIO_* env vars are not set
+    Returns True on successful API call. Logs warnings on skip/failure.
+    """
+    if AppSetting.get('sms_enabled', 'true').lower() != 'true':
+        return False
+
+    if not user or not user.phone:
+        return False
+
+    if user.sms_opted_out:
+        return False
+
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID', '')
+    auth_token  = os.environ.get('TWILIO_AUTH_TOKEN', '')
+    from_number = os.environ.get('TWILIO_FROM_NUMBER', '')
+    if not account_sid or not auth_token or not from_number:
+        logger.warning('_send_sms: Twilio env vars not set — SMS skipped')
+        return False
+
+    to_number = _normalize_phone(user.phone)
+    if not to_number:
+        logger.warning(f'_send_sms: unparseable phone "{user.phone}" for user {user.id} — skipped')
+        return False
+
+    try:
+        from twilio.rest import Client as TwilioClient
+        client = TwilioClient(account_sid, auth_token)
+        client.messages.create(body=body, from_=from_number, to=to_number)
+        return True
+    except Exception as e:
+        logger.error(f'_send_sms: Twilio error for user {user.id}: {e}')
+        return False
 
 
 # ── Spec #8 — Seller Rescheduling ────────────────────────────────────────────
@@ -10744,6 +11140,10 @@ def _do_reschedule(pickup, new_shift):
 def seller_reschedule_get(token):
     """Token-gated reschedule page — no login required."""
     rec = RescheduleToken.query.filter_by(token=token).first_or_404()
+    # Spec #9: revoked_at check must come before used_at (completed pickup supersedes reschedule)
+    if rec.revoked_at:
+        return render_template('seller/reschedule_confirm.html',
+                               error='revoked', new_shift=None, token=token)
     if rec.used_at:
         return render_template('seller/reschedule_confirm.html',
                                error='already_used', new_shift=None, token=token)
@@ -10797,6 +11197,10 @@ def _parse_and_validate_slot(pickup, redirect_fn):
 def seller_reschedule_post(token):
     """Submit reschedule via token — no login required."""
     rec = RescheduleToken.query.filter_by(token=token).first_or_404()
+    # Spec #9: revoked_at check must come before used_at
+    if rec.revoked_at:
+        return render_template('seller/reschedule_confirm.html',
+                               error='revoked', new_shift=None, token=token)
     if rec.used_at:
         return render_template('seller/reschedule_confirm.html',
                                error='already_used', new_shift=None, token=token)
@@ -10928,6 +11332,739 @@ def crew_shift_stops_partial(shift_id):
         pickups=pickups,
         item_counts=item_counts,
     )
+
+
+# =========================================================
+# ADMIN UI REDESIGN — New routes (spec: feature_admin_redesign.md)
+# =========================================================
+
+_DAY_ORDER_OPS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+_DAY_LABELS_OPS = {
+    'mon': 'Mon', 'tue': 'Tue', 'wed': 'Wed',
+    'thu': 'Thu', 'fri': 'Fri', 'sat': 'Sat', 'sun': 'Sun',
+}
+_MONTH_LABELS = {
+    1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+    7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec',
+}
+
+
+def _ops_shift_date(shift):
+    """Calendar date for a Shift (week_start + day_of_week offset)."""
+    return shift.week.week_start + timedelta(days=_DAY_ORDER_OPS.index(shift.day_of_week))
+
+
+def _ops_build_truck_cards(shift, pickups, effective_cap):
+    """
+    Build per-truck card data for the Ops main content area.
+    Returns list of dicts (one per truck), sorted by truck_number.
+    """
+    from collections import defaultdict
+    import json as _json
+
+    truck_unit_plan = _json.loads(shift.truck_unit_plan or '{}')
+    storage_loc_by_id = {loc.id: loc for loc in StorageLocation.query.filter_by(is_active=True).all()}
+    truck_planned_unit = {
+        int(k): storage_loc_by_id.get(v)
+        for k, v in truck_unit_plan.items()
+        if storage_loc_by_id.get(v)
+    }
+
+    pickups_by_truck = defaultdict(list)
+    for p in pickups:
+        pickups_by_truck[p.truck_number].append(p)
+
+    shift_run = ShiftRun.query.filter_by(shift_id=shift.id).first()
+
+    cards = []
+    for truck_num in range(1, shift.trucks + 1):
+        truck_stops = pickups_by_truck[truck_num]
+        load = sum(get_seller_unit_count(p.seller) for p in truck_stops)
+        storage_loc = truck_planned_unit.get(truck_num)
+
+        # Live state
+        live = None
+        if shift_run:
+            stops_done = sum(1 for p in truck_stops if p.status == 'completed')
+            stops_issue = sum(1 for p in truck_stops if p.status == 'issue')
+            current_stop = next(
+                (p for p in sorted(truck_stops, key=lambda p: (p.stop_order is None, p.stop_order or 0))
+                 if p.status == 'pending'), None
+            )
+            live = {
+                'status': shift_run.status,
+                'stops_total': len(truck_stops),
+                'stops_done': stops_done,
+                'stops_issue': stops_issue,
+                'items_total': sum(
+                    InventoryItem.query.filter_by(seller_id=p.seller_id, status='available').count()
+                    for p in truck_stops
+                ),
+                'current_stop': current_stop,
+                'has_issue': stops_issue > 0,
+            }
+
+        # "new" badge: created after last_notified_at or shift never notified
+        def _is_new(p):
+            if not shift.sellers_notified:
+                return True
+            if shift.last_notified_at and p.created_at and p.created_at > shift.last_notified_at:
+                return True
+            return False
+
+        stop_rows = []
+        for p in sorted(truck_stops, key=lambda p: (p.stop_order is None, p.stop_order or 0, p.id)):
+            seller = p.seller
+            unit_count = get_seller_unit_count(seller)
+            map_url = None
+            if storage_loc:
+                map_url = build_static_map_url([p], storage_loc)
+            stop_rows.append({
+                'pickup': p,
+                'seller': seller,
+                'unit_count': unit_count,
+                'is_new': _is_new(p),
+                'is_rescheduled': p.rescheduled_from_shift_id is not None,
+                'item_count': InventoryItem.query.filter_by(seller_id=seller.id, status='available').count(),
+            })
+
+        # Capacity bar pct
+        cap_pct = min(round((load / effective_cap) * 100), 150) if effective_cap > 0 else 0
+
+        cards.append({
+            'truck_number': truck_num,
+            'storage_loc': storage_loc,
+            'load': load,
+            'effective_cap': effective_cap,
+            'cap_pct': cap_pct,
+            'stop_rows': stop_rows,
+            'live': live,
+            'map_url': build_static_map_url(truck_stops, storage_loc) if storage_loc else None,
+        })
+    return cards, shift_run
+
+
+def _ops_build_unassigned_panel(shift):
+    """Build unassigned sellers pool for the right panel, filtered by shift slot."""
+    assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
+    all_unassigned = [
+        s for s in (
+            User.query
+            .join(InventoryItem, InventoryItem.seller_id == User.id)
+            .filter(
+                InventoryItem.status == 'available',
+                User.pickup_week.isnot(None),
+                User.id.notin_(assigned_seller_ids),
+            )
+            .group_by(User.id)
+            .order_by(User.full_name)
+            .all()
+        )
+        if s.has_pickup_location
+    ]
+
+    # Filter by pickup_week matching shift's week
+    shift_week_start = shift.week.week_start if shift.week else None
+    from datetime import date as _date_cls
+    if shift_week_start:
+        from constants import PICKUP_WEEK_DATE_RANGES
+        # Determine which pickup_week (week1/week2/week3) this shift belongs to
+        shift_date = _ops_shift_date(shift)
+        shift_pickup_week = None
+        for wk, (start_str, end_str) in PICKUP_WEEK_DATE_RANGES.items():
+            start = _date_cls.fromisoformat(start_str)
+            end = _date_cls.fromisoformat(end_str)
+            if start <= shift_date <= end:
+                shift_pickup_week = wk
+                break
+
+        def _slot_match(seller):
+            pref = seller.pickup_time_preference
+            if pref == 'morning' and shift.slot != 'am':
+                return False
+            if pref == 'afternoon' and shift.slot != 'pm':
+                return False
+            return True
+
+        slot_matched = [s for s in all_unassigned if _slot_match(s)]
+        slot_unmatched = [s for s in all_unassigned if not _slot_match(s)]
+    else:
+        slot_matched = all_unassigned
+        slot_unmatched = []
+
+    clusters = build_geographic_clusters(slot_matched)
+    from datetime import datetime as _dt
+    _now = datetime.utcnow()
+    _24h_ago = _now - timedelta(hours=24)
+    for s in slot_matched:
+        s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
+        s._unit_count = get_seller_unit_count(s)
+    for s in slot_unmatched:
+        s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
+        s._unit_count = get_seller_unit_count(s)
+
+    return {
+        'clusters': clusters,
+        'slot_unmatched': slot_unmatched,
+        'total_unassigned': len(all_unassigned),
+    }
+
+
+def _ops_build_shift_list():
+    """All shifts sorted by date+slot, grouped by ShiftWeek, for the left panel."""
+    all_weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.asc()).all()
+    shift_list = []
+    for week in all_weeks:
+        week_shifts = sorted(
+            [s for s in week.shifts if s.is_active],
+            key=lambda s: s.sort_key
+        )
+        for sh in week_shifts:
+            sh_date = _ops_shift_date(sh)
+            pickups = ShiftPickup.query.filter_by(shift_id=sh.id).all()
+            unnotified = sum(1 for p in pickups if p.notified_at is None)
+            shift_list.append({
+                'shift': sh,
+                'week': week,
+                'date': sh_date,
+                'date_label': sh_date.strftime('%-d %b'),
+                'day_label': _DAY_LABELS_OPS.get(sh.day_of_week, sh.day_of_week),
+                'stop_count': len(pickups),
+                'truck_count': sh.trucks,
+                'unnotified_count': unnotified,
+                'notified': sh.sellers_notified and unnotified == 0,
+            })
+    return all_weeks, shift_list
+
+
+@app.route('/admin/ops')
+@login_required
+def admin_ops():
+    """Main ops view — four-zone layout."""
+    if not current_user.is_admin:
+        abort(403)
+
+    shift_id = request.args.get('shift_id', type=int)
+    today = _today_eastern()
+
+    # Select active shift
+    if shift_id:
+        shift = Shift.query.get_or_404(shift_id)
+    else:
+        shift = (Shift.query
+                 .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                 .filter(ShiftWeek.week_start.isnot(None))
+                 .filter(Shift.is_active == True)
+                 .order_by(ShiftWeek.week_start.asc(), Shift.slot.asc())
+                 .first())
+        if shift:
+            # Prefer shifts on or after today
+            upcoming = (Shift.query
+                        .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                        .filter(ShiftWeek.week_start.isnot(None))
+                        .filter(Shift.is_active == True)
+                        .all())
+            future = [s for s in upcoming if _ops_shift_date(s) >= today]
+            if future:
+                shift = min(future, key=lambda s: (_ops_shift_date(s), s.sort_key))
+            else:
+                past = [s for s in upcoming]
+                if past:
+                    shift = max(past, key=lambda s: (_ops_shift_date(s), s.sort_key))
+
+    all_weeks, shift_list = _ops_build_shift_list()
+
+    if not shift:
+        return render_template(
+            'admin/ops.html',
+            shift=None,
+            all_weeks=all_weeks,
+            shift_list=shift_list,
+            cards=[],
+            shift_run=None,
+            unassigned={},
+            unnotified_count=0,
+            shift_date=None,
+            storage_locations=[],
+            shift_truck_options=[],
+        )
+
+    # Zone 2: truck cards
+    effective_cap = get_effective_capacity()
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift.id)
+        .order_by(ShiftPickup.truck_number.asc(),
+                  nulls_last(ShiftPickup.stop_order.asc()),
+                  ShiftPickup.id.asc())
+        .all()
+    )
+    cards, shift_run = _ops_build_truck_cards(shift, pickups, effective_cap)
+    unnotified_count = sum(1 for p in pickups if p.notified_at is None)
+
+    # Zone 3: unassigned panel
+    unassigned = _ops_build_unassigned_panel(shift)
+
+    shift_date = _ops_shift_date(shift)
+
+    # Storage locations for the "Assign unit" dropdown
+    storage_locations = (
+        StorageLocation.query
+        .filter_by(is_active=True, is_full=False)
+        .order_by(StorageLocation.name.asc())
+        .all()
+    )
+
+    # Shift+truck options for the move-stop selector
+    all_shifts_flat = sorted(
+        [s for w in all_weeks for s in w.shifts if s.is_active],
+        key=lambda s: (_ops_shift_date(s), s.sort_key)
+    )
+    shift_truck_options = []
+    for s in all_shifts_flat:
+        sd = _ops_shift_date(s)
+        for t in range(1, s.trucks + 1):
+            shift_truck_options.append({
+                'shift': s,
+                'truck_number': t,
+                'label': f"{sd.strftime('%a %b %-d')} {'AM' if s.slot=='am' else 'PM'} — Truck {t}",
+            })
+
+    return render_template(
+        'admin/ops.html',
+        shift=shift,
+        shift_date=shift_date,
+        all_weeks=all_weeks,
+        shift_list=shift_list,
+        cards=cards,
+        shift_run=shift_run,
+        unassigned=unassigned,
+        unnotified_count=unnotified_count,
+        storage_locations=storage_locations,
+        shift_truck_options=shift_truck_options,
+        effective_cap=effective_cap,
+    )
+
+
+@app.route('/admin/ops/truck-detail')
+@login_required
+def admin_ops_truck_detail():
+    """HTML partial for the truck detail modal/drawer."""
+    if not current_user.is_admin:
+        abort(403)
+    shift_id = request.args.get('shift_id', type=int)
+    truck_num = request.args.get('truck', type=int)
+    if not shift_id or not truck_num:
+        abort(400)
+    shift = Shift.query.get_or_404(shift_id)
+    shift_date = _ops_shift_date(shift)
+
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift_id, truck_number=truck_num)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc())
+        .all()
+    )
+    shift_run = ShiftRun.query.filter_by(shift_id=shift_id).first()
+
+    # Assigned movers for this truck
+    movers = [a for a in shift.assignments
+              if a.role_on_shift == 'driver' and a.truck_number == truck_num]
+
+    effective_cap = get_effective_capacity()
+    load = sum(get_seller_unit_count(p.seller) for p in pickups)
+
+    # Storage location for this truck
+    import json as _json
+    truck_unit_plan = _json.loads(shift.truck_unit_plan or '{}')
+    storage_loc_by_id = {loc.id: loc for loc in StorageLocation.query.filter_by(is_active=True).all()}
+    storage_loc = storage_loc_by_id.get(truck_unit_plan.get(str(truck_num)))
+
+    # Other shifts for "move stop" selector
+    other_shifts = (Shift.query
+                    .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                    .filter(Shift.is_active == True)
+                    .all())
+    move_options = []
+    for s in sorted(other_shifts, key=lambda s: (_ops_shift_date(s), s.sort_key)):
+        sd = _ops_shift_date(s)
+        for t in range(1, s.trucks + 1):
+            move_options.append({
+                'shift': s,
+                'truck_number': t,
+                'label': f"{sd.strftime('%a %b %-d')} {'AM' if s.slot=='am' else 'PM'} — Truck {t}",
+            })
+
+    return render_template(
+        'admin/ops_truck_detail.html',
+        shift=shift,
+        shift_date=shift_date,
+        truck_number=truck_num,
+        pickups=pickups,
+        shift_run=shift_run,
+        movers=movers,
+        effective_cap=effective_cap,
+        load=load,
+        storage_loc=storage_loc,
+        move_options=move_options,
+    )
+
+
+@app.route('/admin/items')
+@login_required
+def admin_items():
+    """Items tab — approval queue + lifecycle table."""
+    if not current_user.is_admin:
+        abort(403)
+
+    view = request.args.get('view', 'all')  # 'all' or 'approve'
+
+    # Stats bar
+    total_items = InventoryItem.query.count()
+    pending_approval = InventoryItem.query.filter_by(status='pending_valuation').count()
+    available_count = InventoryItem.query.filter_by(status='available').count()
+    sold_count = InventoryItem.query.filter_by(status='sold').count()
+
+    # Approval queue items (pending_valuation, for super admins)
+    approval_items = []
+    if current_user.is_super_admin:
+        approval_items = (
+            InventoryItem.query
+            .filter_by(status='pending_valuation')
+            .order_by(InventoryItem.date_added.asc())
+            .all()
+        )
+
+    # All items for lifecycle table
+    filter_cat = request.args.get('cat', type=int)
+    filter_email = request.args.get('email', '').strip()
+    filter_title = request.args.get('title', '').strip()
+
+    items_q = InventoryItem.query
+    if filter_cat:
+        items_q = items_q.filter_by(category_id=filter_cat)
+    if filter_email:
+        seller_ids = [u.id for u in User.query.filter(User.email.ilike(f'%{filter_email}%')).all()]
+        items_q = items_q.filter(InventoryItem.seller_id.in_(seller_ids))
+    if filter_title:
+        items_q = items_q.filter(InventoryItem.description.ilike(f'%{filter_title}%'))
+
+    all_items = items_q.order_by(InventoryItem.date_added.desc()).all()
+    categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+
+    # Store controls
+    pickup_period_active = get_pickup_period_active()
+    reserve_only = AppSetting.get('reserve_only_mode', 'false') == 'true'
+    store_open_date = AppSetting.get('store_open_date', '')
+    shop_teaser_mode = AppSetting.get('shop_teaser_mode', 'false')
+
+    return render_template(
+        'admin/items.html',
+        view=view,
+        total_items=total_items,
+        pending_approval=pending_approval,
+        available_count=available_count,
+        sold_count=sold_count,
+        approval_items=approval_items,
+        all_items=all_items,
+        categories=categories,
+        pickup_period_active=pickup_period_active,
+        reserve_only=reserve_only,
+        store_open_date=store_open_date,
+        shop_teaser_mode=shop_teaser_mode,
+        filter_cat=filter_cat,
+        filter_email=filter_email,
+        filter_title=filter_title,
+    )
+
+
+@app.route('/admin/sellers')
+@login_required
+def admin_sellers():
+    """Sellers tab — list, pickup nudge, free-tier management."""
+    if not current_user.is_admin:
+        abort(403)
+
+    sellers = (
+        User.query
+        .filter_by(is_seller=True)
+        .order_by(User.date_joined.desc())
+        .all()
+    )
+
+    # Seller item counts and pickup info
+    for s in sellers:
+        s._item_count = InventoryItem.query.filter_by(seller_id=s.id).filter(
+            InventoryItem.status.in_(['available', 'pending_valuation', 'pending_logistics', 'approved'])
+        ).count()
+        s._days_since_joined = (datetime.utcnow().date() - s.date_joined.date()).days if s.date_joined else None
+
+    # Pickup nudge queue: has approved items but no pickup week
+    nudge_sellers = [
+        s for s in sellers
+        if s.pickup_week is None and InventoryItem.query.filter_by(
+            seller_id=s.id, status='available'
+        ).count() > 0
+    ]
+
+    # Free-tier sellers with pending items (awaiting free-tier approval)
+    free_tier_sellers = (
+        User.query
+        .join(InventoryItem, InventoryItem.seller_id == User.id)
+        .filter(
+            InventoryItem.collection_method == 'free',
+            InventoryItem.status == 'pending_valuation',
+        )
+        .group_by(User.id)
+        .all()
+    )
+
+    return render_template(
+        'admin/sellers.html',
+        sellers=sellers,
+        nudge_sellers=nudge_sellers,
+        free_tier_sellers=free_tier_sellers,
+    )
+
+
+@app.route('/admin/crew')
+@login_required
+def admin_crew_panel():
+    """Crew tab — pending applications + approved workers."""
+    if not current_user.is_admin:
+        abort(403)
+
+    pending_apps = (
+        WorkerApplication.query
+        .join(User, WorkerApplication.user_id == User.id)
+        .filter(User.worker_status == 'pending')
+        .order_by(WorkerApplication.applied_at.desc())
+        .all()
+    )
+
+    approved_workers = (
+        User.query
+        .filter_by(worker_status='approved')
+        .order_by(User.full_name.asc())
+        .all()
+    )
+
+    # Shift completion counts per worker
+    for w in approved_workers:
+        w._shifts_done = ShiftAssignment.query.filter_by(
+            worker_id=w.id
+        ).filter(ShiftAssignment.completed_at.isnot(None)).count()
+
+    # Availability for pending applicants
+    for app_rec in pending_apps:
+        app_rec._avail = WorkerAvailability.query.filter_by(
+            user_id=app_rec.user_id, week_start=None
+        ).first()
+
+    return render_template(
+        'admin/crew.html',
+        pending_apps=pending_apps,
+        approved_workers=approved_workers,
+    )
+
+
+@app.route('/admin/settings', methods=['GET', 'POST'])
+@login_required
+def admin_settings():
+    """Settings tab — all config sections. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+
+    if request.method == 'POST':
+        # Delegate to the appropriate sub-handler based on form key
+        # All existing POST sub-routes stay unchanged — this catches settings
+        # submitted directly via the consolidated settings page.
+        action = request.form.get('_action', '')
+        if action == 'toggle_pickup_period':
+            current_status = get_pickup_period_active()
+            AppSetting.set('pickup_period_active', str(not current_status))
+            flash(f"Pickup period {'activated' if not current_status else 'closed'}.", "success")
+        elif action == 'toggle_reserve_only':
+            current = AppSetting.get('reserve_only_mode', 'false')
+            AppSetting.set('reserve_only_mode', 'false' if current == 'true' else 'true')
+            flash("Reserve-only mode updated.", "success")
+        elif action == 'toggle_shop_teaser':
+            current = AppSetting.get('shop_teaser_mode', 'false')
+            AppSetting.set('shop_teaser_mode', 'false' if current == 'true' else 'true')
+            flash("Shop Teaser Mode updated.", "success")
+        elif action == 'save_route_settings':
+            for key in ['truck_raw_capacity', 'truck_capacity_buffer_pct',
+                        'route_am_window', 'route_pm_window', 'maps_static_api_key',
+                        'sms_enabled', 'sms_reminder_hour_eastern',
+                        'no_show_email_enabled', 'no_show_email_hour_eastern']:
+                val = request.form.get(key)
+                if val is not None:
+                    AppSetting.set(key, val.strip())
+            categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+            for cat in categories:
+                raw = request.form.get(f'unit_size_{cat.id}', '').strip()
+                if raw:
+                    try:
+                        cat.default_unit_size = float(raw)
+                    except ValueError:
+                        pass
+            db.session.commit()
+            flash("Route & capacity settings saved.", "success")
+        elif action == 'save_referral_settings':
+            for key in ('referral_base_rate', 'referral_signup_bonus',
+                        'referral_bonus_per_referral', 'referral_max_rate'):
+                val = request.form.get(key, '').strip()
+                if val.isdigit():
+                    AppSetting.set(key, val)
+            active_val = 'true' if request.form.get('referral_program_active') == 'true' else 'false'
+            AppSetting.set('referral_program_active', active_val)
+            flash("Referral program settings saved.", "success")
+        elif action == 'save_sms_settings':
+            for key in ['sms_enabled', 'sms_reminder_hour_eastern',
+                        'no_show_email_enabled', 'no_show_email_hour_eastern']:
+                val = request.form.get(key)
+                if val is not None:
+                    AppSetting.set(key, val.strip())
+            flash("SMS notification settings saved.", "success")
+        elif action == 'save_pickup_window':
+            start = request.form.get('pickup_week_start', '').strip()
+            end = request.form.get('pickup_week_end', '').strip()
+            from datetime import date as _date_cls
+            try:
+                if start:
+                    _date_cls.fromisoformat(start)
+                if end:
+                    _date_cls.fromisoformat(end)
+                AppSetting.set('pickup_week_start', start)
+                AppSetting.set('pickup_week_end', end)
+                flash("Pickup window saved.", "success")
+            except ValueError:
+                flash("Invalid date format. Use YYYY-MM-DD.", "error")
+        elif action == 'make_admin':
+            email = request.form.get('admin_email', '').strip()
+            is_super = request.form.get('is_super') == '1'
+            u = User.query.filter_by(email=email).first()
+            if u:
+                u.is_admin = True
+                if is_super:
+                    u.is_super_admin = True
+                db.session.commit()
+                flash(f"Admin access granted to {email}.", "success")
+            else:
+                flash(f"User not found: {email}.", "error")
+        elif action == 'revoke_admin':
+            email = request.form.get('admin_email', '').strip()
+            u = User.query.filter_by(email=email).first()
+            if u and u.id != current_user.id:
+                u.is_admin = False
+                u.is_super_admin = False
+                db.session.commit()
+                flash(f"Admin access revoked for {email}.", "success")
+            elif u and u.id == current_user.id:
+                flash("Cannot revoke your own admin access.", "error")
+            else:
+                flash(f"User not found: {email}.", "error")
+        return redirect(url_for('admin_settings'))
+
+    # GET: build settings page
+    categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+    storage_locations = StorageLocation.query.order_by(StorageLocation.is_active.desc(), StorageLocation.name).all()
+    admin_users = User.query.filter_by(is_admin=True).order_by(User.email).all()
+
+    return render_template(
+        'admin/settings.html',
+        categories=categories,
+        storage_locations=storage_locations,
+        admin_users=admin_users,
+        # Route settings
+        truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
+        truck_capacity_buffer_pct=AppSetting.get('truck_capacity_buffer_pct', '10'),
+        route_am_window=AppSetting.get('route_am_window', '9am–1pm'),
+        route_pm_window=AppSetting.get('route_pm_window', '1pm–5pm'),
+        maps_static_api_key=AppSetting.get('maps_static_api_key', ''),
+        # SMS
+        sms_enabled=AppSetting.get('sms_enabled', 'true'),
+        sms_reminder_hour_eastern=AppSetting.get('sms_reminder_hour_eastern', '9'),
+        no_show_email_enabled=AppSetting.get('no_show_email_enabled', 'true'),
+        no_show_email_hour_eastern=AppSetting.get('no_show_email_hour_eastern', '18'),
+        # Referral
+        referral_base_rate=AppSetting.get('referral_base_rate', '20'),
+        referral_signup_bonus=AppSetting.get('referral_signup_bonus', '10'),
+        referral_bonus_per_referral=AppSetting.get('referral_bonus_per_referral', '10'),
+        referral_max_rate=AppSetting.get('referral_max_rate', '100'),
+        referral_program_active=AppSetting.get('referral_program_active', 'true'),
+        # Pickup window
+        pickup_week_start=AppSetting.get('pickup_week_start', ''),
+        pickup_week_end=AppSetting.get('pickup_week_end', ''),
+        # Store
+        pickup_period_active=get_pickup_period_active(),
+        reserve_only=AppSetting.get('reserve_only_mode', 'false') == 'true',
+        store_open_date=AppSetting.get('store_open_date', ''),
+        shop_teaser_mode=AppSetting.get('shop_teaser_mode', 'false'),
+    )
+
+
+@app.route('/admin/settings/generate-shifts', methods=['POST'])
+@login_required
+def admin_generate_shifts():
+    """Idempotent: generate AM + PM shifts for every date in the configured pickup window."""
+    if not current_user.is_super_admin:
+        abort(403)
+
+    from datetime import date as _date_cls
+
+    start_str = AppSetting.get('pickup_week_start', '').strip()
+    end_str = AppSetting.get('pickup_week_end', '').strip()
+    if not start_str or not end_str:
+        flash("Set pickup_week_start and pickup_week_end in Settings first.", "error")
+        return redirect(url_for('admin_settings') + '#pickup-window')
+
+    try:
+        start_date = _date_cls.fromisoformat(start_str)
+        end_date = _date_cls.fromisoformat(end_str)
+    except ValueError:
+        flash("Invalid pickup window dates. Use YYYY-MM-DD format.", "error")
+        return redirect(url_for('admin_settings') + '#pickup-window')
+
+    if end_date < start_date:
+        flash("End date must be on or after start date.", "error")
+        return redirect(url_for('admin_settings') + '#pickup-window')
+
+    created_count = 0
+    current_date = start_date
+    while current_date <= end_date:
+        # Find or create ShiftWeek whose week contains this date
+        monday = current_date - timedelta(days=current_date.weekday())
+        week = ShiftWeek.query.filter_by(week_start=monday).first()
+        if not week:
+            week = ShiftWeek(
+                week_start=monday,
+                status='draft',
+                created_by_id=current_user.id,
+            )
+            db.session.add(week)
+            db.session.flush()
+
+        day_str = _DAY_ORDER_OPS[current_date.weekday()]
+        for slot in ('am', 'pm'):
+            existing = Shift.query.filter_by(week_id=week.id, day_of_week=day_str, slot=slot).first()
+            if not existing:
+                sh = Shift(
+                    week_id=week.id,
+                    day_of_week=day_str,
+                    slot=slot,
+                    trucks=1,
+                    is_active=True,
+                )
+                db.session.add(sh)
+                created_count += 1
+
+        current_date += timedelta(days=1)
+
+    db.session.commit()
+    date_range = f"{start_date.strftime('%b %-d')}–{end_date.strftime('%b %-d')}"
+    flash(f"Generated {created_count} shift(s) for {date_range}.", "success")
+    return redirect(url_for('admin_settings') + '#pickup-window')
 
 
 if __name__ == '__main__':

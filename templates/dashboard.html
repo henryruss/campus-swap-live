@@ -271,7 +271,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                         {% if item.status == 'pending_valuation' %}
                         <div class="item-pending-overlay">Pending review</div>
                         {% elif item.status == 'needs_info' %}
-                        <div class="item-pending-overlay item-pending-overlay-amber">Needs update</div>
+                        <div class="item-pending-overlay item-pending-overlay-amber">Action needed — tap to see</div>
                         {% endif %}
                     </div>
                     <div class="dashboard-item-square-body">
@@ -325,6 +325,32 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                         {% elif item.status == 'needs_info' %}<span class="badge" style="background: #f59e0b; color: white;">Action Needed</span>
                         {% endif %}
                     </div>
+
+                    {# Needs Info alert — show reasons + note directly in the modal #}
+                    {% if item.status == 'needs_info' %}
+                    {% set _item_alerts = unresolved_alerts | selectattr('item_id', 'equalto', item.id) | selectattr('alert_type', 'equalto', 'needs_info') | list %}
+                    {% set item_alert = _item_alerts[0] if _item_alerts else none %}
+                    {% if item_alert %}
+                    <div style="background: #fffbeb; border: 2px solid #fde68a; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <i class="fas fa-exclamation-circle" style="color: #d97706; font-size: 1.1rem;"></i>
+                            <strong style="color: #92400e; font-size: 0.95rem;">We need a few updates before we can approve this item</strong>
+                        </div>
+                        {% set reasons = (item_alert.reasons | fromjson) if item_alert.reasons else [] %}
+                        {% if reasons %}
+                        <ul style="margin: 0 0 8px; padding-left: 20px; color: #78350f; font-size: 0.88rem; line-height: 1.7;">
+                            {% for reason in reasons %}
+                            <li>{{ reason }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% if item_alert.custom_note %}
+                        <p style="color: #78350f; font-size: 0.88rem; margin: 6px 0 0; font-style: italic; border-top: 1px solid #fde68a; padding-top: 8px;">"{{ item_alert.custom_note }}"</p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
                     <h3 style="font-size: 1.25rem; margin-bottom: 8px;">{{ item.description }}</h3>
                     {% if item.status != 'pending_valuation' %}
                     <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">

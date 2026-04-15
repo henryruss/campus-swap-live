@@ -7,6 +7,56 @@
 
 ---
 
+## Admin UI Redesign (2026-04-15)
+
+### Decision: Active tab detection via `request.path` in `admin_layout.html` rather than per-route context variable
+**Reasoning:** Jinja2 `{% set %}` in child templates does not propagate upward to parent templates through inheritance. Passing `active_tab` from every route would require touching dozens of existing route functions. `request.path.startswith(...)` in the layout template is automatic — zero route changes needed for existing pages, and new routes just work.
+
+### Decision: `admin_storage_index` GET redirects immediately; old body removed
+**Reasoning:** All storage location content moves to `admin_settings#storage`. The old function body (list + create) would have been dead code since the route now redirects before executing it. Keeping it would cause confusion. The POST routes (`admin_storage_create`, `admin_storage_edit`) are unchanged — only the GET list page is gone.
+
+### Decision: `admin_routes_assign_seller` accepts hybrid JSON + form-encoded `shift_truck` param
+**Reasoning:** The existing route expects JSON (`shift_id`, `truck_number`). The ops panel uses a plain HTML form (no JS fetch — simpler, more reliable). Rather than adding a parallel POST route or forcing JS fetch everywhere, the single route now checks `request.form.get('shift_truck')` as a fallback when JSON is absent. The `shift_truck` format is `"<shift_id>_<truck_number>"` — a simple convention that splits cleanly. Existing JSON callers are unaffected; they don't send form data.
+
+### Decision: `admin_shift_add_truck` redirects to `admin_ops` only when `Accept: text/html` is set
+**Reasoning:** The existing tests call this route without any XHR headers and expect JSON back. A blanket "redirect if not JSON" check would break those tests. Checking `Accept: text/html` specifically targets browser form submissions (which always include it) while leaving programmatic callers (pytest, XHR fetch) on the JSON path. This is the correct discriminator for "did a browser submit this form?"
+
+### Decision: Cluster-first auto-assignment sort added as a pure modification to `_run_auto_assignment`
+**Reasoning:** The spec says to sort sellers before the placement loop. The existing placement loop is complex (moveout date filtering, best-fit across shifts, soft cap logic). Changing the sort order before the loop is the minimal, safe change — all placement logic is untouched. Building clusters via `build_geographic_clusters()` introduces one extra pass over eligible sellers but that's negligible at current volumes.
+
+### Decision: `admin_ops` uses `_ops_shift_date()` instead of `_shift_date()` 
+**Reasoning:** `_shift_date` is defined in the Spec #8 section of `app.py` and is correct. But naming a separate `_ops_shift_date` in the new ops helpers avoids any risk of name collision or order-of-definition issues as the file grows. Both implementations are identical — this is purely defensive namespacing.
+
+### Decision: Notify + Order redirect now inspects `request.referrer`
+**Reasoning:** `admin_shift_notify_sellers` and `admin_shift_order_stops` previously always redirected to `admin_shift_ops`. Now they check if the referrer contains `/admin/ops` and redirect there instead. This preserves backward compatibility — direct links, schedule builder "View Ops →" links, and any bookmarked flow still land on `admin_shift_ops`. Only the new ops panel gets the updated redirect.
+
+---
+
+## Spec #9 — SMS Notifications (2026-04-14)
+
+### Decision: `issue_type` missing from POST defaults to `'other'` (not 400)
+**Reasoning:** A JS failure mid-route shouldn't block a mover from flagging a stop. Graceful degradation is more important than API strictness here. The route processes the flag with a safe default; movers can always add a note to clarify. `'other'` is the correct semantic default — it covers any generic issue.
+
+### Decision: Notes are optional for all issue flags
+**Reasoning:** `issue_type` now carries the semantic classification (no_show vs. other). Requiring freetext notes was redundant and could block movers at a critical moment. Notes remain available for extra context but are never gated.
+
+### Decision: `revoked_at` checked before `used_at` in reschedule routes
+**Reasoning:** A completed pickup (revoked_at set) supersedes the rescheduled-self case (used_at set). Both could theoretically be set if a seller rescheduled, then the mover completed the new stop. The `revoked_at` message ("your pickup was completed — no need to reschedule") is more accurate and actionable than "link already used" in that edge case.
+
+### Decision: Twilio and `twilio.request_validator` lazy-imported inside function bodies
+**Reasoning:** `twilio` isn't installed in the local dev environment (runs without it). Top-level imports would crash `app.py` on load. Lazy importing inside `_send_sms` and `sms_inbound_webhook` means the app starts normally — SMS simply never fires without the package installed. On Render (prod), the package is installed and the imports succeed.
+
+### Decision: `cron_sms_reminders` is NOT idempotent
+**Reasoning:** Adding a "sent today" guard would require a new DB column or AppSetting. The cron runs once per day at a scheduled time — duplicate runs in one day would require a Render misconfiguration. Documenting this in a code comment is the right tradeoff vs. adding schema complexity for an edge case.
+
+### Decision: `RescheduleToken` gains `revoked_at` rather than reusing `used_at`
+**Reasoning:** The two events are operationally distinct and matter for metrics. `used_at` = seller took action and self-rescheduled. `revoked_at` = system terminated the token because the pickup completed successfully (no seller action needed). Conflating them would obscure whether sellers are proactively rescheduling or just showing up as scheduled.
+
+### Decision: `sms_reminder_hour_eastern` and `no_show_email_hour_eastern` AppSettings are informational only
+**Reasoning:** The cron schedule is configured in Render — the app doesn't self-schedule. These settings serve as in-product documentation of the intended schedule and allow admins to note if they want to change timing (as a signal to update the Render cron), but the code doesn't read them to time anything. Actual scheduling is Render's job.
+
+---
+
 ## Spec #8 — Seller Rescheduling (2026-04-14)
 
 ### Decision: Reschedule grid covers full pickup window, not just existing Shift records

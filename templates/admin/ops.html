@@ -1,0 +1,913 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  /* ── Ops page layout ── */
+  .ops-page {
+    display: grid;
+    grid-template-columns: 220px 1fr 210px;
+    grid-template-rows: auto 1fr;
+    min-height: calc(100vh - 72px);
+    background: var(--bg-body);
+  }
+
+  /* ── Left panel: shift list ── */
+  .ops-shift-panel {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    border-right: var(--card-border);
+    background: var(--bg-cream);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .ops-shift-panel-header {
+    padding: 16px 14px 10px;
+    border-bottom: var(--card-border);
+    position: sticky;
+    top: 0;
+    background: var(--bg-cream);
+    z-index: 10;
+  }
+  .ops-shift-panel-header h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 0 0 4px;
+  }
+  .ops-shift-panel-header .month-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .ops-week-group { padding: 10px 0 0; }
+  .ops-week-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 4px 14px;
+    margin: 0;
+  }
+  .ops-shift-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    text-decoration: none;
+    color: var(--text-main);
+    font-size: 0.85rem;
+    transition: background 0.12s;
+    border-left: 3px solid transparent;
+  }
+  .ops-shift-row:hover { background: rgba(0,0,0,0.04); }
+  .ops-shift-row.active {
+    background: rgba(138,184,138,0.18);
+    border-left-color: var(--sage);
+  }
+  .ops-slot-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .ops-slot-badge.am { background: #fef9c3; color: #854d0e; }
+  .ops-slot-badge.pm { background: #dbeafe; color: #1e40af; }
+  .ops-shift-status {
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .status-notified { color: #166534; }
+  .status-new { background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 8px; }
+  .status-muted { color: var(--text-muted); }
+  .ops-panel-footer {
+    margin-top: auto;
+    padding: 12px 14px;
+    border-top: var(--card-border);
+    font-size: 0.8rem;
+  }
+
+  /* ── Main content ── */
+  .ops-main {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .ops-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: var(--card-border);
+    background: white;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .ops-topbar h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.2rem;
+    color: var(--primary);
+    margin: 0;
+  }
+  .ops-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .ops-alert-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #fef3c7;
+    border-bottom: 1px solid #fde68a;
+    font-size: 0.85rem;
+    color: #92400e;
+    gap: 12px;
+  }
+
+  .ops-cards-area { padding: 16px 20px; }
+
+  /* ── Truck card ── */
+  .truck-card-new {
+    background: white;
+    border: var(--card-border);
+    border-radius: 14px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .truck-card-header-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-bottom: var(--card-border);
+    flex-wrap: wrap;
+  }
+  .truck-label-chip {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary);
+  }
+  .storage-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.78rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+  }
+  .storage-chip.assigned { color: #166534; border-color: #86efac; background: #f0fdf4; }
+  .storage-chip.unassigned { color: #92400e; border-color: #fde68a; background: #fef3c7; }
+  .cap-bar-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .cap-bar-outer {
+    width: 80px;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .cap-bar-inner {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+  }
+  .cap-bar-inner.green { background: #22c55e; }
+  .cap-bar-inner.amber { background: #f59e0b; }
+  .cap-bar-inner.red { background: #ef4444; }
+  .cap-label { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+
+  .truck-run-pill {
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill-in-progress { background: #dbeafe; color: #1e40af; }
+  .pill-complete { background: #dcfce7; color: #166534; }
+
+  /* Stop list */
+  .stop-list { padding: 8px 0; }
+  .stop-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.85rem;
+  }
+  .stop-row:last-child { border-bottom: none; }
+  .stop-num-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .stop-num-circle.pending { background: #e5e7eb; color: #374151; }
+  .stop-num-circle.completed { background: #dcfce7; color: #166534; }
+  .stop-num-circle.issue { background: #fee2e2; color: #991b1b; }
+  .stop-info { flex: 1; min-width: 0; }
+  .stop-seller-name { font-weight: 600; color: var(--text-main); }
+  .stop-address { font-size: 0.78rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop-badges { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
+  .badge-new { background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 700; }
+  .badge-moved { background: #dbeafe; color: #1e40af; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 700; }
+  .stop-units { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; padding-top: 2px; }
+
+  .truck-card-footer {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: var(--card-border);
+    background: #fafafa;
+    flex-wrap: wrap;
+  }
+
+  /* Live summary row */
+  .live-summary-row {
+    display: flex;
+    gap: 16px;
+    padding: 10px 16px;
+    background: #f0fdf4;
+    border-bottom: var(--card-border);
+    font-size: 0.83rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .live-stat { display: flex; gap: 4px; align-items: center; }
+  .live-stat-num { font-weight: 700; color: #166534; }
+  .live-stat-label { color: var(--text-muted); }
+
+  .issue-alert-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ── Right panel: unassigned sellers ── */
+  .ops-unassigned-panel {
+    grid-column: 3;
+    grid-row: 1 / 3;
+    border-left: var(--card-border);
+    background: white;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .unassigned-header {
+    padding: 14px 12px 10px;
+    border-bottom: var(--card-border);
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+  }
+  .unassigned-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .unassigned-header h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .unassigned-count-badge {
+    background: #ef4444;
+    color: white;
+    border-radius: 20px;
+    padding: 1px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .unassigned-sublabel { font-size: 0.75rem; color: var(--text-muted); }
+
+  .cluster-header {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 10px 12px 4px;
+  }
+
+  .unassigned-seller-card {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+    transition: background 0.12s;
+    font-size: 0.82rem;
+  }
+  .unassigned-seller-card:hover { background: #f8fafc; }
+  .seller-card-row1 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .seller-card-name { font-weight: 600; color: var(--text-main); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seller-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .seller-card-row2 { font-size: 0.73rem; color: var(--text-muted); margin-top: 2px; }
+  .seller-card-pref { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 700; margin-left: 4px; }
+  .pref-am { background: #fef9c3; color: #854d0e; }
+  .pref-pm { background: #dbeafe; color: #1e40af; }
+
+  /* Inline assign dropdown */
+  .seller-assign-form {
+    margin-top: 6px;
+    display: none;
+  }
+  .seller-assign-form.open { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .seller-assign-form select {
+    flex: 1;
+    font-size: 0.78rem;
+    padding: 4px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    min-width: 0;
+  }
+
+  /* Dimmed unmatched */
+  .unassigned-seller-card.dimmed { opacity: 0.5; }
+
+  /* Show-all toggle */
+  .show-all-row {
+    padding: 10px 12px;
+    border-top: var(--card-border);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── Truck detail drawer ── */
+  .ops-drawer-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 300;
+  }
+  .ops-drawer-overlay.open { display: block; }
+  .ops-drawer {
+    position: fixed;
+    top: 0;
+    right: -480px;
+    width: 480px;
+    max-width: 100vw;
+    height: 100vh;
+    background: white;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.12);
+    z-index: 301;
+    overflow-y: auto;
+    transition: right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .ops-drawer.open { right: 0; }
+
+  /* ── Btn variants ── */
+  .btn-sm {
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--rule);
+    background: white;
+    cursor: pointer;
+    color: var(--text-main);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: background 0.12s;
+  }
+  .btn-sm:hover { background: #f1f5f9; }
+  .btn-sm.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-sm.primary:hover { background: var(--accent-hover); }
+  .btn-sm.danger { color: #dc2626; border-color: #fecaca; }
+  .btn-sm.danger:hover { background: #fef2f2; }
+
+  /* Empty state */
+  .ops-empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+  }
+  .ops-empty-state i { font-size: 2.5rem; margin-bottom: 12px; color: var(--sage); }
+  .ops-empty-state h3 { font-size: 1rem; color: var(--primary); margin-bottom: 8px; }
+
+  @media (max-width: 1024px) {
+    .ops-page { grid-template-columns: 200px 1fr 180px; }
+  }
+  @media (max-width: 768px) {
+    .ops-page { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; }
+    .ops-shift-panel { grid-column: 1; grid-row: 2; max-height: 280px; border-right: none; border-bottom: var(--card-border); }
+    .ops-main { grid-column: 1; grid-row: 3; }
+    .ops-unassigned-panel { grid-column: 1; grid-row: 4; border-left: none; border-top: var(--card-border); max-height: 360px; }
+    .ops-drawer { width: 100vw; }
+  }
+</style>
+
+<div class="ops-page">
+
+  {# ── Zone 1: Shift list panel ── #}
+  <aside class="ops-shift-panel">
+    <div class="ops-shift-panel-header">
+      <h3>Pickup shifts</h3>
+      <div class="month-label">{{ shift_list[0].date.strftime('%B %Y') if shift_list else 'No shifts yet' }}</div>
+    </div>
+
+    {% if not shift_list %}
+    <div style="padding: 20px 14px; font-size: 0.83rem; color: var(--text-muted);">
+      No shifts. <a href="/admin/settings#pickup-window" style="color: var(--accent);">Generate shifts →</a>
+    </div>
+    {% endif %}
+
+    {% set current_week_id = namespace(val=none) %}
+    {% for item in shift_list %}
+      {% if item.week.id != current_week_id.val %}
+        {% set current_week_id.val = item.week.id %}
+        <div class="ops-week-group">
+          <p class="ops-week-label">Week of {{ item.week.week_start.strftime('%b %-d') }}</p>
+        </div>
+      {% endif %}
+      <a href="{{ url_for('admin_ops', shift_id=item.shift.id) }}"
+         class="ops-shift-row {% if shift and shift.id == item.shift.id %}active{% endif %}">
+        <span>{{ item.day_label }} {{ item.date.strftime('%-d') }}</span>
+        <span class="ops-slot-badge {{ item.shift.slot }}">{{ item.shift.slot | upper }}</span>
+        {% if item.notified %}
+          <span class="ops-shift-status status-notified"><i class="fas fa-check"></i></span>
+        {% elif item.unnotified_count > 0 %}
+          <span class="ops-shift-status status-new">{{ item.unnotified_count }} new</span>
+        {% elif item.stop_count > 0 %}
+          <span class="ops-shift-status status-muted">{{ item.truck_count }}t · {{ item.stop_count }}s</span>
+        {% endif %}
+      </a>
+    {% endfor %}
+
+    <div class="ops-panel-footer">
+      {% if shift and shift.week %}
+      <a href="{{ url_for('admin_schedule_week', week_id=shift.week.id) }}" style="font-size: 0.8rem; color: var(--primary); text-decoration: none;">
+        <i class="fas fa-calendar-alt"></i> Week overview →
+      </a>
+      {% endif %}
+    </div>
+  </aside>
+
+  {# ── Zone 2: Main content ── #}
+  <section class="ops-main">
+    {% if not shift %}
+    <div class="ops-empty-state">
+      <i class="fas fa-route"></i>
+      <h3>No pickup shifts yet</h3>
+      <p>Generate shifts in <a href="/admin/settings#pickup-window">Settings →</a></p>
+    </div>
+    {% else %}
+    <div class="ops-topbar">
+      <h2>{{ shift_date.strftime('%a %b %-d') }} — {{ 'AM shift' if shift.slot == 'am' else 'PM shift' }}</h2>
+      <div class="ops-topbar-actions">
+        <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-sm" title="Refresh">
+          <i class="fas fa-sync-alt"></i>
+        </a>
+        <form method="POST" action="{{ url_for('admin_shift_add_truck', shift_id=shift.id) }}" style="display:inline;" id="addTruckForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-sm">
+            <i class="fas fa-plus"></i> Add Truck
+          </button>
+        </form>
+        <button class="btn-sm" id="orderRoutesBtn"
+                data-shift-id="{{ shift.id }}"
+                data-trucks="{{ shift.trucks }}">
+          <i class="fas fa-route"></i> Order Routes
+        </button>
+        <button class="btn-sm primary" id="notifyBtn"
+                data-shift-id="{{ shift.id }}"
+                data-unnotified="{{ unnotified_count }}">
+          <i class="fas fa-bell"></i> Notify Sellers
+          {% if unnotified_count > 0 %}
+            <span style="background: rgba(255,255,255,0.3); border-radius: 10px; padding: 0 6px; font-size: 0.7rem;">{{ unnotified_count }}</span>
+          {% endif %}
+        </button>
+      </div>
+    </div>
+
+    {# Alert bar for unnotified sellers #}
+    {% if unnotified_count > 0 and shift.sellers_notified %}
+    <div class="ops-alert-bar">
+      <span><i class="fas fa-exclamation-triangle"></i> {{ unnotified_count }} seller{{ 's' if unnotified_count != 1 }} added since last notification · Route order may be stale</span>
+      <button class="btn-sm" id="reorderNotifyBtn"
+              data-shift-id="{{ shift.id }}"
+              data-trucks="{{ shift.trucks }}">
+        Re-order &amp; notify
+      </button>
+    </div>
+    {% endif %}
+
+    <div class="ops-cards-area">
+      {% if not cards %}
+      <div class="ops-empty-state">
+        <i class="fas fa-truck"></i>
+        <h3>No trucks on this shift yet</h3>
+        <p>Click "Add Truck" to start building the route.</p>
+      </div>
+      {% endif %}
+
+      {% for card in cards %}
+      <div class="truck-card-new" id="truck-card-{{ card.truck_number }}">
+        <div class="truck-card-header-row">
+          <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
+
+          {% if card.storage_loc %}
+          <span class="storage-chip assigned">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex-shrink: 0; display: inline-block;"></span>
+            {{ card.storage_loc.name }}
+          </span>
+          {% else %}
+          <span class="storage-chip unassigned">No unit assigned</span>
+          {% endif %}
+
+          {% if card.live %}
+            {% if card.live.status == 'in_progress' %}
+            <span class="truck-run-pill pill-in-progress">In progress</span>
+            {% elif card.live.status == 'completed' %}
+            <span class="truck-run-pill pill-complete">Complete</span>
+            {% endif %}
+          {% endif %}
+
+          <div class="cap-bar-wrap">
+            <div class="cap-bar-outer">
+              <div class="cap-bar-inner {{ 'green' if card.cap_pct <= 75 else ('amber' if card.cap_pct <= 100 else 'red') }}"
+                   style="width: {{ [card.cap_pct, 100] | min }}%;"></div>
+            </div>
+            <span class="cap-label">{{ card.load | round(1) }}/{{ card.effective_cap }}u</span>
+          </div>
+
+          <button class="btn-sm"
+                  style="margin-left: auto;"
+                  onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
+            <i class="fas fa-list"></i> View stops
+          </button>
+        </div>
+
+        {# Live state row #}
+        {% if card.live %}
+        <div class="live-summary-row">
+          <span class="live-stat">
+            <span class="live-stat-num">{{ card.live.stops_done }}</span>
+            <span class="live-stat-label">/ {{ card.live.stops_total }} done</span>
+          </span>
+          <span class="live-stat">
+            <span class="live-stat-label">{{ card.live.items_total }} items</span>
+          </span>
+          {% if card.live.current_stop %}
+          <span class="live-stat">
+            <span class="live-stat-label">Now: {{ card.live.current_stop.seller.full_name if card.live.current_stop.seller else '—' }}</span>
+          </span>
+          {% else %}
+          <span class="live-stat" style="color: #166534; font-weight: 600;">All stops resolved</span>
+          {% endif %}
+          {% if card.live.stops_issue > 0 %}
+          <span class="live-stat" style="color: #dc2626; font-weight: 600;">
+            <i class="fas fa-exclamation-triangle"></i> {{ card.live.stops_issue }} issue{{ 's' if card.live.stops_issue != 1 }}
+          </span>
+          {% endif %}
+        </div>
+        {% if card.live.has_issue %}
+        <div class="issue-alert-strip" onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
+          <i class="fas fa-exclamation-triangle"></i>
+          Issue flagged — tap to view
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {# Pre-shift stop list #}
+        {% if not card.live %}
+        <div class="stop-list">
+          {% if not card.stop_rows %}
+          <div style="padding: 16px; font-size: 0.83rem; color: var(--text-muted); text-align: center;">
+            No stops assigned — use auto-assign or drag from unassigned panel.
+          </div>
+          {% endif %}
+          {% for row in card.stop_rows %}
+          <div class="stop-row">
+            <div class="stop-num-circle pending">
+              {{ row.pickup.stop_order if row.pickup.stop_order is not none else '–' }}
+            </div>
+            <div class="stop-info">
+              <div class="stop-seller-name">{{ row.seller.full_name }}</div>
+              <div class="stop-address">{{ row.seller.pickup_display }}</div>
+              <div class="stop-badges">
+                {% if row.is_new %}<span class="badge-new">new</span>{% endif %}
+                {% if row.is_rescheduled %}<span class="badge-moved">moved</span>{% endif %}
+              </div>
+            </div>
+            <div class="stop-units">{{ row.item_count }} item{{ 's' if row.item_count != 1 }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="truck-card-footer">
+          <form method="POST" action="{{ url_for('admin_shift_order_stops', shift_id=shift.id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="truck_number" value="{{ card.truck_number }}">
+            <button type="submit" class="btn-sm">
+              <i class="fas fa-sort-numeric-down"></i> Re-order route
+            </button>
+          </form>
+          {% if card.map_url %}
+          <a href="{{ card.map_url }}" target="_blank" class="btn-sm">
+            <i class="fas fa-map-marker-alt"></i> View map
+          </a>
+          {% endif %}
+          {% if not card.storage_loc %}
+          <div style="position: relative; display: inline-block;">
+            <button class="btn-sm" onclick="toggleUnitDropdown(this, {{ shift.id }}, {{ card.truck_number }})">
+              <i class="fas fa-warehouse"></i> Assign unit
+            </button>
+            <div class="unit-dropdown" style="display: none; position: absolute; top: 100%; left: 0; z-index: 100; background: white; border: var(--card-border); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); min-width: 200px; padding: 6px 0; margin-top: 4px;">
+              {% for loc in storage_locations %}
+              <form method="POST" action="{{ url_for('admin_shift_assign_unit', shift_id=shift.id, truck_number=card.truck_number) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="storage_location_id" value="{{ loc.id }}">
+                <button type="submit" style="width: 100%; text-align: left; padding: 8px 16px; background: none; border: none; cursor: pointer; font-size: 0.83rem; color: var(--text-main);" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='none'">
+                  {{ loc.name }}
+                </button>
+              </form>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  {# ── Zone 3: Unassigned sellers panel ── #}
+  <aside class="ops-unassigned-panel">
+    <div class="unassigned-header">
+      <div class="unassigned-header-row">
+        <h3>Unassigned</h3>
+        {% if unassigned.total_unassigned is defined %}
+        <span class="unassigned-count-badge {% if unassigned.total_unassigned == 0 %}' style='background:#22c55e{% endif %}">
+          {{ unassigned.total_unassigned }}
+        </span>
+        {% endif %}
+      </div>
+      <div class="unassigned-sublabel">Drag to assign or use auto-assign</div>
+      {% if shift %}
+      <form method="POST" action="{{ url_for('admin_routes_auto_assign') }}" style="margin-top: 8px;" id="autoAssignForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-sm primary" style="width: 100%; justify-content: center;">
+          <i class="fas fa-magic"></i> Auto-Assign
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if not unassigned or not unassigned.clusters %}
+    <div style="padding: 20px 12px; text-align: center; color: var(--text-muted); font-size: 0.83rem;">
+      {% if shift %}
+      <i class="fas fa-check-circle" style="color: #22c55e; font-size: 1.5rem; display: block; margin-bottom: 8px;"></i>
+      All eligible sellers are assigned.
+      {% else %}
+      Select a shift to see unassigned sellers.
+      {% endif %}
+    </div>
+    {% else %}
+    {% for cluster in unassigned.clusters %}
+    <div class="cluster-header">{{ cluster.label }}</div>
+    {% for seller in cluster.sellers %}
+    <div class="unassigned-seller-card" onclick="toggleAssignForm(this, {{ seller.id }})">
+      <div class="seller-card-row1">
+        {% if seller._is_new %}<span class="seller-card-dot" title="Newly eligible"></span>{% endif %}
+        <span class="seller-card-name">{{ seller.full_name }}</span>
+        {% if seller.pickup_time_preference == 'morning' %}
+        <span class="seller-card-pref pref-am">AM</span>
+        {% elif seller.pickup_time_preference == 'afternoon' %}
+        <span class="seller-card-pref pref-pm">PM</span>
+        {% endif %}
+      </div>
+      <div class="seller-card-row2">
+        {{ cluster.label }} · {{ seller._unit_count | round(1) }}u
+        {% if seller.pickup_week %} · {{ seller.pickup_week | replace('week', 'Wk') }}{% endif %}
+      </div>
+      <div class="seller-assign-form" data-seller-id="{{ seller.id }}">
+        <form method="POST" action="{{ url_for('admin_routes_assign_seller', user_id=seller.id) }}"
+              style="display: flex; gap: 6px; width: 100%;" onclick="event.stopPropagation()">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <select name="shift_truck" style="flex: 1; font-size: 0.75rem; padding: 4px; border: 1px solid var(--rule); border-radius: 6px;">
+            {% if shift %}
+            {% for t in range(1, shift.trucks + 1) %}
+            <option value="{{ shift.id }}_{{ t }}" selected>{{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot=='am' else 'PM' }} — Truck {{ t }}</option>
+            {% endfor %}
+            {% endif %}
+            {% for opt in shift_truck_options %}
+            <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn-sm primary" style="flex-shrink: 0;">Assign</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+
+    {% if unassigned.slot_unmatched %}
+    <div class="show-all-row">
+      <input type="checkbox" id="showAllToggle" onchange="toggleSlotUnmatched(this.checked)">
+      <label for="showAllToggle" style="cursor: pointer;">Show all unassigned ({{ unassigned.slot_unmatched | length }} don't match slot)</label>
+    </div>
+    <div id="slotUnmatchedSection" style="display: none;">
+      {% for seller in unassigned.slot_unmatched %}
+      <div class="unassigned-seller-card dimmed" onclick="toggleAssignForm(this, {{ seller.id }})">
+        <div class="seller-card-row1">
+          <span class="seller-card-name">{{ seller.full_name }}</span>
+          {% if seller.pickup_time_preference == 'morning' %}
+          <span class="seller-card-pref pref-am">AM pref</span>
+          {% elif seller.pickup_time_preference == 'afternoon' %}
+          <span class="seller-card-pref pref-pm">PM pref</span>
+          {% endif %}
+        </div>
+        <div class="seller-card-row2">{{ seller._unit_count | round(1) }}u</div>
+        <div class="seller-assign-form" data-seller-id="{{ seller.id }}">
+          <form method="POST" action="{{ url_for('admin_routes_assign_seller', user_id=seller.id) }}"
+                style="display: flex; gap: 6px; width: 100%;" onclick="event.stopPropagation()">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <select name="shift_truck" style="flex: 1; font-size: 0.75rem; padding: 4px; border: 1px solid var(--rule); border-radius: 6px;">
+              {% if shift %}
+              {% for t in range(1, shift.trucks + 1) %}
+              <option value="{{ shift.id }}_{{ t }}">{{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot=='am' else 'PM' }} — Truck {{ t }}</option>
+              {% endfor %}
+              {% endif %}
+              {% for opt in shift_truck_options %}
+              <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn-sm primary" style="flex-shrink: 0;">Assign</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+  </aside>
+
+</div>
+
+{# ── Zone 4: Truck detail drawer (modal) ── #}
+<div class="ops-drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="ops-drawer" id="truckDrawer">
+  <div id="drawerContent" style="padding: 20px; min-height: 200px;">
+    <div style="text-align: center; padding-top: 60px; color: var(--text-muted);">
+      <i class="fas fa-spinner fa-spin fa-2x"></i>
+    </div>
+  </div>
+</div>
+
+{# Notify sellers confirmation dialog #}
+<form method="POST" action="{{ url_for('admin_shift_notify_sellers', shift_id=shift.id) if shift else '#' }}"
+      id="notifyForm" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+</form>
+
+<script>
+  // ── Truck detail drawer ──
+  function openTruckDrawer(shiftId, truckNum) {
+    var overlay = document.getElementById('drawerOverlay');
+    var drawer = document.getElementById('truckDrawer');
+    var content = document.getElementById('drawerContent');
+
+    content.innerHTML = '<div style="text-align:center;padding-top:60px;color:var(--text-muted)"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    overlay.classList.add('open');
+    drawer.classList.add('open');
+
+    fetch('/admin/ops/truck-detail?shift_id=' + shiftId + '&truck=' + truckNum)
+      .then(function(r) { return r.text(); })
+      .then(function(html) { content.innerHTML = html; })
+      .catch(function() {
+        content.innerHTML = '<div style="padding:20px;color:#dc2626;">Error loading truck detail.</div>';
+      });
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('open');
+    document.getElementById('truckDrawer').classList.remove('open');
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // ── Order routes (POST per truck, then reload) ──
+  document.getElementById('orderRoutesBtn') && document.getElementById('orderRoutesBtn').addEventListener('click', function() {
+    var btn = this;
+    var shiftId = btn.dataset.shiftId;
+    var csrfToken = document.querySelector('input[name="csrf_token"]') ? document.querySelector('input[name="csrf_token"]').value : '';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ordering...';
+    fetch('/admin/crew/shift/' + shiftId + '/order', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'csrf_token=' + encodeURIComponent(csrfToken),
+    }).then(function() {
+      window.location.reload();
+    }).catch(function() {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-route"></i> Order Routes';
+    });
+  });
+
+  // ── Notify sellers ──
+  document.getElementById('notifyBtn') && document.getElementById('notifyBtn').addEventListener('click', function() {
+    var unnotified = parseInt(this.dataset.unnotified, 10);
+    var msg = unnotified > 0
+      ? 'Send pickup confirmation to ' + unnotified + ' unnotified seller' + (unnotified !== 1 ? 's' : '') + '?'
+      : 'All sellers already notified. Re-send to newly added sellers?';
+    if (confirm(msg)) {
+      document.getElementById('notifyForm').submit();
+    }
+  });
+
+  // ── Re-order & notify ──
+  document.getElementById('reorderNotifyBtn') && document.getElementById('reorderNotifyBtn').addEventListener('click', function() {
+    var btn = this;
+    var shiftId = btn.dataset.shiftId;
+    var csrfToken = document.querySelector('input[name="csrf_token"]') ? document.querySelector('input[name="csrf_token"]').value : '';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    fetch('/admin/crew/shift/' + shiftId + '/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'csrf_token=' + encodeURIComponent(csrfToken),
+    }).then(function() {
+      document.getElementById('notifyForm').submit();
+    });
+  });
+
+  // ── Assign seller inline form ──
+  function toggleAssignForm(card, sellerId) {
+    var forms = card.querySelectorAll('.seller-assign-form');
+    forms.forEach(function(f) {
+      f.classList.toggle('open');
+    });
+  }
+
+  // ── Slot unmatched toggle ──
+  function toggleSlotUnmatched(show) {
+    var sec = document.getElementById('slotUnmatchedSection');
+    if (sec) sec.style.display = show ? 'block' : 'none';
+  }
+
+  // ── Unit assignment dropdown ──
+  function toggleUnitDropdown(btn, shiftId, truckNum) {
+    var dropdown = btn.nextElementSibling;
+    var isOpen = dropdown.style.display !== 'none';
+    // Close all other dropdowns
+    document.querySelectorAll('.unit-dropdown').forEach(function(d) { d.style.display = 'none'; });
+    dropdown.style.display = isOpen ? 'none' : 'block';
+  }
+
+  // Close unit dropdowns on outside click
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.unit-dropdown') && !e.target.closest('button[onclick*="toggleUnitDropdown"]')) {
+      document.querySelectorAll('.unit-dropdown').forEach(function(d) { d.style.display = 'none'; });
+    }
+  });
+</script>
+
+{% endblock %}

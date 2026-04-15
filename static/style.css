@@ -1301,21 +1301,27 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     grid-template-columns: repeat(4, 1fr);
     grid-auto-rows: 1fr;
     gap: 4px;
-    filter: blur(12px);
     transform: scale(1.05);
     z-index: 0;
 }
 body.teaser-page { overflow: hidden; }
 body.teaser-page footer { display: none; }
 .teaser-tile {
+    background-size: cover;
+    background-position: center;
+    background-color: var(--bg-cream);
+    filter: blur(8px);
+    transform: scale(1.04);
+    border-radius: 8px;
     overflow: hidden;
-    background: var(--bg-cream);
+    position: relative;
 }
-.teaser-tile img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+.teaser-tile::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: inherit;
 }
 .teaser-tile--placeholder {
     background: var(--primary);
@@ -1495,4 +1501,39 @@ body.teaser-page footer { display: none; }
   .seller-tracker__label { display: none; }
   .seller-tracker__step--active .seller-tracker__label { display: block; }
   .seller-tracker__node { width: 24px; height: 24px; }
+}
+
+/* ===================== Mattress Acknowledgment Step ===================== */
+.mattress-ack-label {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--bg-cream);
+    border: 1.5px solid var(--accent);
+    border-radius: 12px;
+    padding: 20px 24px;
+    cursor: pointer;
+    margin: 24px 0 16px;
+}
+.mattress-ack-label input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+.mattress-ack-text {
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text-main);
+}
+.mattress-ack-text strong {
+    color: var(--accent);
+}
+.mattress-ack-note {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-top: 0;
 }

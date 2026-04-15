@@ -1,0 +1,487 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .settings-wrap { max-width: 700px; margin: 0 auto; padding: 24px 20px 80px; }
+  .settings-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 8px; }
+  .settings-wrap .settings-subtitle { font-size: 0.85rem; color: var(--text-muted); margin: 0 0 28px; }
+
+  .settings-section {
+    background: white; border: var(--card-border); border-radius: 14px;
+    margin-bottom: 20px; overflow: hidden;
+    scroll-margin-top: 20px;
+  }
+  .settings-section-header {
+    padding: 14px 18px; background: var(--bg-cream);
+    border-bottom: var(--card-border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .settings-section-header h2 {
+    font-size: 0.92rem; font-weight: 700; color: var(--primary); margin: 0;
+  }
+  .settings-section-body { padding: 18px; }
+
+  .settings-field { margin-bottom: 14px; }
+  .settings-field label {
+    display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+    margin-bottom: 5px;
+  }
+  .settings-field input[type=text],
+  .settings-field input[type=number],
+  .settings-field input[type=date],
+  .settings-field input[type=email] {
+    width: 100%; max-width: 320px; padding: 8px 10px;
+    border: 1px solid var(--rule); border-radius: 8px; font-size: 0.85rem;
+    color: var(--text-main); background: white;
+  }
+  .settings-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .settings-row .settings-field { flex: 1; min-width: 140px; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label-text { font-size: 0.85rem; color: var(--text-main); }
+  .toggle-label-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+  .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: #d1d5db; border-radius: 20px; transition: 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  input:checked + .toggle-slider { background: var(--sage); }
+  input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+  .save-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6; }
+  .btn-save { padding: 8px 20px; font-size: 0.85rem; }
+
+  .storage-location-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 0;
+    border-bottom: 1px solid #f3f4f6; font-size: 0.83rem;
+  }
+  .storage-location-row:last-child { border-bottom: none; }
+  .storage-loc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .storage-loc-dot.active { background: #22c55e; }
+  .storage-loc-dot.inactive { background: #d1d5db; }
+
+  .admin-user-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6; font-size: 0.83rem;
+  }
+  .admin-user-row:last-child { border-bottom: none; }
+
+  .danger-zone { border-color: #fecaca; }
+  .danger-zone .settings-section-header { background: #fef2f2; }
+  .danger-zone .settings-section-header h2 { color: #dc2626; }
+
+  .nav-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .nav-link {
+    padding: 4px 12px; background: #f1f5f9; border-radius: 20px; font-size: 0.78rem;
+    text-decoration: none; color: var(--text-muted); transition: background 0.12s;
+  }
+  .nav-link:hover { background: var(--bg-cream); color: var(--primary); }
+</style>
+
+<div class="settings-wrap">
+  <h1>Settings</h1>
+  <p class="settings-subtitle">Super admin only. All configuration in one place.</p>
+
+  <div class="nav-links">
+    <a href="#pickup-window" class="nav-link">Pickup window</a>
+    <a href="#route" class="nav-link">Route & capacity</a>
+    <a href="#storage" class="nav-link">Storage locations</a>
+    <a href="#referral" class="nav-link">Referral program</a>
+    <a href="#sms" class="nav-link">SMS notifications</a>
+    <a href="#user-management" class="nav-link">User management</a>
+    <a href="#exports" class="nav-link">Data exports</a>
+    <a href="#mass-email" class="nav-link">Mass email</a>
+    <a href="#db-reset" class="nav-link">Database reset</a>
+  </div>
+
+  {# ── 1. Pickup window ── #}
+  <div class="settings-section" id="pickup-window">
+    <div class="settings-section-header">
+      <i class="fas fa-calendar-week" style="color: var(--sage);"></i>
+      <h2>Pickup window</h2>
+    </div>
+    <div class="settings-section-body">
+      <p style="font-size: 0.83rem; color: var(--text-muted); margin: 0 0 14px;">
+        Set the date range for pickup shifts. Then generate AM + PM shift skeletons for each day.
+        Idempotent — re-running never duplicates.
+      </p>
+      <form method="POST" action="{{ url_for('admin_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="_action" value="save_pickup_window">
+        <div class="settings-row">
+          <div class="settings-field">
+            <label>Start date</label>
+            <input type="date" name="pickup_week_start" value="{{ pickup_week_start }}"
+                   id="pwStart">
+          </div>
+          <div class="settings-field">
+            <label>End date</label>
+            <input type="date" name="pickup_week_end" value="{{ pickup_week_end }}"
+                   id="pwEnd">
+          </div>
+        </div>
+        <div class="save-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="submit" class="btn-primary btn-save">Save dates</button>
+          <button type="button" class="btn-outline btn-save"
+                  onclick="generateShifts()"
+                  {% if not pickup_week_start or not pickup_week_end %}disabled title="Set pickup dates first."{% endif %}
+                  id="generateBtn">
+            <i class="fas fa-magic"></i> Generate shifts
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── 2. Route & capacity ── #}
+  <div class="settings-section" id="route">
+    <div class="settings-section-header">
+      <i class="fas fa-truck" style="color: var(--sage);"></i>
+      <h2>Route &amp; capacity</h2>
+    </div>
+    <div class="settings-section-body">
+      <form method="POST" action="{{ url_for('admin_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="_action" value="save_route_settings">
+        <div class="settings-row">
+          <div class="settings-field">
+            <label>Truck raw capacity (units)</label>
+            <input type="number" name="truck_raw_capacity" value="{{ truck_raw_capacity }}" min="1" step="1">
+          </div>
+          <div class="settings-field">
+            <label>Buffer %</label>
+            <input type="number" name="truck_capacity_buffer_pct" value="{{ truck_capacity_buffer_pct }}" min="0" max="100" step="1">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-field">
+            <label>AM window</label>
+            <input type="text" name="route_am_window" value="{{ route_am_window }}" placeholder="9am–1pm">
+          </div>
+          <div class="settings-field">
+            <label>PM window</label>
+            <input type="text" name="route_pm_window" value="{{ route_pm_window }}" placeholder="1pm–5pm">
+          </div>
+        </div>
+        <div class="settings-field">
+          <label>Google Maps Static API key</label>
+          <input type="text" name="maps_static_api_key" value="{{ maps_static_api_key }}" placeholder="AIza...">
+        </div>
+
+        {% if categories %}
+        <div style="margin-top: 16px;">
+          <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Category unit sizes</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+            {% for cat in categories %}
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 0.82rem;">
+              <label style="flex: 1; color: var(--text-main);">{{ cat.name }}</label>
+              <input type="number" name="unit_size_{{ cat.id }}" value="{{ cat.default_unit_size or 1.0 }}"
+                     step="0.1" min="0" style="width: 70px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.8rem;">
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="save-row">
+          <button type="submit" class="btn-primary btn-save">Save route settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── 3. Storage locations ── #}
+  <div class="settings-section" id="storage">
+    <div class="settings-section-header">
+      <i class="fas fa-warehouse" style="color: var(--sage);"></i>
+      <h2>Storage locations</h2>
+    </div>
+    <div class="settings-section-body">
+      {% for loc in storage_locations %}
+      <div class="storage-location-row">
+        <span class="storage-loc-dot {{ 'active' if loc.is_active else 'inactive' }}"></span>
+        <div style="flex: 1;">
+          <div style="font-weight: 600; color: var(--text-main);">{{ loc.name }}</div>
+          <div style="font-size: 0.76rem; color: var(--text-muted);">{{ loc.address }}{% if loc.capacity_note %} · {{ loc.capacity_note }}{% endif %}</div>
+        </div>
+        {% if loc.is_full %}<span style="font-size: 0.72rem; color: #dc2626; font-weight: 700; background: #fee2e2; padding: 1px 7px; border-radius: 8px;">FULL</span>{% endif %}
+        <a href="{{ url_for('admin_storage_detail', loc_id=loc.id) }}" style="font-size: 0.78rem; color: var(--text-muted); text-decoration: none;">
+          <i class="fas fa-external-link-alt"></i>
+        </a>
+      </div>
+      {% endfor %}
+      <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em;">Add storage location</div>
+        <form method="POST" action="{{ url_for('admin_storage_create') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label>Name</label>
+              <input type="text" name="name" placeholder="Unit 14B" required>
+            </div>
+            <div class="settings-field">
+              <label>Address</label>
+              <input type="text" name="address" placeholder="123 Main St" required>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label>Lat (optional)</label>
+              <input type="number" name="lat" step="0.000001" placeholder="35.9132">
+            </div>
+            <div class="settings-field">
+              <label>Lng (optional)</label>
+              <input type="number" name="lng" step="0.000001" placeholder="-79.0558">
+            </div>
+          </div>
+          <div class="settings-field">
+            <label>Capacity note (optional)</label>
+            <input type="text" name="capacity_note" placeholder="Max ~80 items">
+          </div>
+          <div class="save-row">
+            <button type="submit" class="btn-primary btn-save">Add location</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── 4. Referral program ── #}
+  <div class="settings-section" id="referral">
+    <div class="settings-section-header">
+      <i class="fas fa-share-alt" style="color: var(--sage);"></i>
+      <h2>Referral program</h2>
+    </div>
+    <div class="settings-section-body">
+      <form method="POST" action="{{ url_for('admin_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="_action" value="save_referral_settings">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label-text">Referral program active</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" name="referral_program_active" value="true"
+                   {% if referral_program_active == 'true' %}checked{% endif %}
+                   onchange="this.form.submit()">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top: 12px;">
+          <div class="settings-field">
+            <label>Base rate (%)</label>
+            <input type="number" name="referral_base_rate" value="{{ referral_base_rate }}" min="0" max="100">
+          </div>
+          <div class="settings-field">
+            <label>Signup bonus (%)</label>
+            <input type="number" name="referral_signup_bonus" value="{{ referral_signup_bonus }}" min="0">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-field">
+            <label>Bonus per referral (%)</label>
+            <input type="number" name="referral_bonus_per_referral" value="{{ referral_bonus_per_referral }}" min="0">
+          </div>
+          <div class="settings-field">
+            <label>Max rate (%)</label>
+            <input type="number" name="referral_max_rate" value="{{ referral_max_rate }}" min="0" max="100">
+          </div>
+        </div>
+        <div class="save-row">
+          <button type="submit" class="btn-primary btn-save">Save referral settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── 5. SMS notifications ── #}
+  <div class="settings-section" id="sms">
+    <div class="settings-section-header">
+      <i class="fas fa-sms" style="color: var(--sage);"></i>
+      <h2>SMS notifications</h2>
+    </div>
+    <div class="settings-section-body">
+      <form method="POST" action="{{ url_for('admin_settings') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="_action" value="save_sms_settings">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label-text">SMS master switch</div>
+            <div class="toggle-label-sub">Disabling blocks all outbound SMS.</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" name="sms_enabled" value="true"
+                   {% if sms_enabled == 'true' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label-text">No-show recovery emails</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" name="no_show_email_enabled" value="true"
+                   {% if no_show_email_enabled == 'true' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top: 12px;">
+          <div class="settings-field">
+            <label>SMS reminder hour (Eastern)</label>
+            <input type="number" name="sms_reminder_hour_eastern" value="{{ sms_reminder_hour_eastern }}" min="0" max="23">
+          </div>
+          <div class="settings-field">
+            <label>No-show email hour (Eastern)</label>
+            <input type="number" name="no_show_email_hour_eastern" value="{{ no_show_email_hour_eastern }}" min="0" max="23">
+          </div>
+        </div>
+        <div class="save-row">
+          <button type="submit" class="btn-primary btn-save">Save SMS settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── 6. User management ── #}
+  <div class="settings-section" id="user-management">
+    <div class="settings-section-header">
+      <i class="fas fa-user-shield" style="color: var(--sage);"></i>
+      <h2>User management</h2>
+    </div>
+    <div class="settings-section-body">
+      <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Current admins</div>
+      {% for u in admin_users %}
+      <div class="admin-user-row">
+        <div style="flex: 1; font-weight: 600;">{{ u.email }}</div>
+        {% if u.is_super_admin %}<span style="font-size: 0.7rem; background: var(--primary); color: white; border-radius: 8px; padding: 1px 7px; font-weight: 700;">super</span>{% endif %}
+        {% if u.id != current_user.id %}
+        <form method="POST" action="{{ url_for('admin_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="_action" value="revoke_admin">
+          <input type="hidden" name="admin_email" value="{{ u.email }}">
+          <button type="submit" class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem; color: #dc2626; border-color: #fecaca;"
+                  onclick="return confirm('Revoke admin for {{ u.email }}?')">Revoke</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+      <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Grant admin</div>
+        <form method="POST" action="{{ url_for('admin_settings') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="_action" value="make_admin">
+          <div class="settings-field" style="flex: 1;">
+            <label>Email</label>
+            <input type="email" name="admin_email" placeholder="user@example.com" required>
+          </div>
+          <div class="settings-field" style="display: flex; align-items: center; gap: 6px; padding-bottom: 1px;">
+            <input type="checkbox" name="is_super" value="1" id="isSuperCheck">
+            <label for="isSuperCheck" style="font-size: 0.82rem; cursor: pointer; margin: 0;">Super admin</label>
+          </div>
+          <button type="submit" class="btn-primary btn-save" style="margin-bottom: 0;">Grant</button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_make_admin') }}" style="display:none;"></form>
+      </div>
+    </div>
+  </div>
+
+  {# ── 7. Data exports ── #}
+  <div class="settings-section" id="exports">
+    <div class="settings-section-header">
+      <i class="fas fa-download" style="color: var(--sage);"></i>
+      <h2>Data exports</h2>
+    </div>
+    <div class="settings-section-body">
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="{{ url_for('admin_export_users') }}" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem; text-decoration: none; display: inline-block;">
+          <i class="fas fa-users"></i> Export users CSV
+        </a>
+        <a href="{{ url_for('admin_export_items') }}" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem; text-decoration: none; display: inline-block;">
+          <i class="fas fa-box"></i> Export items CSV
+        </a>
+        <a href="{{ url_for('admin_export_sales') }}" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem; text-decoration: none; display: inline-block;">
+          <i class="fas fa-receipt"></i> Export sales CSV
+        </a>
+      </div>
+      <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="{{ url_for('admin_preview_users') }}" style="font-size: 0.8rem; color: var(--text-muted); text-decoration: none;">Preview users</a>
+        <a href="{{ url_for('admin_preview_items') }}" style="font-size: 0.8rem; color: var(--text-muted); text-decoration: none;">Preview items</a>
+        <a href="{{ url_for('admin_preview_sales') }}" style="font-size: 0.8rem; color: var(--text-muted); text-decoration: none;">Preview sales</a>
+      </div>
+    </div>
+  </div>
+
+  {# ── 8. Mass email ── #}
+  <div class="settings-section" id="mass-email">
+    <div class="settings-section-header">
+      <i class="fas fa-envelope-open-text" style="color: var(--sage);"></i>
+      <h2>Mass email</h2>
+    </div>
+    <div class="settings-section-body">
+      <form method="POST" action="{{ url_for('admin_mass_email') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="settings-field">
+          <label>Subject</label>
+          <input type="text" name="subject" placeholder="Your subject..." required>
+        </div>
+        <div class="settings-field">
+          <label>Body (HTML allowed)</label>
+          <textarea name="body" rows="5" required
+                    style="width: 100%; max-width: 500px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 0.85rem; resize: vertical; font-family: monospace;"></textarea>
+        </div>
+        <div class="settings-field">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" name="test_only" value="1"> Send test to myself only
+          </label>
+        </div>
+        <div class="save-row">
+          <button type="submit" class="btn-primary btn-save"
+                  onclick="return confirm('Send mass email to all users?')">Send mass email</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── 9. Database reset (danger zone) ── #}
+  <div class="settings-section danger-zone" id="db-reset">
+    <div class="settings-section-header">
+      <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+      <h2>Database reset</h2>
+    </div>
+    <div class="settings-section-body">
+      <p style="font-size: 0.83rem; color: #dc2626; margin: 0 0 14px;">
+        Destroys all data. Irreversible. Type "reset database" to confirm.
+      </p>
+      <form method="POST" action="{{ url_for('admin_database_reset') }}"
+            onsubmit="return confirm('This will delete ALL data. Are you absolutely sure?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="settings-field">
+          <input type="text" name="confirm" placeholder='Type "reset database"' required pattern="reset database"
+                 title="You must type 'reset database' exactly.">
+        </div>
+        <div class="save-row">
+          <button type="submit" class="btn-outline btn-save" style="color: #dc2626; border-color: #fecaca;">
+            <i class="fas fa-trash"></i> Reset database
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  function generateShifts() {
+    if (!confirm('Generate AM + PM shifts for the configured date range? (Idempotent — safe to re-run)')) return;
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{{ url_for("admin_generate_shifts") }}';
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrf_token';
+    csrf.value = document.querySelector('input[name="csrf_token"]').value;
+    form.appendChild(csrf);
+    document.body.appendChild(form);
+    form.submit();
+  }
+</script>
+{% endblock %}

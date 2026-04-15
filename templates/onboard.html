@@ -501,6 +501,25 @@
             </div>
         </div>
 
+        <!-- Step 3 alt: Mattress Acknowledgment (JS shows this instead of step-3 when Mattress is selected) -->
+        <div class="wizard-step" id="step-mattress-ack">
+            <h2 class="step-title">One thing to know</h2>
+            <p class="step-sub">No photos needed — but please read this carefully.</p>
+
+            <label class="mattress-ack-label">
+                <input type="checkbox" id="mattress_ack_checkbox" name="mattress_condition_acknowledged" value="1">
+                <span class="mattress-ack-text">
+                    I understand that if my mattress has any stains, odors, or visible defects,
+                    Campus Swap will <strong>not accept it at pickup</strong> — no exceptions.
+                </span>
+            </label>
+
+            <p class="mattress-ack-note">
+                We maintain quality standards for all items. Don't worry about photos —
+                our team will inspect the mattress when we arrive.
+            </p>
+        </div>
+
         <!-- Step 4: Title -->
         <div class="wizard-step" id="step-4" data-step="4">
             <h2 class="step-title">Let's give your item a name</h2>
@@ -747,8 +766,11 @@
         progressFill.style.width = (effectivePos / TOTAL_STEPS * 100) + '%';
         currentStep = step;
         btnBack.style.visibility = step > 1 ? 'visible' : 'hidden';
-        if (step === 3 && !uploadSessionToken && document.querySelector('.upload-tab[data-tab="phone"].active')) {
-            loadQr();
+        if (step === 3) {
+            updateStepThreeVisibility();
+            if (!isMattressSelected() && !uploadSessionToken && document.querySelector('.upload-tab[data-tab="phone"].active')) {
+                loadQr();
+            }
         }
         if (step >= 8) {
             btnNext.style.display = 'none';
@@ -771,6 +793,14 @@
             document.getElementById('quality-input').value = q.dataset.quality || q.value;
         }
         if (step === 3) {
+            if (isMattressSelected()) {
+                const ackCheckbox = document.getElementById('mattress_ack_checkbox');
+                if (!ackCheckbox || !ackCheckbox.checked) {
+                    showValidationError('Please confirm the mattress condition policy.');
+                    return false;
+                }
+                return true;
+            }
             const total = selectedFiles.length + tempPhotoFilenames.length;
             if (total === 0) { showValidationError('Please add photos before continuing.'); return false; }
             if (categoryRequiresVideo(selectedCategoryName) && !selectedVideoFile && !tempVideoFilename) {
@@ -816,6 +846,26 @@
             if (banner) banner.style.display = 'none';
         }
     }
+    function isMattressSelected() {
+        return selectedCategoryName.toLowerCase() === 'mattress';
+    }
+
+    function updateStepThreeVisibility() {
+        const photoStep = document.getElementById('step-3');
+        const ackStep = document.getElementById('step-mattress-ack');
+        if (!photoStep || !ackStep) return;
+        if (isMattressSelected()) {
+            photoStep.classList.remove('active');
+            ackStep.classList.add('active');
+            const ackCheckbox = document.getElementById('mattress_ack_checkbox');
+            btnNext.disabled = ackCheckbox ? !ackCheckbox.checked : true;
+        } else {
+            ackStep.classList.remove('active');
+            photoStep.classList.add('active');
+            btnNext.disabled = false;
+        }
+    }
+
     document.querySelectorAll('.category-card').forEach(card => {
         card.addEventListener('click', function() {
             document.querySelectorAll('.category-card').forEach(c => c.classList.remove('selected'));
@@ -1262,7 +1312,7 @@
     // Publish button - ONLY way to submit; prevents accidental submit on Back/Enter
     document.getElementById('publish-btn').addEventListener('click', async function() {
         if (currentStep !== 8) return;
-        if (getTotalPhotoCount() === 0) { showValidationError('Please add photos before continuing.'); return; }
+        if (!isMattressSelected() && getTotalPhotoCount() === 0) { showValidationError('Please add photos before continuing.'); return; }
         const desc = form.querySelector('input[name="description"]').value.trim();
         if (!desc) { showValidationError('Please give your item a name before continuing.'); return; }
         const files = fileInput.files;
@@ -1303,6 +1353,13 @@
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         return false;
+    });
+
+    // Mattress acknowledgment checkbox — gate Next button
+    document.getElementById('mattress_ack_checkbox').addEventListener('change', function() {
+        if (currentStep === 3 && isMattressSelected()) {
+            btnNext.disabled = !this.checked;
+        }
     });
 })();
 </script>

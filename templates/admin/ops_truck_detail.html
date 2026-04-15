@@ -1,0 +1,235 @@
+{# Truck detail modal partial — no layout wrapper, inserted into ops-drawer #}
+<style>
+  .drawer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 18px 20px 14px;
+    border-bottom: var(--card-border);
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+  }
+  .drawer-title { font-size: 1rem; font-weight: 700; color: var(--primary); margin: 0 0 4px; }
+  .drawer-subtitle { font-size: 0.8rem; color: var(--text-muted); }
+  .drawer-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: background 0.12s;
+    flex-shrink: 0;
+  }
+  .drawer-close:hover { background: #f1f5f9; color: var(--text-main); }
+
+  .drawer-section { padding: 14px 20px; border-bottom: var(--card-border); }
+  .drawer-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .mover-chip-detail {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    margin: 3px;
+  }
+
+  .detail-cap-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .detail-cap-outer { flex: 1; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .detail-cap-inner { height: 100%; border-radius: 4px; }
+  .detail-cap-inner.green { background: #22c55e; }
+  .detail-cap-inner.amber { background: #f59e0b; }
+  .detail-cap-inner.red { background: #ef4444; }
+
+  .detail-stop-list { padding: 8px 0; }
+  .detail-stop-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 20px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.83rem;
+  }
+  .detail-stop-row:last-child { border-bottom: none; }
+
+  .detail-stop-circle {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .detail-stop-circle.pending { background: #e5e7eb; color: #374151; }
+  .detail-stop-circle.completed { background: #dcfce7; color: #166534; }
+  .detail-stop-circle.issue { background: #fee2e2; color: #991b1b; }
+
+  .detail-stop-info { flex: 1; min-width: 0; }
+  .detail-stop-name { font-weight: 600; color: var(--text-main); }
+  .detail-stop-addr { font-size: 0.76rem; color: var(--text-muted); margin-top: 1px; }
+  .detail-stop-meta { font-size: 0.76rem; color: var(--text-muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .issue-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #991b1b;
+  }
+
+  .detail-stop-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .btn-xs {
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    background: white;
+    cursor: pointer;
+    color: var(--text-main);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn-xs:hover { background: #f1f5f9; }
+  .btn-xs.danger { color: #dc2626; border-color: #fecaca; }
+  .btn-xs.danger:hover { background: #fef2f2; }
+</style>
+
+<div class="drawer-header">
+  <div>
+    <div class="drawer-title">
+      Truck {{ truck_number }} &middot;
+      {{ shift_date.strftime('%a %b %-d') }}
+      {{ 'AM' if shift.slot == 'am' else 'PM' }}
+    </div>
+    <div class="drawer-subtitle">
+      {% if storage_loc %}{{ storage_loc.name }}{% else %}No unit assigned{% endif %}
+      &middot; {{ load | round(1) }}/{{ effective_cap }}u
+    </div>
+  </div>
+  <button class="drawer-close" onclick="closeDrawer()" title="Close">
+    <i class="fas fa-times"></i>
+  </button>
+</div>
+
+{# Capacity bar #}
+<div class="drawer-section">
+  <div class="drawer-section-label">Capacity</div>
+  {% set cap_pct = ([((load / effective_cap) * 100)|round, 100]|min) if effective_cap > 0 else 0 %}
+  <div class="detail-cap-bar">
+    <div class="detail-cap-outer">
+      <div class="detail-cap-inner {{ 'green' if cap_pct <= 75 else ('amber' if cap_pct <= 100 else 'red') }}"
+           style="width: {{ cap_pct }}%;"></div>
+    </div>
+    <span style="font-size: 0.78rem; color: var(--text-muted);">{{ load | round(1) }} / {{ effective_cap }} units</span>
+  </div>
+</div>
+
+{# Assigned movers #}
+{% if movers %}
+<div class="drawer-section">
+  <div class="drawer-section-label">Movers</div>
+  {% for a in movers %}
+  <span class="mover-chip-detail">
+    <i class="fas fa-user" style="color: var(--text-muted); font-size: 0.75rem;"></i>
+    {{ a.worker.full_name if a.worker else 'Unknown' }}
+    {% if a.completed_at %}<i class="fas fa-check" style="color: #22c55e;"></i>{% endif %}
+  </span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Run status #}
+{% if shift_run %}
+<div class="drawer-section">
+  <div class="drawer-section-label">Live Status</div>
+  <div style="font-size: 0.85rem; color: var(--text-main);">
+    {% if shift_run.status == 'in_progress' %}
+    <span style="color: #1e40af; font-weight: 600;"><i class="fas fa-circle" style="font-size: 0.6rem;"></i> In progress</span>
+    {% else %}
+    <span style="color: #166534; font-weight: 600;"><i class="fas fa-check-circle"></i> Completed</span>
+    {% endif %}
+    &nbsp;· Started {{ shift_run.started_at.strftime('%-I:%M %p') if shift_run.started_at else '—' }}
+  </div>
+</div>
+{% endif %}
+
+{# Stop list #}
+<div class="detail-stop-list">
+  {% if not pickups %}
+  <div style="padding: 24px 20px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+    No stops assigned to this truck.
+  </div>
+  {% endif %}
+
+  {% for p in pickups %}
+  {% set seller = p.seller %}
+  <div class="detail-stop-row">
+    <div class="detail-stop-circle {{ p.status }}">
+      {% if p.status == 'completed' %}<i class="fas fa-check" style="font-size: 0.6rem;"></i>
+      {% elif p.status == 'issue' %}<i class="fas fa-exclamation" style="font-size: 0.6rem;"></i>
+      {% else %}{{ p.stop_order if p.stop_order is not none else '–' }}
+      {% endif %}
+    </div>
+    <div class="detail-stop-info">
+      <div class="detail-stop-name">{{ seller.full_name if seller else 'Unknown' }}</div>
+      <div class="detail-stop-addr">{{ seller.pickup_display if seller else '—' }}</div>
+      <div class="detail-stop-meta">
+        {% if seller and seller.phone %}
+        <a href="tel:{{ seller.phone }}" style="color: var(--text-muted);">{{ seller.phone }}</a>
+        {% endif %}
+        {% if p.status == 'completed' and p.completed_at %}
+        <span style="color: #166534;"><i class="fas fa-check"></i> {{ p.completed_at.strftime('%-I:%M %p') }}</span>
+        {% endif %}
+        {% if p.rescheduled_from_shift_id %}<span class="badge-moved" style="background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">moved</span>{% endif %}
+      </div>
+
+      {% if p.status == 'issue' %}
+      <div class="issue-box">
+        <strong>{{ p.issue_type | replace('_', ' ') | title if p.issue_type else 'Issue' }}</strong>
+        {% if p.notes %}<br>{{ p.notes }}{% endif %}
+      </div>
+      {% endif %}
+
+      {% if not shift_run %}
+      {# Pre-shift actions: remove stop, move stop #}
+      <div class="detail-stop-actions">
+        {% if p.status == 'pending' %}
+        <form method="POST" action="{{ url_for('admin_shift_remove_stop', shift_id=shift.id, pickup_id=p.id) }}"
+              onsubmit="return confirm('Remove this stop?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn-xs danger">
+            <i class="fas fa-times"></i> Remove
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>

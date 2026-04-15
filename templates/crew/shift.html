@@ -276,6 +276,42 @@
     cursor: pointer;
   }
 
+  /* Issue type picker */
+  .issue-type-picker {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .issue-type-opt {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1.5px solid var(--rule);
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .issue-type-opt.is-selected {
+    border-color: var(--accent);
+    background: #fff8f0;
+    color: var(--accent);
+  }
+
+  /* Stop phone link */
+  .stop-phone {
+    font-size: 0.82rem;
+    margin: 4px 0 8px;
+  }
+  .stop-phone a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .stop-phone a:hover { text-decoration: underline; }
+
   /* End shift button */
   .end-shift-wrap {
     margin-top: 24px;
@@ -409,6 +445,14 @@
           <i class="fas fa-map-marker-alt"></i> No address on file
         {% endif %}
       </div>
+      <div class="stop-phone">
+        <i class="fas fa-phone"></i>
+        {% if pickup.seller.phone %}
+          <a href="tel:{{ pickup.seller.phone }}">{{ pickup.seller.phone }}</a>
+        {% else %}
+          <span style="color: var(--text-muted);">No phone on file</span>
+        {% endif %}
+      </div>
       {% if pickup.seller.pickup_display %}
       <div style="margin:6px 0;">
         <a href="https://maps.google.com/?q={{ pickup.seller.pickup_display | urlencode }}"
@@ -472,16 +516,34 @@
         </form>
       </div>
 
-      {# Inline notes form — issue #}
+      {# Inline notes form — issue (with type picker) #}
       <div class="inline-notes-form" id="issue-{{ pickup.id }}">
         <form method="POST"
               action="{{ url_for('crew_shift_stop_update', shift_id=shift.id, pickup_id=pickup.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <input type="hidden" name="status" value="issue"/>
+          <input type="hidden" name="issue_type" id="issue-type-val-{{ pickup.id }}" value="other"/>
+          <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin: 0 0 10px;">
+            What's the issue?
+          </p>
+          <div class="issue-type-picker">
+            <div class="issue-type-opt"
+                 data-pickup="{{ pickup.id }}"
+                 data-value="no_show"
+                 onclick="selectIssueType(this)">
+              Seller wasn't home
+            </div>
+            <div class="issue-type-opt"
+                 data-pickup="{{ pickup.id }}"
+                 data-value="other"
+                 onclick="selectIssueType(this)">
+              Item or access problem
+            </div>
+          </div>
           <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 6px;">
-            Notes <span style="color: #dc2626;">*</span>
+            Notes (optional)
           </label>
-          <textarea name="notes" required placeholder="Describe the issue…"></textarea>
+          <textarea name="notes" placeholder="Any details…"></textarea>
           <div class="confirm-row">
             <button type="submit" class="btn-confirm" style="background: var(--accent);">Confirm Issue</button>
             <button type="button" class="btn-cancel-inline"
@@ -551,6 +613,18 @@ function openNotes(id) {
 function closeNotes(id) {
   var el = document.getElementById(id);
   if (el) el.classList.remove('open');
+}
+function selectIssueType(card) {
+  var pickupId = card.getAttribute('data-pickup');
+  var value    = card.getAttribute('data-value');
+  // Update hidden input
+  var hidden = document.getElementById('issue-type-val-' + pickupId);
+  if (hidden) hidden.value = value;
+  // Toggle selected class within this picker
+  card.closest('.issue-type-picker')
+    .querySelectorAll('.issue-type-opt')
+    .forEach(function(c) { c.classList.remove('is-selected'); });
+  card.classList.add('is-selected');
 }
 
 // ── Auto-refresh stop list every 30s ──────────────────────
