@@ -1,6 +1,6 @@
-"""admin_redesign_shift_last_notified
+"""shift_last_notified_at
 
-Revision ID: admin_redesign_shift_last_notified
+Revision ID: shift_last_notified_at
 Revises: add_sms_and_no_show_fields
 Branch_labels: None
 Depends_on: None
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
 
-revision = 'admin_redesign_shift_last_notified'
+revision = 'shift_last_notified_at'
 down_revision = 'add_sms_and_no_show_fields'
 branch_labels = None
 depends_on = None
