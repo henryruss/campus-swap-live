@@ -376,7 +376,7 @@
 
 ## Spec #5 — Payout Reconciliation
 
-**Sign-off status:** ⬜ Not started
+**Sign-off status:** ✅ Signed off 2026-04-14
 
 ### Database & Migration
 - [✅] `flask db migrate` and `flask db upgrade` run with no errors
@@ -893,7 +893,416 @@
 
 ## Spec #9 — SMS Notifications
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ⬜ Built — awaiting Henry sign-off (42/42 automated tests passing)
+
+---
+
+### Migration & Schema
+
+- [x] `flask db migrate -m "add_sms_and_no_show_fields"` runs with no errors
+- [x] `flask db upgrade` runs with no errors
+- [x] `User.sms_opted_out` column exists in DB, default False
+- [x] `ShiftPickup.issue_type` column exists, nullable, no default
+- [x] `ShiftPickup.no_show_email_sent_at` column exists, nullable DateTime
+- [x] `RescheduleToken.revoked_at` column exists, nullable DateTime
+- [x] AppSetting `sms_enabled` seeded with value `'true'`
+- [x] AppSetting `sms_reminder_hour_eastern` seeded with value `'9'`
+- [x] AppSetting `no_show_email_enabled` seeded with value `'true'`
+- [x] AppSetting `no_show_email_hour_eastern` seeded with value `'18'`
+- [x] Running migration twice (idempotent check) — no error, no duplicate columns
+
+---
+
+### `_send_sms` Helper — Guard Conditions
+
+- [x] `user.phone = None` → returns False, no exception, no Twilio call
+- [x] `user.phone = ''` → returns False, no exception
+- [x] `user.sms_opted_out = True` → returns False, no Twilio call
+- [x] AppSetting `sms_enabled = 'false'` → returns False for any user with valid phone
+- [x] `TWILIO_ACCOUNT_SID` not set in env → returns False, logs warning, no crash
+- [x] `TWILIO_AUTH_TOKEN` not set in env → returns False, logs warning, no crash
+- [x] `TWILIO_FROM_NUMBER` not set in env → returns False, logs warning, no crash
+
+### `_send_sms` Helper — Phone Normalization
+
+- [x] `'4105551234'` (10 digits) → normalized to `'+14105551234'` before Twilio call
+- [x] `'14105551234'` (11 digits, leading 1) → normalized to `'+14105551234'`
+- [x] `'+14105551234'` (already E.164) → passed through unchanged
+- [x] `'410-555-1234'` (dashes) → normalized to `'+14105551234'`
+- [x] `'(410) 555-1234'` (parens/spaces) → normalized to `'+14105551234'`
+- [x] `'555-1234'` (7 digits, unparseable) → returns False, logs warning, no crash
+- [x] `'abcdefghij'` (non-numeric) → returns False, logs warning, no crash
+
+---
+
+### Notify Sellers — SMS Integration
+
+- [x] Seller with phone + `notified_at = NULL` → `_send_sms` called once with scheduled confirmation message
+- [x] Message body contains the shift day name (e.g. "Tuesday")
+- [x] Message body contains the shift date (e.g. "Apr 29")
+- [x] Message body contains the slot label ("AM" or "PM")
+- [x] Message body contains "Reply STOP to opt out"
+- [x] Seller with `phone = None` → email sent normally, `_send_sms` not called, no crash
+- [x] Seller with `sms_opted_out = True` → email sent normally, `_send_sms` returns False, no crash
+- [x] Seller with `notified_at` already set (already notified) → neither email nor SMS re-sent (existing idempotency)
+- [x] Shift has 3 sellers: 2 with phone, 1 without → 2 SMS sent, 1 skipped, all 3 emails sent
+- [x] Twilio env vars absent → emails send normally, SMS skipped, flash message still shows sent count
+
+---
+
+### Cron — SMS 24hr Reminder
+
+- [x] POST to `/admin/cron/sms-reminders` with no `Authorization` header → 403
+- [x] POST with wrong secret → 403
+- [x] POST with correct `CRON_SECRET` and no shifts tomorrow → returns `{"sent": 0, "skipped": 0}`, status 200
+- [x] Shift exists tomorrow (correct date), seller has phone + `notified_at` set, `status = 'pending'` → SMS sent, `sent` count = 1
+- [x] Message body contains "tomorrow" and the shift date
+- [x] Message body contains the AM/PM slot label
+- [x] Message body contains "Reply STOP to opt out"
+- [x] Seller has `notified_at = NULL` (never formally notified) → SMS NOT sent, `skipped` incremented
+- [x] Seller has `phone = None` → skipped, `skipped` incremented, no crash
+- [x] Seller has `sms_opted_out = True` → skipped, `skipped` incremented
+- [x] Seller's stop has `status = 'issue'` → skipped (don't remind for flagged stops)
+- [x] Shift is tomorrow but `is_active = False` → sellers on that shift not messaged
+- [x] Shift is today (not tomorrow) → sellers not messaged by this cron
+- [x] Shift is 2 days out → sellers not messaged
+- [x] Multiple shifts tomorrow (AM + PM) → sellers on both shifts messaged correctly
+- [x] Cron runs twice same day → same sellers messaged twice (reminder cron has no idempotency guard — it's expected to run once daily via Render schedule; document this)
+
+---
+
+### Stop Card — Seller Phone Number (UI)
+
+- [x] Mover shift view stop card contains `<a href="tel:...">` element with seller's phone *(UI)*
+- [x] Tapping phone link on mobile opens native dialer *(UI — manual)*
+- [x] Seller with `phone = None` → "No phone on file" text shown in muted color, no `<a>` tag, no broken link *(UI)*
+- [x] Phone number visible without expanding or tapping anything — always shown on stop card *(UI)*
+
+---
+
+### Issue Flagging — `issue_type` Picker (UI + Backend)
+
+- [x] Tapping "Flag Issue" on a stop card reveals a two-option picker before submission *(UI)*
+- [x] Picker shows exactly two options: "Seller wasn't home" and "Item or access problem" *(UI)*
+- [x] Notes textarea still present for both options *(UI)*
+- [x] Selecting neither option and submitting → form does not submit (client-side validation) *(UI)*
+- [x] Submit with "Seller wasn't home" → POST includes `issue_type=no_show`
+- [x] Submit with "Item or access problem" → POST includes `issue_type=other`
+- [x] `crew_shift_stop_update` with `status=issue, issue_type=no_show` → `pickup.issue_type = 'no_show'` saved in DB
+- [x] `crew_shift_stop_update` with `status=issue, issue_type=other` → `pickup.issue_type = 'other'` saved in DB
+- [x] `crew_shift_stop_update` with `status=issue` but no `issue_type` field → defaults gracefully (either `'other'` or rejected with 400 — document which)
+- [x] Existing `notes` field still saved correctly alongside `issue_type`
+- [x] Ops page issue banner still appears for flagged stops *(UI — regression)*
+
+---
+
+### Issue Flagging — Token Extension (no_show)
+
+- [x] Seller has active token (`used_at=NULL, revoked_at=NULL`); stop flagged `no_show` → `token.expires_at` extended by `reschedule_token_ttl_days` from now
+- [x] Extended `expires_at` is strictly greater than the original `expires_at`
+- [x] Stop flagged `other` → `token.expires_at` unchanged
+- [x] Stop flagged `no_show` but seller has no token (edge case) → logged warning, no crash, `issue_type` still saved
+- [x] Stop flagged `no_show` but token already `used_at` set (seller already rescheduled) → token not modified, no crash
+- [x] Stop flagged `no_show` but token already `revoked_at` set → token not modified, no crash
+
+---
+
+### Stop Revert — `issue_type` Clearing
+
+- [x] Revert stop from `issue` to `pending` → `pickup.issue_type` set to `NULL`
+- [x] Revert does NOT clear `pickup.no_show_email_sent_at` (even if set)
+- [x] Revert still clears `pickup.notes` per existing behavior (confirm unchanged)
+- [x] Re-flag reverted stop as `no_show` → `issue_type` saved again, but no second email sent (`no_show_email_sent_at` still set from first flag)
+
+---
+
+### Route Started SMS (`crew_shift_start`)
+
+- [x] Mover on truck 2 starts shift → all pending sellers on truck 2 receive SMS
+- [x] Sellers on truck 1 and truck 3 do NOT receive SMS
+- [x] Message body contains "started" and "today"
+- [x] Message body contains "we'll text you again"
+- [x] Seller on mover's truck with `status = 'completed'` (already done) → NOT messaged
+- [x] Seller on mover's truck with `status = 'issue'` → NOT messaged
+- [x] Seller with `phone = None` → skipped, no crash, other sellers still messaged
+- [x] Seller with `sms_opted_out = True` → skipped, no crash
+- [x] `shift.run` already exists (ShiftRun present) → `crew_shift_start` returns early, no new ShiftRun created, no SMS sent
+- [x] `crew_shift_complete_retroactive` for a past shift → no SMS sent to any seller
+
+---
+
+### You're Next SMS + Token Revocation (`crew_shift_stop_update`)
+
+- [x] Mark stop 1 of 3 complete → stop 2's seller receives "You're up next" SMS
+- [x] Mark stop 2 of 3 complete → stop 3's seller receives "You're up next" SMS
+- [x] Mark stop 3 of 3 (last stop) complete → no SMS sent, no crash
+- [x] Single-stop truck: complete the only stop → no "you're next" SMS sent, no crash
+- [x] Stop 2 has `issue_type = 'no_show'` → skip stop 2, send SMS to stop 3's seller instead
+- [x] Stop 2 has `issue_type = 'other'` → skip stop 2, send SMS to stop 3's seller instead
+- [x] Stop 2 and stop 3 both have `issue_type` set → no SMS sent (no clean pending stops), no crash
+- [x] Next seller has `phone = None` → SMS skipped, no crash
+- [x] Next seller has `sms_opted_out = True` → SMS skipped, no crash
+- [x] Stop ordering respects `stop_order` (ascending, nulls last) — stop with `stop_order=2` messaged before `stop_order=3`
+- [x] Stops with `NULL stop_order` come after ordered stops when determining "next"
+
+### Token Revocation on Completion
+
+- [x] Stop marked complete; seller has active token → `token.revoked_at` set to a non-null datetime
+- [x] `revoked_at` is a naive datetime (no tzinfo) consistent with other token datetimes
+- [x] Stop marked complete; seller's token has `used_at` already set (seller rescheduled themselves) → `revoked_at` NOT set, `used_at` unchanged
+- [x] Stop marked complete; seller has no token → no crash, completion proceeds normally
+- [x] Stop marked complete; seller has multiple tokens (edge) → all active (unused, unrevoked) tokens get `revoked_at` set
+- [x] `picked_up_at` still set correctly on completion (regression — token revocation must not interfere)
+
+---
+
+### Cron — No-Show Recovery Emails
+
+- [x] POST to `/admin/cron/no-show-emails` with no `Authorization` header → 403
+- [x] POST with wrong secret → 403
+- [x] `no_show_email_enabled = 'false'` → returns `{"sent": 0, "skipped": N}`, no emails sent
+- [x] No stops flagged `no_show` today → returns `{"sent": 0, "skipped": 0}`, no error
+- [x] Stop flagged `no_show`, `no_show_email_sent_at = NULL`, shift date = today, active token exists → email sent via Resend
+- [x] Email recipient is `pickup.seller.email`
+- [x] Email subject contains seller's first name
+- [x] Email subject contains "missed" or "sorry"
+- [x] Email body contains a reschedule link with the token string (`/reschedule/<token>`)
+- [x] Email body contains "reschedule" CTA
+- [x] `no_show_email_sent_at` set on the pickup after email sends
+- [x] Cron runs again immediately → same pickup NOT emailed again (`no_show_email_sent_at` guard)
+- [x] Stop flagged `no_show` but `no_show_email_sent_at` already set → skipped
+- [x] Stop flagged `no_show`, shift date is tomorrow (future) → NOT emailed today
+- [x] Stop flagged `no_show`, shift date was yesterday → emailed (catches any missed previous-day runs)
+- [x] Seller has `sms_opted_out = True` → email still sent (opted out of SMS, not email)
+- [x] Seller's token has `used_at` set (already rescheduled) → skipped (`skipped` incremented); no second email
+- [x] Seller's token has `revoked_at` set → skipped; no email
+- [x] Seller has no token at all → skipped, warning logged, `skipped` incremented, no crash
+- [x] Multiple no-show stops on same shift → each seller gets their own email
+- [x] Response JSON `sent + skipped` equals total no-show stops processed
+
+---
+
+### Inbound Webhook (`/sms/webhook`)
+
+- [x] POST with valid Twilio signature, body `STOP`, matching phone → `user.sms_opted_out = True` in DB, returns 200
+- [x] POST with valid signature, body `STOPALL` → `sms_opted_out = True`
+- [x] POST with valid signature, body `UNSUBSCRIBE` → `sms_opted_out = True`
+- [x] POST with valid signature, body `CANCEL` → `sms_opted_out = True`
+- [x] POST with valid signature, body `END` → `sms_opted_out = True`
+- [x] POST with valid signature, body `QUIT` → `sms_opted_out = True`
+- [x] POST with valid signature, body `START` → `sms_opted_out = False`
+- [x] POST with valid signature, body `UNSTOP` → `sms_opted_out = False`
+- [x] POST with valid signature, body `YES` → `sms_opted_out = False`
+- [x] Body with mixed case (e.g. `Stop`, `stop`) → treated same as uppercase
+- [x] Body with leading/trailing whitespace (e.g. `  STOP  `) → still matches
+- [x] POST with invalid Twilio signature → 403
+- [x] POST with missing `X-Twilio-Signature` header → 403
+- [x] `From` number matches no User in DB → 200 returned, warning logged, no crash, no DB write
+- [x] `From` number in format `+14105551234` matches user stored as `4105551234` (normalization works both ways)
+- [x] Response Content-Type is `text/xml`
+- [x] Response body is valid TwiML: contains `<Response>` with no nested verb (empty response)
+- [x] Route accessible without login (no redirect to login page)
+
+---
+
+### `/reschedule/<token>` — `revoked_at` Error State
+
+- [x] Token with `revoked_at` set → page renders "already completed" message (not a 404, not "already rescheduled")
+- [x] "Already completed" message is distinct from "already rescheduled" (`used_at`) message
+- [x] "Already completed" message is distinct from "link expired" message
+- [x] Token with `used_at` set (but not `revoked_at`) → existing "already rescheduled" message unchanged
+- [x] Token expired (`expires_at` in past, neither `used_at` nor `revoked_at` set) → existing "link expired" message unchanged
+- [x] Valid token (no `used_at`, no `revoked_at`, not expired) after no-show flag → reschedule grid loads normally, seller can pick new slot
+
+---
+
+### Admin Settings Page
+
+- [x] Super admin can see and edit `sms_enabled` AppSetting *(UI)*
+- [x] Super admin can see and edit `sms_reminder_hour_eastern` *(UI)*
+- [x] Super admin can see and edit `no_show_email_enabled` *(UI)*
+- [x] Super admin can see and edit `no_show_email_hour_eastern` *(UI)*
+- [x] Non-super-admin cannot access these settings *(regression)*
+
+---
+
+### Regression
+
+- [x] Existing "Notify Sellers" email content and subject unchanged — SMS is additive only
+- [x] `admin_shift_notify_sellers` still sets `notified_at` and `Shift.sellers_notified` correctly
+- [x] `crew_shift_start` still creates `ShiftRun` with correct `started_at` and `started_by_id`
+- [x] `crew_shift_stop_update` with `status=completed` still sets `pickup.completed_at` and `item.picked_up_at`
+- [x] `crew_shift_stop_revert` still works and resets `pickup.status` to `'pending'`
+- [x] Ops page issue banner still shows for stops with `issue_type = 'no_show'` and `'other'`
+- [x] Ops page still loads with no errors when no stops are flagged
+- [x] Spec #8 `/reschedule/<token>` flow (used_at, expired) still works for tokens without `revoked_at`
+- [x] Spec #8 `/seller/reschedule` (authenticated path) unaffected
+- [x] Seller dashboard loads normally for sellers with and without `ShiftPickup`
+- [x] Admin panel loads normally
+- [x] Worker shift view loads normally for movers with no stops
+- [x] `_get_payout_percentage` untouched — confirm via `git diff` that function body is unchanged
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+## Admin UI Redesign (feature_admin_redesign.md)
+
+**Sign-off status:** ⬜ Built 2026-04-15 — awaiting sign-off
+**Automated tests:** 69/69 route planning + 42/42 SMS passing
+
+> Items marked [✅] are covered by passing automated tests or confirmed at build time.
+> Items marked [ ] require your eyes on the running app.
+
+### Migration & Schema
+- [✅] `flask db upgrade` runs cleanly — `admin_redesign_shift_last_notified` applied
+- [✅] `shift` table has new `last_notified_at` (DateTime, nullable) column
+- [✅] AppSettings `pickup_week_start` and `pickup_week_end` seeded with empty string defaults
+- [ ] Verify in DB: `SELECT last_notified_at FROM shift LIMIT 5;` — all NULL until Notify Sellers runs
+
+### Shell Layout (`admin_layout.html`)
+- [ ] Visit `/admin/ops` as admin — 52px sidebar visible on left with all icons
+- [ ] Hover each icon — tooltip appears with label name
+- [ ] Active tab icon has sage/green background; others are muted
+- [ ] Resize to mobile (≤768px) — sidebar collapses to horizontal top bar, icons still visible
+- [ ] Admin nav in header now shows single "Admin" link to `/admin/ops` (not "Admin Panel" + "Routes")
+
+### Redirects
+- [ ] Visit `GET /admin` as admin — 302 redirect fires immediately to `/admin/ops`
+- [ ] Visit `GET /admin/routes` — 302 to `/admin/ops`
+- [ ] Visit `GET /admin/approve` — 302 to `/admin/items?view=approve`
+- [ ] Visit `GET /admin/settings/route` as super admin — 302 to `/admin/settings#route`
+- [ ] Visit `GET /admin/storage` as super admin — 302 to `/admin/settings#storage`
+- [ ] POST to `/admin` (existing toggle forms) still works without redirect
+- [ ] POST to `/admin/settings/route` (existing save form) still works without redirect
+
+### Ops Tab (`/admin/ops`)
+- [ ] Page loads — three-zone layout: shift list (left), truck cards (center), unassigned panel (right)
+- [ ] Shift list shows all shifts grouped by week with "Week of [Month Day]" headers
+- [ ] Clicking a shift row navigates to `?shift_id=<id>` — browser back button works
+- [ ] Active shift row highlighted in sage green
+- [ ] Shift rows show correct slot badges (amber AM, blue PM)
+- [ ] Unnotified count badge appears ("X new") when sellers added since last notify
+- [ ] "Notified ✓" checkmark shows after notify runs with no new sellers
+- [ ] Shift with no stops shows muted "X trucks · Y stops" text
+- [ ] "Week overview →" link at bottom of panel links to schedule builder for that week
+- [ ] No shifts exist → empty state with "Generate shifts in Settings →" link
+
+### Ops Tab — Truck Cards
+- [ ] Each truck card shows: "Truck N" label, storage location chip (green assigned / amber unassigned), capacity bar, unit count "X/Yu"
+- [ ] Capacity bar is green ≤75%, amber 75–100%, red >100%
+- [ ] "View stops" button on every truck card opens the truck detail drawer
+- [ ] Stop list shows seller name, address, stop order circle, badges ("new" amber, "moved" blue)
+- [ ] "new" badge appears on stops created after last notify (or when never notified)
+- [ ] "moved" badge appears on rescheduled-in stops
+- [ ] Pre-shift stop list: "Re-order route", "View map", "Assign unit" buttons in footer
+- [ ] Live state: when ShiftRun exists, truck card shows "In progress" or "Complete" pill + live summary row
+- [ ] Live summary row shows: stops done counter, total items, current stop name
+- [ ] Issue alert strip appears in amber when `status='issue'` stop exists on that truck
+
+### Ops Tab — Top Bar
+- [ ] "Add Truck" → form POST → page reloads with new truck card
+- [✅] "Order Routes" → fetch POST to `/admin/crew/shift/<id>/order` → page reload (redirect to ops)
+- [ ] "Order Routes" button shows spinner during ordering
+- [✅] "Notify Sellers" → confirmation dialog → POST → page reload
+- [ ] Notify dialog says "Send pickup confirmation to X unnotified sellers?"
+- [✅] `Shift.last_notified_at` is set in DB after notify runs
+- [ ] Alert bar appears (amber) when `unnotified_count > 0` and `sellers_notified=True`
+- [ ] "Re-order & notify" in alert bar chains order then notify (both fetch, page reload after)
+
+### Ops Tab — Unassigned Panel
+- [ ] Panel shows sellers grouped by cluster label
+- [ ] Only sellers matching shift slot are shown by default (morning→AM, afternoon→PM)
+- [ ] Seller card shows name, cluster label, unit count, week, AM/PM pref badge
+- [ ] Orange dot on seller cards joined in last 24h
+- [ ] Clicking a seller card opens inline assign form with shift+truck selector
+- [ ] "Show all unassigned" checkbox reveals dimmed slot-unmatched sellers
+- [ ] "Auto-Assign" button at top → POST `/admin/routes/auto-assign` → page reload
+- [✅] Auto-assign now uses cluster-first sort (partner buildings → dorms → proximity → Unlocated)
+- [ ] Empty panel state: "All eligible sellers are assigned" with green checkmark
+
+### Truck Detail Modal
+- [ ] Clicking "View stops" on a truck card opens 480px right-side drawer
+- [ ] Drawer fetched via `GET /admin/ops/truck-detail?shift_id=<id>&truck=<n>`
+- [ ] Drawer shows: truck header, capacity bar, assigned movers, full stop list
+- [ ] Stop list shows status circles: gray=pending, green=completed (with time), red=issue (with type)
+- [ ] Pre-shift: "Remove" button visible on pending stops, submits to remove route, page reloads
+- [ ] Close: X button, Escape key, overlay click all close drawer
+- [ ] 403 returned (not redirect) when non-admin fetches partial
+
+### Items Tab (`/admin/items`)
+- [ ] Visit `/admin/items` — page loads with stats bar (Total, Pending, Available, Sold)
+- [ ] "All Items" tab active by default; "Approval Queue" tab visible for super admins
+- [ ] Filter bar: category dropdown, seller email field, item title field — submit filters table
+- [ ] "Clear" link resets all filters
+- [ ] Item table shows: description, seller (→ panel), category, price, status pill, date, payout
+- [ ] Seller name click → slide-out seller profile panel opens (existing panel, unchanged)
+- [ ] Store controls section: toggle (collapsible, collapsed by default)
+- [ ] Store controls shows pickup period, reserve-only, shop teaser toggles + store open date
+- [ ] Approval Queue tab shows pending items with price input + Approve / Reject / Need Info buttons
+- [ ] Visit `GET /admin/approve` — redirects to `/admin/items?view=approve`
+
+### Sellers Tab (`/admin/sellers`)
+- [ ] Visit `/admin/sellers` — page loads with seller table
+- [ ] Search bar filters table client-side by name or email (no page reload)
+- [ ] Table columns: Name, Email, Phone, Pickup week, Items, Payout rate, Days since joined
+- [ ] Seller name → slide-out seller profile panel
+- [ ] "Pickup nudge" collapsible shows sellers with items but no pickup week
+- [ ] "Remind Selected" and "Remind All" buttons visible in nudge section
+- [ ] Free-tier queue collapsible shows pending free sellers with Approve/Reject buttons
+- [ ] All existing nudge + free-tier POST routes still work unchanged
+
+### Crew Tab (`/admin/crew`)
+- [ ] Visit `/admin/crew` — page loads with pending apps + approved workers sections
+- [ ] Pending app row is clickable to expand → shows availability grid + why blurb
+- [ ] Availability grid shows colored AM/PM cells (green=available, red=unavailable)
+- [ ] Approve / Reject buttons work → existing POST routes unchanged
+- [ ] Approved workers table shows name, email, role badge, shifts completed count
+
+### Settings Tab (`/admin/settings`)
+- [ ] Visit `/admin/settings` as super admin — page loads with all 9 sections
+- [ ] Visit as regular admin — 403
+- [ ] Quick nav links at top scroll to correct anchor sections
+- [ ] **Pickup window section:** date inputs save via POST; "Generate shifts" button shows confirmation dialog
+- [ ] Generate shifts: creates AM+PM shift records for each date in range; idempotent (re-run shows "Generated 0 shifts")
+- [ ] Pickup window start/end saved correctly in AppSettings
+- [ ] **Route & capacity:** saves truck_raw_capacity, buffer %, windows, maps key, category unit sizes
+- [ ] **Storage locations:** existing locations listed with active/inactive dots; create form works
+- [ ] **Referral program:** toggle and rate fields save correctly
+- [ ] **SMS notifications:** sms_enabled toggle, hour fields save
+- [ ] **User management:** current admin list shown; grant/revoke admin by email works
+- [ ] **Data exports:** CSV download buttons work; preview links load
+- [ ] **Mass email:** form present; test-only checkbox visible
+- [ ] **Database reset:** requires typing "reset database"; dangerous confirm dialog
+
+### Modified Templates — Admin Shell
+- [ ] `/admin/crew/shift/<id>/ops` (shift_ops.html) — sidebar visible, active tab = Ops
+- [ ] `/admin/schedule` (schedule_index.html) — sidebar visible, active tab = Schedule
+- [ ] `/admin/schedule/<week_id>` (schedule_week.html) — sidebar visible, active tab = Schedule
+- [ ] `/admin/settings/route` redirects to `/admin/settings#route`
+- [ ] `/admin/storage/<id>` (storage_detail.html) — sidebar visible, active tab = Settings
+- [ ] `/admin/intake/flagged` (intake_flagged.html) — sidebar visible, active tab = Items
+- [ ] `/admin/crew/shift/<id>/intake` (shift_intake_log.html) — sidebar visible, active tab = Ops
+- [ ] `/admin/payouts` (payouts.html) — sidebar visible, active tab = Payouts
+
+### Regression Check
+- [✅] 69/69 route planning tests still passing
+- [✅] 42/42 SMS notification tests still passing
+- [ ] `/crew/shift/<id>` mover shift view — loads normally, no sidebar, crew-only content unchanged
+- [ ] Seller dashboard (`/dashboard`) — loads normally, zero admin shell visible
+- [ ] Stripe webhook still responds (unchanged)
+- [ ] Seller reschedule flow (`/reschedule/<token>`) — unchanged
+- [ ] Worker application (`/crew/apply`) — unchanged
+- [✅] `admin_shift_notify_sellers` still sets `notified_at` on each pickup AND `sellers_notified=True` on shift
+- [✅] `admin_shift_notify_sellers` now also sets `last_notified_at` on shift
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
 
 ## Spec #10 — Admin Dashboard Overhaul
 

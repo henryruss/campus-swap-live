@@ -194,8 +194,8 @@ The ops system connects back to the seller experience in three ways:
 | 5 | `feature_payout_reconciliation.md` | 🔲 Not yet designed | Close loop between intake and existing seller payout workflow |
 | 6 | `feature_route_planning.md` | ✅ Done (signed off 2026-04-14) | Admin route-building tools, bulk vs. scattered pickup handling |
 | 7 | `feature_seller_progress_tracker.md` | ✅ Done (signed off 2026-04-14) | Visual status pipeline on seller dashboard |
-| 8 | `feature_seller_rescheduling.md` | 🔲 Not yet designed | Self-serve reschedule flow, overflow truck slots |
-| 9 | `feature_sms_notifications.md` | 🔲 Not yet designed | Twilio integration, automated texts at route milestones |
+| 8 | `feature_seller_rescheduling.md` | ✅ Done (signed off 2026-04-14) | Self-serve reschedule flow, overflow truck slots |
+| 9 | `feature_sms_notifications.md` | ✅ Done (built 2026-04-14, 42/42 tests) | Twilio integration, automated texts at route milestones |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

@@ -1,6 +1,6 @@
-{% extends "layout.html" %}
+{% extends "admin/admin_layout.html" %}
 
-{% block content %}
+{% block admin_content %}
 <style>
   .settings-wrap { max-width: 640px; margin: 40px auto 80px; padding: 0 16px; }
   .settings-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 8px; }
@@ -87,6 +87,38 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+
+    <div class="settings-section">
+      <h3>SMS Notifications</h3>
+      <div class="field-row">
+        <label for="sms_enabled">SMS Enabled</label>
+        <select id="sms_enabled" name="sms_enabled"
+                style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.875rem; color:var(--text-main);">
+          <option value="true"  {% if sms_enabled == 'true'  %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if sms_enabled == 'false' %}selected{% endif %}>Disabled (kill switch)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="sms_reminder_hour_eastern">24hr Reminder — send hour (ET, 24h)</label>
+        <input type="number" id="sms_reminder_hour_eastern" name="sms_reminder_hour_eastern"
+               value="{{ sms_reminder_hour_eastern }}" min="0" max="23" step="1">
+        <p class="cap-preview">Default 9 → runs at 9am ET. Cron must be scheduled separately in Render.</p>
+      </div>
+      <div class="field-row">
+        <label for="no_show_email_enabled">No-Show Recovery Email</label>
+        <select id="no_show_email_enabled" name="no_show_email_enabled"
+                style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.875rem; color:var(--text-main);">
+          <option value="true"  {% if no_show_email_enabled == 'true'  %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if no_show_email_enabled == 'false' %}selected{% endif %}>Disabled (kill switch)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="no_show_email_hour_eastern">No-Show Email — send hour (ET, 24h)</label>
+        <input type="number" id="no_show_email_hour_eastern" name="no_show_email_hour_eastern"
+               value="{{ no_show_email_hour_eastern }}" min="0" max="23" step="1">
+        <p class="cap-preview">Default 18 → runs at 6pm ET. Cron must be scheduled separately in Render.</p>
+      </div>
     </div>
 
     <button type="submit" class="btn-primary">Save All Settings</button>

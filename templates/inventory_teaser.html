@@ -10,11 +10,7 @@
 <!-- Blurred background mosaic of real item photos -->
 <div class="teaser-bg-grid">
   {% for item in preview_items %}
-    <div class="teaser-tile">
-      {% if item.photo_url %}
-        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="">
-      {% endif %}
-    </div>
+    <div class="teaser-tile"{% if item.photo_url %} style="background-image: url('{{ url_for('uploaded_file', filename=item.photo_url) }}')"{% endif %}></div>
   {% endfor %}
   {% for _ in placeholder_range %}
     <div class="teaser-tile teaser-tile--placeholder"></div>

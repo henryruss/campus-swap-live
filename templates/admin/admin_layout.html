@@ -1,0 +1,221 @@
+{% extends "layout.html" %}
+
+{% block head_extra %}
+<style>
+  /* ── Admin shell ── */
+  .admin-shell {
+    display: flex;
+    min-height: calc(100vh - 72px);
+  }
+
+  /* ── Sidebar ── */
+  .admin-sidebar {
+    width: 52px;
+    min-height: 100%;
+    background: var(--primary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 72px);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  .admin-sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .admin-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    color: rgba(255,255,255,0.55);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    font-size: 1rem;
+  }
+
+  .admin-nav-item:hover {
+    background: rgba(255,255,255,0.12);
+    color: white;
+  }
+
+  .admin-nav-item.active {
+    background: var(--sage);
+    color: white;
+  }
+
+  /* Tooltip */
+  .admin-nav-item .nav-tooltip {
+    position: absolute;
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.85);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 200;
+  }
+
+  .admin-nav-item:hover .nav-tooltip {
+    opacity: 1;
+  }
+
+  .admin-nav-divider {
+    width: 28px;
+    height: 1px;
+    background: rgba(255,255,255,0.15);
+    margin: 6px 0;
+  }
+
+  /* ── Main content area ── */
+  .admin-content {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  /* ── Mobile: top icon bar ── */
+  @media (max-width: 768px) {
+    .admin-shell {
+      flex-direction: column;
+    }
+
+    .admin-sidebar {
+      width: 100%;
+      height: auto;
+      min-height: unset;
+      position: static;
+      flex-direction: row;
+      padding: 8px 12px;
+      overflow-x: auto;
+      gap: 4px;
+    }
+
+    .admin-sidebar-nav {
+      flex-direction: row;
+      gap: 4px;
+      width: auto;
+    }
+
+    .admin-nav-divider {
+      width: 1px;
+      height: 28px;
+      margin: 0 4px;
+    }
+
+    .admin-nav-item .nav-tooltip {
+      left: 50%;
+      top: calc(100% + 8px);
+      transform: translateX(-50%);
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{#
+  Detect active tab from request.path so child templates don't need to set active_tab.
+  Routes override via passing active_tab context variable; fall back to path detection.
+#}
+{% set _path = request.path %}
+{% if active_tab is not defined or active_tab is none %}
+  {% if _path.startswith('/admin/ops') %}
+    {% set active_tab = 'ops' %}
+  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') %}
+    {% set active_tab = 'items' %}
+  {% elif _path.startswith('/admin/payouts') %}
+    {% set active_tab = 'payouts' %}
+  {% elif _path.startswith('/admin/sellers') %}
+    {% set active_tab = 'sellers' %}
+  {% elif _path.startswith('/admin/crew') %}
+    {% set active_tab = 'crew' %}
+  {% elif _path.startswith('/admin/settings') or _path.startswith('/admin/storage') or _path.startswith('/admin/settings/route') %}
+    {% set active_tab = 'settings' %}
+  {% elif _path.startswith('/admin/schedule') %}
+    {% set active_tab = 'schedule' %}
+  {% else %}
+    {% set active_tab = '' %}
+  {% endif %}
+{% endif %}
+<div class="admin-shell">
+  <aside class="admin-sidebar">
+    <nav class="admin-sidebar-nav">
+      <a href="/admin/ops"
+         class="admin-nav-item {% if active_tab == 'ops' %}active{% endif %}"
+         title="Ops">
+        <i class="fas fa-route"></i>
+        <span class="nav-tooltip">Ops</span>
+      </a>
+
+      <a href="/admin/items"
+         class="admin-nav-item {% if active_tab == 'items' %}active{% endif %}"
+         title="Items">
+        <i class="fas fa-check-square"></i>
+        <span class="nav-tooltip">Items</span>
+      </a>
+
+      <a href="/admin/payouts"
+         class="admin-nav-item {% if active_tab == 'payouts' %}active{% endif %}"
+         title="Payouts">
+        <i class="fas fa-dollar-sign"></i>
+        <span class="nav-tooltip">Payouts</span>
+      </a>
+
+      <a href="/admin/sellers"
+         class="admin-nav-item {% if active_tab == 'sellers' %}active{% endif %}"
+         title="Sellers">
+        <i class="fas fa-user"></i>
+        <span class="nav-tooltip">Sellers</span>
+      </a>
+
+      <a href="/admin/crew"
+         class="admin-nav-item {% if active_tab == 'crew' %}active{% endif %}"
+         title="Crew">
+        <i class="fas fa-users"></i>
+        <span class="nav-tooltip">Crew</span>
+      </a>
+
+      {% if current_user.is_super_admin %}
+      <div class="admin-nav-divider"></div>
+
+      <a href="/admin/settings"
+         class="admin-nav-item {% if active_tab == 'settings' %}active{% endif %}"
+         title="Settings">
+        <i class="fas fa-cog"></i>
+        <span class="nav-tooltip">Settings</span>
+      </a>
+
+      <a href="/admin/schedule"
+         class="admin-nav-item {% if active_tab == 'schedule' %}active{% endif %}"
+         title="Schedule">
+        <i class="fas fa-calendar-alt"></i>
+        <span class="nav-tooltip">Schedule</span>
+      </a>
+      {% endif %}
+    </nav>
+  </aside>
+
+  <main class="admin-content">
+    {% block admin_content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

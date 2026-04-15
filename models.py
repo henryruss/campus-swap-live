@@ -72,6 +72,10 @@ class User(UserMixin, db.Model):
     # True once the seller has completed the $15 payout boost purchase this season.
     # Separate from has_paid (legacy Pro tier flag). Reset annually by the fall cleanup script.
 
+    # SMS OPT-OUT (Spec #9)
+    sms_opted_out = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    # Set True on STOP, False on UNSTOP/START. Only written by the Twilio inbound webhook.
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 
@@ -373,6 +377,7 @@ class Shift(db.Model):
     # JSON: {"1": storage_location_id, "2": storage_location_id} — planned unit per truck
     truck_unit_plan = db.Column(db.Text, nullable=True)
     sellers_notified = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    last_notified_at = db.Column(db.DateTime, nullable=True)
     overflow_truck_number = db.Column(db.Integer, nullable=True)
     reschedule_locked = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
@@ -461,6 +466,10 @@ class ShiftPickup(db.Model):
     capacity_warning = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     rescheduled_from_shift_id = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=True)
     rescheduled_at  = db.Column(db.DateTime, nullable=True)
+
+    # SPEC #9 — no-show recovery
+    issue_type          = db.Column(db.String(20), nullable=True)   # 'no_show' | 'other' | NULL
+    no_show_email_sent_at = db.Column(db.DateTime, nullable=True)   # idempotency guard; never cleared
 
     shift      = db.relationship('Shift', backref='pickups', foreign_keys=[shift_id])
     seller     = db.relationship('User', foreign_keys=[seller_id], backref='shift_pickups')
@@ -622,6 +631,7 @@ class RescheduleToken(db.Model):
     created_at = db.Column(db.DateTime, nullable=False)
     used_at    = db.Column(db.DateTime, nullable=True)    # NULL = unused; set on successful reschedule
     expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)    # NULL = not revoked; set when pickup completed
 
     pickup = db.relationship('ShiftPickup', backref='reschedule_tokens')
     seller = db.relationship('User')

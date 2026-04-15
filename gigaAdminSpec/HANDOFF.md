@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-04-15
 **Active spec:** None
-**Overall status:** Specs #1–8 all signed off. Spec #9 (SMS Notifications) is next.
+**Overall status:** Specs #1–9 complete + Admin UI Redesign built. Ready for sign-off on Spec #9 + Admin Redesign.
 
 ---
 
@@ -33,6 +33,166 @@
 - Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)
 - **Spec #7 — Seller Progress Tracker ✅ Complete 2026-04-14 (39/39 tests passing)**
 - **Spec #8 — Seller Rescheduling ✅ Signed off 2026-04-14 (69/69 route planning tests passing)**
+- **Spec #9 — SMS Notifications ✅ Built 2026-04-14 (42/42 tests passing)**
+- **Admin UI Redesign ✅ Built 2026-04-15 (69/69 route + 42/42 SMS tests passing)**
+
+---
+
+## Spec #9 — SMS Notifications (Complete)
+
+**Status:** Built 2026-04-14 — awaiting sign-off
+**Spec file:** `feature_sms_notifications.md`
+**Test file:** `test_sms_notifications.py` — 42/42 passing
+
+### What Was Built
+
+**New dependency (`requirements.txt`)**
+- `twilio>=9.0.0`
+
+**Model changes (`models.py`)**
+- `User.sms_opted_out` (Boolean, default False, server_default='0') — set by Twilio inbound webhook
+- `ShiftPickup.issue_type` (String 20, nullable) — `'no_show'` | `'other'` | NULL
+- `ShiftPickup.no_show_email_sent_at` (DateTime, nullable) — idempotency guard; never cleared
+- `RescheduleToken.revoked_at` (DateTime, nullable) — set when pickup completed
+
+**Migration (`add_sms_and_no_show_fields`)**
+- Adds all four columns, idempotent (table-existence + column-existence guards)
+- Seeds 4 AppSettings: `sms_enabled` ('true'), `sms_reminder_hour_eastern` ('9'), `no_show_email_enabled` ('true'), `no_show_email_hour_eastern` ('18')
+
+**New helpers (`app.py`)**
+- `_normalize_phone(raw)` — normalizes to E.164; returns None on failure
+- `_send_sms(user, body)` — central SMS sender; guards on sms_enabled, phone, sms_opted_out, Twilio env vars; silently returns False on any skip/failure
+- `_cron_auth_ok()` — checks `Authorization: Bearer <CRON_SECRET>` header
+
+**Modified helpers (`app.py`)**
+- `_notify_next_seller(shift, current_pickup)` — stub replaced with real implementation: truck-filtered "you're next" SMS to next pending stop; skips if stop has `issue_type` set
+
+**Modified routes (`app.py`)**
+- `crew_shift_start` — removed `_notify_next_seller(shift)` call; now SMSes ALL pending sellers on mover's truck after ShiftRun creation
+- `crew_shift_stop_update` (completion path) — revokes open reschedule tokens; calls `_notify_next_seller`; notes-required check removed (notes now optional for both statuses)
+- `crew_shift_stop_update` (issue path) — saves `issue_type` from POST (defaults to `'other'`); extends token TTL if `no_show`
+- `crew_shift_stop_revert` — clears `issue_type = None`; does NOT clear `no_show_email_sent_at`
+- `admin_shift_notify_sellers` — sends SMS alongside email for each unnotified seller
+- `seller_reschedule_get` — checks `revoked_at` before `used_at` (order matters)
+- `seller_reschedule_post` — same revoked_at check added
+- `admin_route_settings` — handles 4 new SMS AppSettings in POST + passes them to template
+
+**New routes (`app.py`)**
+- `POST /admin/cron/sms-reminders` → `cron_sms_reminders` — daily 24hr SMS reminder cron (auth: `Authorization: Bearer <CRON_SECRET>`)
+- `POST /admin/cron/no-show-emails` → `cron_no_show_emails` — end-of-day no-show recovery email cron (auth: same)
+- `POST /sms/webhook` → `sms_inbound_webhook` — Twilio STOP/UNSTOP handler; validates Twilio signature if `TWILIO_AUTH_TOKEN` is set; skips validation in dev
+
+**Modified templates**
+- `templates/crew/shift.html` — phone as `tel:` link on each stop card ("No phone on file" if null); issue form replaced with two-option picker (Seller wasn't home / Item or access problem); `selectIssueType()` JS; `issue_type` hidden input defaults to `'other'`
+- `templates/seller/reschedule_confirm.html` — new `revoked` error branch (shown when `revoked_at` set)
+- `templates/admin/route_settings.html` — new SMS Notifications section: sms_enabled toggle, sms_reminder_hour_eastern, no_show_email_enabled toggle, no_show_email_hour_eastern
+
+### New Env Vars Required (Render)
+- `TWILIO_ACCOUNT_SID` — Twilio console → Account Info
+- `TWILIO_AUTH_TOKEN` — Twilio console → Account Info
+- `TWILIO_FROM_NUMBER` — purchased Twilio number in E.164 format (e.g. `+19845551234`)
+
+### New Cron Jobs to Register in Render
+1. **SMS 24hr reminder:** `POST https://usecampusswap.com/admin/cron/sms-reminders`
+   - Header: `Authorization: Bearer <CRON_SECRET>`
+   - Schedule: daily at 9am ET
+2. **No-show recovery emails:** `POST https://usecampusswap.com/admin/cron/no-show-emails`
+   - Header: `Authorization: Bearer <CRON_SECRET>`
+   - Schedule: daily at 6pm ET
+
+### Twilio Webhook Setup
+- After deploy, set inbound webhook URL in Twilio console:
+  `Phone Numbers → Manage → Active Numbers → [your number] → Messaging → Webhook URL`
+- Set to: `https://usecampusswap.com/sms/webhook` (HTTP POST)
+
+### Deviations from Spec
+1. **`issue_type` missing → defaults to `'other'`** — per session decision. Graceful degradation for JS failure mid-route.
+2. **Notes no longer required for issue flags** — per session decision. `issue_type` now carries the semantic meaning; notes are truly optional for both types.
+3. **`_send_sms` for Twilio uses lazy import** (`from twilio.rest import Client` inside the function body) — avoids an import-time crash when Twilio isn't installed locally; tests run without the package.
+4. **`sms_inbound_webhook` skips signature validation when `TWILIO_AUTH_TOKEN` not set** — dev/test environments have no real Twilio. Route still responds 200/TwiML correctly.
+5. **`cron_sms_reminders` is NOT idempotent** — documented in a comment. If run twice in one day, duplicate SMS will be sent. No guard added; spec accepted this.
+
+### Known Issues / Follow-up
+- Twilio not installed locally; `_send_sms` will always return False until `pip install twilio` or deployment. All tests mock the call.
+- `sms_reminder_hour_eastern` and `no_show_email_hour_eastern` AppSettings are informational only — they document the intended cron schedule but the cron schedule itself is set in Render. The values are not read by code.
+- The `test_sms_notifications.py::TestSmsWebhook::test_invalid_signature_returns_403` test mocks the entire twilio module in sys.modules because the package is not installed locally. Will work identically once twilio is pip-installed.
+
+---
+
+## Admin UI Redesign (Built 2026-04-15)
+
+**Status:** Built 2026-04-15 — awaiting sign-off
+**Spec file:** `feature_admin_redesign.md`
+**Tests:** 69/69 route planning + 42/42 SMS still passing. Pre-existing tracker test failure (1 test, unrelated to this spec) unchanged.
+
+### What Was Built
+
+**Migration (`admin_redesign_shift_last_notified`)**
+- Adds `Shift.last_notified_at` (DateTime, nullable) — set when `admin_shift_notify_sellers` runs
+- Revises: `add_sms_and_no_show_fields`
+
+**Model changes (`models.py`)**
+- `Shift.last_notified_at` (DateTime, nullable) added
+
+**Shell layout (`templates/admin/admin_layout.html`)**
+- New base template extending `layout.html` — wraps all admin pages
+- 52px icon-only sidebar with Font Awesome icons + hover tooltips
+- Active tab auto-detected from `request.path` (no route changes needed for existing pages)
+- Mobile: sidebar collapses to horizontal top bar
+
+**`layout.html` changes**
+- "Admin Panel" + "Routes" dropdown links → single "Admin" link to `/admin/ops`
+
+**New routes (`app.py`)**
+| Route | Function | Notes |
+|---|---|---|
+| `GET /admin/ops` | `admin_ops` | Main ops view — shift panel, truck cards, unassigned panel |
+| `GET /admin/ops/truck-detail` | `admin_ops_truck_detail` | HTML partial for truck detail drawer |
+| `GET /admin/items` | `admin_items` | Items tab — approval queue + lifecycle table |
+| `GET /admin/sellers` | `admin_sellers` | Sellers tab — list, nudge, free-tier |
+| `GET /admin/crew` | `admin_crew_panel` | Crew tab — pending apps + approved workers |
+| `GET/POST /admin/settings` | `admin_settings` | Settings tab — all 9 sections on one page |
+| `POST /admin/settings/generate-shifts` | `admin_generate_shifts` | Idempotent shift skeleton generator |
+
+**Redirects added**
+- `GET /admin` → `GET /admin/ops` (302) — POST still handled by `admin_panel`
+- `GET /admin/routes` → `GET /admin/ops` (302)
+- `GET /admin/approve` → `GET /admin/items?view=approve` (302) — POST still works for existing form
+- `GET /admin/settings/route` → `GET /admin/settings#route` (302) — POST still works
+- `GET /admin/storage` → `GET /admin/settings#storage` (302)
+
+**New templates**
+- `admin/ops.html` — 3-zone layout (shift list 220px, truck cards main, unassigned panel 210px) + truck detail drawer
+- `admin/ops_truck_detail.html` — partial (no layout), injected into drawer via fetch
+- `admin/items.html` — sub-tab pills (All Items / Approval Queue), stats bar, store controls collapsible, filter bar
+- `admin/sellers.html` — sortable table with client-side search, nudge and free-tier collapsibles
+- `admin/crew.html` — expandable application rows with availability grid, approved worker table
+- `admin/settings.html` — 9 anchor-linked sections, pickup window + generate shifts, all existing settings consolidated
+
+**Templates migrated to admin_layout.html**
+- `shift_ops.html`, `schedule_index.html`, `schedule_week.html`, `route_settings.html`
+- `storage_index.html`, `storage_detail.html`, `intake_flagged.html`, `shift_intake_log.html`
+- `payouts.html`, `routes.html`
+
+**Modified helpers (`app.py`)**
+- `seed_crew_app_settings` — adds `pickup_week_start` and `pickup_week_end` keys (empty string defaults)
+- `admin_shift_notify_sellers` — now sets `shift.last_notified_at = _now_eastern()` on notify
+- `admin_shift_order_stops` — redirects to `admin_ops` when called from ops page (referrer check)
+- `admin_shift_add_truck` — redirects to `admin_ops` for browser form submissions (Accept: text/html check)
+- `admin_routes_assign_seller` — now accepts form-encoded `shift_truck="<id>_<truck>"` in addition to JSON; redirects to `admin_ops` on form submit
+- `_run_auto_assignment` — cluster-first sort: partner buildings (alpha) → dorms (alpha) → proximity → Unlocated; unit count desc within each cluster
+
+**New helper functions**
+- `_ops_shift_date(shift)` — calendar date from Shift object (same as `_shift_date`, scoped to ops module)
+- `_ops_build_truck_cards(shift, pickups, effective_cap)` — per-truck card data including live state derivation
+- `_ops_build_unassigned_panel(shift)` — unassigned sellers filtered by shift slot + cluster grouping
+- `_ops_build_shift_list()` — all shifts sorted for left panel, with unnotified counts
+
+### Deviations from Spec
+1. **Active tab detection uses `request.path` in `admin_layout.html`** — Jinja2 `{% set %}` in child templates doesn't propagate to parent. Path-based detection is automatic and requires no per-route changes.
+2. **`admin_storage_index` GET redirects immediately** — old body removed since all content moves to `admin_settings#storage`. The create/edit POST routes still work unchanged.
+3. **`admin_routes_assign_seller` accepts hybrid form data** — existing JSON API preserved; added form `shift_truck` param so the ops panel can use a plain HTML form without JS fetch.
+4. **4 route planning tests updated** — tests that checked for 200 on redirected URLs updated to accept `in (200, 302)`. Semantics preserved.
 
 ---
 

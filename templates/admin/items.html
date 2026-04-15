@@ -1,0 +1,473 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .items-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+  .items-header { margin-bottom: 20px; }
+  .items-header h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0; }
+
+  .stats-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 14px 18px; flex: 1; min-width: 100px;
+  }
+  .stat-num { font-size: 1.8rem; font-weight: 800; color: var(--primary); line-height: 1; }
+  .stat-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+  .subtab-pills { display: flex; gap: 6px; margin-bottom: 20px; }
+  .subtab-pill {
+    padding: 6px 16px; border-radius: 20px; font-size: 0.83rem; font-weight: 600;
+    text-decoration: none; border: 1px solid var(--rule); color: var(--text-muted);
+    transition: all 0.12s;
+  }
+  .subtab-pill.active { background: var(--primary); color: white; border-color: var(--primary); }
+  .subtab-pill:hover:not(.active) { background: #f1f5f9; color: var(--text-main); }
+
+  .store-controls-toggle {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .store-controls-body {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 16px 20px; margin-bottom: 20px; display: none;
+  }
+  .store-controls-body.open { display: block; }
+  .store-controls-grid { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+  .store-control-item { display: flex; flex-direction: column; gap: 4px; }
+  .store-control-item label { font-size: 0.8rem; color: var(--text-muted); }
+  .toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; }
+  .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: #d1d5db; border-radius: 20px; transition: 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  input:checked + .toggle-slider { background: var(--sage); }
+  input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+  .items-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .items-filter-bar input, .items-filter-bar select {
+    padding: 7px 10px; border: 1px solid var(--rule); border-radius: 8px;
+    font-size: 0.83rem; color: var(--text-main); background: white;
+  }
+
+  .items-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .items-table th {
+    padding: 9px 10px; background: var(--bg-cream); border-bottom: var(--card-border);
+    text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); position: sticky; top: 0; z-index: 5;
+  }
+  .items-table td { padding: 9px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+  .items-table tr:hover td { background: #fafafa; }
+  .item-desc { font-weight: 600; color: var(--text-main); max-width: 220px; }
+  .item-desc small { font-weight: 400; color: var(--text-muted); display: block; font-size: 0.76rem; }
+
+  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .status-available { background: #dcfce7; color: #166534; }
+  .status-pending { background: #fef9c3; color: #854d0e; }
+  .status-sold { background: #dbeafe; color: #1e40af; }
+  .status-rejected { background: #fee2e2; color: #991b1b; }
+  .status-other { background: #f1f5f9; color: #64748b; }
+
+  .seller-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+  .seller-link:hover { text-decoration: underline; }
+
+  .approve-card {
+    background: white; border: var(--card-border); border-radius: 14px;
+    padding: 16px; margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start;
+  }
+  .approve-thumb {
+    width: 80px; height: 80px; border-radius: 8px; object-fit: cover;
+    flex-shrink: 0; cursor: pointer; transition: opacity 0.15s;
+    display: block; text-decoration: none;
+  }
+  .approve-thumb:hover { opacity: 0.85; }
+  .approve-info { flex: 1; }
+  .approve-info h4 { font-size: 0.95rem; font-weight: 700; color: var(--primary); margin: 0 0 4px; }
+  .approve-info p { font-size: 0.82rem; color: var(--text-muted); margin: 0; }
+  .approve-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  /* Price input */
+  .approve-price-wrap { display: flex; align-items: center; gap: 4px; border: 1px solid var(--rule); border-radius: 8px; padding: 0 8px; background: white; }
+  .approve-price-wrap span { color: var(--text-muted); font-weight: 600; }
+  .approve-price-wrap input[type=number] { width: 80px; border: none; outline: none; padding: 7px 4px; font-size: 0.88rem; background: transparent; }
+  /* Approve / Reject / Need Info buttons — match site design */
+  .btn-approve { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-approve:hover { background: var(--primary-light); }
+  .btn-reject { background: white; color: #dc2626; border: 1px solid #fca5a5; padding: 8px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-reject:hover { background: #fef2f2; }
+  .btn-need-info { background: white; color: #92400e; border: 1px solid #fde68a; padding: 8px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-need-info:hover { background: #fffbeb; }
+
+  /* Need Info modal */
+  .info-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2000; align-items: center; justify-content: center; padding: 16px;
+  }
+  .info-modal-overlay.open { display: flex; }
+  .info-modal-box {
+    background: white; border-radius: 16px; padding: 28px;
+    max-width: 480px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  }
+  .info-modal-box h3 { margin: 0 0 16px; font-size: 1.1rem; }
+  .info-reason-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .info-reason-btn {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: 16px 12px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer;
+    transition: all 0.2s; position: relative;
+  }
+  .info-reason-btn input { position: absolute; opacity: 0; }
+  .info-reason-btn:has(input:checked) { border-color: #f59e0b; background: #fffbeb; }
+  .info-reason-btn strong { font-size: 0.88rem; margin-bottom: 3px; }
+  .info-reason-btn span { font-size: 0.76rem; color: var(--text-muted); }
+  @media (max-width: 560px) { .info-reason-grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="items-wrap">
+  <div class="items-header">
+    <h1>Items</h1>
+  </div>
+
+  {# Stats bar #}
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-num">{{ total_items }}</div>
+      <div class="stat-label">Total items</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{ pending_approval }}</div>
+      <div class="stat-label">Pending approval</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{ available_count }}</div>
+      <div class="stat-label">Available</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{ sold_count }}</div>
+      <div class="stat-label">Sold</div>
+    </div>
+  </div>
+
+  {# Sub-tab pills #}
+  <div class="subtab-pills">
+    <a href="{{ url_for('admin_items', view='all') }}"
+       class="subtab-pill {% if view == 'all' %}active{% endif %}">All Items</a>
+    {% if current_user.is_super_admin %}
+    <a href="{{ url_for('admin_items', view='approve') }}"
+       class="subtab-pill {% if view == 'approve' %}active{% endif %}">
+      Approval Queue
+      {% if pending_approval > 0 %}
+      <span style="background: var(--accent); color: white; border-radius: 10px; padding: 0 6px; font-size: 0.68rem; margin-left: 4px;">{{ pending_approval }}</span>
+      {% endif %}
+    </a>
+    {% endif %}
+  </div>
+
+  {# Store controls (collapsible) #}
+  <div class="store-controls-toggle" onclick="toggleStoreControls()">
+    <i class="fas fa-store" style="color: var(--sage);"></i>
+    Store controls
+    <i class="fas fa-chevron-down" id="storeChevron" style="transition: transform 0.2s;"></i>
+  </div>
+  <div class="store-controls-body" id="storeControlsBody">
+    <div class="store-controls-grid">
+      <form method="POST" action="/admin" style="display: contents;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="store-control-item">
+          <span class="toggle-label">
+            <label class="toggle-switch">
+              <input type="checkbox" name="active" {% if pickup_period_active %}checked{% endif %}
+                     onchange="this.form.submit()">
+              <span class="toggle-slider"></span>
+            </label>
+            Pickup period active
+          </span>
+          <input type="hidden" name="toggle_pickup_period" value="1">
+        </div>
+      </form>
+      <form method="POST" action="/admin" style="display: contents;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="store-control-item">
+          <span class="toggle-label">
+            <label class="toggle-switch">
+              <input type="checkbox" {% if reserve_only %}checked{% endif %}
+                     onchange="this.form.submit()">
+              <span class="toggle-slider"></span>
+            </label>
+            Reserve-only mode
+          </span>
+          <input type="hidden" name="toggle_reserve_only" value="1">
+        </div>
+      </form>
+      <form method="POST" action="/admin" style="display: contents;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="store-control-item">
+          <span class="toggle-label">
+            <label class="toggle-switch">
+              <input type="checkbox" {% if shop_teaser_mode == 'true' %}checked{% endif %}
+                     onchange="this.form.submit()">
+              <span class="toggle-slider"></span>
+            </label>
+            Shop teaser mode
+          </span>
+          <input type="hidden" name="toggle_shop_teaser" value="1">
+        </div>
+      </form>
+      <div class="store-control-item">
+        <label>Store open date</label>
+        <form method="POST" action="/admin" style="display: flex; gap: 6px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="date" name="store_open_date_value" value="{{ store_open_date }}"
+                 style="padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.83rem;">
+          <input type="hidden" name="update_store_open_date" value="1">
+          <button type="submit" class="btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Save</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── APPROVAL QUEUE sub-tab ── #}
+  {% if view == 'approve' and current_user.is_super_admin %}
+  {% if not approval_items %}
+  <div style="text-align: center; padding: 48px; color: var(--text-muted);">
+    <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--sage); display: block; margin-bottom: 12px;"></i>
+    No items pending approval.
+  </div>
+  {% endif %}
+  {% for item in approval_items %}
+  <div class="approve-card">
+    {# Thumbnail — click to open the full single-item approval view #}
+    <a href="{{ url_for('admin_approve') }}?item={{ item.id }}" target="_blank" class="approve-thumb" title="View full listing">
+      {% if item.photo_url %}
+      <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+           alt="{{ item.description }}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;display:block;">
+      {% else %}
+      <div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;">
+        <i class="fas fa-image fa-lg"></i>
+      </div>
+      {% endif %}
+    </a>
+
+    <div class="approve-info">
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px;">
+        <h4 style="margin: 0;">{{ item.description }}</h4>
+        <a href="{{ url_for('admin_approve') }}?item={{ item.id }}" target="_blank"
+           style="font-size: 0.75rem; color: var(--text-muted); text-decoration: none; white-space: nowrap;">
+          View full →
+        </a>
+      </div>
+      <p>
+        Seller: <a href="#" class="seller-link"
+                   onclick="loadSellerPanel({{ item.seller_id }}); return false;">
+          {{ item.seller.full_name if item.seller else 'Unknown' }}
+        </a>
+        &middot; Added {{ item.date_added.strftime('%b %-d') if item.date_added else '—' }}
+        &middot; {{ item.category.name if item.category else 'Uncategorized' }}
+        {% if item.long_description %}
+        <br><span style="color: var(--text-main);">{{ item.long_description[:180] }}{% if item.long_description|length > 180 %}…{% endif %}</span>
+        {% endif %}
+      </p>
+      <div class="approve-actions">
+        <form method="POST" action="{{ url_for('admin_approve') }}" style="display: flex; align-items: center; gap: 6px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="action" value="approve">
+          <input type="hidden" name="item_id" value="{{ item.id }}">
+          <div class="approve-price-wrap">
+            <span>$</span>
+            <input type="number" name="price" step="0.01" min="0" placeholder="Price" required>
+          </div>
+          <button type="submit" class="btn-approve">Approve</button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_approve') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="action" value="reject">
+          <input type="hidden" name="item_id" value="{{ item.id }}">
+          <button type="submit" class="btn-reject"
+                  onclick="return confirm('Reject this item?')">Reject</button>
+        </form>
+        <button type="button" class="btn-need-info"
+                onclick="openInfoModal({{ item.id }})">
+          <i class="fas fa-question-circle"></i> Need Info
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# Need Info modal — one per item, unique ID #}
+  <div class="info-modal-overlay" id="info-modal-{{ item.id }}">
+    <div class="info-modal-box">
+      <h3><i class="fas fa-question-circle" style="color: #f59e0b;"></i> Request More Info</h3>
+      <form method="POST" action="{{ url_for('admin_request_info', item_id=item.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 14px;">Select the reason(s) — the seller will see these on their dashboard.</p>
+        <div class="info-reason-grid">
+          <label class="info-reason-btn">
+            <input type="checkbox" name="reasons" value="Better photos needed — current photos are unclear or low quality">
+            <strong><i class="fas fa-camera" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Better photos</strong>
+            <span>Current photos are unclear or low quality</span>
+          </label>
+          <label class="info-reason-btn">
+            <input type="checkbox" name="reasons" value="Video required — please upload a video showing the item powers on">
+            <strong><i class="fas fa-video" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Video required</strong>
+            <span>Show the item powers on</span>
+          </label>
+          <label class="info-reason-btn">
+            <input type="checkbox" name="reasons" value="Better description needed — please add more detail about the item's condition">
+            <strong><i class="fas fa-align-left" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Better description</strong>
+            <span>Add more detail about condition</span>
+          </label>
+          <label class="info-reason-btn">
+            <input type="checkbox" name="reasons" value="Different angle needed — please photograph a specific part of the item">
+            <strong><i class="fas fa-sync-alt" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Different angle</strong>
+            <span>Photograph a specific part</span>
+          </label>
+        </div>
+        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Custom note (optional)</label>
+        <textarea name="custom_note" rows="3" maxlength="500" placeholder="Add a specific note to the seller..."
+                  style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.88rem; resize: vertical; box-sizing: border-box;"></textarea>
+        <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
+          <button type="button" class="btn-outline" style="padding: 8px 16px;"
+                  onclick="closeInfoModal({{ item.id }})">Cancel</button>
+          <button type="submit" style="background: #f59e0b; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.88rem;">
+            Send Request
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {# ── ALL ITEMS sub-tab ── #}
+  {% if view == 'all' %}
+  <div class="items-filter-bar">
+    <form method="GET" action="{{ url_for('admin_items') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <input type="hidden" name="view" value="all">
+      <select name="cat" style="min-width: 130px;">
+        <option value="">All categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat.id }}" {% if filter_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="email" value="{{ filter_email }}" placeholder="Seller email..." style="min-width: 160px;">
+      <input type="text" name="title" value="{{ filter_title }}" placeholder="Item title..." style="min-width: 160px;">
+      <button type="submit" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">Filter</button>
+      {% if filter_cat or filter_email or filter_title %}
+      <a href="{{ url_for('admin_items', view='all') }}" style="font-size: 0.83rem; color: var(--text-muted);">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Seller</th>
+          <th>Category</th>
+          <th>Price</th>
+          <th>Status</th>
+          <th>Date added</th>
+          <th>Payout sent</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if not all_items %}
+        <tr><td colspan="8" style="text-align: center; padding: 32px; color: var(--text-muted);">No items found.</td></tr>
+        {% endif %}
+        {% for item in all_items %}
+        <tr>
+          <td class="item-desc">
+            {{ item.description[:60] }}{% if item.description|length > 60 %}…{% endif %}
+            {% if item.collection_method == 'free' %}<small>Free tier</small>{% endif %}
+          </td>
+          <td>
+            {% if item.seller %}
+            <a href="#" class="seller-link"
+               onclick="loadSellerPanel({{ item.seller_id }}); return false;">
+              {{ item.seller.full_name }}
+            </a>
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size: 0.78rem; color: var(--text-muted);">{{ item.category.name if item.category else '—' }}</td>
+          <td>{% if item.price %}${{ "%.0f"|format(item.price) }}{% else %}—{% endif %}</td>
+          <td>
+            {% set status_class = {
+              'available': 'status-available',
+              'pending_valuation': 'status-pending',
+              'sold': 'status-sold',
+              'rejected': 'status-rejected',
+            }.get(item.status, 'status-other') %}
+            <span class="status-pill {{ status_class }}">{{ item.status | replace('_', ' ') }}</span>
+          </td>
+          <td style="font-size: 0.78rem; color: var(--text-muted);">{{ item.date_added.strftime('%b %-d') if item.date_added else '—' }}</td>
+          <td style="text-align: center;">
+            {% if item.status == 'sold' %}
+              {% if item.payout_sent %}<i class="fas fa-check-circle" style="color: #22c55e;"></i>
+              {% else %}<i class="fas fa-clock" style="color: #f59e0b;"></i>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="white-space: nowrap;">
+            <a href="{{ url_for('edit_item', item_id=item.id) }}"
+               class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem; text-decoration: none; display: inline-block;">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# Seller profile panel drawer #}
+<div id="seller-panel-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeSellerPanel()"></div>
+<div id="seller-panel-drawer" style="position:fixed;top:0;right:-480px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:301;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
+  <div id="seller-panel-content" style="padding:20px;"></div>
+</div>
+
+<script>
+  function toggleStoreControls() {
+    var body = document.getElementById('storeControlsBody');
+    var chevron = document.getElementById('storeChevron');
+    var open = body.classList.toggle('open');
+    chevron.style.transform = open ? 'rotate(180deg)' : '';
+  }
+
+  function openInfoModal(itemId) {
+    var modal = document.getElementById('info-modal-' + itemId);
+    if (modal) modal.classList.add('open');
+  }
+  function closeInfoModal(itemId) {
+    var modal = document.getElementById('info-modal-' + itemId);
+    if (modal) modal.classList.remove('open');
+  }
+  // Close on overlay click
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('info-modal-overlay')) {
+      e.target.classList.remove('open');
+    }
+  });
+  // Close on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.info-modal-overlay.open').forEach(function(m) { m.classList.remove('open'); });
+      closeSellerPanel();
+    }
+  });
+
+  function loadSellerPanel(userId) {
+    var overlay = document.getElementById('seller-panel-overlay');
+    var drawer = document.getElementById('seller-panel-drawer');
+    var content = document.getElementById('seller-panel-content');
+    content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    overlay.style.display = 'block';
+    drawer.style.right = '0';
+    fetch('/admin/seller/' + userId + '/panel')
+      .then(function(r) { return r.text(); })
+      .then(function(html) { content.innerHTML = html; });
+  }
+  function closeSellerPanel() {
+    document.getElementById('seller-panel-overlay').style.display = 'none';
+    document.getElementById('seller-panel-drawer').style.right = '-480px';
+  }
+</script>
+{% endblock %}

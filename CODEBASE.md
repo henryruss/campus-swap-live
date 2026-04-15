@@ -61,6 +61,7 @@ pickup_dorm, pickup_room, pickup_note (500 chars), pickup_lat, pickup_lng
 pickup_access_type ('elevator'|'stairs_only'|'ground_floor', nullable)
 pickup_floor (Integer 1–30, nullable)
 pickup_partner_building (String 100, nullable) — partner apartment building name (used for geographic clustering)
+sms_opted_out (Boolean, default False, server_default='0') — set True on STOP, False on UNSTOP/START via Twilio webhook; blocks SMS only, not email
 payout_method, payout_handle
 is_seller, has_paid, payment_declined
 stripe_customer_id, stripe_payment_method_id
@@ -176,6 +177,8 @@ Route planning keys: 'truck_raw_capacity' ('18'), 'truck_capacity_buffer_pct' ('
   'route_am_window' ('9am–1pm'), 'route_pm_window' ('1pm–5pm'), 'maps_static_api_key' ('')
 Rescheduling keys: 'reschedule_token_ttl_days' ('7'), 'reschedule_max_weeks_forward' ('0' = no cap),
   'reschedule_urgent_alert_days' ('2')
+SMS keys: 'sms_enabled' ('true' = master kill switch), 'sms_reminder_hour_eastern' ('9'),
+  'no_show_email_enabled' ('true'), 'no_show_email_hour_eastern' ('18')
 ```
 
 ### ShopNotifySignup
@@ -239,6 +242,7 @@ created_at
 truck_unit_plan (Text, nullable) — JSON dict {"truck_num": storage_location_id} — planned destination per truck;
   written by admin before pickups exist; synced to ShiftPickup.storage_location_id when pickups are added
 sellers_notified (Boolean, default False) — True once admin has sent pickup confirmation emails for this shift
+last_notified_at (DateTime, nullable) — timestamp of most recent notify-sellers run; used for "new" badge on stops added after last notification
 overflow_truck_number (Integer, nullable) — overflow-designated truck for rescheduled sellers; NULL = truck 1
 reschedule_locked (Boolean, default False) — excluded from seller reschedule slot grids when True
 Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
@@ -270,6 +274,8 @@ notified_at (DateTime, nullable) — timestamp when seller was sent pickup confi
 capacity_warning (Boolean, default False) — True when assigned to an over-capacity truck
 rescheduled_from_shift_id (Integer, FK → Shift, nullable) — shift this stop was moved from; NULL = original assignment
 rescheduled_at (DateTime, nullable) — Eastern timestamp of reschedule
+issue_type (String 20, nullable) — 'no_show' | 'other' | NULL; set on issue flag, cleared on revert
+no_show_email_sent_at (DateTime, nullable) — idempotency guard; set when recovery email sent; never cleared
 created_at, created_by_id (FK → User)
 Unique constraint: (shift_id, seller_id) — seller globally unique across all shifts
 Relationships: shift → Shift (foreign_keys=[shift_id]), seller → User (backref: shift_pickups),
@@ -290,6 +296,7 @@ Relationships: shift → Shift (backref: run, uselist=False), started_by → Use
 One-time token for email-linked seller reschedule (no login required).
 id, token (String 64, unique, indexed), pickup_id (FK → ShiftPickup), seller_id (FK → User)
 created_at, used_at (DateTime, nullable — NULL = unused), expires_at (DateTime)
+revoked_at (DateTime, nullable) — set when associated stop is marked 'completed'; distinct from used_at (self-rescheduled)
 Datetimes stored naive (no tzinfo). TTL configured via AppSetting 'reschedule_token_ttl_days'.
 Relationships: pickup → ShiftPickup (backref: reschedule_tokens), seller → User
 ```
@@ -412,6 +419,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /create_setup_intent` | `create_setup_intent` | Stripe SetupIntent |
 | `GET /payment_method_success` | `payment_method_success` | |
 | `POST /webhook` | `webhook` | Stripe webhook handler |
+| `POST /sms/webhook` | `sms_inbound_webhook` | Twilio inbound SMS. No login. Validates Twilio signature. Handles STOP/UNSTOP → sets sms_opted_out. |
 
 ### Dashboard & Account
 | Route | Function | Notes |
@@ -428,8 +436,15 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 ### Admin (requires is_admin or is_super_admin)
 | Route | Function | Notes |
 |---|---|---|
-| `GET/POST /admin` | `admin_panel` | Main admin dashboard |
-| `GET/POST /admin/approve` | `admin_approve` | Item approval queue |
+| `GET /admin/ops` | `admin_ops` | Main ops view — shift panel, truck cards, unassigned panel. Default entry point. |
+| `GET /admin/ops/truck-detail` | `admin_ops_truck_detail` | HTML partial for truck detail drawer. Params: shift_id, truck. |
+| `GET /admin/items` | `admin_items` | Items tab — approval queue + lifecycle table. view=approve|all. |
+| `GET /admin/sellers` | `admin_sellers` | Sellers tab — list, nudge, free-tier. |
+| `GET /admin/crew` | `admin_crew_panel` | Crew tab — pending applications + approved workers. |
+| `GET/POST /admin/settings` | `admin_settings` | Settings tab — all config sections. Super admin only. |
+| `POST /admin/settings/generate-shifts` | `admin_generate_shifts` | Generate AM+PM shifts for pickup date range. Super admin only. |
+| `GET/POST /admin` | `admin_panel` | GET → 302 to `/admin/ops`. POST still handles all existing store/item form submissions. |
+| `GET/POST /admin/approve` | `admin_approve` | GET → 302 to `/admin/items?view=approve`. POST (approval actions) unchanged. |
 | `POST /admin/free/confirm/<user_id>` | `admin_free_confirm` | Approve free-tier seller |
 | `POST /admin/free/reject/<user_id>` | `admin_free_reject` | Reject free-tier seller |
 | `POST /admin/free/notify_all` | `admin_free_notify_all` | Email all pending free sellers |
@@ -459,16 +474,18 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker (sets worker_role='both'); sends email |
 | `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
 | `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists + destination unit selectors |
-| `GET /admin/routes` | `admin_routes_index` | Route builder — unassigned sellers grouped by cluster + shift capacity board |
+| `GET /admin/routes` | `admin_routes_index` | GET → 302 to `/admin/ops`. Route planning absorbed into Ops tab. |
 | `POST /admin/routes/auto-assign` | `admin_routes_auto_assign` | Run auto-assignment for all unassigned eligible sellers. Returns JSON {assigned, tbd, over_cap_warnings} |
 | `POST /admin/routes/stop/<pickup_id>/move` | `admin_routes_move_stop` | Move ShiftPickup to different shift+truck; recalculates capacity_warning. Returns JSON |
 | `POST /admin/routes/seller/<user_id>/assign` | `admin_routes_assign_seller` | Manually assign unassigned seller. Returns JSON (409 if seller already has ShiftPickup) |
 | `POST /admin/crew/shift/<shift_id>/add-truck` | `admin_shift_add_truck` | Increment Shift.trucks by 1 via raw SQL. Returns JSON {new_truck_number} |
 | `POST /admin/crew/shift/<shift_id>/order` | `admin_shift_order_stops` | Nearest-neighbor stop ordering from storage unit origin; writes stop_order to all ShiftPickups |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/reorder` | `admin_shift_reorder_stop` | Set a specific stop_order value. Returns JSON |
-| `POST /admin/crew/shift/<shift_id>/notify` | `admin_shift_notify_sellers` | Send pickup confirmation emails to unnotified sellers (idempotent). Redirect |
+| `POST /admin/crew/shift/<shift_id>/notify` | `admin_shift_notify_sellers` | Send pickup confirmation emails to unnotified sellers (idempotent). Redirect. (Spec #9: also sends SMS alongside email) |
+| `POST /admin/cron/sms-reminders` | `cron_sms_reminders` | Daily 24hr SMS reminder cron. Auth: Authorization: Bearer <CRON_SECRET>. No login required. |
+| `POST /admin/cron/no-show-emails` | `cron_no_show_emails` | End-of-day no-show recovery email cron. Auth: same. Idempotent via no_show_email_sent_at. |
 | `GET /crew/shift/<shift_id>/stops_partial` | `crew_shift_stops_partial` | HTML partial of stops for current mover's truck. Used by 30s auto-refresh |
-| `GET+POST /admin/settings/route` | `admin_route_settings` | Capacity settings + category unit sizes. Super admin only |
+| `GET+POST /admin/settings/route` | `admin_route_settings` | GET → 302 to `/admin/settings#route`. POST saves capacity settings (unchanged). Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` | `admin_shift_remove_stop` | Remove pending stop only |
 | `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` | `admin_shift_assign_mover_truck` | Assign driver to truck (cap-enforced); truck_number=0 unassigns |
@@ -478,7 +495,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/intake/flag/<flag_id>/resolve` | `admin_intake_flag_resolve` | Resolve a single IntakeFlag with resolution note |
 | `GET /admin/intake/flagged` | `admin_intake_flagged` | Damaged/missing review queue — all items with unresolved flags (excl. sold/rejected) |
 | `POST /admin/intake/flagged/remove` | `admin_intake_flagged_remove` | Bulk reject: sets status='rejected', auto-resolves all flags with audit note |
-| `GET /admin/storage` | `admin_storage_index` | Storage location list + inline create form. Super admin only. |
+| `GET /admin/storage` | `admin_storage_index` | GET → 302 to `/admin/settings#storage`. Content moved to Settings tab. |
 | `POST /admin/storage/create` | `admin_storage_create` | Create StorageLocation. Super admin only. |
 | `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields. Super admin only. |
 | `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
@@ -499,9 +516,9 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /crew/preferences` | `crew_save_preferences` | Save WorkerPreference records (replaces all existing) |
 | `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers, published weeks only) |
 | `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops with item photo strip |
-| `POST /crew/shift/<shift_id>/start` | `crew_shift_start` | Create ShiftRun; blocked for future shifts |
-| `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion |
-| `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending |
+| `POST /crew/shift/<shift_id>/start` | `crew_shift_start` | Create ShiftRun; blocked for future shifts. SMSes all pending sellers on mover's truck after ShiftRun creation (Spec #9) |
+| `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion. On completion: revokes open RescheduleTokens, SMSes next seller. On issue: saves issue_type ('no_show'\|'other', defaults 'other'); no_show extends token TTL |
+| `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending. Clears issue_type; preserves no_show_email_sent_at |
 | `POST /crew/shift/<shift_id>/complete_retroactive` | `crew_shift_complete_retroactive` | One-click retroactive completion for past shifts |
 | `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; sets ShiftAssignment.completed_at for driver; unconditional for past shifts |
 | `GET /crew/intake/<shift_id>` | `crew_intake_shift` | Organizer intake page; requires organizer role_on_shift; phone+desktop responsive |
@@ -589,7 +606,7 @@ crew/dashboard.html            — Worker portal: today's shift banner (time+in-
 crew/availability.html         — Weekly availability update + partner preferences (custom dropdown picker)
 crew/_availability_grid.html   — Availability grid partial
 crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O abbreviations; Mover/Organizer legend
-crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete
+crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete; seller phone as tel: link per stop card; two-option issue-type picker (Seller wasn't home / Item or access problem) with hidden issue_type input
 crew/stops_partial.html        — HTML partial (no layout): stop list for current mover's truck; used by 30s setInterval auto-refresh fetch
 crew/intake.html               — Organizer intake page: truck sections with received/total counters, item search, bottom-sheet modal for submission; responsive (960px+ two-column, 760px+ trucks grid)
 crew/_intake_modal.html        — Bottom-sheet modal partial embedded in crew/intake.html
@@ -598,11 +615,11 @@ admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slo
 admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
 admin/shift_ops.html           — Ops page: issue alert banner, green mover panel, ordered stop lists + badges (stop#, access type, cap warning), Order Route + Notify Sellers buttons, Intake Summary
 admin/routes.html              — Route builder: unassigned sellers by cluster, shift capacity board, auto-assign, move/assign inline panels
-admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes
+admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes; SMS Notifications section (kill switches + cron hour settings)
 admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
 admin/storage_detail.html      — Items at a given storage location, filterable by status
 seller/reschedule.html         — Full pickup-window week grid (Mon–Sun columns, AM/PM rows), prev/next week navigation, radio cards
-seller/reschedule_confirm.html — Shared success/error page for reschedule flow (already_used, expired, underway, success)
+seller/reschedule_confirm.html — Shared success/error page for reschedule flow (already_used, expired, underway, success, revoked: pickup already completed)
 admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
 admin/intake_flagged.html      — Damaged/missing review queue; checkbox bulk selection + "Remove from Marketplace" bulk action
 ```

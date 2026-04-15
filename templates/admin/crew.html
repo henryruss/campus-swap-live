@@ -1,0 +1,171 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .crew-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
+  .crew-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 24px; }
+
+  .crew-section-header {
+    font-size: 0.85rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .crew-count-badge {
+    background: var(--accent); color: white; border-radius: 10px;
+    padding: 1px 8px; font-size: 0.7rem; font-weight: 700;
+  }
+
+  .crew-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-bottom: 32px; }
+  .crew-table th {
+    padding: 9px 10px; background: var(--bg-cream); border-bottom: var(--card-border);
+    text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+  }
+  .crew-table td { padding: 9px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  .crew-table tr:hover td { background: #fafafa; }
+
+  .avail-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    gap: 3px; margin-top: 4px; font-size: 0.68rem;
+  }
+  .avail-day { text-align: center; }
+  .avail-day-label { color: var(--text-muted); font-size: 0.65rem; }
+  .avail-slot {
+    border-radius: 3px; padding: 1px 0; text-align: center; font-size: 0.62rem;
+    margin-top: 1px;
+  }
+  .avail-slot.yes { background: #dcfce7; color: #166534; }
+  .avail-slot.no { background: #fee2e2; color: #991b1b; }
+
+  .expand-row { cursor: pointer; }
+  .expand-row td { padding: 9px 10px; }
+  .expand-details { display: none; }
+  .expand-details td { padding: 8px 10px 16px; background: #fafafa; font-size: 0.82rem; }
+  .expand-details.open { display: table-row; }
+
+  .role-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    background: #e0e7ff; color: #3730a3;
+  }
+</style>
+
+<div class="crew-wrap">
+  <h1>Crew</h1>
+
+  {# ── Pending applications ── #}
+  <div class="crew-section-header">
+    Pending applications
+    {% if pending_apps %}
+    <span class="crew-count-badge">{{ pending_apps | length }}</span>
+    {% endif %}
+  </div>
+
+  {% if not pending_apps %}
+  <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 32px;">No pending applications.</p>
+  {% else %}
+  <table class="crew-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Applied</th>
+        <th>Role pref</th>
+        <th>Availability</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app in pending_apps %}
+      <tr class="expand-row" onclick="toggleExpand('app-{{ app.id }}', this)">
+        <td style="width: 28px; color: var(--text-muted);">
+          <i class="fas fa-chevron-right" id="chevron-app-{{ app.id }}" style="font-size: 0.75rem; transition: transform 0.2s;"></i>
+        </td>
+        <td style="font-weight: 600; color: var(--primary);">{{ app.user.full_name }}</td>
+        <td>{{ app.user.email }}</td>
+        <td style="font-size: 0.78rem; color: var(--text-muted);">{{ app.applied_at.strftime('%b %-d') if app.applied_at else '—' }}</td>
+        <td><span class="role-badge">{{ app.role_pref or '—' }}</span></td>
+        <td style="font-size: 0.78rem; color: var(--text-muted);">
+          {% if app._avail %}
+          <div class="avail-grid">
+            {% set avail = app._avail %}
+            {% for day_short, day_attr in [('M','mon'),('T','tue'),('W','wed'),('Th','thu'),('F','fri'),('Sa','sat'),('Su','sun')] %}
+            <div class="avail-day">
+              <div class="avail-day-label">{{ day_short }}</div>
+              <div class="avail-slot {{ 'yes' if avail[day_attr + '_am'] else 'no' }}">AM</div>
+              <div class="avail-slot {{ 'yes' if avail[day_attr + '_pm'] else 'no' }}">PM</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}—{% endif %}
+        </td>
+        <td onclick="event.stopPropagation()" style="white-space: nowrap;">
+          <form method="POST" action="{{ url_for('admin_crew_approve', user_id=app.user_id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn-primary" style="padding: 4px 10px; font-size: 0.78rem;">Approve</button>
+          </form>
+          <form method="POST" action="{{ url_for('admin_crew_reject', user_id=app.user_id) }}" style="display:inline; margin-left: 4px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn-outline" style="padding: 4px 10px; font-size: 0.78rem; color: #dc2626; border-color: #fecaca;">Reject</button>
+          </form>
+        </td>
+      </tr>
+      <tr class="expand-details" id="app-{{ app.id }}">
+        <td colspan="7">
+          {% if app.why_blurb %}
+          <strong style="font-size: 0.78rem; color: var(--text-muted);">Why they want to crew:</strong>
+          <p style="margin: 4px 0 0; color: var(--text-main);">{{ app.why_blurb }}</p>
+          {% else %}
+          <em style="color: var(--text-muted);">No why blurb provided.</em>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ── Approved workers ── #}
+  <div class="crew-section-header">
+    Approved workers
+    {% if approved_workers %}
+    <span style="background: var(--sage); color: white; border-radius: 10px; padding: 1px 8px; font-size: 0.7rem; font-weight: 700;">{{ approved_workers | length }}</span>
+    {% endif %}
+  </div>
+
+  {% if not approved_workers %}
+  <p style="color: var(--text-muted); font-size: 0.85rem;">No approved workers yet.</p>
+  {% else %}
+  <table class="crew-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Shifts completed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for w in approved_workers %}
+      <tr>
+        <td style="font-weight: 600; color: var(--primary);">{{ w.full_name }}</td>
+        <td>{{ w.email }}</td>
+        <td><span class="role-badge">{{ w.worker_role or '—' }}</span></td>
+        <td>{{ w._shifts_done }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<script>
+  function toggleExpand(rowId, headerRow) {
+    var detailRow = document.getElementById(rowId);
+    var chevron = document.getElementById('chevron-' + rowId);
+    var open = detailRow.classList.toggle('open');
+    if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : '';
+  }
+</script>
+{% endblock %}
