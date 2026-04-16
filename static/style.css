@@ -1301,6 +1301,7 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     grid-template-columns: repeat(4, 1fr);
     grid-auto-rows: 1fr;
     gap: 4px;
+    background: var(--primary);
     transform: scale(1.05);
     z-index: 0;
 }
