@@ -792,6 +792,14 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
 .listing-modal-source { display: grid; grid-template-columns: 160px 1fr; gap: 20px; align-items: start; }
 .listing-modal-gallery { border-radius: 12px; overflow: hidden; background: #f8fafc; aspect-ratio: 1; }
 .listing-modal-main-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Photo carousel — used in dashboard modal and admin approve */
+.photo-carousel { position: relative; width: 100%; height: 100%; overflow: hidden; background: #f8fafc; border-radius: inherit; }
+.photo-carousel-track { display: flex; height: 100%; transition: transform 0.28s ease; }
+.photo-carousel-slide { min-width: 100%; width: 100%; object-fit: contain; height: 100%; display: block; }
+.photo-carousel-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.45); color: #fff; border: none; padding: 5px 12px; font-size: 1.5rem; line-height: 1; cursor: pointer; border-radius: 6px; z-index: 10; }
+.photo-carousel-prev { left: 7px; }
+.photo-carousel-next { right: 7px; }
+.photo-carousel-counter { position: absolute; bottom: 7px; right: 9px; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.68rem; font-weight: 600; padding: 2px 7px; border-radius: 10px; pointer-events: none; }
 .listing-modal-placeholder { width: 100%; height: 100%; min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 2rem; }
 .listing-modal-details { min-width: 0; }
 @media (max-width: 480px) {
