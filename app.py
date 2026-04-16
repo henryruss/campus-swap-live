@@ -4090,6 +4090,61 @@ def update_account_info():
     return redirect(url_for('account_settings'))
 
 
+@app.route('/account/delete', methods=['POST'])
+@login_required
+def delete_own_account():
+    """Permanently delete the current user's own account and all their data."""
+    if current_user.is_admin:
+        flash("Admin accounts cannot be self-deleted. Contact another admin.", "error")
+        return redirect(url_for('account_settings'))
+
+    user = User.query.get(current_user.id)
+    user_id = user.id
+    user_email = user.email
+
+    try:
+        # 1. Delete items and photo files
+        for item in list(user.items):
+            if item.status == 'available':
+                cat = InventoryCategory.query.get(item.category_id)
+                if cat and cat.count_in_stock > 0:
+                    cat.count_in_stock -= 1
+            photo_filenames = []
+            if item.photo_url:
+                photo_filenames.append(item.photo_url)
+            for p in item.gallery_photos:
+                if p.photo_url:
+                    photo_filenames.append(p.photo_url)
+            for fn in photo_filenames:
+                try:
+                    photo_storage.delete_photo(fn)
+                except Exception as e:
+                    logger.error(f"Error deleting photo file {fn}: {e}", exc_info=True)
+            db.session.delete(item)
+
+        # 2. Delete upload sessions and temp uploads
+        sessions = UploadSession.query.filter_by(user_id=user_id).all()
+        session_tokens = [s.session_token for s in sessions]
+        for token in session_tokens:
+            TempUpload.query.filter_by(session_token=token).delete(synchronize_session=False)
+        for s in sessions:
+            db.session.delete(s)
+
+        # 3. Logout then delete user record
+        logout_user()
+        db.session.delete(user)
+        db.session.commit()
+
+        logger.info(f"User {user_id} ({user_email}) self-deleted their account")
+        flash("Your account has been permanently deleted.", "success")
+        return redirect(url_for('index'))
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting own account {user_id}: {e}", exc_info=True)
+        flash(f"Could not delete account: {str(e)}", "error")
+        return redirect(url_for('account_settings'))
+
+
 @app.route('/complete_profile', methods=['GET', 'POST'])
 @login_required
 def complete_profile():
@@ -6844,15 +6899,15 @@ def admin_delete_user(user_id):
     user = User.query.get(user_id)
     if not user:
         flash("User not found.", "error")
-        return redirect(url_for('admin_preview_users'))
+        return redirect(url_for('admin_sellers'))
 
     if user_id == current_user.id:
         flash("You cannot delete your own account.", "error")
-        return redirect(url_for('admin_preview_users'))
+        return redirect(url_for('admin_sellers'))
 
     if user.is_admin and User.query.filter_by(is_admin=True).count() == 1:
         flash("Cannot delete the last admin account.", "error")
-        return redirect(url_for('admin_preview_users'))
+        return redirect(url_for('admin_sellers'))
 
     try:
         # 1. Delete user's items (and their photo files)
@@ -6893,7 +6948,7 @@ def admin_delete_user(user_id):
         logger.error(f"Error deleting user {user_id}: {e}", exc_info=True)
         flash(f"Could not delete account: {str(e)}", "error")
 
-    return redirect(url_for('admin_preview_users'))
+    return redirect(url_for('admin_sellers'))
 
 
 @app.route('/admin/item/<int:item_id>/delete', methods=['GET', 'POST'])
@@ -6922,6 +6977,9 @@ def admin_delete_item_direct(item_id):
             db.session.delete(item)
             db.session.commit()
             flash(f"Item '{item_desc}' deleted.", "success")
+            ref = request.referrer or ''
+            if 'admin/items' in ref:
+                return redirect(url_for('admin_items'))
             return redirect(url_for('admin_panel'))
         except Exception as e:
             db.session.rollback()

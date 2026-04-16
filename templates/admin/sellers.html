@@ -69,6 +69,7 @@
           <th>Items</th>
           <th>Payout rate</th>
           <th>Days since joined</th>
+          {% if current_user.is_super_admin %}<th>Actions</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -95,6 +96,19 @@
           <td>{{ s._item_count }}</td>
           <td>{{ s.payout_rate }}%</td>
           <td>{{ s._days_since_joined if s._days_since_joined is not none else '—' }}</td>
+          {% if current_user.is_super_admin %}
+          <td style="white-space: nowrap;">
+            <form method="POST" action="{{ url_for('admin_delete_user', user_id=s.id) }}"
+                  style="display: inline; margin: 0;"
+                  onsubmit="return confirm('Permanently delete account for {{ s.email }}? All their items will be removed. This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="submit" class="btn-outline"
+                      style="padding: 3px 8px; font-size: 0.74rem; color: #dc2626; border-color: #fecaca;">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </form>
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
