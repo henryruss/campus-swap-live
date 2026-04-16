@@ -1300,7 +1300,8 @@ footer a { margin: 0 15px; font-weight: 600; color: var(--primary); }
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     grid-auto-rows: 1fr;
-    gap: 4px;
+    gap: 12px;
+    padding: 12px;
     background: var(--primary);
     transform: scale(1.05);
     z-index: 0;
@@ -1311,9 +1312,8 @@ body.teaser-page footer { display: none; }
     background-size: cover;
     background-position: center;
     background-color: var(--bg-cream);
-    filter: blur(8px);
-    transform: scale(1.04);
-    border-radius: 8px;
+    filter: blur(6px);
+    border-radius: 12px;
     overflow: hidden;
     position: relative;
 }
