@@ -303,7 +303,21 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             {% for item in my_items %}
             <div id="listing-content-{{ item.id }}" class="listing-modal-source">
                 <div class="listing-modal-gallery">
-                    {% if item.photo_url %}
+                    {% set _photos = item.gallery_photos %}
+                    {% if _photos %}
+                    <div class="photo-carousel" data-current="0" data-count="{{ _photos|length }}">
+                        <div class="photo-carousel-track">
+                            {% for photo in _photos %}
+                            <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}" alt="{{ item.description }}" class="photo-carousel-slide">
+                            {% endfor %}
+                        </div>
+                        {% if _photos|length > 1 %}
+                        <button class="photo-carousel-btn photo-carousel-prev" onclick="carouselMove(this,-1)" type="button">&#8249;</button>
+                        <button class="photo-carousel-btn photo-carousel-next" onclick="carouselMove(this,1)" type="button">&#8250;</button>
+                        <div class="photo-carousel-counter">1 / {{ _photos|length }}</div>
+                        {% endif %}
+                    </div>
+                    {% elif item.photo_url %}
                     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="listing-modal-main-img">
                     {% else %}
                     <div class="listing-modal-placeholder"><i class="fas fa-image"></i> No image</div>
@@ -992,6 +1006,15 @@ function openListingModal(itemId) {
 function closeListingModal() {
     var modal = document.getElementById('listingModal');
     if (modal) { modal.style.display = 'none'; document.body.style.overflow = ''; }
+}
+function carouselMove(btn, dir) {
+    var c = btn.closest('.photo-carousel');
+    var n = parseInt(c.dataset.count);
+    var cur = (parseInt(c.dataset.current) + dir + n) % n;
+    c.dataset.current = cur;
+    c.querySelector('.photo-carousel-track').style.transform = 'translateX(-' + (cur * 100) + '%)';
+    var counter = c.querySelector('.photo-carousel-counter');
+    if (counter) counter.textContent = (cur + 1) + ' / ' + n;
 }
 var listingModalEl = document.getElementById('listingModal');
 if (listingModalEl) listingModalEl.addEventListener('click', function(e) {

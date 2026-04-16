@@ -340,7 +340,21 @@
     
     <div class="approve-card">
         <div class="approve-image-wrap">
-            {% if pending_item.photo_url %}
+            {% set _photos = pending_item.gallery_photos %}
+            {% if _photos %}
+            <div class="photo-carousel" data-current="0" data-count="{{ _photos|length }}" style="width:100%;height:100%;">
+                <div class="photo-carousel-track">
+                    {% for photo in _photos %}
+                    <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}" alt="{{ pending_item.description }}" class="photo-carousel-slide">
+                    {% endfor %}
+                </div>
+                {% if _photos|length > 1 %}
+                <button class="photo-carousel-btn photo-carousel-prev" onclick="carouselMove(this,-1)" type="button">&#8249;</button>
+                <button class="photo-carousel-btn photo-carousel-next" onclick="carouselMove(this,1)" type="button">&#8250;</button>
+                <div class="photo-carousel-counter">1 / {{ _photos|length }}</div>
+                {% endif %}
+            </div>
+            {% elif pending_item.photo_url %}
             <img src="{{ url_for('uploaded_file', filename=pending_item.photo_url) }}" alt="{{ pending_item.description }}">
             {% else %}
             <div class="approve-image-placeholder">
@@ -827,5 +841,15 @@
             startPolling();
         }
     })();
+
+function carouselMove(btn, dir) {
+    var c = btn.closest('.photo-carousel');
+    var n = parseInt(c.dataset.count);
+    var cur = (parseInt(c.dataset.current) + dir + n) % n;
+    c.dataset.current = cur;
+    c.querySelector('.photo-carousel-track').style.transform = 'translateX(-' + (cur * 100) + '%)';
+    var counter = c.querySelector('.photo-carousel-counter');
+    if (counter) counter.textContent = (cur + 1) + ' / ' + n;
+}
 </script>
 {% endblock %}
