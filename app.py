@@ -1,5 +1,6 @@
 import os
 import math
+import random
 import shutil
 import time
 import json
@@ -1593,6 +1594,7 @@ def inventory():
         # Cycle real items to fill 20 tiles so the grid always looks full
         if preview_items_raw:
             tiles = [preview_items_raw[i % len(preview_items_raw)] for i in range(20)]
+            random.shuffle(tiles)
         else:
             tiles = []
         placeholder_count = max(0, 20 - len(tiles))
