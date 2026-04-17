@@ -4453,6 +4453,7 @@ def register():
             if user.password_hash is None:
                 # Guest account - set password to complete account creation
                 user.password_hash = generate_password_hash(password)
+                user.is_seller = True
                 if full_name:
                     user.full_name = full_name
                 if phone_result:
@@ -4498,7 +4499,7 @@ def register():
                 return redirect(url_for('login', email=email))
         
         referral_code_input = request.form.get('referral_code', '').strip()
-        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password), phone=phone_result)
+        new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password), phone=phone_result, is_seller=True)
         db.session.add(new_user)
         db.session.flush()  # get new_user.id
         new_user.referral_code = generate_unique_referral_code()
