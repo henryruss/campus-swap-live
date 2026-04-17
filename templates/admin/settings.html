@@ -86,7 +86,6 @@
     <a href="#pickup-window" class="nav-link">Pickup window</a>
     <a href="#route" class="nav-link">Route & capacity</a>
     <a href="#storage" class="nav-link">Storage locations</a>
-    <a href="#referral" class="nav-link">Referral program</a>
     <a href="#sms" class="nav-link">SMS notifications</a>
     <a href="#user-management" class="nav-link">User management</a>
     <a href="#exports" class="nav-link">Data exports</a>
@@ -243,54 +242,6 @@
           </div>
         </form>
       </div>
-    </div>
-  </div>
-
-  {# ── 4. Referral program ── #}
-  <div class="settings-section" id="referral">
-    <div class="settings-section-header">
-      <i class="fas fa-share-alt" style="color: var(--sage);"></i>
-      <h2>Referral program</h2>
-    </div>
-    <div class="settings-section-body">
-      <form method="POST" action="{{ url_for('admin_settings') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <input type="hidden" name="_action" value="save_referral_settings">
-        <div class="toggle-row">
-          <div>
-            <div class="toggle-label-text">Referral program active</div>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" name="referral_program_active" value="true"
-                   {% if referral_program_active == 'true' %}checked{% endif %}
-                   onchange="this.form.submit()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="settings-row" style="margin-top: 12px;">
-          <div class="settings-field">
-            <label>Base rate (%)</label>
-            <input type="number" name="referral_base_rate" value="{{ referral_base_rate }}" min="0" max="100">
-          </div>
-          <div class="settings-field">
-            <label>Signup bonus (%)</label>
-            <input type="number" name="referral_signup_bonus" value="{{ referral_signup_bonus }}" min="0">
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-field">
-            <label>Bonus per referral (%)</label>
-            <input type="number" name="referral_bonus_per_referral" value="{{ referral_bonus_per_referral }}" min="0">
-          </div>
-          <div class="settings-field">
-            <label>Max rate (%)</label>
-            <input type="number" name="referral_max_rate" value="{{ referral_max_rate }}" min="0" max="100">
-          </div>
-        </div>
-        <div class="save-row">
-          <button type="submit" class="btn-primary btn-save">Save referral settings</button>
-        </div>
-      </form>
     </div>
   </div>
 

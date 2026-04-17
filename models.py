@@ -64,8 +64,7 @@ class User(UserMixin, db.Model):
     # 8-char uppercase alphanumeric code (no 0,O,I,1). Generated at account creation.
     referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     # FK to the User who gave them their referral code.
-    payout_rate = db.Column(db.Integer, default=20, nullable=False)
-    # Stored integer percentage (20, 30, 40 ... 100). Updated when a referral is confirmed.
+    payout_rate = db.Column(db.Integer, default=50, nullable=False)
 
     # PAYOUT BOOST ($15 one-time purchase for +30%)
     has_paid_boost = db.Column(db.Boolean, default=False, nullable=False, server_default='0')

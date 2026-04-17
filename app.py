@@ -505,16 +505,7 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
 
 
 def _get_payout_percentage(item):
-    """Return payout percentage based on seller's payout_rate (referral program).
-    Falls back to collection_method logic for legacy data without payout_rate set."""
-    if item.seller and item.seller.payout_rate:
-        return item.seller.payout_rate / 100
-    # Legacy fallback
-    if item.collection_method == 'online':
-        return PAYOUT_PERCENTAGE_ONLINE
-    elif item.collection_method == 'free':
-        return PAYOUT_PERCENTAGE_FREE
-    return PAYOUT_PERCENTAGE_ONLINE  # safe fallback
+    return 0.50
 
 
 def _compute_seller_tracker(seller, items):
@@ -594,162 +585,7 @@ def _compute_seller_tracker(seller, items):
     }
 
 
-# =========================================================
-# REFERRAL PROGRAM HELPERS
-# =========================================================
-
-_REFERRAL_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # excludes 0,O,I,1
-
-
-def generate_unique_referral_code():
-    """Generate a unique 8-char uppercase alphanumeric referral code (no 0,O,I,1)."""
-    import string
-    for _ in range(20):  # 20 attempts before giving up
-        code = ''.join(secrets.choice(_REFERRAL_CODE_CHARS) for _ in range(8))
-        if not User.query.filter_by(referral_code=code).first():
-            return code
-    # Extremely unlikely collision fallback
-    return secrets.token_hex(4).upper()[:8]
-
-
-def calculate_payout_rate(user):
-    """Calculate payout_rate from confirmed referrals + base rate (capped at max_rate).
-    If the user joined via a referral code, their signup bonus is included.
-    If the user has purchased the payout boost, that +30 is also included so that
-    subsequent referral confirmations stack correctly on top of the boost.
-    """
-    base = int(AppSetting.get('referral_base_rate', '20'))
-    max_rate = int(AppSetting.get('referral_max_rate', '100'))
-    bonus_per = int(AppSetting.get('referral_bonus_per_referral', '10'))
-    signup_bonus = int(AppSetting.get('referral_signup_bonus', '10')) if user.referred_by_id else 0
-    boost = 30 if getattr(user, 'has_paid_boost', False) else 0
-    confirmed_count = Referral.query.filter_by(referrer_id=user.id, confirmed=True).count()
-    rate = base + signup_bonus + boost + (confirmed_count * bonus_per)
-    return min(rate, max_rate)
-
-
-def apply_referral_code(new_user, code):
-    """Apply a referral code to a new user at registration. Sets referred_by_id, bumps payout_rate."""
-    if not code:
-        return
-    if AppSetting.get('referral_program_active', 'true') != 'true':
-        return
-    referrer = User.query.filter_by(referral_code=code.strip().upper()).first()
-    if not referrer or referrer.id == new_user.id:
-        return  # invalid or self-referral
-    signup_bonus = int(AppSetting.get('referral_signup_bonus', '10'))
-    max_rate = int(AppSetting.get('referral_max_rate', '100'))
-    new_user.referred_by_id = referrer.id
-    new_user.payout_rate = min(new_user.payout_rate + signup_bonus, max_rate)
-    referral = Referral(referrer_id=referrer.id, referred_id=new_user.id)
-    db.session.add(referral)
-    # Do NOT update referrer's payout_rate here — that only happens on item arrival
-
-
-def maybe_confirm_referral_for_seller(seller):
-    """Confirm a referral when a mover marks this seller's stop as completed.
-    One credit per referred seller regardless of item count. No-op if already confirmed."""
-    if AppSetting.get('referral_program_active', 'true') != 'true':
-        return
-    if not seller or not seller.referred_by_id:
-        return
-    existing = Referral.query.filter_by(
-        referrer_id=seller.referred_by_id,
-        referred_id=seller.id,
-        confirmed=True
-    ).first()
-    if existing:
-        # Already confirmed — recalculate and store rate in case it drifted, no email
-        referrer = existing.referrer
-        referrer.payout_rate = calculate_payout_rate(referrer)
-        db.session.flush()
-        return
-    referral = Referral.query.filter_by(
-        referrer_id=seller.referred_by_id,
-        referred_id=seller.id
-    ).first()
-    if not referral:
-        return
-    referral.confirmed = True
-    referral.confirmed_at = datetime.utcnow()
-    referrer = referral.referrer
-    referrer.payout_rate = calculate_payout_rate(referrer)
-    db.session.flush()  # don't commit here — caller commits
-    _send_referral_confirmed_email(referrer, seller)
-
-
-def _send_referral_confirmed_email(referrer, referred_seller):
-    """Email the referrer when their referred seller's item arrives at the warehouse."""
-    referred_name = referred_seller.full_name or 'Your referral'
-    first_name = referred_name.split()[0] if referred_name else 'Your referral'
-    new_rate = referrer.payout_rate
-    try:
-        dashboard_url = url_for('dashboard', _external=True)
-    except Exception:
-        dashboard_url = 'https://usecampusswap.com/dashboard'
-    try:
-        content = f"""
-        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-            <h2 style="color: #166534;">Referral confirmed!</h2>
-            <p>Hi {referrer.full_name or 'there'},</p>
-            <p><strong>{first_name}</strong> just had their pickup completed by our movers. Your referral is confirmed.</p>
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                <p style="margin: 0; font-size: 1.1rem;"><strong>Your payout rate is now {new_rate}%.</strong></p>
-            </div>
-            <p>Keep sharing your referral link to earn even more — up to 100%!</p>
-            <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">View Dashboard</a></p>
-            <p>Thanks for spreading the word!</p>
-        </div>
-        """
-        send_email(referrer.email, "Referral confirmed — your payout rate increased!", content)
-    except Exception as e:
-        logger.error(f"Failed to send referral confirmed email: {e}")
-
-
-def send_boost_confirmation_email(user):
-    """Send confirmation email after a seller completes the $15 payout boost purchase."""
-    first_name = (user.full_name or 'there').split()[0]
-    new_rate = user.payout_rate
-    try:
-        dashboard_url = url_for('dashboard', _external=True)
-    except Exception:
-        dashboard_url = 'https://usecampusswap.com/dashboard'
-    content = wrap_email_template(f"""
-        <h2 style="color: #1A3D1A;">Your payout rate is now {new_rate}%!</h2>
-        <p>Hi {first_name},</p>
-        <p>Your payout boost is confirmed. Your Campus Swap payout rate is now <strong>{new_rate}%</strong>.</p>
-        <p>Keep referring friends — every confirmed referral still adds another 10%. The more you refer, the closer you get to keeping 100% of your sales.</p>
-        <p><a href="{dashboard_url}" style="background: #C8832A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-        <p>Thanks for being a Campus Swap seller!</p>
-    """)
-    send_email(user.email, f"Payout boost confirmed — you're now at {new_rate}%!", content)
-
-
-def _handle_boost_webhook(session):
-    """Process a payout_boost checkout.session.completed event.
-
-    Extracted as a module-level function so tests can call it directly without
-    Stripe signature verification. ``session`` is the ``data.object`` dict from
-    the Stripe event.
-    """
-    metadata = session.get('metadata', {})
-    if metadata.get('type') != 'payout_boost':
-        return
-    user_id = metadata.get('user_id')
-    if not user_id:
-        return
-    user = User.query.get(int(user_id))
-    if not user or user.has_paid_boost:
-        return  # guard: idempotent — never apply twice
-    boost = int(metadata.get('boost_amount', 30))
-    max_rate = int(AppSetting.get('referral_max_rate', '100'))
-    user.payout_rate = min(user.payout_rate + boost, max_rate)
-    user.has_paid_boost = True
-    db.session.commit()
-    try:
-        send_boost_confirmation_email(user)
-    except Exception as e:
-        logger.error(f"Failed to send boost confirmation email to user {user_id}: {e}")
+# removed — flat 50/50
 
 
 def get_warehouse_spots_remaining():
@@ -2475,10 +2311,6 @@ def webhook():
             else:
                 logger.error(f"WEBHOOK: User {user_id} not found in database")
 
-        # --- CASE 4: PAYOUT BOOST ---
-        elif session.get('metadata', {}).get('type') == 'payout_boost':
-            _handle_boost_webhook(session)
-
     elif event['type'] == 'setup_intent.succeeded':
         setup_intent = event['data']['object']
         user_id = setup_intent.get('metadata', {}).get('user_id')
@@ -2554,20 +2386,6 @@ def admin_panel():
                 flash(f"Store open date updated to {new_date}.", "success")
             except ValueError:
                 flash("Invalid date format. Use YYYY-MM-DD.", "error")
-
-    # Referral program settings (super admin only)
-    if request.method == 'POST' and 'save_referral_settings' in request.form:
-        if not is_super_admin():
-            flash("Super admin access required.", "error")
-        else:
-            for key in ('referral_base_rate', 'referral_signup_bonus', 'referral_bonus_per_referral',
-                        'referral_max_rate'):
-                val = request.form.get(key, '').strip()
-                if val.isdigit():
-                    AppSetting.set(key, val)
-            active_val = 'true' if request.form.get('referral_program_active') == 'true' else 'false'
-            AppSetting.set('referral_program_active', active_val)
-            flash("Referral program settings saved.", "success")
 
     # 1. Update Category Counts (super admin only)
     if request.method == 'POST' and 'update_all_counts' in request.form:
@@ -3020,19 +2838,6 @@ def admin_panel():
     crew_pending_applications.sort(key=lambda x: x['application'].applied_at)
     crew_approved_workers = User.query.filter_by(is_worker=True, worker_status='approved').order_by(User.full_name).all()
 
-    # Referral program stats (super admin only)
-    referral_stats = None
-    if current_user.is_super_admin:
-        total_confirmed_referrals = Referral.query.filter_by(confirmed=True).count()
-        seller_users = User.query.filter(User.is_seller == True).all()
-        avg_payout_rate = round(sum(u.payout_rate for u in seller_users) / len(seller_users), 1) if seller_users else 0
-        sellers_at_max = sum(1 for u in seller_users if u.payout_rate >= int(AppSetting.get('referral_max_rate', '100')))
-        referral_stats = {
-            'total_confirmed': total_confirmed_referrals,
-            'avg_payout_rate': avg_payout_rate,
-            'sellers_at_max': sellers_at_max,
-        }
-
     # Payout summary for admin panel banner
     unpaid_sold_items = InventoryItem.query.filter_by(payout_sent=False).filter(InventoryItem.status == 'sold').all()
     unpaid_items_count = len(unpaid_sold_items)
@@ -3053,12 +2858,6 @@ def admin_panel():
                            nudge_sellers=nudge_sellers,
                            crew_pending_applications=crew_pending_applications,
                            crew_approved_workers=crew_approved_workers,
-                           referral_stats=referral_stats,
-                           referral_base_rate=AppSetting.get('referral_base_rate', '20'),
-                           referral_signup_bonus=AppSetting.get('referral_signup_bonus', '10'),
-                           referral_bonus_per_referral=AppSetting.get('referral_bonus_per_referral', '10'),
-                           referral_max_rate=AppSetting.get('referral_max_rate', '100'),
-                           referral_program_active=AppSetting.get('referral_program_active', 'true'),
                            unpaid_items_count=unpaid_items_count,
                            unpaid_total=unpaid_total,
                            shop_teaser_mode=AppSetting.get('shop_teaser_mode', 'false'))
@@ -3361,14 +3160,7 @@ def admin_seller_panel(user_id):
     user = User.query.get_or_404(user_id)
     items = InventoryItem.query.filter_by(seller_id=user.id).order_by(InventoryItem.date_added.desc()).all()
     unresolved_count = SellerAlert.query.filter_by(user_id=user.id, resolved=False).count()
-    # Referral data for panel
-    seller_referrals_given = Referral.query.filter_by(referrer_id=user.id).all()
-    seller_confirmed_referral_count = sum(1 for r in seller_referrals_given if r.confirmed)
-    seller_referred_by = User.query.get(user.referred_by_id) if user.referred_by_id else None
-    return render_template('admin_seller_panel.html', seller=user, seller_items=items, unresolved_alert_count=unresolved_count,
-                           seller_referrals_given=seller_referrals_given,
-                           seller_confirmed_referral_count=seller_confirmed_referral_count,
-                           seller_referred_by=seller_referred_by)
+    return render_template('admin_seller_panel.html', seller=user, seller_items=items, unresolved_alert_count=unresolved_count)
 
 
 @app.route('/admin/seller/<int:user_id>/send_alert', methods=['POST'])
@@ -4281,9 +4073,6 @@ def process_pending_onboard(user):
     user.payout_method = pending.get('payout_method')
     user.payout_handle = pending.get('payout_handle')
     user.is_seller = True
-    # Apply referral code from pending session if not already applied
-    if not user.referred_by_id and pending.get('referral_code'):
-        apply_referral_code(user, pending.get('referral_code'))
     db.session.commit()
 
     new_item = InventoryItem(
@@ -4384,23 +4173,6 @@ def process_pending_onboard(user):
     return True
 
 
-@app.route('/admin/settings/referral', methods=['POST'])
-@login_required
-def admin_settings_referral():
-    """Update referral program AppSettings. Super admin only."""
-    if not current_user.is_super_admin:
-        abort(403)
-    for key in ('referral_base_rate', 'referral_signup_bonus', 'referral_bonus_per_referral',
-                'referral_max_rate'):
-        val = request.form.get(key, '').strip()
-        if val.isdigit():
-            AppSetting.set(key, val)
-    active_val = 'true' if request.form.get('referral_program_active') == 'true' else 'false'
-    AppSetting.set('referral_program_active', active_val)
-    flash("Referral program settings saved.", "success")
-    return redirect(url_for('admin_panel') + '#referral-settings')
-
-
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("3 per hour") if limiter else lambda f: f
 def register():
@@ -4415,7 +4187,6 @@ def register():
         return redirect(url_for('login', signup='true', email=request.form.get('email', ''), full_name=request.form.get('full_name', '')))
 
     if request.method == 'POST':
-        _ref_from_session = session.pop('referral_code', None)
         if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
             flash("Verification failed. Please try again.", "error")
             return _error_redirect()
@@ -4460,11 +4231,6 @@ def register():
                     user.full_name = full_name
                 if phone_result:
                     user.phone = phone_result
-                if not user.referral_code:
-                    user.referral_code = generate_unique_referral_code()
-                if not user.referred_by_id:
-                    referral_code_input = request.form.get('referral_code', '').strip()
-                    apply_referral_code(user, referral_code_input or _ref_from_session)
                 db.session.commit()
                 apply_admin_email_if_pending(user)
                 db.session.refresh(user)
@@ -4500,12 +4266,9 @@ def register():
                 flash("An account with this email already exists. Please log in.", "error")
                 return redirect(url_for('login', email=email))
         
-        referral_code_input = request.form.get('referral_code', '').strip()
         new_user = User(email=email, full_name=full_name, password_hash=generate_password_hash(password), phone=phone_result, is_seller=True)
         db.session.add(new_user)
         db.session.flush()  # get new_user.id
-        new_user.referral_code = generate_unique_referral_code()
-        apply_referral_code(new_user, referral_code_input or _ref_from_session)
         db.session.commit()
         # PostHog: new user registration
         posthog.capture('seller_signed_up', distinct_id=str(new_user.id))
@@ -4547,28 +4310,8 @@ def register():
             flash("Account created! Complete your profile and activate as a seller to start listing items. Check your spam folder if you don't see our welcome email.", "success")
         return redirect(get_user_dashboard())
 
-    ref_code = request.args.get('ref', '').strip()
-    if ref_code and not session.get('referral_code'):
-        session['referral_code'] = ref_code
-    return render_template('register.html',
-                           prefill_referral_code=request.args.get('ref', '') or session.get('referral_code', ''))
+    return render_template('register.html')
 
-
-@app.route('/referral/validate')
-def referral_validate():
-    """AJAX endpoint: validate a referral code. Returns JSON {valid: bool, referrer_name: str}."""
-    code = request.args.get('code', '').strip().upper()
-    if not code:
-        return jsonify({'valid': False})
-    if AppSetting.get('referral_program_active', 'true') != 'true':
-        return jsonify({'valid': False})
-    referrer = User.query.filter_by(referral_code=code).first()
-    if not referrer:
-        return jsonify({'valid': False})
-    name = referrer.full_name or ''
-    parts = name.split()
-    display = f"{parts[0]} {parts[-1][0]}." if len(parts) >= 2 else (parts[0] if parts else 'Someone')
-    return jsonify({'valid': True, 'referrer_name': display})
 
 
 @app.route('/health')
@@ -4605,14 +4348,9 @@ def health_check():
 
 @app.route('/auth/google')
 def auth_google():
-    """Initiate Google OAuth flow. Save referral code to session before redirect."""
     if not oauth:
         flash("Sign in with Google is not configured. Please use email to create an account.", "error")
         return redirect(url_for('register'))
-    # Preserve ?ref= param across OAuth redirect
-    ref = request.args.get('ref', '').strip()
-    if ref:
-        session['referral_code'] = ref
     redirect_uri = url_for('auth_google_callback', _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -4670,8 +4408,6 @@ def auth_google_callback():
                         oauth_provider='google', oauth_id=oauth_id)
         db.session.add(new_user)
         db.session.flush()
-        new_user.referral_code = generate_unique_referral_code()
-        apply_referral_code(new_user, session.pop('referral_code', None))
         db.session.commit()
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
@@ -4682,8 +4418,6 @@ def auth_google_callback():
                     oauth_provider='google', oauth_id=oauth_id)
     db.session.add(new_user)
     db.session.flush()
-    new_user.referral_code = generate_unique_referral_code()
-    apply_referral_code(new_user, session.pop('referral_code', None))
     db.session.commit()
     apply_admin_email_if_pending(new_user)
     db.session.refresh(new_user)
@@ -4754,11 +4488,6 @@ def login():
             # This shouldn't happen as signup form posts to /register
             flash("Please use the Create Account form.", "error")
     
-    # Save ?ref= to session for OAuth and Google login flows
-    ref = request.args.get('ref', '').strip()
-    if ref and not session.get('referral_code'):
-        session['referral_code'] = ref
-
     show_signup = request.args.get('signup') == 'true' or request.args.get('show_signup') == 'true'
     return render_template('login.html', prefill_email=prefill_email, prefill_full_name=prefill_full_name, show_signup=show_signup)
 
@@ -4808,7 +4537,7 @@ def dashboard():
 
     # Earnings subtext: shows highest applicable payout rate
     has_any_free = any(i.collection_method == 'free' for i in available_items)
-    earnings_subtext = f"Based on your {current_user.payout_rate}% payout rate"
+    earnings_subtext = "Based on your 50% payout rate"
     
     def _payout_for_item(it):
         pct = _get_payout_percentage(it)
@@ -4872,14 +4601,6 @@ def dashboard():
     if any(i.collection_method == 'online' for i in my_items):
         user_collection_method = 'online'
 
-    # Referral program data for dashboard widget
-    referrals_given = Referral.query.filter_by(referrer_id=current_user.id).all()
-    confirmed_referral_count = sum(1 for r in referrals_given if r.confirmed)
-    referral_base = int(AppSetting.get('referral_base_rate', '20'))
-    referral_max = int(AppSetting.get('referral_max_rate', '100'))
-    referral_steps = list(range(referral_base, referral_max + 1, 10))
-    app_base_url = os.environ.get('APP_BASE_URL', request.url_root.rstrip('/'))
-
     # Setup strip vs. tracker
     setup_complete = bool(
         current_user.phone and
@@ -4934,11 +4655,6 @@ def dashboard():
                           user_collection_method=user_collection_method,
                           user_pickup_week=current_user.pickup_week,
                           user_pickup_time_pref=current_user.pickup_time_preference,
-                          referrals_given=referrals_given,
-                          confirmed_referral_count=confirmed_referral_count,
-                          referral_steps=referral_steps,
-                          referral_max=referral_max,
-                          app_base_url=app_base_url,
                           setup_complete=setup_complete,
                           tracker=tracker,
                           shift_pickup=shift_pickup,
@@ -5298,11 +5014,6 @@ def onboard():
         if current_user.payment_declined:
             flash("Please add a valid payment method to continue.", "error")
             return redirect(url_for('add_payment_method'))
-
-    # Save ?ref= param to session for guest flow
-    ref_param = request.args.get('ref', '').strip()
-    if ref_param and not session.get('referral_code'):
-        session['referral_code'] = ref_param
 
     pickup_period_active = get_pickup_period_active()
     if not pickup_period_active:
@@ -5888,9 +5599,6 @@ def onboard_guest_save():
     elif category_requires_video(cat_name, guest_sub_cat_name):
         return _err("A video is required for this item category.")
 
-    # Capture referral code from form or existing session
-    guest_referral_code = (request.form.get('referral_code') or '').strip() or session.get('referral_code', '')
-
     session['pending_onboard'] = {
         'category_id': int(cat_id),
         'subcategory_id': guest_subcategory_id,
@@ -5899,7 +5607,6 @@ def onboard_guest_save():
         'quality': quality_value,
         'suggested_price': suggested_price,
         'collection_method': 'free',
-        'referral_code': guest_referral_code,
         'pickup_location_type': session.get('onboard_pickup_location_type'),
         'pickup_dorm': session.get('onboard_pickup_dorm'),
         'pickup_room': session.get('onboard_pickup_room'),
@@ -5928,7 +5635,6 @@ def onboard_complete_account():
         return redirect(get_user_dashboard())
 
     if request.method == 'POST':
-        _ref_from_session = session.pop('referral_code', None)
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
@@ -5943,11 +5649,6 @@ def onboard_complete_account():
             existing.password_hash = generate_password_hash(password)
             if full_name and not existing.full_name:
                 existing.full_name = full_name
-            if not existing.referral_code:
-                existing.referral_code = generate_unique_referral_code()
-            ref_code = request.form.get('referral_code', '').strip() or _ref_from_session
-            if not existing.referred_by_id:
-                apply_referral_code(existing, ref_code)
             db.session.commit()
             apply_admin_email_if_pending(existing)
             login_user(existing)
@@ -5960,9 +5661,6 @@ def onboard_complete_account():
                         password_hash=generate_password_hash(password))
         db.session.add(new_user)
         db.session.flush()
-        new_user.referral_code = generate_unique_referral_code()
-        ref_code = request.form.get('referral_code', '').strip() or _ref_from_session
-        apply_referral_code(new_user, ref_code)
         db.session.commit()
         apply_admin_email_if_pending(new_user)
         login_user(new_user)
@@ -6261,63 +5959,6 @@ def upgrade_pickup_success():
     """Legacy pickup upgrade success page — retired. Redirects to dashboard."""
     flash("That page is no longer active.", "info")
     return redirect(url_for('dashboard'))
-
-
-@app.route('/upgrade_payout_boost', methods=['POST'])
-@login_required
-def upgrade_payout_boost():
-    """Create a Stripe Checkout Session for the $15 payout boost (+30%).
-
-    Guards (checked server-side regardless of template visibility):
-    1. has_paid_boost must be False — already purchased this season.
-    2. payout_rate must be < 100 — already at ceiling.
-    """
-    if current_user.has_paid_boost:
-        flash("You've already purchased the payout boost this season.", "info")
-        return redirect(url_for('dashboard'))
-    if current_user.payout_rate >= 100:
-        flash("You're already at 100% — nothing to boost!", "info")
-        return redirect(url_for('dashboard'))
-    try:
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'unit_amount': 1500,
-                    'product_data': {
-                        'name': 'Payout Boost',
-                        'description': '+30% added to your Campus Swap payout rate',
-                    },
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            metadata={
-                'type': 'payout_boost',
-                'user_id': str(current_user.id),
-                'boost_amount': '30',
-                'rate_at_purchase': str(current_user.payout_rate),
-            },
-            success_url=url_for('upgrade_boost_success', _external=True),
-            cancel_url=url_for('dashboard', _external=True),
-        )
-        return redirect(checkout_session.url, code=303)
-    except stripe.error.StripeError as e:
-        logger.error(f"upgrade_payout_boost Stripe error: {e}", exc_info=True)
-        flash("Payment setup failed. Please try again.", "error")
-        return redirect(url_for('dashboard'))
-    except Exception as e:
-        logger.error(f"upgrade_payout_boost error: {e}", exc_info=True)
-        flash("Payment setup failed. Please try again.", "error")
-        return redirect(url_for('dashboard'))
-
-
-@app.route('/upgrade_boost_success')
-@login_required
-def upgrade_boost_success():
-    """Post-payment success page. Shows seller their current payout rate."""
-    return render_template('upgrade_boost_success.html')
 
 
 @app.route('/add_item', methods=['GET', 'POST'])
@@ -8093,9 +7734,6 @@ def crew_shift_stop_update(shift_id, pickup_id):
         for item in items:
             if not item.picked_up_at:
                 item.picked_up_at = datetime.utcnow()
-        # Confirm referral for this seller — stop completion is the trigger, not warehouse arrival
-        maybe_confirm_referral_for_seller(pickup.seller)
-
         # Spec #9: revoke any open reschedule tokens for this pickup
         open_tokens = RescheduleToken.query.filter_by(
             pickup_id=pickup.id, used_at=None, revoked_at=None
@@ -9987,12 +9625,6 @@ def seed_crew_app_settings():
         'organizers_per_truck': '2',
         'max_trucks_per_shift': '4',
         'shifts_required': '10',
-        # Referral program defaults
-        'referral_base_rate': '20',
-        'referral_signup_bonus': '10',
-        'referral_bonus_per_referral': '10',
-        'referral_max_rate': '100',
-        'referral_program_active': 'true',
         # Admin UI Redesign: pickup window for shift auto-generation
         'pickup_week_start': '',
         'pickup_week_end': '',
@@ -10001,18 +9633,6 @@ def seed_crew_app_settings():
         if AppSetting.get(key) is None:
             db.session.add(AppSetting(key=key, value=value))
     db.session.commit()
-
-
-@app.cli.command('backfill-referral-codes')
-def backfill_referral_codes():
-    """One-time: generate referral codes for all users who don't have one yet."""
-    count = 0
-    users = User.query.filter(User.referral_code == None).all()
-    for user in users:
-        user.referral_code = generate_unique_referral_code()
-        count += 1
-    db.session.commit()
-    print(f"Assigned referral codes to {count} existing users.")
 
 
 # =========================================================
@@ -11973,15 +11593,6 @@ def admin_settings():
                         pass
             db.session.commit()
             flash("Route & capacity settings saved.", "success")
-        elif action == 'save_referral_settings':
-            for key in ('referral_base_rate', 'referral_signup_bonus',
-                        'referral_bonus_per_referral', 'referral_max_rate'):
-                val = request.form.get(key, '').strip()
-                if val.isdigit():
-                    AppSetting.set(key, val)
-            active_val = 'true' if request.form.get('referral_program_active') == 'true' else 'false'
-            AppSetting.set('referral_program_active', active_val)
-            flash("Referral program settings saved.", "success")
         elif action == 'save_sms_settings':
             for key in ['sms_enabled', 'sms_reminder_hour_eastern',
                         'no_show_email_enabled', 'no_show_email_hour_eastern']:
@@ -12050,12 +11661,6 @@ def admin_settings():
         sms_reminder_hour_eastern=AppSetting.get('sms_reminder_hour_eastern', '9'),
         no_show_email_enabled=AppSetting.get('no_show_email_enabled', 'true'),
         no_show_email_hour_eastern=AppSetting.get('no_show_email_hour_eastern', '18'),
-        # Referral
-        referral_base_rate=AppSetting.get('referral_base_rate', '20'),
-        referral_signup_bonus=AppSetting.get('referral_signup_bonus', '10'),
-        referral_bonus_per_referral=AppSetting.get('referral_bonus_per_referral', '10'),
-        referral_max_rate=AppSetting.get('referral_max_rate', '100'),
-        referral_program_active=AppSetting.get('referral_program_active', 'true'),
         # Pickup window
         pickup_week_start=AppSetting.get('pickup_week_start', ''),
         pickup_week_end=AppSetting.get('pickup_week_end', ''),

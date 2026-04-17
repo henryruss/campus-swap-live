@@ -34,7 +34,7 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9rem;">
             <div>
                 <div style="color: var(--text-muted); font-size: 0.8rem;">Payout Rate</div>
-                <div style="font-weight: 700; font-size: 1.1rem; color: var(--primary);">{{ seller.payout_rate }}%</div>
+                <div style="font-weight: 700; font-size: 1.1rem; color: var(--primary);">50%</div>
             </div>
             <div>
                 <div style="color: var(--text-muted); font-size: 0.8rem;">Payout Handle</div>
@@ -47,70 +47,7 @@
                 <div style="color: var(--text-muted); font-size: 0.8rem;">Referral Source</div>
                 <div style="font-weight: 600;">{{ seller.referral_source or '—' }}</div>
             </div>
-            <div>
-                <div style="color: var(--text-muted); font-size: 0.8rem;">Referral Code</div>
-                <div style="font-weight: 600; font-family: monospace;">{{ seller.referral_code or '—' }}</div>
-            </div>
         </div>
-    </div>
-
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">
-
-    {# Section 2b — Referral Info #}
-    <div style="margin-bottom: 24px;">
-        <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px;">Referral</h3>
-        <div style="font-size: 0.9rem; line-height: 1.8;">
-            <div>
-                <strong>Referred by:</strong>
-                {% if seller_referred_by %}
-                <a href="#" onclick="loadPanel({{ seller_referred_by.id }}); return false;" style="color: var(--primary);">
-                    {{ seller_referred_by.full_name or seller_referred_by.email }}
-                </a>
-                ({{ seller_referred_by.email }})
-                {% else %}—{% endif %}
-            </div>
-            <div>
-                <strong>Confirmed referrals given:</strong> {{ seller_confirmed_referral_count }} of {{ seller_referrals_given|length }}
-            </div>
-            <div>
-                <strong>Payout Boost:</strong>
-                {% if seller.has_paid_boost %}
-                <span style="background: #dcfce7; color: #166534; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Purchased</span>
-                {% else %}
-                <span style="background: #f1f5f9; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-left: 4px;">Not purchased</span>
-                {% endif %}
-            </div>
-        </div>
-        {% if seller_referrals_given %}
-        <table style="width:100%; border-collapse:collapse; font-size:0.85rem; margin-top:10px;">
-            <thead>
-                <tr style="border-bottom:1px solid #e2e8f0; color:var(--text-muted); font-size:0.78rem;">
-                    <th style="text-align:left; padding:4px 0; font-weight:600;">Referred</th>
-                    <th style="text-align:left; padding:4px 0; font-weight:600;">Status</th>
-                    <th style="text-align:left; padding:4px 0; font-weight:600;">Confirmed</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in seller_referrals_given %}
-                <tr style="border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:5px 0;">
-                        <a href="#" onclick="loadPanel({{ r.referred_id }}); return false;" style="color:var(--primary);">
-                            {{ r.referred.full_name or r.referred.email }}
-                        </a>
-                    </td>
-                    <td style="padding:5px 0;">
-                        {% if r.confirmed %}
-                        <span style="color:#15803d; font-size:0.78rem; font-weight:700;">&#10003; Confirmed</span>
-                        {% else %}
-                        <span style="color:var(--text-muted); font-size:0.78rem;">Pending</span>
-                        {% endif %}
-                    </td>
-                    <td style="padding:5px 0; color:var(--text-muted); font-size:0.8rem;">{{ r.confirmed_at.strftime('%b %d') if r.confirmed_at else '—' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
     </div>
 
     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0 0 20px;">

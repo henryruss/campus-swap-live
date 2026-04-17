@@ -72,13 +72,6 @@
                     <input type="password" name="password" placeholder="Choose a password (min 6 characters)" required minlength="6">
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: 500; font-size: 0.9rem;">Referral code <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label>
-                    <input type="text" name="referral_code" id="login_referral_code" placeholder="e.g. ABC12345"
-                           autocomplete="off" autocapitalize="characters" style="text-transform:uppercase;">
-                    <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 4px;">Have a referral code? Enter it here to start at 30% — and earn up to 100% by referring friends.</p>
-                    <p id="login_referral_msg" style="font-size:0.82rem; margin:2px 0; min-height:1.1em;"></p>
-                </div>
                 {% if turnstile_site_key %}
                 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
                 <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 16px 0;"></div>
@@ -99,28 +92,6 @@
 </div>
 
 <script>
-(function() {
-    var inp = document.getElementById('login_referral_code');
-    var msg = document.getElementById('login_referral_msg');
-    if (!inp) return;
-    var lastCode = '';
-    inp.addEventListener('blur', function() {
-        var code = inp.value.trim().toUpperCase();
-        inp.value = code;
-        if (!code || code === lastCode) return;
-        lastCode = code;
-        msg.style.color = 'var(--text-muted)';
-        msg.textContent = 'Checking\u2026';
-        fetch('/referral/validate?code=' + encodeURIComponent(code))
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.valid) { msg.style.color = '#15803d'; msg.textContent = '\u2713 Code accepted \u2014 ' + data.referrer_name + ' referred you'; }
-                else { msg.style.color = '#dc2626'; msg.textContent = '\u2717 Code not found'; }
-            }).catch(function() { msg.textContent = ''; });
-    });
-    inp.addEventListener('input', function() { inp.value = inp.value.toUpperCase(); });
-})();
-
 function switchToSignup() {
     document.getElementById('login-section').style.display = 'none';
     document.getElementById('signup-section').style.display = 'block';
