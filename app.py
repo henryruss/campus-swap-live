@@ -1448,11 +1448,13 @@ def become_a_seller():
                 flash("You already have an account. Please log in.", "info")
                 return redirect(url_for('login', email=email))
             else:
+                user.is_seller = True
+                db.session.commit()
                 login_user(user)
                 return redirect(get_user_dashboard())
         else:
             source = session.get('source', 'direct')
-            new_user = User(email=email, referral_source=source)
+            new_user = User(email=email, referral_source=source, is_seller=True)
             db.session.add(new_user)
             db.session.commit()
             login_user(new_user)
