@@ -264,7 +264,7 @@
         .slider-earnings-amount { font-size: 1.6rem; }
     }
 
-    /* Referral slider */
+    /* Earnings display */
     .referral-slider-wrap {
         margin-top: 20px;
         background: linear-gradient(135deg, rgba(6,78,59,0.05) 0%, rgba(245,158,11,0.05) 100%);
@@ -285,43 +285,6 @@
         color: var(--text-muted);
         margin: 0 0 18px;
     }
-    #referral-slider {
-        width: 100%;
-        height: 6px;
-        -webkit-appearance: none;
-        appearance: none;
-        border-radius: 3px;
-        outline: none;
-        cursor: pointer;
-        display: block;
-        margin-bottom: 6px;
-    }
-    #referral-slider::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: var(--primary);
-        border: 3px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        cursor: pointer;
-    }
-    #referral-slider::-moz-range-thumb {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: var(--primary);
-        border: 3px solid white;
-        cursor: pointer;
-    }
-    .slider-pct-labels {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.68rem;
-        color: var(--text-muted);
-        margin-bottom: 18px;
-        padding: 0 2px;
-    }
     .slider-earnings-row {
         display: flex;
         align-items: center;
@@ -341,31 +304,6 @@
         font-weight: 900;
         color: var(--primary);
         line-height: 1;
-        transition: transform 0.2s ease;
-    }
-    .slider-earnings-amount.pop {
-        animation: amountPop 0.4s ease;
-    }
-    .slider-referral-hint {
-        width: 100%;
-        text-align: center;
-        font-size: 0.875rem;
-        font-weight: 600;
-        margin-top: 10px;
-        padding: 8px 12px;
-        border-radius: 8px;
-    }
-    .slider-referral-hint.at-start {
-        color: var(--text-muted);
-        background: rgba(0,0,0,0.04);
-    }
-    .slider-referral-hint.in-progress {
-        color: #d97706;
-        background: rgba(245,158,11,0.1);
-    }
-    .slider-referral-hint.at-max {
-        color: var(--primary);
-        background: rgba(6,78,59,0.1);
     }
 </style>
 
@@ -404,18 +342,11 @@
                 </div>
                 <div class="referral-slider-wrap" id="slider-section" style="display:none;">
                     <h4>How much do <em>you</em> keep?</h4>
-                    <p class="slider-sub">Drag to see your earnings at any referral tier — start at 20%, unlock 100% after 8 friends.</p>
-                    <div style="overflow: hidden; padding: 4px 0;">
-                        <input type="range" id="referral-slider" min="20" max="100" step="10" value="20">
-                    </div>
-                    <div class="slider-pct-labels">
-                        <span>20%</span><span>30%</span><span>40%</span><span>50%</span><span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span>
-                    </div>
+                    <p class="slider-sub">It&rsquo;s a straight 50/50 split — no tiers, no codes needed.</p>
                     <div class="slider-earnings-row">
-                        <span class="slider-earnings-label">You&rsquo;d earn at <span id="slider-pct-label">20%</span>:</span>
+                        <span class="slider-earnings-label">Your 50% payout:</span>
                         <span class="slider-earnings-amount" id="slider-earnings-amount">$0</span>
                     </div>
-                    <div class="slider-referral-hint at-start" id="slider-referral-hint">Starting rate — no referrals needed</div>
                 </div>
 
             </div>
@@ -470,38 +401,19 @@
 
     </div>
 
-        <!-- Referral Payout Model -->
+        <!-- Payout Model -->
         <div id="payout" class="payment-structure-section reveal fade-up">
-            <h2><i class="fas fa-chart-line"></i> The More You Share, The More You Earn</h2>
-            <p class="subhead">Your payout starts at 20% and grows 10% for every friend who uses our service — up to 100%. No fees. No tiers.</p>
+            <h2><i class="fas fa-handshake"></i> Simple 50/50 Split</h2>
+            <p class="subhead">You sell, we split it. 50% of the sale price goes to you — no tiers, no referral codes, no fine print.</p>
 
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 560px; margin: 32px auto 0;">
-                <!-- Payout steps -->
-                <div style="display: flex; align-items: center; justify-content: center; gap: 0; width: 100%; flex-wrap: wrap; gap: 4px;">
-                    {% for pct in [20, 30, 40, 50, 60, 70, 80, 90, 100] %}
-                    <div style="flex: 1; min-width: 48px; text-align: center; padding: 10px 4px; border-radius: 8px; {% if pct == 20 %}background: var(--primary); color: white; font-weight: 700;{% else %}background: rgba(6,78,59,0.08); color: var(--text-muted);{% endif %} font-size: 0.9rem;">
-                        {{ pct }}%
-                    </div>
-                    {% endfor %}
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 480px; margin: 32px auto 0;">
+                <div style="background: white; border-radius: 12px; padding: 24px 16px; text-align: center; border: 2px solid var(--primary);">
+                    <div style="font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 4px;">50%</div>
+                    <div style="font-size: 0.9rem; color: var(--text-muted);">You keep</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.78rem; color: var(--text-muted); padding: 0 4px;">
-                    <span>Start here</span>
-                    <span>Refer 8 friends → keep 100%</span>
-                </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; max-width: 700px; margin: 32px auto 0;">
-                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 1px solid rgba(6,78,59,0.15);">
-                    <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary); margin-bottom: 4px;">20%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Starting rate<br>No code needed</div>
-                </div>
-                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 2px solid var(--accent);">
-                    <div style="font-size: 1.75rem; font-weight: 800; color: #d97706; margin-bottom: 4px;">30%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">With a referral code<br>at signup</div>
-                </div>
-                <div style="background: white; border-radius: 12px; padding: 20px 16px; text-align: center; border: 1px solid rgba(6,78,59,0.15);">
-                    <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary); margin-bottom: 4px;">100%</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">After 8 confirmed<br>referrals</div>
+                <div style="background: white; border-radius: 12px; padding: 24px 16px; text-align: center; border: 1px solid rgba(6,78,59,0.15);">
+                    <div style="font-size: 2rem; font-weight: 800; color: var(--text-muted); margin-bottom: 4px;">50%</div>
+                    <div style="font-size: 0.9rem; color: var(--text-muted);">Campus Swap</div>
                 </div>
             </div>
 
@@ -510,13 +422,6 @@
                     {{ 'Go to Dashboard' if current_user.is_authenticated else "Start Selling — It\u2019s Free" }}
                 </a>
             </div>
-
-            <style>
-                @media (max-width: 480px) {
-                    #join { padding: 40px 24px !important; }
-                    #payout > div[style*="grid-template-columns: 1fr 1fr 1fr"] { grid-template-columns: 1fr !important; }
-                }
-            </style>
         </div>
 
     <div class="container">
@@ -599,32 +504,20 @@
 
     const receiptItems = [];
     let lastRoomValue = -1;
-    let lastEarnings = -1;
     const tooltipEl = document.getElementById('room-tooltip');
     const totalEl = document.getElementById('room-total');
     const sliderSection = document.getElementById('slider-section');
-    const sliderEl = document.getElementById('referral-slider');
-    const sliderPctLabel = document.getElementById('slider-pct-label');
     const sliderEarningsEl = document.getElementById('slider-earnings-amount');
-    const sliderHintEl = document.getElementById('slider-referral-hint');
     const polygons = document.querySelectorAll('#room-svg polygon');
 
     function formatLabel(label) {
         return label === 'acunit' ? 'AC Unit' : label.charAt(0).toUpperCase() + label.slice(1);
     }
 
-    function updateSliderTrack() {
-        const pct = parseInt(sliderEl.value, 10);
-        const fill = ((pct - 20) / 80) * 100;
-        sliderEl.style.background = `linear-gradient(to right, var(--primary) ${fill}%, #e2e8f0 ${fill}%)`;
-    }
-
     function updateReceipt() {
-        const pct = parseInt(sliderEl.value, 10);
         const totalRoomValue = receiptItems.reduce((sum, it) => sum + it.value * 2, 0);
-        const totalEarnings = Math.round(totalRoomValue * pct / 100);
+        const totalEarnings = Math.round(totalRoomValue * 0.5);
 
-        // Animate big room value number
         totalEl.textContent = '$' + totalRoomValue;
         if (totalRoomValue !== lastRoomValue && lastRoomValue >= 0) {
             totalEl.classList.add('pop');
@@ -632,42 +525,15 @@
         }
         lastRoomValue = totalRoomValue;
 
-        // Show/hide slider section
         sliderSection.style.display = receiptItems.length > 0 ? 'block' : 'none';
-
-        // Update slider label and earnings
-        sliderPctLabel.textContent = pct + '%';
         sliderEarningsEl.textContent = '$' + totalEarnings;
-        if (totalEarnings !== lastEarnings && lastEarnings >= 0) {
-            sliderEarningsEl.classList.add('pop');
-            sliderEarningsEl.addEventListener('animationend', () => sliderEarningsEl.classList.remove('pop'), { once: true });
-        }
-        lastEarnings = totalEarnings;
-
-        // Referral hint
-        const referralsNeeded = (pct - 20) / 10;
-        sliderHintEl.className = 'slider-referral-hint';
-        if (pct === 20) {
-            sliderHintEl.classList.add('at-start');
-            sliderHintEl.textContent = 'Starting rate — no referrals needed';
-        } else if (pct === 100) {
-            sliderHintEl.classList.add('at-max');
-            sliderHintEl.textContent = 'You keep everything — refer 8 friends to unlock this';
-        } else {
-            sliderHintEl.classList.add('in-progress');
-            sliderHintEl.textContent = 'Refer ' + referralsNeeded + ' friend' + (referralsNeeded !== 1 ? 's' : '') + ' to unlock ' + pct + '%';
-        }
 
         polygons.forEach(p => {
             const id = p.dataset.item;
             const inReceipt = receiptItems.some(it => it.id === id);
             p.classList.toggle('receipt-active', inReceipt);
         });
-
-        updateSliderTrack();
     }
-
-    sliderEl.addEventListener('input', updateReceipt);
 
     polygons.forEach(polygon => {
         polygon.addEventListener('mouseenter', function() {
@@ -693,7 +559,6 @@
         });
     });
 
-    updateSliderTrack();
     updateReceipt();
 </script>
 {% endblock %}
