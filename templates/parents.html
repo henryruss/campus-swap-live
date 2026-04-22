@@ -151,16 +151,18 @@
   .p-message-bubble { background: var(--bg-cream); border-radius: 12px 12px 4px 12px; padding: 20px 24px; font-size: 15px; line-height: 1.7; color: var(--text-main); margin-bottom: 20px; border: 1px solid var(--cream2, #EAE4D8); }
   .p-message-bubble strong { color: var(--primary); font-weight: 600; }
   .p-message-bubble .p-highlight { background: rgba(200,131,42,0.12); color: var(--accent); padding: 1px 6px; border-radius: 4px; font-weight: 500; }
-  .p-share-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-  .p-share-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; text-decoration: none; font-family: 'DM Sans', sans-serif; }
-  .p-share-btn-copy { background: var(--primary); color: var(--bg-cream); }
-  .p-share-btn-copy:hover { background: var(--primary-light, #2E5C2E); }
-  .p-share-btn-sms { background: #25D366; color: white; }
-  .p-share-btn-sms:hover { background: #1DA851; }
-  .p-share-btn-email { background: var(--bg-cream); color: var(--primary); border: 1px solid var(--rule); }
-  .p-share-btn-email:hover { background: #EAE4D8; }
-  .p-copy-confirm { display: none; font-size: 13px; color: var(--sage); margin-top: 12px; font-weight: 500; }
-  .p-copy-confirm.show { display: block; }
+  .p-share-actions { display: flex; align-items: center; gap: 12px; }
+  .p-share-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 10px 20px; border-radius: 100px; background: var(--primary); color: var(--bg-cream); border: none; cursor: pointer; transition: background 0.15s, transform 0.15s; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+  .p-share-trigger:hover { background: var(--primary-light, #2E5C2E); transform: scale(1.06); }
+  .p-share-trigger:active { transform: scale(0.96); }
+  .p-share-confirm { font-size: 13px; color: var(--sage); font-weight: 500; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .p-share-confirm.show { opacity: 1; }
+  /* fallback popover for browsers without Web Share API */
+  .p-share-popover { position: absolute; bottom: calc(100% + 10px); left: 0; background: white; border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 8px 24px -4px rgba(0,0,0,0.12); padding: 6px; min-width: 180px; display: none; z-index: 100; }
+  .p-share-popover.open { display: block; }
+  .p-share-popover a, .p-share-popover button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; font-size: 14px; font-weight: 500; color: var(--text-main); text-decoration: none; background: none; border: none; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.12s; white-space: nowrap; }
+  .p-share-popover a:hover, .p-share-popover button:hover { background: var(--bg-cream); }
+  .p-share-wrap { position: relative; display: inline-block; }
 
   /* ── PAGE FOOTER ── */
   .p-footer { background: var(--primary); padding: 40px 48px; }
@@ -316,7 +318,7 @@
 <section class="p-share-section" id="share">
   <div class="p-share-inner">
     <div class="p-section-label">For parents</div>
-    <h2 class="p-section-title">Forward this to your student right now.</h2>
+    <h2 class="p-section-title">Forward this to your student.</h2>
     <p class="p-section-sub">Copy the message below and text or email it. The link takes about 2 minutes to complete, and everything is handled from there.</p>
     <div class="p-share-card">
       <div class="p-share-card-label">Ready-to-send message</div>
@@ -324,20 +326,29 @@
         Hey! Move-out is coming up and I found something you need to know about. It's called <strong>Campus Swap</strong>. They show up with a truck, move all your furniture out for free, sell it to incoming students, and you keep <strong>50% of everything that sells</strong>. Completely free to you. Takes 2 minutes to sign up: <span class="p-highlight">usecampusswap.com</span>
       </div>
       <div class="p-share-actions">
-        <button class="p-share-btn p-share-btn-copy" onclick="pCopyMessage()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          Copy message
-        </button>
-        <a href="sms:?body=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It's%20called%20Campus%20Swap%20%E2%80%94%20they%20show%20up%20with%20a%20truck%2C%20move%20all%20your%20furniture%20out%20for%20free%2C%20sell%20it%20to%20incoming%20students%2C%20and%20you%20keep%2050%25%20of%20everything%20that%20sells.%20Completely%20free%20to%20you.%20Takes%205%20minutes%20to%20sign%20up%3A%20campusswapunc.com" class="p-share-btn p-share-btn-sms">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          Text it
-        </a>
-        <a href="mailto:?subject=You%20need%20to%20use%20Campus%20Swap%20for%20move-out&body=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It's%20called%20Campus%20Swap%20%E2%80%94%20they%20show%20up%20with%20a%20truck%2C%20move%20all%20your%20furniture%20out%20for%20free%2C%20sell%20it%20to%20incoming%20students%2C%20and%20you%20keep%2050%25%20of%20everything%20that%20sells.%20Completely%20free%20to%20you.%20Takes%205%20minutes%20to%20sign%20up%3A%20campusswapunc.com" class="p-share-btn p-share-btn-email">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
-          Email it
-        </a>
+        <div class="p-share-wrap">
+          <button class="p-share-trigger" onclick="pShare(this)" aria-label="Share">
+            Share
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          </button>
+          <!-- fallback popover for browsers without Web Share API -->
+          <div class="p-share-popover" id="p-share-popover">
+            <button onclick="pFallbackCopy()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              Copy link
+            </button>
+            <a href="mailto:?subject=You%20need%20to%20use%20Campus%20Swap%20for%20move-out&body=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It%E2%80%99s%20called%20Campus%20Swap%20%E2%80%94%20they%20show%20up%20with%20a%20truck%2C%20move%20all%20your%20furniture%20out%20for%20free%2C%20sell%20it%20to%20incoming%20students%2C%20and%20you%20keep%2050%25%20of%20everything%20that%20sells.%20Completely%20free%20to%20you.%20Takes%202%20minutes%20to%20sign%20up%3A%20usecampusswap.com">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+              Email
+            </a>
+            <a href="https://www.facebook.com/sharer/sharer.php?u=https%3A%2F%2Fusecampusswap.com&quote=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It%E2%80%99s%20called%20Campus%20Swap." target="_blank" rel="noopener">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+              Facebook
+            </a>
+          </div>
+        </div>
+        <span class="p-share-confirm" id="p-share-confirm">✓ Link copied!</span>
       </div>
-      <div class="p-copy-confirm" id="p-copy-confirm">✓ Copied to clipboard — now send it!</div>
     </div>
   </div>
 </section>
@@ -379,14 +390,33 @@
     header.appendChild(extra);
   });
 
-  function pCopyMessage() {
-    var text = "Hey! Move-out is coming up and I found something you need to know about. It\u2019s called Campus Swap \u2014 they show up with a truck, move all your furniture out for free, sell it to incoming students, and you keep 50% of everything that sells. Completely free to you. Takes 5 minutes to sign up: campusswapunc.com";
-    navigator.clipboard.writeText(text).then(function () {
-      var el = document.getElementById('p-copy-confirm');
+  var SHARE_TEXT = "Hey! Move-out is coming up and I found something you need to know about. It\u2019s called Campus Swap \u2014 they show up with a truck, move all your furniture out for free, sell it to incoming students, and you keep 50% of everything that sells. Completely free to you. Takes 2 minutes to sign up:";
+  var SHARE_URL  = "https://usecampusswap.com";
+
+  function pShare(btn) {
+    if (navigator.share) {
+      navigator.share({ title: 'Campus Swap', text: SHARE_TEXT, url: SHARE_URL }).catch(function(){});
+    } else {
+      var pop = document.getElementById('p-share-popover');
+      pop.classList.toggle('open');
+    }
+  }
+
+  function pFallbackCopy() {
+    navigator.clipboard.writeText(SHARE_URL).then(function () {
+      document.getElementById('p-share-popover').classList.remove('open');
+      var el = document.getElementById('p-share-confirm');
       el.classList.add('show');
-      setTimeout(function () { el.classList.remove('show'); }, 3500);
+      setTimeout(function () { el.classList.remove('show'); }, 3000);
     });
   }
+
+  document.addEventListener('click', function (e) {
+    var pop = document.getElementById('p-share-popover');
+    if (pop && pop.classList.contains('open') && !pop.closest('.p-share-wrap').contains(e.target)) {
+      pop.classList.remove('open');
+    }
+  });
 
   document.querySelectorAll('a[href^="#"]').forEach(function (a) {
     a.addEventListener('click', function (e) {
