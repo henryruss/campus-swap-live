@@ -203,7 +203,11 @@
         <nav class="nav-links nav-desktop" role="navigation" aria-label="Main navigation">
             <a href="/become-a-seller" class="nav-item" aria-label="Become a Seller">Become a Seller</a>
             <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
-            
+            <a href="https://www.instagram.com/campusswapunc" target="_blank" rel="noopener" class="nav-item nav-instagram-link" aria-label="Campus Swap on Instagram" style="display:flex;align-items:center;gap:5px;font-size:0.85rem;color:var(--text-muted);text-decoration:none;transition:color 0.15s;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>
+              @campusswapunc
+            </a>
+
             {% if current_user.is_authenticated %}
                 {% if current_user.is_worker and current_user.worker_status == 'approved' %}
                 <a href="/crew" class="nav-item" aria-label="Crew Portal">
@@ -276,6 +280,10 @@
         {% else %}
             <a href="/login" class="mobile-menu-link"><i class="far fa-user-circle"></i> Sign In</a>
         {% endif %}
+        <a href="https://www.instagram.com/campusswapunc" target="_blank" rel="noopener" class="mobile-menu-link" style="display:flex;align-items:center;gap:10px;color:var(--text-muted);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>
+          @campusswapunc
+        </a>
     </div>
 
     <main>
@@ -319,6 +327,10 @@
                 <a href="/terms-and-conditions">Terms & Conditions</a>
                 <a href="/refund-policy">Refund Policy</a>
                 <a href="/contact">Contact Us</a>
+                <a href="https://www.instagram.com/campusswapunc" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>
+                  @campusswapunc
+                </a>
             </div>
             <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.1);">
                 <p style="color: var(--text-muted); font-size: 0.9rem;">

@@ -1163,6 +1163,10 @@ def index():
 def about():
     return render_template('about.html')
 
+@app.route('/parents')
+def parents():
+    return render_template('parents.html')
+
 @app.route('/privacy-policy')
 def privacy_policy():
     return render_template('privacy_policy.html')

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campus Swap — For Parents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #1A3D1A;
+    --primary-light: #2E5C2E;
+    --accent: #C8832A;
+    --accent-hover: #A86A1F;
+    --text-main: #1A3D1A;
+    --text-muted: #6B8F6B;
+    --bg-body: #FFFFFF;
+    --bg-cream: #F5F0E8;
+    --sage: #8AB88A;
+    --rule: #D8D0C4;
+    --cream2: #EAE4D8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg-body); color: var(--text-main); overflow-x: hidden; }
+
+  /* NAV */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px; border-bottom: 1px solid var(--rule);
+    background: var(--bg-body); position: sticky; top: 0; z-index: 100;
+  }
+  .nav-logo { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--primary); text-decoration: none; }
+  .nav-logo span { color: var(--accent); }
+  .nav-right { display: flex; align-items: center; gap: 16px; }
+  .nav-instagram {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 500; color: var(--text-muted);
+    text-decoration: none; transition: color 0.15s;
+  }
+  .nav-instagram:hover { color: var(--primary); }
+  .nav-cta {
+    background: var(--accent); color: white; border: none;
+    padding: 10px 22px; border-radius: 6px; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: background 0.18s;
+  }
+  .nav-cta:hover { background: var(--accent-hover); }
+
+  /* HERO */
+  .hero {
+    background: var(--primary); padding: 88px 48px 72px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(138,184,138,0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero::after {
+    content: ''; position: absolute; bottom: -60px; left: 20%;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(200,131,42,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-inner { max-width: 780px; margin: 0 auto; text-align: center; position: relative; z-index: 1; }
+  .hero-eyebrow {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    letter-spacing: 2.5px; text-transform: uppercase; color: var(--accent);
+    margin-bottom: 28px; padding: 6px 16px;
+    border: 1px solid rgba(200,131,42,0.35); border-radius: 100px;
+    background: rgba(200,131,42,0.08);
+  }
+  .hero h1 {
+    font-family: 'DM Serif Display', serif; font-size: 60px; line-height: 1.06;
+    color: #F5F0E8; font-weight: 400; margin-bottom: 24px; letter-spacing: -0.5px;
+  }
+  .hero h1 em { font-style: italic; color: var(--sage); }
+  .hero-sub {
+    font-size: 18px; line-height: 1.65; color: rgba(245,240,232,0.72);
+    font-weight: 300; max-width: 560px; margin: 0 auto 40px;
+  }
+  .hero-sub strong { color: #F5F0E8; font-weight: 500; }
+  .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 32px; }
+  .btn-primary {
+    background: var(--accent); color: white; border: none;
+    padding: 16px 32px; border-radius: 8px; font-family: 'DM Sans', sans-serif;
+    font-size: 16px; font-weight: 500; cursor: pointer; text-decoration: none;
+    transition: background 0.18s, transform 0.12s; display: inline-block;
+  }
+  .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .btn-outline {
+    background: transparent; color: #F5F0E8; border: 1px solid rgba(245,240,232,0.3);
+    padding: 16px 32px; border-radius: 8px; font-family: 'DM Sans', sans-serif;
+    font-size: 16px; font-weight: 400; cursor: pointer; text-decoration: none;
+    transition: border-color 0.18s, background 0.18s; display: inline-block;
+  }
+  .btn-outline:hover { border-color: rgba(245,240,232,0.6); background: rgba(245,240,232,0.05); }
+  .hero-forward-nudge {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+    color: rgba(245,240,232,0.45); cursor: pointer; transition: color 0.15s;
+    text-decoration: none; border-bottom: 1px dashed rgba(245,240,232,0.2); padding-bottom: 2px;
+  }
+  .hero-forward-nudge:hover { color: rgba(245,240,232,0.75); }
+
+  /* TRUST BAR */
+  .trust-bar {
+    background: var(--bg-cream); border-bottom: 1px solid var(--rule);
+    padding: 18px 48px; display: flex; align-items: center;
+    justify-content: center; gap: 48px; flex-wrap: wrap;
+  }
+  .trust-item { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text-muted); }
+  .trust-dot { width: 6px; height: 6px; background: var(--sage); border-radius: 50%; }
+
+  /* SECTION SHARED */
+  .section { padding: 88px 48px; }
+  .section-inner { max-width: 960px; margin: 0 auto; }
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--sage); margin-bottom: 16px; }
+  .section-title { font-family: 'DM Serif Display', serif; font-size: 42px; line-height: 1.1; color: var(--primary); font-weight: 400; margin-bottom: 16px; max-width: 600px; }
+  .section-sub { font-size: 16px; line-height: 1.65; color: var(--text-muted); max-width: 520px; margin-bottom: 56px; }
+
+  /* HOW IT WORKS */
+  .steps-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .step-card { background: var(--bg-cream); padding: 40px 32px; }
+  .step-card:first-child { border-radius: 12px 0 0 12px; }
+  .step-card:last-child { border-radius: 0 12px 12px 0; }
+  .step-number { font-family: 'DM Serif Display', serif; font-size: 52px; color: var(--rule); line-height: 1; margin-bottom: 20px; }
+  .step-title { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--primary); margin-bottom: 10px; }
+  .step-desc { font-size: 14px; line-height: 1.65; color: var(--text-muted); }
+  .step-desc strong { color: var(--primary); font-weight: 600; }
+  .step-tag {
+    display: inline-block; margin-top: 14px; font-size: 11px; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent);
+    background: rgba(200,131,42,0.1); padding: 4px 10px; border-radius: 4px;
+  }
+
+  /* MONEY SECTION */
+  .money-section { background: var(--primary); padding: 88px 48px; }
+  .money-inner { max-width: 960px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; }
+  .money-label { font-size: 11px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--sage); margin-bottom: 16px; }
+  .money-title { font-family: 'DM Serif Display', serif; font-size: 40px; line-height: 1.1; color: #F5F0E8; font-weight: 400; margin-bottom: 16px; }
+  .money-desc { font-size: 15px; line-height: 1.7; color: rgba(245,240,232,0.7); margin-bottom: 12px; }
+  .money-desc strong { color: #F5F0E8; font-weight: 500; }
+  .split-callout {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: rgba(200,131,42,0.15); border: 1px solid rgba(200,131,42,0.3);
+    border-radius: 8px; padding: 12px 18px; margin-bottom: 28px;
+  }
+  .split-callout-text { font-size: 14px; color: var(--accent); font-weight: 500; line-height: 1.4; }
+  .split-callout-text strong { font-weight: 700; }
+  .earnings-card { background: rgba(245,240,232,0.06); border: 1px solid rgba(245,240,232,0.12); border-radius: 12px; overflow: hidden; }
+  .earnings-header { background: rgba(245,240,232,0.08); padding: 18px 28px; border-bottom: 1px solid rgba(245,240,232,0.1); font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--sage); }
+  .earnings-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 28px; border-bottom: 1px solid rgba(245,240,232,0.07); }
+  .earnings-row:last-child { border-bottom: none; }
+  .earnings-item { font-size: 14px; color: rgba(245,240,232,0.65); }
+  .earnings-amount { font-family: 'DM Serif Display', serif; font-size: 20px; color: #F5F0E8; }
+  .earnings-total-row { background: rgba(200,131,42,0.15); border-top: 1px solid rgba(200,131,42,0.25) !important; }
+  .earnings-total-row .earnings-item { color: var(--accent); font-weight: 600; font-size: 15px; }
+  .earnings-total-row .earnings-amount { color: var(--accent); font-size: 26px; }
+  .earnings-note { padding: 12px 28px; font-size: 11px; color: rgba(245,240,232,0.35); border-top: 1px solid rgba(245,240,232,0.06); font-style: italic; }
+
+  /* SHARE SECTION */
+  .share-section { background: var(--bg-cream); padding: 88px 48px; }
+  .share-inner { max-width: 720px; margin: 0 auto; text-align: center; }
+  .share-inner .section-title { max-width: 100%; margin: 0 auto 16px; }
+  .share-inner .section-sub { margin: 0 auto 48px; }
+  .share-card { background: var(--bg-body); border: 1px solid var(--rule); border-radius: 16px; padding: 32px; text-align: left; box-shadow: 0 8px 32px -8px rgba(26,61,26,0.08); }
+  .share-card-label { font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .share-card-label::before { content: ''; display: inline-block; width: 6px; height: 6px; background: var(--sage); border-radius: 50%; }
+  .message-bubble { background: var(--bg-cream); border-radius: 12px 12px 4px 12px; padding: 20px 24px; font-size: 15px; line-height: 1.7; color: var(--text-main); margin-bottom: 20px; border: 1px solid var(--cream2); }
+  .message-bubble strong { color: var(--primary); font-weight: 600; }
+  .message-bubble .highlight { background: rgba(200,131,42,0.12); color: var(--accent); padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+  .share-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .share-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; text-decoration: none; }
+  .share-btn-copy { background: var(--primary); color: #F5F0E8; }
+  .share-btn-copy:hover { background: var(--primary-light); }
+  .share-btn-sms { background: #25D366; color: white; }
+  .share-btn-sms:hover { background: #1DA851; }
+  .share-btn-email { background: var(--bg-cream); color: var(--primary); border: 1px solid var(--rule); }
+  .share-btn-email:hover { background: var(--cream2); }
+  .copy-confirm { display: none; font-size: 13px; color: var(--sage); margin-top: 12px; font-weight: 500; }
+  .copy-confirm.show { display: block; }
+
+  /* FOOTER */
+  footer {
+    background: var(--primary); padding: 40px 48px;
+  }
+  .footer-top {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px; padding-bottom: 28px;
+    border-bottom: 1px solid rgba(245,240,232,0.1); margin-bottom: 24px;
+  }
+  .footer-logo { font-family: 'DM Serif Display', serif; font-size: 20px; color: #F5F0E8; }
+  .footer-logo span { color: var(--sage); }
+  .footer-instagram {
+    display: flex; align-items: center; gap: 8px;
+    color: rgba(245,240,232,0.6); text-decoration: none;
+    font-size: 14px; font-weight: 400; transition: color 0.15s;
+    border: 1px solid rgba(245,240,232,0.15); border-radius: 8px;
+    padding: 8px 14px;
+  }
+  .footer-instagram:hover { color: #F5F0E8; border-color: rgba(245,240,232,0.3); }
+  .footer-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .footer-note { font-size: 12px; color: rgba(245,240,232,0.35); }
+  .footer-links { display: flex; gap: 20px; }
+  .footer-links a { font-size: 12px; color: rgba(245,240,232,0.4); text-decoration: none; transition: color 0.15s; }
+  .footer-links a:hover { color: rgba(245,240,232,0.7); }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .hero-inner > * { animation: fadeUp 0.6s ease both; }
+  .hero-eyebrow { animation-delay: 0.05s; }
+  .hero h1 { animation-delay: 0.15s; }
+  .hero-sub { animation-delay: 0.25s; }
+  .hero-actions { animation-delay: 0.35s; }
+  .hero-forward-nudge { animation-delay: 0.45s; }
+
+  /* INSTAGRAM SVG */
+  .ig-icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+  @media (max-width: 900px) {
+    .steps-grid { grid-template-columns: 1fr 1fr; }
+    .step-card:first-child { border-radius: 12px 0 0 0; }
+    .step-card:last-child { border-radius: 0 0 12px 0; }
+    .step-card:nth-child(2) { border-radius: 0 12px 0 0; }
+    .step-card:nth-child(3) { border-radius: 0 0 0 12px; }
+    .money-inner { grid-template-columns: 1fr; gap: 40px; }
+  }
+  @media (max-width: 640px) {
+    nav { padding: 16px 24px; }
+    .nav-instagram span { display: none; }
+    .hero { padding: 60px 24px 52px; }
+    .hero h1 { font-size: 38px; }
+    .section { padding: 60px 24px; }
+    .steps-grid { grid-template-columns: 1fr; }
+    .step-card:first-child { border-radius: 12px 12px 0 0; }
+    .step-card:last-child { border-radius: 0 0 12px 12px; }
+    .step-card:nth-child(2), .step-card:nth-child(3) { border-radius: 0; }
+    .money-section { padding: 60px 24px; }
+    .share-section { padding: 60px 24px; }
+    .trust-bar { gap: 20px; padding: 16px 24px; }
+    footer { padding: 32px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="#" class="nav-logo">Campus<span>Swap</span></a>
+  <div class="nav-right">
+    <a href="https://instagram.com/campusswapunc" target="_blank" class="nav-instagram">
+      <svg class="ig-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/>
+        <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/>
+      </svg>
+      <span>@campusswapunc</span>
+    </a>
+    <a href="#share" class="nav-cta">Forward to My Student →</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">⚡ Move-out season is almost here — UNC Chapel Hill</div>
+    <h1>Don't let your kid miss the <em>free move-out service</em> that pays them.</h1>
+    <p class="hero-sub">Campus Swap shows up with a truck and a crew, moves everything out at no cost to our storage facility, and sells everything online all summer to the public and incoming students. When items sell, proceeds are split 50/50. Zero hassle, completley free.</p>
+    <div class="hero-actions">
+      <a href="#share" class="btn-primary">📲 Send This to My Student</a>
+      <a href="#how-it-works" class="btn-outline">See how it works</a>
+    </div>
+    <a href="#share" class="hero-forward-nudge">
+      We made a ready-to-forward link — scroll down to grab it ↓
+    </a>
+  </div>
+</section>
+
+<div class="trust-bar">
+  <div class="trust-item"><div class="trust-dot"></div> 100% free pickup</div>
+  <div class="trust-item"><div class="trust-dot"></div> 50/50 earnings split</div>
+  <div class="trust-item"><div class="trust-dot"></div> Takes 5 minutes to sign up</div>
+  <div class="trust-item"><div class="trust-dot"></div> UNC Chapel Hill move-out</div>
+</div>
+
+<section class="section" id="how-it-works">
+  <div class="section-inner">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Honestly, it couldn't be easier.</h2>
+    <p class="section-sub">Four steps. Your student barely has to do anything.</p>
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-number">01</div>
+        <div class="step-title">Snap a photo</div>
+        <p class="step-desc">Your student takes a picture of their stuff and submits it. That's the hardest part. <strong>Seriously.</strong></p>
+        <span class="step-tag">5 minutes</span>
+      </div>
+      <div class="step-card">
+        <div class="step-number">02</div>
+        <div class="step-title">We show up</div>
+        <p class="step-desc">A Campus Swap truck pulls up with a full move-out crew. They carry everything. <strong>Your student doesn't lift a finger.</strong></p>
+        <span class="step-tag">100% free</span>
+      </div>
+      <div class="step-card">
+        <div class="step-number">03</div>
+        <div class="step-title">We sell it</div>
+        <p class="step-desc">Items go to incoming UNC students and the public. <strong>Zero storage fees. Zero listing fees.</strong> Nothing.</p>
+        <span class="step-tag">No cost ever</span>
+      </div>
+      <div class="step-card">
+        <div class="step-number">04</div>
+        <div class="step-title">They get paid</div>
+        <p class="step-desc">50% of every sale goes straight to your student. <strong>Real money</strong>, deposited directly. No chasing anyone down.</p>
+        <span class="step-tag">50% payout</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="money-section">
+  <div class="money-inner">
+    <div>
+      <div class="money-label">What they can earn</div>
+      <h2 class="money-title">A typical room walks out with $300–$600.</h2>
+      <p class="money-desc">Most students have no idea what their stuff is worth. A couch, a mini-fridge, a chair — it adds up fast. And with a <strong>straight 50/50 split on everything</strong>, the numbers are real.</p>
+      <div class="split-callout">
+        <span style="font-size:22px;">💰</span>
+        <div class="split-callout-text">
+          <strong>50% of every sale goes to your student.</strong><br>
+          No tiers. No fine print. Every item, every time.
+        </div>
+      </div>
+      <a href="#share" class="btn-primary" style="display:inline-block;">Send This to My Student →</a>
+    </div>
+    <div>
+      <div class="earnings-card">
+        <div class="earnings-header">Example Room Earnings · 50% Split</div>
+        <div class="earnings-row"><div class="earnings-item">Futon / Couch</div><div class="earnings-amount">$75–$125</div></div>
+        <div class="earnings-row"><div class="earnings-item">Mini Fridge</div><div class="earnings-amount">$50–$90</div></div>
+        <div class="earnings-row"><div class="earnings-item">Desk Chair</div><div class="earnings-amount">$35–$65</div></div>
+        <div class="earnings-row"><div class="earnings-item">Bookshelf / Storage</div><div class="earnings-amount">$30–$55</div></div>
+        <div class="earnings-row"><div class="earnings-item">Lamp, rug, décor…</div><div class="earnings-amount">$40–$80</div></div>
+        <div class="earnings-row earnings-total-row"><div class="earnings-item">Your student earns</div><div class="earnings-amount">$230–$415</div></div>
+        <div class="earnings-note">Sold to incoming UNC students and the general public. Estimates based on typical listings.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="share-section" id="share">
+  <div class="share-inner">
+    <div class="section-label">For parents</div>
+    <h2 class="section-title">Forward this to your student right now.</h2>
+    <p class="section-sub">Copy the message below and text or email it. The link takes about 5 minutes to complete — and everything is handled from there.</p>
+    <div class="share-card">
+      <div class="share-card-label">Ready-to-send message</div>
+      <div class="message-bubble">
+        Hey! Move-out is coming up and I found something you need to know about. It's called <strong>Campus Swap</strong> — they show up with a truck, move all your furniture out for free, sell it to incoming students, and you keep <strong>50% of everything that sells</strong>. Completely free to you. Takes 5 minutes to sign up: <span class="highlight">campusswapunc.com</span>
+      </div>
+      <div class="share-actions">
+        <button class="share-btn share-btn-copy" onclick="copyMessage()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy message
+        </button>
+        <a href="sms:?body=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It's%20called%20Campus%20Swap%20%E2%80%94%20they%20show%20up%20with%20a%20truck%2C%20move%20all%20your%20furniture%20out%20for%20free%2C%20sell%20it%20to%20incoming%20students%2C%20and%20you%20keep%2050%25%20of%20everything%20that%20sells.%20Completely%20free%20to%20you.%20Takes%205%20minutes%3A%20campusswapunc.com" class="share-btn share-btn-sms">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          Text it
+        </a>
+        <a href="mailto:?subject=You%20need%20to%20use%20Campus%20Swap%20for%20move-out&body=Hey!%20Move-out%20is%20coming%20up%20and%20I%20found%20something%20you%20need%20to%20know%20about.%20It's%20called%20Campus%20Swap%20%E2%80%94%20they%20show%20up%20with%20a%20truck%2C%20move%20all%20your%20furniture%20out%20for%20free%2C%20sell%20it%20to%20incoming%20students%2C%20and%20you%20keep%2050%25%20of%20everything%20that%20sells.%20Completely%20free%20to%20you.%20Takes%205%20minutes%3A%20campusswapunc.com" class="share-btn share-btn-email">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+          Email it
+        </a>
+      </div>
+      <div class="copy-confirm" id="copy-confirm">✓ Copied to clipboard — now send it!</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-top">
+    <div class="footer-logo">Campus<span>Swap</span></div>
+    <a href="https://instagram.com/campusswapunc" target="_blank" class="footer-instagram">
+      <svg class="ig-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/>
+        <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/>
+      </svg>
+      @campusswapunc
+    </a>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-note">© 2026 Campus Swap · UNC Chapel Hill</div>
+    <div class="footer-links">
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms</a>
+      <a href="/about">About</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function copyMessage() {
+    const text = "Hey! Move-out is coming up and I found something you need to know about. It's called Campus Swap — they show up with a truck, move all your furniture out for free, sell it to incoming students, and you keep 50% of everything that sells. Completely free to you. Takes 5 minutes to sign up: campusswapunc.com";
+    navigator.clipboard.writeText(text).then(() => {
+      const el = document.getElementById('copy-confirm');
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3500);
+    });
+  }
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+  });
+</script>
+</body>
+</html>
