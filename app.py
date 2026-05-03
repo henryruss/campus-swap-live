@@ -9655,8 +9655,11 @@ def get_item_unit_size(item):
 
 
 def get_seller_unit_count(seller):
-    """Sum of unit sizes for all 'available' items belonging to this seller."""
-    items = InventoryItem.query.filter_by(seller_id=seller.id, status='available').all()
+    """Sum of unit sizes for all active items (not rejected/needs_info) belonging to this seller."""
+    items = InventoryItem.query.filter(
+        InventoryItem.seller_id == seller.id,
+        InventoryItem.status.notin_(['rejected', 'needs_info']),
+    ).all()
     return sum(get_item_unit_size(i) for i in items)
 
 
@@ -9931,6 +9934,44 @@ def admin_shift_add_truck(shift_id):
     if 'text/html' in accept and not request.is_json and not request.headers.get('X-Requested-With'):
         return redirect(url_for('admin_ops', shift_id=shift_id))
     return jsonify({'new_truck_number': new_truck_number})
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/truck/<int:truck_number>/remove', methods=['POST'])
+@login_required
+def admin_shift_remove_truck(shift_id, truck_number):
+    """Decrement Shift.trucks by 1. Only the highest-numbered empty truck can be removed."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+
+    if shift.trucks <= 1:
+        flash("Cannot remove the last truck.", "error")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    if truck_number != shift.trucks:
+        flash("Only the highest-numbered truck can be removed.", "error")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    stop_count = ShiftPickup.query.filter_by(shift_id=shift_id, truck_number=truck_number).count()
+    if stop_count > 0:
+        flash("Remove all stops from this truck before deleting it.", "error")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    from sqlalchemy import text as _text
+    db.session.execute(_text("UPDATE shift SET trucks = trucks - 1 WHERE id = :id"), {'id': shift_id})
+    db.session.commit()
+
+    # Remove truck from unit plan if present
+    shift_fresh = Shift.query.get(shift_id)
+    if shift_fresh and shift_fresh.truck_unit_plan:
+        import json as _json
+        plan = dict(_json.loads(shift_fresh.truck_unit_plan))
+        plan.pop(str(truck_number), None)
+        shift_fresh.truck_unit_plan = _json.dumps(plan)
+        db.session.commit()
+
+    flash(f"Truck {truck_number} removed.", "success")
+    return redirect(url_for('admin_ops', shift_id=shift_id))
 
 
 @app.route('/admin/crew/shift/<int:shift_id>/order', methods=['POST'])

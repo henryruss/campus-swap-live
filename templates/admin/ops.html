@@ -417,6 +417,12 @@
   .btn-sm.primary:hover { background: var(--accent-hover); }
   .btn-sm.danger { color: #dc2626; border-color: #fecaca; }
   .btn-sm.danger:hover { background: #fef2f2; }
+  .btn-remove-truck {
+    font-size: 0.75rem; padding: 4px 8px; border-radius: 7px;
+    border: 1px solid #fecaca; background: none; cursor: pointer;
+    color: #dc2626; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .btn-remove-truck:hover { background: #fef2f2; }
 
   /* Empty state */
   .ops-empty-state {
@@ -578,6 +584,16 @@
                   onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
             <i class="fas fa-list"></i> View stops
           </button>
+
+          {% if card.truck_number == shift.trucks and card.stop_rows | length == 0 %}
+          <form method="POST" action="{{ url_for('admin_shift_remove_truck', shift_id=shift.id, truck_number=card.truck_number) }}"
+                style="margin: 0;" onsubmit="return confirm('Remove Truck {{ card.truck_number }}?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn-remove-truck">
+              <i class="fas fa-times"></i> Remove truck
+            </button>
+          </form>
+          {% endif %}
         </div>
 
         {# Live state row #}
