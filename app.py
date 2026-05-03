@@ -2743,7 +2743,7 @@ def admin_panel():
     
     # Calculate database stats
     total_users = User.query.count()
-    total_items = InventoryItem.query.count()
+    total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
     sold_items = InventoryItem.query.filter_by(status='sold').count()
     pending_items_count = InventoryItem.query.filter_by(status='pending_valuation').count()
     available_items = InventoryItem.query.filter_by(status='available').count()
@@ -9833,15 +9833,8 @@ def _run_auto_assignment():
         query = Shift.query.join(ShiftWeek, Shift.week_id == ShiftWeek.id)
         query = query.filter(ShiftWeek.week_start.isnot(None))
 
-        # Filter by seller.pickup_week (week1/week2) based on week_start ranges
-        # week1 = Apr 27–May 3, week2 = May 4–May 10
-        from datetime import date
-        if seller.pickup_week == 'week1':
-            query = query.filter(ShiftWeek.week_start >= date(2026, 4, 27),
-                                 ShiftWeek.week_start <= date(2026, 5, 3))
-        elif seller.pickup_week == 'week2':
-            query = query.filter(ShiftWeek.week_start >= date(2026, 5, 4),
-                                 ShiftWeek.week_start <= date(2026, 5, 10))
+        # Sellers are placed into any available shift regardless of their stated
+        # pickup_week — admin bulk-reassigns stranded week1 sellers via settings.
 
         if pref_slot in ('am', 'pm'):
             query = query.filter(Shift.slot == pref_slot)
@@ -11150,34 +11143,17 @@ def _ops_build_unassigned_panel(shift):
         if s.has_pickup_location
     ]
 
-    # Filter by pickup_week matching shift's week
-    shift_week_start = shift.week.week_start if shift.week else None
-    from datetime import date as _date_cls
-    if shift_week_start:
-        from constants import PICKUP_WEEK_DATE_RANGES
-        # Determine which pickup_week (week1/week2/week3) this shift belongs to
-        shift_date = _ops_shift_date(shift)
-        shift_pickup_week = None
-        for wk, (start_str, end_str) in PICKUP_WEEK_DATE_RANGES.items():
-            start = _date_cls.fromisoformat(start_str)
-            end = _date_cls.fromisoformat(end_str)
-            if start <= shift_date <= end:
-                shift_pickup_week = wk
-                break
+    # Split by slot preference — sellers with a non-matching pref are dimmed but visible
+    def _slot_match(seller):
+        pref = seller.pickup_time_preference
+        if pref == 'morning' and shift.slot != 'am':
+            return False
+        if pref == 'afternoon' and shift.slot != 'pm':
+            return False
+        return True
 
-        def _slot_match(seller):
-            pref = seller.pickup_time_preference
-            if pref == 'morning' and shift.slot != 'am':
-                return False
-            if pref == 'afternoon' and shift.slot != 'pm':
-                return False
-            return True
-
-        slot_matched = [s for s in all_unassigned if _slot_match(s)]
-        slot_unmatched = [s for s in all_unassigned if not _slot_match(s)]
-    else:
-        slot_matched = all_unassigned
-        slot_unmatched = []
+    slot_matched = [s for s in all_unassigned if _slot_match(s)]
+    slot_unmatched = [s for s in all_unassigned if not _slot_match(s)]
 
     clusters = build_geographic_clusters(slot_matched)
     from datetime import datetime as _dt
@@ -11649,11 +11625,19 @@ def admin_settings():
     storage_locations = StorageLocation.query.order_by(StorageLocation.is_active.desc(), StorageLocation.name).all()
     admin_users = User.query.filter_by(is_admin=True).order_by(User.email).all()
 
+    # Count week1 sellers with no existing ShiftPickup (eligible for bulk reassign)
+    existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.with_entities(ShiftPickup.seller_id).all()}
+    week1_unassigned_count = User.query.filter(
+        User.pickup_week == 'week1',
+        User.id.notin_(existing_pickup_ids),
+    ).count()
+
     return render_template(
         'admin/settings.html',
         categories=categories,
         storage_locations=storage_locations,
         admin_users=admin_users,
+        week1_unassigned_count=week1_unassigned_count,
         # Route settings
         truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
         truck_capacity_buffer_pct=AppSetting.get('truck_capacity_buffer_pct', '10'),
@@ -11737,6 +11721,30 @@ def admin_generate_shifts():
     date_range = f"{start_date.strftime('%b %-d')}–{end_date.strftime('%b %-d')}"
     flash(f"Generated {created_count} shift(s) for {date_range}.", "success")
     return redirect(url_for('admin_settings') + '#pickup-window')
+
+
+@app.route('/admin/settings/reassign-week', methods=['POST'])
+@login_required
+def admin_reassign_week():
+    """Bulk-set pickup_week='week2' for all week1 sellers with no existing ShiftPickup."""
+    if not current_user.is_super_admin:
+        abort(403)
+
+    existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.with_entities(ShiftPickup.seller_id).all()}
+    sellers_to_move = User.query.filter(
+        User.pickup_week == 'week1',
+        User.id.notin_(existing_pickup_ids),
+    ).all()
+
+    if not sellers_to_move:
+        flash("No Week 1 sellers without an existing route assignment.", "info")
+    else:
+        for seller in sellers_to_move:
+            seller.pickup_week = 'week2'
+        db.session.commit()
+        flash(f"Moved {len(sellers_to_move)} seller(s) from Week 1 to Week 2.", "success")
+
+    return redirect(url_for('admin_settings') + '#pickup-week-override')
 
 
 if __name__ == '__main__':

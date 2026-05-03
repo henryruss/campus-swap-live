@@ -84,6 +84,7 @@
 
   <div class="nav-links">
     <a href="#pickup-window" class="nav-link">Pickup window</a>
+    <a href="#pickup-week-override" class="nav-link">Week override</a>
     <a href="#route" class="nav-link">Route & capacity</a>
     <a href="#storage" class="nav-link">Storage locations</a>
     <a href="#sms" class="nav-link">SMS notifications</a>
@@ -129,6 +130,34 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  {# ── 1b. Pickup Week Override ── #}
+  <div class="settings-section" id="pickup-week-override">
+    <div class="settings-section-header">
+      <i class="fas fa-exchange-alt" style="color: var(--accent);"></i>
+      <h2>Pickup week override</h2>
+    </div>
+    <div class="settings-section-body">
+      {% if week1_unassigned_count > 0 %}
+      <p style="font-size: 0.83rem; color: var(--text-muted); margin: 0 0 14px;">
+        <strong style="color: var(--text-main);">{{ week1_unassigned_count }} seller{{ 's' if week1_unassigned_count != 1 }} are currently assigned to Week 1.</strong>
+        If Week 1 pickups are not running, reassign them to Week 2.
+        Sellers with an existing route stop are excluded.
+      </p>
+      <form method="POST" action="{{ url_for('admin_reassign_week') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-primary btn-save"
+                onclick="return confirm('Move {{ week1_unassigned_count }} seller{{ 's' if week1_unassigned_count != 1 }} from Week 1 to Week 2?')">
+          <i class="fas fa-arrow-right"></i> Move all Week 1 sellers &rarr; Week 2
+        </button>
+      </form>
+      {% else %}
+      <p style="font-size: 0.83rem; color: var(--text-muted); margin: 0;">
+        No Week 1 sellers without an existing route assignment.
+      </p>
+      {% endif %}
     </div>
   </div>
 
