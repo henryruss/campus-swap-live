@@ -9764,13 +9764,13 @@ def _run_auto_assignment():
     # All seller_ids that already have a ShiftPickup
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.all()}
 
-    # Eligible sellers: has available items, no pickup yet, pickup_week set, address complete
+    # Eligible sellers: has at least one active item (not rejected/needs_info), no pickup yet, pickup_week set, address complete
     eligible_sellers = [
         s for s in (
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
-                InventoryItem.status == 'available',
+                InventoryItem.status.notin_(['rejected', 'needs_info']),
                 User.pickup_week.isnot(None),
                 User.id.notin_(existing_pickup_ids),
             )
@@ -11132,7 +11132,7 @@ def _ops_build_unassigned_panel(shift):
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
-                InventoryItem.status == 'available',
+                InventoryItem.status.notin_(['rejected', 'needs_info']),
                 User.pickup_week.isnot(None),
                 User.id.notin_(assigned_seller_ids),
             )
