@@ -11118,7 +11118,10 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'stops_done': stops_done,
                 'stops_issue': stops_issue,
                 'items_total': sum(
-                    InventoryItem.query.filter_by(seller_id=p.seller_id, status='available').count()
+                    InventoryItem.query.filter(
+                        InventoryItem.seller_id == p.seller_id,
+                        InventoryItem.status.notin_(['rejected', 'needs_info']),
+                    ).count()
                     for p in truck_stops
                 ),
                 'current_stop': current_stop,
@@ -11146,7 +11149,10 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'unit_count': unit_count,
                 'is_new': _is_new(p),
                 'is_rescheduled': p.rescheduled_from_shift_id is not None,
-                'item_count': InventoryItem.query.filter_by(seller_id=seller.id, status='available').count(),
+                'item_count': InventoryItem.query.filter(
+                    InventoryItem.seller_id == seller.id,
+                    InventoryItem.status.notin_(['rejected', 'needs_info']),
+                ).count(),
             })
 
         # Capacity bar pct
@@ -11424,7 +11430,7 @@ def admin_items():
     view = request.args.get('view', 'all')  # 'all' or 'approve'
 
     # Stats bar
-    total_items = InventoryItem.query.count()
+    total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
     pending_approval = InventoryItem.query.filter_by(status='pending_valuation').count()
     available_count = InventoryItem.query.filter_by(status='available').count()
     sold_count = InventoryItem.query.filter_by(status='sold').count()
