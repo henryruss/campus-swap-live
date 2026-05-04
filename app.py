@@ -4074,6 +4074,8 @@ def process_pending_onboard(user):
         user.pickup_week = pending.get('pickup_week')
     if pending.get('pickup_time_preference'):
         user.pickup_time_preference = pending.get('pickup_time_preference')
+    if pending.get('class_year'):
+        user.class_year = pending.get('class_year')
     user.payout_method = pending.get('payout_method')
     user.payout_handle = pending.get('payout_handle')
     user.is_seller = True
@@ -5287,6 +5289,10 @@ def onboard():
             current_user.payout_handle = payout_handle
             current_user.is_seller = True
 
+        _class_year = (request.form.get('class_year') or '').strip()
+        if _class_year in {'freshman', 'sophomore', 'junior', 'senior', 'grad'}:
+            current_user.class_year = _class_year
+
         db.session.commit()
 
         # Subcategory validation
@@ -5603,6 +5609,7 @@ def onboard_guest_save():
     elif category_requires_video(cat_name, guest_sub_cat_name):
         return _err("A video is required for this item category.")
 
+    _guest_class_year = request.form.get('class_year', '').strip()
     session['pending_onboard'] = {
         'category_id': int(cat_id),
         'subcategory_id': guest_subcategory_id,
@@ -5623,6 +5630,7 @@ def onboard_guest_save():
         'phone': phone_raw[:20] if len(phone_raw) >= 10 else None,
         'payout_method': None,
         'payout_handle': None,
+        'class_year': _guest_class_year if _guest_class_year in {'freshman', 'sophomore', 'junior', 'senior', 'grad'} else None,
         'photo_filenames': photo_filenames,
         'temp_photo_ids': temp_photo_ids,
         'guest_upload_token': guest_upload_token,

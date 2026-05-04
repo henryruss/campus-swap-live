@@ -75,6 +75,10 @@ class User(UserMixin, db.Model):
     sms_opted_out = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     # Set True on STOP, False on UNSTOP/START. Only written by the Twilio inbound webhook.
 
+    # CLASS YEAR
+    class_year = db.Column(db.String(20), nullable=True)
+    # Values: 'freshman' | 'sophomore' | 'junior' | 'senior' | 'grad' | NULL = not provided
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True)
 

@@ -47,6 +47,17 @@
                 <div style="color: var(--text-muted); font-size: 0.8rem;">Referral Source</div>
                 <div style="font-weight: 600;">{{ seller.referral_source or '—' }}</div>
             </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">Class Year</div>
+                <div style="font-weight: 600;">
+                    {% if seller.class_year == 'freshman' %}Freshman
+                    {% elif seller.class_year == 'sophomore' %}Sophomore
+                    {% elif seller.class_year == 'junior' %}Junior
+                    {% elif seller.class_year == 'senior' %}Senior
+                    {% elif seller.class_year == 'grad' %}Grad Student
+                    {% else %}—{% endif %}
+                </div>
+            </div>
         </div>
     </div>
 

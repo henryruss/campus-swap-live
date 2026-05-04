@@ -397,6 +397,7 @@
     <form method="POST" action="{{ url_for('onboard_guest_save') if is_guest else url_for('onboard') }}" enctype="multipart/form-data" id="onboard-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="quality" id="quality-input" value="4">
+        <input type="hidden" name="class_year" id="class-year-input" value="">
         <input type="file" name="photos" id="file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none;">
         <input type="hidden" name="temp_photo_ids" id="temp-photo-ids" value="">
         <input type="file" name="video" id="video-input" accept="video/mp4,video/webm,.mp4,.mov,.webm" style="display:none;">
@@ -545,6 +546,38 @@
             <p class="price-disclaimer" style="font-size:0.85rem; color:var(--text-muted); margin-top:12px; line-height:1.5;">This is just a recommendation. Every item is different. We take into account brand, quality, and market trends when setting final prices.</p>
         </div>
 
+        <!-- Step 7: Class Year -->
+        <div class="wizard-step" id="step-7" data-step="7">
+            <h2 class="step-title">What's your class year?</h2>
+            <div class="condition-grid">
+                <label class="condition-btn">
+                    <input type="radio" name="class_year_radio" value="freshman">
+                    <strong>Freshman</strong>
+                    <span></span>
+                </label>
+                <label class="condition-btn">
+                    <input type="radio" name="class_year_radio" value="sophomore">
+                    <strong>Sophomore</strong>
+                    <span></span>
+                </label>
+                <label class="condition-btn">
+                    <input type="radio" name="class_year_radio" value="junior">
+                    <strong>Junior</strong>
+                    <span></span>
+                </label>
+                <label class="condition-btn">
+                    <input type="radio" name="class_year_radio" value="senior">
+                    <strong>Senior</strong>
+                    <span></span>
+                </label>
+                <label class="condition-btn">
+                    <input type="radio" name="class_year_radio" value="grad">
+                    <strong>Grad Student</strong>
+                    <span></span>
+                </label>
+            </div>
+        </div>
+
         <!-- Step 8: Review -->
         <div class="wizard-step" id="step-8" data-step="8">
             <h2 class="step-title">Review & publish</h2>
@@ -689,7 +722,7 @@
 <script>
 (function() {
     const isGuest = document.querySelector('.wizard-container').dataset.isGuest === 'true';
-    const TOTAL_STEPS = isGuest ? 8 : 7;
+    const TOTAL_STEPS = isGuest ? 9 : 8;
     let currentStep = 1;
     let selectedFiles = [];
     let tempPhotoFilenames = [];
@@ -732,9 +765,7 @@
         document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
         const s = document.getElementById('step-' + step);
         if (s) s.classList.add('active');
-        // Step 7 is removed (payout); step 8+ gets shifted back for progress
-        let effectivePos = step >= 8 ? step - 1 : step;
-        progressFill.style.width = (effectivePos / TOTAL_STEPS * 100) + '%';
+        progressFill.style.width = (step / TOTAL_STEPS * 100) + '%';
         currentStep = step;
         btnBack.style.visibility = step > 1 ? 'visible' : 'hidden';
         if (step === 3) {
@@ -783,18 +814,21 @@
             const desc = form.querySelector('input[name="description"]').value.trim();
             if (!desc) { showValidationError('Please give your item a name before continuing.'); return false; }
         }
+        if (step === 7) {
+            const yr = document.querySelector('input[name="class_year_radio"]:checked');
+            if (!yr) { showValidationError('Please select your class year before continuing.'); return false; }
+            document.getElementById('class-year-input').value = yr.value;
+        }
         return true;
     }
 
     btnNext.addEventListener('click', function() {
         if (!validateStep(currentStep)) return;
-        let nextStep = currentStep === 6 ? 8 : currentStep + 1; // step 7 removed (payout)
-        goStep(nextStep);
+        goStep(currentStep + 1);
     });
     btnBack.addEventListener('click', function(e) {
         e.preventDefault();
-        let prevStep = currentStep === 8 ? 6 : currentStep - 1; // step 7 removed (payout)
-        if (prevStep >= 1) goStep(prevStep);
+        if (currentStep > 1) goStep(currentStep - 1);
     });
 
     // Category selection
@@ -891,6 +925,14 @@
         radio.addEventListener('change', function() {
             const q = this.dataset.quality || (this.value === 'like_new' ? '5' : this.value);
             document.getElementById('quality-input').value = q;
+            hideValidationError();
+        });
+    });
+
+    // Class year selection
+    document.querySelectorAll('input[name="class_year_radio"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.getElementById('class-year-input').value = this.value;
             hideValidationError();
         });
     });
