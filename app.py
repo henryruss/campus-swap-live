@@ -11695,13 +11695,17 @@ def admin_crew_quick_add(shift_id):
         flash('Worker already assigned to this shift.', 'warning')
         return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
 
+    # Drivers default to truck 1 so they appear immediately on the ops page.
+    # Admin can reassign to a specific truck from the ops page if needed.
+    truck_number = 1 if role == 'driver' else None
+
     assignment = ShiftAssignment(
         shift_id=shift_id,
         worker_id=worker_id,
         role_on_shift=role,
         assigned_at=_now_eastern(),
         assigned_by_id=current_user.id,
-        truck_number=None,
+        truck_number=truck_number,
     )
     db.session.add(assignment)
     db.session.commit()
