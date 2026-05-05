@@ -9027,6 +9027,34 @@ def _worker_available_for_slot(worker, shift, week_start):
     return bool(getattr(avail, field, False))
 
 
+def _get_nearest_week_with_shifts():
+    """Return the nearest upcoming ShiftWeek that has shifts, else most recent past, else None."""
+    today = _today_eastern()
+    upcoming = (ShiftWeek.query
+        .join(Shift, Shift.week_id == ShiftWeek.id)
+        .filter(ShiftWeek.week_start >= today, Shift.is_active == True)
+        .order_by(ShiftWeek.week_start.asc())
+        .first())
+    if upcoming:
+        return upcoming
+    return ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).first()
+
+
+def _get_adjacent_weeks(current_week):
+    """Return (prev_week, next_week) ShiftWeek records relative to current_week."""
+    if not current_week:
+        return None, None
+    prev = (ShiftWeek.query
+        .filter(ShiftWeek.week_start < current_week.week_start)
+        .order_by(ShiftWeek.week_start.desc())
+        .first())
+    next_ = (ShiftWeek.query
+        .filter(ShiftWeek.week_start > current_week.week_start)
+        .order_by(ShiftWeek.week_start.asc())
+        .first())
+    return prev, next_
+
+
 def _notify_next_seller(shift, current_pickup=None):
     """Send 'you're up next' SMS to the next pending seller on current_pickup's truck."""
     if not current_pickup:
@@ -9346,6 +9374,9 @@ def admin_schedule_optimize(week_id):
         if under:
             msg += f" {under} shift{'s' if under != 1 else ''} understaffed — see below."
         flash(msg, "success")
+    next_url = request.form.get('next')
+    if next_url and next_url.startswith('/admin/'):
+        return redirect(next_url)
     return redirect(url_for('admin_schedule_week', week_id=week_id))
 
 
@@ -11548,10 +11579,79 @@ def admin_sellers():
 @app.route('/admin/crew')
 @login_required
 def admin_crew_panel():
-    """Crew tab — pending applications + approved workers."""
+    """Crew HQ — worker cards, shift board, and pending applications."""
     if not current_user.is_admin:
         abort(403)
 
+    # Determine displayed week
+    week_id = request.args.get('week_id', type=int)
+    if week_id:
+        displayed_week = ShiftWeek.query.get_or_404(week_id)
+    else:
+        displayed_week = _get_nearest_week_with_shifts()
+
+    # Prev/next weeks
+    prev_week, next_week = _get_adjacent_weeks(displayed_week)
+
+    # Shifts for displayed week, sorted
+    if displayed_week:
+        shifts = (Shift.query
+            .filter_by(week_id=displayed_week.id, is_active=True)
+            .order_by(Shift.day_of_week, Shift.slot)
+            .all())
+        shifts.sort(key=lambda s: s.sort_key)
+    else:
+        shifts = []
+
+    # Approved workers
+    approved_workers = (
+        User.query
+        .filter_by(is_worker=True, worker_status='approved')
+        .order_by(User.full_name.asc())
+        .all()
+    )
+
+    # Current calendar week start (Monday)
+    today = _today_eastern()
+    current_week_start = today - timedelta(days=today.weekday())
+
+    # Per-worker: shifts this (calendar) week + availability
+    for worker in approved_workers:
+        worker._week_shifts = (
+            ShiftAssignment.query
+            .join(Shift, ShiftAssignment.shift_id == Shift.id)
+            .filter(ShiftAssignment.worker_id == worker.id, Shift.is_active == True)
+            .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+            .filter(ShiftWeek.week_start == current_week_start)
+            .all()
+        )
+        worker._availability = _get_worker_availability_for_week(worker, current_week_start)
+
+    # Per-shift: assignments + available workers for dropdown
+    for shift in shifts:
+        shift._assignments = ShiftAssignment.query.filter_by(shift_id=shift.id).all()
+        assigned_ids = {a.worker_id for a in shift._assignments}
+        if displayed_week:
+            shift._available_workers = [
+                w for w in approved_workers
+                if w.id not in assigned_ids
+                and _worker_available_for_slot(w, shift, displayed_week.week_start)
+            ]
+        else:
+            shift._available_workers = []
+
+    # Re-notify flags: shift has last_notified_at AND any assignment added after it
+    shifts_needing_renotify = set()
+    for shift in shifts:
+        if shift.last_notified_at:
+            late_add = any(
+                a.assigned_at and a.assigned_at > shift.last_notified_at
+                for a in shift._assignments
+            )
+            if late_add:
+                shifts_needing_renotify.add(shift.id)
+
+    # Pending applications
     pending_apps = (
         WorkerApplication.query
         .join(User, WorkerApplication.user_id == User.id)
@@ -11559,21 +11659,6 @@ def admin_crew_panel():
         .order_by(WorkerApplication.applied_at.desc())
         .all()
     )
-
-    approved_workers = (
-        User.query
-        .filter_by(worker_status='approved')
-        .order_by(User.full_name.asc())
-        .all()
-    )
-
-    # Shift completion counts per worker
-    for w in approved_workers:
-        w._shifts_done = ShiftAssignment.query.filter_by(
-            worker_id=w.id
-        ).filter(ShiftAssignment.completed_at.isnot(None)).count()
-
-    # Availability for pending applicants
     for app_rec in pending_apps:
         app_rec._avail = WorkerAvailability.query.filter_by(
             user_id=app_rec.user_id, week_start=None
@@ -11581,9 +11666,64 @@ def admin_crew_panel():
 
     return render_template(
         'admin/crew.html',
-        pending_apps=pending_apps,
+        displayed_week=displayed_week,
+        prev_week=prev_week,
+        next_week=next_week,
+        shifts=shifts,
         approved_workers=approved_workers,
+        shifts_needing_renotify=shifts_needing_renotify,
+        pending_apps=pending_apps,
     )
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/quick-add', methods=['POST'])
+@login_required
+def admin_crew_quick_add(shift_id):
+    """Add a worker to a shift from Crew HQ."""
+    if not current_user.is_admin:
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    worker_id = int(request.form['worker_id'])
+    role = request.form.get('role', 'driver')
+    if role not in ('driver', 'organizer'):
+        role = 'driver'
+
+    existing = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, worker_id=worker_id
+    ).first()
+    if existing:
+        flash('Worker already assigned to this shift.', 'warning')
+        return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
+
+    assignment = ShiftAssignment(
+        shift_id=shift_id,
+        worker_id=worker_id,
+        role_on_shift=role,
+        assigned_at=_now_eastern(),
+        assigned_by_id=current_user.id,
+        truck_number=None,
+    )
+    db.session.add(assignment)
+    db.session.commit()
+    flash(f'Worker added to {shift.label}.', 'success')
+    return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/quick-remove', methods=['POST'])
+@login_required
+def admin_crew_quick_remove(shift_id):
+    """Remove a worker from a shift from Crew HQ. No email sent."""
+    if not current_user.is_admin:
+        abort(403)
+    assignment_id = int(request.form['assignment_id'])
+    assignment = ShiftAssignment.query.get_or_404(assignment_id)
+    shift = assignment.shift
+    week_id = shift.week_id
+    db.session.delete(assignment)
+    db.session.commit()
+    # No email sent. Re-notify flag appears only for adds (no new fields).
+    flash(f'Worker removed from {shift.label}.', 'success')
+    return redirect(url_for('admin_crew_panel', week_id=week_id) + f'#shift-{shift.id}')
 
 
 @app.route('/admin/settings', methods=['GET', 'POST'])

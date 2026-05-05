@@ -123,12 +123,7 @@
   <div class="form-card">
     <h2 style="font-family: 'DM Serif Display', serif; color: var(--primary); margin: 0 0 24px; font-size: 1.6rem;">Apply Now</h2>
 
-    {% if false and current_user.is_authenticated and not current_user.email.endswith('.edu') %}
-    <div class="prefill-notice">
-      <i class="fas fa-info-circle"></i>
-      Your current account uses a non-.edu email. Applications require a .edu address.
-      <a href="{{ url_for('logout') }}?next=/crew/apply" style="color: var(--primary); font-weight: 600;">Sign out</a> and apply with your student email.
-    </div>
+    {% if false %}{# placeholder — application open to all emails #}
     {% else %}
 
     <form method="POST" action="{{ url_for('crew_apply') }}" id="apply-form">
@@ -150,11 +145,11 @@
                placeholder="Jane Smith" required>
       </div>
       <div class="form-group">
-        <label for="email">UNC Email (unc.edu) <span class="required">*</span></label>
+        <label for="email">Email <span class="required">*</span></label>
         <input type="email" id="email" name="email"
                value="{{ form_data.email if form_data else '' }}"
-               placeholder="jsmith@unc.edu" required>
-        <div class="field-error-msg" id="email-error">Must be a UNC Chapel Hill email (unc.edu).</div>
+               placeholder="you@example.com" required>
+        <div class="field-error-msg" id="email-error" style="display:none;"></div>
       </div>
       <div class="form-group">
         <label for="phone">Phone <span class="required">*</span></label>
@@ -209,23 +204,6 @@
 </div>
 
 <script>
-// .edu client-side validation
-var emailInput = document.getElementById('email');
-var emailError = document.getElementById('email-error');
-if (emailInput) {
-  emailInput.addEventListener('blur', function() {
-    var val = emailInput.value.trim().toLowerCase();
-    var domain = val.split('@').pop();
-    if (val && domain !== 'unc.edu' && !domain.endsWith('.unc.edu')) {
-      emailInput.classList.add('field-error');
-      if (emailError) emailError.style.display = 'block';
-    } else {
-      emailInput.classList.remove('field-error');
-      if (emailError) emailError.style.display = 'none';
-    }
-  });
-}
-
 // Character counter for blurb
 var blurbArea = document.getElementById('why_blurb');
 var blurbCount = document.getElementById('blurb-count');

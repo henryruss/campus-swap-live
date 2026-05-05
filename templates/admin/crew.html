@@ -2,20 +2,174 @@
 
 {% block admin_content %}
 <style>
-  .crew-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
-  .crew-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 24px; }
+  /* ── Layout ── */
+  .crew-hq { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+  .crew-hq h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 28px; }
+  .crew-hq h2 { font-size: 1rem; font-weight: 700; color: var(--primary); margin: 0 0 16px; }
 
-  .crew-section-header {
-    font-size: 0.85rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 12px;
+  /* ── Section headers ── */
+  .section-label {
+    font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--text-muted); margin: 0 0 14px;
     display: flex; align-items: center; gap: 8px;
   }
-  .crew-count-badge {
+  .section-label .badge {
     background: var(--accent); color: white; border-radius: 10px;
-    padding: 1px 8px; font-size: 0.7rem; font-weight: 700;
+    padding: 1px 8px; font-size: 0.68rem; font-weight: 700;
+  }
+  .section-label .badge-green {
+    background: var(--sage); color: white; border-radius: 10px;
+    padding: 1px 8px; font-size: 0.68rem; font-weight: 700;
   }
 
-  .crew-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-bottom: 32px; }
+  /* ── Worker card grid ── */
+  .worker-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 700px) {
+    .worker-card-grid { grid-template-columns: 1fr; }
+  }
+
+  .worker-card {
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .worker-card-name {
+    font-weight: 700; color: var(--primary); font-size: 0.92rem;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .role-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 8px;
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+    background: #e0e7ff; color: #3730a3; letter-spacing: 0.04em;
+  }
+  .shift-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 22px; }
+  .shift-pill {
+    background: var(--bg-cream); color: var(--primary);
+    border: var(--card-border); border-radius: 6px;
+    padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
+  }
+  .no-shifts-text { color: var(--text-muted); font-size: 0.78rem; line-height: 22px; }
+
+  /* ── Mini availability grid ── */
+  .mini-avail-grid { border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+  .mini-avail-grid th, .mini-avail-grid td {
+    width: 18px; height: 14px; text-align: center; padding: 0;
+  }
+  .mini-avail-grid th { color: var(--text-muted); font-size: 9px; font-weight: 600; }
+  .mini-avail-grid .slot-label { color: var(--text-muted); font-size: 9px; padding-right: 4px; text-align: right; }
+  .avail-cell { border-radius: 2px; }
+  .avail-cell.avail-green { background: #c8e6c9; }
+  .avail-cell.avail-grey  { background: #e0e0e0; }
+
+  /* ── Shift board ── */
+  .shift-board { margin-bottom: 40px; }
+  .shift-board-header {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .shift-board-header h2 { margin: 0; }
+  .week-nav-arrow {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 50%;
+    border: var(--card-border); background: var(--card-bg);
+    color: var(--primary); font-size: 1rem; text-decoration: none;
+    transition: background 0.15s;
+  }
+  .week-nav-arrow:hover { background: var(--bg-cream); }
+  .week-nav-arrow.disabled { color: var(--text-muted); pointer-events: none; opacity: 0.4; }
+
+  .shift-row {
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  }
+  .shift-row-left { min-width: 130px; }
+  .shift-day-label { font-weight: 700; color: var(--primary); font-size: 0.9rem; }
+  .shift-date-muted { font-size: 0.74rem; color: var(--text-muted); margin-top: 2px; }
+  .slot-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 5px;
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    background: var(--bg-cream); color: var(--primary); margin-left: 4px;
+  }
+  .truck-count { font-size: 0.74rem; color: var(--text-muted); margin-top: 3px; }
+
+  .shift-row-middle { flex: 1; min-width: 200px; }
+  .assigned-workers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .worker-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--bg-cream); border: var(--card-border);
+    border-radius: 6px; padding: 3px 8px; font-size: 0.78rem;
+  }
+  .worker-badge-role {
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+    background: #e0e7ff; color: #3730a3; border-radius: 4px; padding: 1px 4px;
+  }
+  .worker-badge-role.driver { background: #dcfce7; color: #166534; }
+  .remove-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 0.8rem; line-height: 1;
+    padding: 0; margin-left: 2px;
+  }
+  .remove-btn:hover { color: #dc2626; }
+  .no-assigned-text { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 10px; }
+
+  /* Add worker form */
+  .add-worker-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .add-worker-form select {
+    font-size: 0.78rem; padding: 4px 8px; border: var(--card-border);
+    border-radius: 6px; background: var(--card-bg); color: var(--text-main);
+    max-width: 180px;
+  }
+  .add-worker-form select:disabled { color: var(--text-muted); }
+  .add-worker-form .role-select { max-width: 110px; }
+  .add-btn {
+    padding: 4px 12px; font-size: 0.78rem; font-weight: 600;
+    background: var(--primary); color: var(--text-light);
+    border: none; border-radius: 6px; cursor: pointer;
+  }
+  .add-btn:hover { background: var(--primary-light); }
+  .add-btn:disabled { opacity: 0.5; cursor: default; }
+
+  /* Re-notify badge */
+  .renotify-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #fef3c7; color: #92400e; border: 1px solid #fde68a;
+    border-radius: 6px; padding: 3px 10px; font-size: 0.74rem; font-weight: 600;
+    margin-left: auto;
+  }
+
+  /* Optimizer button */
+  .optimizer-row { margin-top: 14px; }
+
+  /* ── Applications section ── */
+  .crew-hq-applications {
+    border: var(--card-border); border-radius: 10px;
+    background: var(--card-bg); margin-bottom: 40px;
+  }
+  .crew-hq-applications summary {
+    padding: 14px 18px; cursor: pointer; font-weight: 700;
+    color: var(--primary); font-size: 0.9rem; list-style: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .crew-hq-applications summary::-webkit-details-marker { display: none; }
+  .crew-hq-applications summary::before {
+    content: '▶'; font-size: 0.7rem; color: var(--text-muted);
+    transition: transform 0.2s;
+  }
+  .crew-hq-applications[open] summary::before { transform: rotate(90deg); }
+  .crew-hq-applications-inner { padding: 0 18px 18px; }
+
+  /* Applications table (same as old crew.html) */
+  .crew-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-bottom: 16px; }
   .crew-table th {
     padding: 9px 10px; background: var(--bg-cream); border-bottom: var(--card-border);
     text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
@@ -31,141 +185,276 @@
   .avail-day { text-align: center; }
   .avail-day-label { color: var(--text-muted); font-size: 0.65rem; }
   .avail-slot {
-    border-radius: 3px; padding: 1px 0; text-align: center; font-size: 0.62rem;
-    margin-top: 1px;
+    border-radius: 3px; padding: 1px 0; text-align: center; font-size: 0.62rem; margin-top: 1px;
   }
   .avail-slot.yes { background: #dcfce7; color: #166534; }
-  .avail-slot.no { background: #fee2e2; color: #991b1b; }
+  .avail-slot.no  { background: #fee2e2; color: #991b1b; }
 
   .expand-row { cursor: pointer; }
-  .expand-row td { padding: 9px 10px; }
   .expand-details { display: none; }
   .expand-details td { padding: 8px 10px 16px; background: #fafafa; font-size: 0.82rem; }
   .expand-details.open { display: table-row; }
-
-  .role-badge {
-    display: inline-block; padding: 2px 8px; border-radius: 10px;
-    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
-    background: #e0e7ff; color: #3730a3;
-  }
 </style>
 
-<div class="crew-wrap">
-  <h1>Crew</h1>
+<div class="crew-hq">
+  <h1>Crew HQ</h1>
 
-  {# ── Pending applications ── #}
-  <div class="crew-section-header">
-    Pending applications
-    {% if pending_apps %}
-    <span class="crew-count-badge">{{ pending_apps | length }}</span>
-    {% endif %}
-  </div>
-
-  {% if not pending_apps %}
-  <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 32px;">No pending applications.</p>
-  {% else %}
-  <table class="crew-table">
-    <thead>
-      <tr>
-        <th></th>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Applied</th>
-        <th>Role pref</th>
-        <th>Availability</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for app in pending_apps %}
-      <tr class="expand-row" onclick="toggleExpand('app-{{ app.id }}', this)">
-        <td style="width: 28px; color: var(--text-muted);">
-          <i class="fas fa-chevron-right" id="chevron-app-{{ app.id }}" style="font-size: 0.75rem; transition: transform 0.2s;"></i>
-        </td>
-        <td style="font-weight: 600; color: var(--primary);">{{ app.user.full_name }}</td>
-        <td>{{ app.user.email }}</td>
-        <td style="font-size: 0.78rem; color: var(--text-muted);">{{ app.applied_at.strftime('%b %-d') if app.applied_at else '—' }}</td>
-        <td><span class="role-badge">{{ app.role_pref or '—' }}</span></td>
-        <td style="font-size: 0.78rem; color: var(--text-muted);">
-          {% if app._avail %}
-          <div class="avail-grid">
-            {% set avail = app._avail %}
-            {% for day_short, day_attr in [('M','mon'),('T','tue'),('W','wed'),('Th','thu'),('F','fri'),('Sa','sat'),('Su','sun')] %}
-            <div class="avail-day">
-              <div class="avail-day-label">{{ day_short }}</div>
-              <div class="avail-slot {{ 'yes' if avail[day_attr + '_am'] else 'no' }}">AM</div>
-              <div class="avail-slot {{ 'yes' if avail[day_attr + '_pm'] else 'no' }}">PM</div>
-            </div>
-            {% endfor %}
-          </div>
-          {% else %}—{% endif %}
-        </td>
-        <td onclick="event.stopPropagation()" style="white-space: nowrap;">
-          <form method="POST" action="{{ url_for('admin_crew_approve', user_id=app.user_id) }}" style="display:inline;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <button type="submit" class="btn-primary" style="padding: 4px 10px; font-size: 0.78rem;">Approve</button>
-          </form>
-          <form method="POST" action="{{ url_for('admin_crew_reject', user_id=app.user_id) }}" style="display:inline; margin-left: 4px;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <button type="submit" class="btn-outline" style="padding: 4px 10px; font-size: 0.78rem; color: #dc2626; border-color: #fecaca;">Reject</button>
-          </form>
-        </td>
-      </tr>
-      <tr class="expand-details" id="app-{{ app.id }}">
-        <td colspan="7">
-          {% if app.why_blurb %}
-          <strong style="font-size: 0.78rem; color: var(--text-muted);">Why they want to crew:</strong>
-          <p style="margin: 4px 0 0; color: var(--text-main);">{{ app.why_blurb }}</p>
-          {% else %}
-          <em style="color: var(--text-muted);">No why blurb provided.</em>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {# ── Approved workers ── #}
-  <div class="crew-section-header">
-    Approved workers
+  {# ══════════════════════════════════════════════════════
+     Section 1: Worker Cards
+     Always shows current calendar week's shifts.
+  ══════════════════════════════════════════════════════ #}
+  <div class="section-label">
+    Workers
     {% if approved_workers %}
-    <span style="background: var(--sage); color: white; border-radius: 10px; padding: 1px 8px; font-size: 0.7rem; font-weight: 700;">{{ approved_workers | length }}</span>
+      <span class="badge-green">{{ approved_workers | length }}</span>
     {% endif %}
   </div>
 
   {% if not approved_workers %}
-  <p style="color: var(--text-muted); font-size: 0.85rem;">No approved workers yet.</p>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 32px;">No approved workers yet.</p>
   {% else %}
-  <table class="crew-table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Role</th>
-        <th>Shifts completed</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for w in approved_workers %}
-      <tr>
-        <td style="font-weight: 600; color: var(--primary);">{{ w.full_name }}</td>
-        <td>{{ w.email }}</td>
-        <td><span class="role-badge">{{ w.worker_role or '—' }}</span></td>
-        <td>{{ w._shifts_done }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="worker-card-grid">
+    {% for worker in approved_workers %}
+    <div class="worker-card">
+      <div class="worker-card-name">
+        {{ worker.full_name }}
+        <span class="role-badge">{{ worker.worker_role or 'BOTH' }}</span>
+      </div>
+
+      {# Shift pills for current calendar week #}
+      <div class="shift-pills">
+        {% if worker._week_shifts %}
+          {% for a in worker._week_shifts %}
+            <span class="shift-pill">{{ a.shift.label }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="no-shifts-text">No shifts this week</span>
+        {% endif %}
+      </div>
+
+      {# Mini 7×2 availability grid #}
+      {% set avail = worker._availability %}
+      <table class="mini-avail-grid">
+        <tr>
+          <th></th>
+          {% for day_label in ['M','T','W','T','F','S','S'] %}
+            <th>{{ day_label }}</th>
+          {% endfor %}
+        </tr>
+        {% for slot in ['am', 'pm'] %}
+        <tr>
+          <td class="slot-label">{{ slot | upper }}</td>
+          {% for day_key in ['mon','tue','wed','thu','fri','sat','sun'] %}
+            {% set field = day_key + '_' + slot %}
+            {% if avail %}
+              {% set available = avail[field] %}
+            {% else %}
+              {% set available = true %}
+            {% endif %}
+            <td class="avail-cell {% if available %}avail-green{% else %}avail-grey{% endif %}"></td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endfor %}
+  </div>
   {% endif %}
+
+  {# ══════════════════════════════════════════════════════
+     Section 2: Shift Board
+  ══════════════════════════════════════════════════════ #}
+  <div class="shift-board">
+    <div class="shift-board-header">
+      {% if prev_week %}
+        <a href="{{ url_for('admin_crew_panel', week_id=prev_week.id) }}" class="week-nav-arrow">←</a>
+      {% else %}
+        <span class="week-nav-arrow disabled">←</span>
+      {% endif %}
+
+      <h2>
+        {% if displayed_week %}
+          Week of {{ displayed_week.week_start.strftime('%b %-d, %Y') }}
+        {% else %}
+          No weeks scheduled
+        {% endif %}
+      </h2>
+
+      {% if next_week %}
+        <a href="{{ url_for('admin_crew_panel', week_id=next_week.id) }}" class="week-nav-arrow">→</a>
+      {% else %}
+        <span class="week-nav-arrow disabled">→</span>
+      {% endif %}
+    </div>
+
+    {% if not displayed_week %}
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        No shift weeks exist yet. <a href="{{ url_for('admin_schedule_index') }}">Create a schedule →</a>
+      </p>
+    {% elif not shifts %}
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        No shifts for this week. <a href="{{ url_for('admin_schedule_week', week_id=displayed_week.id) }}">Manage schedule →</a>
+      </p>
+    {% else %}
+      {% for shift in shifts %}
+      <div class="shift-row" id="shift-{{ shift.id }}">
+        {# Left: label + date + trucks #}
+        <div class="shift-row-left">
+          <div class="shift-day-label">
+            {{ shift.label.split(' ')[0] }}
+            <span class="slot-pill">{{ shift.slot | upper }}</span>
+          </div>
+          <div class="shift-date-muted">
+            {{ (displayed_week.week_start + timedelta(days=['mon','tue','wed','thu','fri','sat','sun'].index(shift.day_of_week))).strftime('%b %-d') }}
+          </div>
+          <div class="truck-count">{{ shift.trucks }} truck{{ 's' if shift.trucks != 1 else '' }}</div>
+        </div>
+
+        {# Middle: assigned workers + add form #}
+        <div class="shift-row-middle">
+          <div class="assigned-workers">
+            {% if shift._assignments %}
+              {% for a in shift._assignments %}
+              <span class="worker-badge">
+                <span class="worker-badge-role {{ a.role_on_shift }}">{{ 'D' if a.role_on_shift == 'driver' else 'O' }}</span>
+                {{ a.worker.full_name }}
+                <form method="POST" action="{{ url_for('admin_crew_quick_remove', shift_id=shift.id) }}" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="assignment_id" value="{{ a.id }}">
+                  <button type="submit" class="remove-btn" title="Remove">×</button>
+                </form>
+              </span>
+              {% endfor %}
+            {% else %}
+              <span class="no-assigned-text">No workers assigned</span>
+            {% endif %}
+          </div>
+
+          {# Add worker form #}
+          {% if shift._available_workers %}
+          <form method="POST" action="{{ url_for('admin_crew_quick_add', shift_id=shift.id) }}" class="add-worker-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="worker_id">
+              {% for w in shift._available_workers %}
+                <option value="{{ w.id }}">{{ w.full_name }}</option>
+              {% endfor %}
+            </select>
+            <select name="role" class="role-select">
+              <option value="driver">Driver</option>
+              <option value="organizer">Organizer</option>
+            </select>
+            <button type="submit" class="add-btn">+ Add</button>
+          </form>
+          {% else %}
+          <div style="font-size: 0.78rem; color: var(--text-muted);">All workers assigned or unavailable</div>
+          {% endif %}
+        </div>
+
+        {# Re-notify flag #}
+        {% if shift.id in shifts_needing_renotify %}
+        <div>
+          <span class="renotify-badge">⚠ Re-notify needed</span>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      {# Run Optimizer #}
+      <div class="optimizer-row">
+        <form method="POST" action="{{ url_for('admin_schedule_optimize', week_id=displayed_week.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ url_for('admin_crew_panel', week_id=displayed_week.id) }}">
+          <button type="submit" class="btn-outline" style="font-size: 0.82rem; padding: 7px 16px;">Run Optimizer</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ══════════════════════════════════════════════════════
+     Section 3: Pending Applications (collapsible)
+  ══════════════════════════════════════════════════════ #}
+  <details class="crew-hq-applications" {% if pending_apps %}open{% endif %}>
+    <summary>
+      Pending Applications
+      {% if pending_apps %}
+        <span class="badge">{{ pending_apps | length }}</span>
+      {% else %}
+        <span style="color: var(--text-muted); font-weight: 400; font-size: 0.82rem;">— none</span>
+      {% endif %}
+    </summary>
+    <div class="crew-hq-applications-inner">
+      {% if not pending_apps %}
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">No pending applications.</p>
+      {% else %}
+      <table class="crew-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Applied</th>
+            <th>Availability</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for app in pending_apps %}
+          <tr class="expand-row" onclick="toggleExpand('app-{{ app.id }}', this)">
+            <td style="width: 28px; color: var(--text-muted);">
+              <i class="fas fa-chevron-right" id="chevron-app-{{ app.id }}" style="font-size: 0.75rem; transition: transform 0.2s;"></i>
+            </td>
+            <td style="font-weight: 600; color: var(--primary);">{{ app.user.full_name }}</td>
+            <td>{{ app.user.email }}</td>
+            <td style="font-size: 0.78rem; color: var(--text-muted);">{{ app.applied_at.strftime('%b %-d') if app.applied_at else '—' }}</td>
+            <td style="font-size: 0.78rem;">
+              {% if app._avail %}
+              <div class="avail-grid">
+                {% set avail = app._avail %}
+                {% for day_short, day_attr in [('M','mon'),('T','tue'),('W','wed'),('Th','thu'),('F','fri'),('Sa','sat'),('Su','sun')] %}
+                <div class="avail-day">
+                  <div class="avail-day-label">{{ day_short }}</div>
+                  <div class="avail-slot {{ 'yes' if avail[day_attr + '_am'] else 'no' }}">AM</div>
+                  <div class="avail-slot {{ 'yes' if avail[day_attr + '_pm'] else 'no' }}">PM</div>
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}—{% endif %}
+            </td>
+            <td onclick="event.stopPropagation()" style="white-space: nowrap;">
+              <form method="POST" action="{{ url_for('admin_crew_approve', user_id=app.user_id) }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn-primary" style="padding: 4px 10px; font-size: 0.78rem;">Approve</button>
+              </form>
+              <form method="POST" action="{{ url_for('admin_crew_reject', user_id=app.user_id) }}" style="display:inline; margin-left: 4px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn-outline" style="padding: 4px 10px; font-size: 0.78rem; color: #dc2626; border-color: #fecaca;">Reject</button>
+              </form>
+            </td>
+          </tr>
+          <tr class="expand-details" id="app-{{ app.id }}">
+            <td colspan="6">
+              {% if app.why_blurb %}
+              <strong style="font-size: 0.78rem; color: var(--text-muted);">Why they want to crew:</strong>
+              <p style="margin: 4px 0 0; color: var(--text-main);">{{ app.why_blurb }}</p>
+              {% else %}
+              <em style="color: var(--text-muted);">No blurb provided.</em>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </details>
 </div>
 
 <script>
-  function toggleExpand(rowId, headerRow) {
-    var detailRow = document.getElementById(rowId);
-    var chevron = document.getElementById('chevron-' + rowId);
-    var open = detailRow.classList.toggle('open');
-    if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : '';
-  }
+function toggleExpand(rowId, headerRow) {
+  var detailRow = document.getElementById(rowId);
+  var chevron = document.getElementById('chevron-' + rowId);
+  var open = detailRow.classList.toggle('open');
+  if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : '';
+}
 </script>
 {% endblock %}
