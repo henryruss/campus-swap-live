@@ -150,6 +150,29 @@
   /* Optimizer button */
   .optimizer-row { margin-top: 14px; }
 
+  /* ── Inline confirm (Remove worker) ── */
+  .inline-confirm { display: inline-block; position: relative; }
+  .inline-confirm[open] summary { opacity: 0.5; pointer-events: none; }
+  .inline-confirm-body {
+    position: absolute; right: 0; top: 100%; z-index: 10;
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: 8px; padding: 12px 16px; min-width: 260px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12); margin-top: 4px;
+  }
+  .inline-confirm-body p { margin: 0 0 10px; font-size: 0.84rem; color: var(--text-main); }
+  .btn-danger-outline {
+    display: inline-block; padding: 3px 10px; font-size: 0.72rem; font-weight: 600;
+    border: 1px solid #fecaca; border-radius: 6px; cursor: pointer;
+    background: none; color: #dc2626; list-style: none;
+  }
+  .btn-danger-outline::-webkit-details-marker { display: none; }
+  .btn-danger { background: #dc2626; color: white; border: none; border-radius: 6px; padding: 5px 12px; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-link { font-size: 0.8rem; color: var(--text-muted); cursor: pointer; margin-left: 8px; }
+  .btn-link:hover { color: var(--primary); }
+  .worker-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
+  .assignment-count { font-size: 0.72rem; color: var(--text-muted); }
+
   /* ── Applications section ── */
   .crew-hq-applications {
     border: var(--card-border); border-radius: 10px;
@@ -234,7 +257,7 @@
 
       {# Mini 7×2 availability grid #}
       {% set avail = worker._availability %}
-      <table class="mini-avail-grid">
+      <table class="mini-avail-grid" style="margin-bottom: 0;">
         <tr>
           <th></th>
           {% for day_label in ['M','T','W','T','F','S','S'] %}
@@ -256,6 +279,28 @@
         </tr>
         {% endfor %}
       </table>
+
+      {# Footer: assignment count + remove button #}
+      <div class="worker-card-footer">
+        <span class="assignment-count">
+          {% if worker._assignment_count %}
+            {{ worker._assignment_count }} shift{{ 's' if worker._assignment_count != 1 else '' }} assigned
+          {% else %}
+            —
+          {% endif %}
+        </span>
+        <details class="inline-confirm">
+          <summary class="btn-danger-outline">Remove</summary>
+          <div class="inline-confirm-body">
+            <p>Remove <strong>{{ worker.full_name }}</strong> from the crew? This will unassign them from all shifts.</p>
+            <form method="POST" action="{{ url_for('admin_crew_remove', user_id=worker.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn-danger">Yes, remove</button>
+              <span class="btn-link" onclick="this.closest('details').removeAttribute('open')">Cancel</span>
+            </form>
+          </div>
+        </details>
+      </div>
     </div>
     {% endfor %}
   </div>

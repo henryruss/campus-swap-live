@@ -7625,14 +7625,21 @@ def crew_shift_view(shift_id):
 
     shift_run = shift.run
 
+    # Include approved + available — approved items are confirmed for pickup but
+    # seller hasn't completed logistics setup yet; they still need to be collected.
+    _PICKUP_ELIGIBLE_STATUSES = ('approved', 'available')
     seller_items = {}
     item_counts = {}
-    for p in all_pickups:
-        items = InventoryItem.query.filter_by(
-            seller_id=p.seller_id, status='available'
+    seller_ids = [p.seller_id for p in all_pickups]
+    if seller_ids:
+        all_items = InventoryItem.query.filter(
+            InventoryItem.seller_id.in_(seller_ids),
+            InventoryItem.status.in_(_PICKUP_ELIGIBLE_STATUSES),
         ).all()
-        seller_items[p.seller_id] = items
-        item_counts[p.seller_id] = len(items)
+        for item in all_items:
+            seller_items.setdefault(item.seller_id, []).append(item)
+    for p in all_pickups:
+        item_counts[p.seller_id] = len(seller_items.get(p.seller_id, []))
 
     total_stops = len(all_pickups)
     done_stops = sum(1 for p in all_pickups if p.status in ('completed', 'issue'))
@@ -9055,6 +9062,27 @@ def admin_crew_reject(user_id):
     flash(f"Rejected {worker.full_name}'s application.", "success")
     return redirect(url_for('admin_panel') + '#crew')
 
+
+@app.route('/admin/crew/remove/<int:user_id>', methods=['POST'])
+@login_required
+def admin_crew_remove(user_id):
+    """Revoke worker status and delete all ShiftAssignments. Keeps user account intact."""
+    if not current_user.is_admin:
+        abort(403)
+    worker = User.query.get_or_404(user_id)
+    if not worker.is_worker or worker.worker_status != 'approved':
+        flash('User is not an active worker.', 'warning')
+        return redirect(url_for('admin_crew_panel'))
+
+    ShiftAssignment.query.filter_by(worker_id=worker.id).delete(synchronize_session=False)
+
+    worker.is_worker = False
+    worker.worker_status = 'rejected'
+    worker.worker_role = None
+    db.session.commit()
+
+    flash(f'{worker.full_name} has been removed from the crew.', 'success')
+    return redirect(url_for('admin_crew_panel'))
 
 
 # =========================================================
@@ -11686,7 +11714,7 @@ def admin_crew_panel():
     today = _today_eastern()
     current_week_start = today - timedelta(days=today.weekday())
 
-    # Per-worker: shifts this (calendar) week + availability
+    # Per-worker: shifts this (calendar) week + availability + total assignment count
     for worker in approved_workers:
         worker._week_shifts = (
             ShiftAssignment.query
@@ -11697,6 +11725,7 @@ def admin_crew_panel():
             .all()
         )
         worker._availability = _get_worker_availability_for_week(worker, current_week_start)
+        worker._assignment_count = ShiftAssignment.query.filter_by(worker_id=worker.id).count()
 
     # Per-shift: assignments + available workers for dropdown
     for shift in shifts:
