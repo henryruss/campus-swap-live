@@ -7371,7 +7371,6 @@ def crew_dashboard():
     avail_dict = _availability_as_dict(last_avail) if last_avail else None
 
     # Schedule context
-    current_week = _get_current_published_week()
     _day_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
     # Completed assignments — each role tracked independently via ShiftAssignment.completed_at
@@ -7398,16 +7397,28 @@ def crew_dashboard():
             'date': shift_date,
         })
 
-    # my_shifts: exclude shifts where THIS worker's role is already marked complete
-    my_shifts = []
-    if current_week:
-        for shift in sorted([s for s in current_week.shifts if s.is_active], key=lambda s: s.sort_key):
-            for a in shift.assignments:
-                if a.worker_id == current_user.id:
-                    if (shift.id, a.role_on_shift) in completed_shift_role_pairs:
-                        break  # this role is done — lives in Shift History
-                    my_shifts.append((shift, a.role_on_shift))
-                    break
+    # my_shifts: query assignments directly, regardless of ShiftWeek.status (draft or published).
+    # This ensures workers see their shifts as soon as admin assigns them, without waiting for publish.
+    today_date = _today_eastern()
+    current_week_start = today_date - timedelta(days=today_date.weekday())
+    upcoming_assignments = (
+        ShiftAssignment.query
+        .join(Shift, ShiftAssignment.shift_id == Shift.id)
+        .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+        .filter(
+            ShiftAssignment.worker_id == current_user.id,
+            ShiftAssignment.completed_at == None,
+            ShiftWeek.week_start >= current_week_start,
+        )
+        .all()
+    )
+    upcoming_assignments.sort(key=lambda a: (a.shift.week.week_start, a.shift.sort_key))
+    my_shifts = [(a.shift, a.role_on_shift) for a in upcoming_assignments]
+
+    # current_week for template: published week if available, else derive from first assignment
+    current_week = _get_current_published_week()
+    if current_week is None and upcoming_assignments:
+        current_week = upcoming_assignments[0].shift.week
 
     # Find today's shift for the banner — use Eastern time throughout
     _day_map = {0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu', 4: 'fri', 5: 'sat', 6: 'sun'}
@@ -7739,13 +7750,7 @@ def crew_shift_stop_update(shift_id, pickup_id):
     pickup.notes = notes or None
 
     if new_status == 'completed':
-        # Write picked_up_at on seller's available items (do not overwrite if already set)
-        items = InventoryItem.query.filter_by(
-            seller_id=pickup.seller_id, status='available'
-        ).all()
-        for item in items:
-            if not item.picked_up_at:
-                item.picked_up_at = datetime.utcnow()
+        # picked_up_at is written at End Shift (commit step), not here.
         # Spec #9: revoke any open reschedule tokens for this pickup
         open_tokens = RescheduleToken.query.filter_by(
             pickup_id=pickup.id, used_at=None, revoked_at=None
@@ -7791,16 +7796,16 @@ def crew_shift_stop_revert(shift_id, pickup_id):
     pickup.notes = None
     pickup.completed_at = None
     pickup.issue_type = None  # Spec #9: clear issue type on revert
-    # picked_up_at is intentionally left as-is — items were physically collected
+    # picked_up_at is written at End Shift, not on mark-complete, so nothing to undo here.
     # no_show_email_sent_at intentionally NOT cleared — no duplicate emails if re-flagged
     db.session.commit()
     return redirect(url_for('crew_shift_view', shift_id=shift_id))
 
 
-@app.route('/crew/shift/<int:shift_id>/end', methods=['POST'])
+@app.route('/crew/shift/<int:shift_id>/end-confirm')
 @login_required
-def crew_shift_end(shift_id):
-    """Close ShiftRun."""
+def crew_shift_end_confirm(shift_id):
+    """Confirmation page before End Shift commit."""
     if (r := _require_mover(shift_id)):
         return r
     shift = Shift.query.get_or_404(shift_id)
@@ -7809,11 +7814,69 @@ def crew_shift_end(shift_id):
     ).first()
     if not assignment:
         abort(403)
+
+    my_truck = assignment.truck_number
+    stop_query = ShiftPickup.query.filter_by(shift_id=shift.id)
+    if my_truck is not None:
+        stop_query = stop_query.filter_by(truck_number=my_truck)
+    my_stops = stop_query.order_by(
+        nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc()
+    ).all()
+
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_DAY_ORDER.index(shift.day_of_week))
+
+    return render_template(
+        'crew/shift_end_confirm.html',
+        shift=shift,
+        shift_date=shift_date,
+        stops=my_stops,
+    )
+
+
+@app.route('/crew/shift/<int:shift_id>/end', methods=['POST'])
+@login_required
+def crew_shift_end(shift_id):
+    """Close ShiftRun. Two-step: first POST redirects to confirm page; confirmed=1 commits."""
+    if (r := _require_mover(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+
+    my_truck = assignment.truck_number
+    stop_query = ShiftPickup.query.filter_by(shift_id=shift.id)
+    if my_truck is not None:
+        stop_query = stop_query.filter_by(truck_number=my_truck)
+    my_stops = stop_query.all()
+
+    confirmed = request.form.get('confirmed') == '1'
+
+    if not confirmed:
+        # Guard: all stops must be resolved before showing confirm page
+        pending = [s for s in my_stops if s.status == 'pending']
+        if pending:
+            flash("All stops must be marked Completed or Issue before ending the shift.", "error")
+            return redirect(url_for('crew_shift_view', shift_id=shift_id))
+        return redirect(url_for('crew_shift_end_confirm', shift_id=shift_id))
+
+    # Commit step: write picked_up_at on completed stops, close ShiftRun
+    for stop in my_stops:
+        if stop.status == 'completed':
+            items = InventoryItem.query.filter_by(
+                seller_id=stop.seller_id, status='available'
+            ).all()
+            for item in items:
+                if not item.picked_up_at:
+                    item.picked_up_at = datetime.utcnow()
+
     run = shift.run
     if run and run.status == 'in_progress':
         run.status = 'completed'
         run.ended_at = datetime.utcnow()
-    # Mark this driver's assignment as individually complete
     if not assignment.completed_at:
         assignment.completed_at = datetime.utcnow()
     db.session.commit()
@@ -9648,7 +9711,15 @@ def crew_schedule_week(week_id):
         return r
     week = ShiftWeek.query.get_or_404(week_id)
     if week.status != 'published':
-        return "Schedule not available.", 403
+        # Allow workers to see draft weeks they are assigned to
+        has_assignment = ShiftAssignment.query.join(
+            Shift, ShiftAssignment.shift_id == Shift.id
+        ).filter(
+            Shift.week_id == week.id,
+            ShiftAssignment.worker_id == current_user.id,
+        ).first()
+        if not has_assignment:
+            return "Schedule not available.", 403
     shifts_sorted = sorted([s for s in week.shifts if s.is_active], key=lambda s: s.sort_key)
     return render_template(
         'crew/schedule_week_partial.html',
