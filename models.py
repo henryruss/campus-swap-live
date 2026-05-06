@@ -285,24 +285,6 @@ class DigestLog(db.Model):
     recipient_count = db.Column(db.Integer, nullable=False)
 
 
-class ItemAIResult(db.Model):
-    """Stores the AI lookup result for each item. One result per item."""
-    id = db.Column(db.Integer, primary_key=True)
-    item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), unique=True, nullable=False)
-    status = db.Column(db.String(20), nullable=False, default='pending')  # 'pending' | 'found' | 'unknown' | 'error'
-    product_name = db.Column(db.String(500), nullable=True)
-    retail_price = db.Column(db.Numeric(10, 2), nullable=True)
-    retail_price_source = db.Column(db.String(500), nullable=True)
-    suggested_price = db.Column(db.Numeric(10, 2), nullable=True)
-    pricing_rationale = db.Column(db.Text, nullable=True)
-    ai_description = db.Column(db.Text, nullable=True)
-    raw_response = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    item = db.relationship('InventoryItem', backref=db.backref('ai_result', uselist=False))
-
-
 class WorkerApplication(db.Model):
     """One application per user. Stores role preference, year, and optional blurb."""
     id          = db.Column(db.Integer, primary_key=True)
