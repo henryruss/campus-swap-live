@@ -1564,12 +1564,12 @@ body.teaser-page footer { display: none; }
 }
 .worker-name-btn:hover { color: var(--primary-light); }
 
-.modal-overlay {
+#avail-modal {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.45);
   z-index: 1000;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 20px;

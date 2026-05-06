@@ -4376,12 +4376,20 @@ def dashboard():
         _sd = _sp.week.week_start + timedelta(days=_day_order.index(_sp.day_of_week))
         assigned_shift_date_str = _sd.strftime('%a, %b %-d')
 
+    has_payout_info = bool(current_user.payout_handle)
     app.logger.warning(
         f"[dashboard] user_id={current_user.id} "
         f"payout_method={current_user.payout_method!r} "
         f"payout_handle={'SET' if current_user.payout_handle else 'NONE'} "
         f"is_seller={current_user.is_seller} "
-        f"has_payout_info={bool(current_user.payout_handle)}"
+        f"has_payout_info={has_payout_info}"
+    )
+    app.logger.warning(
+        f"[dashboard] TEMPLATE VARS setup_complete={setup_complete} "
+        f"has_payout_info={has_payout_info} "
+        f"phone={bool(current_user.phone)} "
+        f"pickup_week={current_user.pickup_week!r} "
+        f"has_pickup_location={current_user.has_pickup_location}"
     )
     return render_template('dashboard.html',
                           my_items=my_items,
