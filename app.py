@@ -866,24 +866,15 @@ def run_ai_item_lookup(item_id):
         logger.error("run_ai_item_lookup called with item_id=None — skipping")
         return
 
-    def _safe_set_error(msg):
-        result = ItemAIResult.query.filter_by(item_id=item_id).first()
-        if result and result.item_id is not None:
-            result.status = 'error'
-            result.raw_response = msg
-            db.session.commit()
-
     try:
         import anthropic
     except ImportError:
-        logger.error("anthropic package not installed — AI lookup skipped")
-        _safe_set_error('anthropic package not installed')
+        logger.error("anthropic package not installed — AI lookup skipped (no DB write)")
         return
 
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
-        logger.error("ANTHROPIC_API_KEY not set — AI lookup skipped")
-        _safe_set_error('ANTHROPIC_API_KEY not set')
+        logger.error("ANTHROPIC_API_KEY not set — AI lookup skipped (no DB write)")
         return
 
     try:
@@ -1021,6 +1012,15 @@ def trigger_ai_lookup(item_id):
     if not item_id:
         logger.error("trigger_ai_lookup called with item_id=None — skipping")
         return
+
+    # Purge any orphaned records (item_id=None) that could poison future commits
+    orphans = ItemAIResult.query.filter(ItemAIResult.item_id == None).all()
+    for o in orphans:
+        db.session.delete(o)
+    if orphans:
+        db.session.commit()
+        logger.warning(f"trigger_ai_lookup: purged {len(orphans)} orphaned ItemAIResult row(s)")
+
     existing = ItemAIResult.query.filter_by(item_id=item_id).first()
     if not existing:
         existing = ItemAIResult(item_id=item_id, status='pending')
