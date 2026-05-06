@@ -4376,6 +4376,13 @@ def dashboard():
         _sd = _sp.week.week_start + timedelta(days=_day_order.index(_sp.day_of_week))
         assigned_shift_date_str = _sd.strftime('%a, %b %-d')
 
+    app.logger.warning(
+        f"[dashboard] user_id={current_user.id} "
+        f"payout_method={current_user.payout_method!r} "
+        f"payout_handle={'SET' if current_user.payout_handle else 'NONE'} "
+        f"is_seller={current_user.is_seller} "
+        f"has_payout_info={bool(current_user.payout_handle)}"
+    )
     return render_template('dashboard.html',
                           my_items=my_items,
                           unresolved_alerts=unresolved_alerts,
@@ -4550,6 +4557,20 @@ def update_profile():
 @app.route('/update_payout', methods=['POST'])
 @login_required
 def update_payout():
+    app.logger.warning(
+        f"[update_payout] START user_id={current_user.id} "
+        f"is_seller={current_user.is_seller} is_worker={current_user.is_worker} "
+        f"payout_method_before={current_user.payout_method!r} "
+        f"payout_handle_before={'SET' if current_user.payout_handle else 'NONE'}"
+    )
+    app.logger.warning(
+        f"[update_payout] FORM form_keys={list(request.form.keys())} "
+        f"payout_method={request.form.get('payout_method')!r} "
+        f"handle_len={len(request.form.get('payout_handle','').strip())} "
+        f"confirm_len={len(request.form.get('payout_handle_confirm','').strip())} "
+        f"handles_match={request.form.get('payout_handle','').strip() == request.form.get('payout_handle_confirm','').strip()}"
+    )
+
     method = request.form.get('payout_method')
     handle = request.form.get('payout_handle')
     handle_confirm = request.form.get('payout_handle_confirm', '').strip()
@@ -4558,17 +4579,32 @@ def update_payout():
         clean_handle = handle.lstrip('@').strip() if method == 'Venmo' else handle.strip()
         clean_confirm = handle_confirm.lstrip('@').strip() if method == 'Venmo' else handle_confirm.strip()
         if not clean_handle:
+            app.logger.warning(f"[update_payout] EARLY EXIT reason=clean_handle empty after strip")
             flash("Please enter a valid handle.", "error")
             return redirect(url_for('account_settings'))
         if clean_handle.lower() != clean_confirm.lower():
+            app.logger.warning(
+                f"[update_payout] EARLY EXIT reason=handles_mismatch "
+                f"clean_handle={clean_handle!r} clean_confirm={clean_confirm!r}"
+            )
             flash("Handles do not match. Please re-enter to confirm.", "error")
             return redirect(url_for('account_settings'))
         current_user.payout_method = method
         current_user.payout_handle = clean_handle
         current_user.is_seller = True
+        app.logger.warning(
+            f"[update_payout] PRE-COMMIT method={current_user.payout_method!r} "
+            f"handle={'SET' if current_user.payout_handle else 'NONE'}"
+        )
         db.session.commit()
         db.session.refresh(current_user)
+        app.logger.warning(f"[update_payout] COMMITTED OK")
         flash("Payout info secured.", "success")
+    else:
+        app.logger.warning(
+            f"[update_payout] EARLY EXIT reason=method_or_handle_missing "
+            f"method={method!r} handle_present={bool(handle)}"
+        )
     return redirect(get_user_dashboard())
 
 @app.route('/add_payment_method')
