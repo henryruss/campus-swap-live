@@ -59,7 +59,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
 </style>
 {% set setup_phone_done = current_user.phone is not none %}
 {% set setup_pickup_done = has_pickup_location and current_user.pickup_week is not none %}
-{% set setup_payout_done = current_user.payout_method is not none %}
+{% set setup_payout_done = has_payout_info %}
 
 <div class="container" style="margin-top: 32px; padding-bottom: 48px;">
 

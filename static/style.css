@@ -1615,3 +1615,107 @@ body.teaser-page footer { display: none; }
   transition: background 0.15s;
 }
 .avail-checkbox:checked + .avail-cell-label { background: #c8e6c9; }
+
+/* =========================================
+   SHIFT HISTORY
+   ========================================= */
+.shift-history-card--link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.shift-history-card--link:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.crew-shift-history {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.shift-history-header {
+  margin-bottom: 16px;
+}
+.shift-history-header h2 {
+  margin: 4px 0 2px;
+  font-size: 22px;
+}
+.shift-history-date {
+  font-size: 14px;
+  margin: 0;
+}
+.back-link {
+  font-size: 14px;
+  color: var(--primary);
+  text-decoration: none;
+}
+.shift-history-summary {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+.history-stop-card {
+  background: var(--bg-white, #fff);
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.history-stop-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.stop-number {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.stop-seller-name {
+  font-weight: 600;
+  font-size: 16px;
+}
+.stop-address {
+  font-size: 13px;
+}
+.history-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history-item-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.history-item-photo {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--bg-cream, #f5f5f0);
+}
+.history-item-photo--empty {
+  background: var(--bg-cream, #f5f5f0);
+}
+.history-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.item-id-badge {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--primary);
+}
+.history-item-desc {
+  font-size: 14px;
+  color: var(--text-main);
+}
+.history-no-items {
+  font-size: 13px;
+  margin: 4px 0 0;
+}

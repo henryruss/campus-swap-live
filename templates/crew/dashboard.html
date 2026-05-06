@@ -291,7 +291,9 @@
         <div style="display: flex; flex-direction: column; gap: 8px;">
           {% for entry in completed_entries %}
           {% set shift = entry.shift %}
-          <div style="background: #dcfce7; border-left: 3px solid var(--primary); border-radius: 0 8px 8px 0; padding: 10px 14px;">
+          <a href="{{ url_for('crew_shift_history', shift_id=shift.id) }}"
+             class="shift-history-card--link"
+             style="background: #dcfce7; border-left: 3px solid var(--primary); border-radius: 0 8px 8px 0; padding: 10px 14px;">
             <div style="font-weight: 700; font-size: 0.875rem; color: var(--primary); display: flex; align-items: center; gap: 6px;">
               <i class="fas fa-check-circle" style="font-size: 0.75rem;"></i>
               {{ shift._DAY_LABELS[shift.day_of_week] }}, {{ entry.date.strftime('%b %-d') }}
@@ -299,7 +301,7 @@
             <div style="font-size: 0.8rem; color: var(--primary); opacity: 0.7; margin-top: 2px;">
               {{ shift.slot | upper }} &nbsp;·&nbsp; {{ 'Mover' if entry.role == 'driver' else 'Organizer' }}
             </div>
-          </div>
+          </a>
           {% endfor %}
         </div>
         <p style="font-size: 0.75rem; color: var(--text-muted); margin: 12px 0 0; line-height: 1.4;">

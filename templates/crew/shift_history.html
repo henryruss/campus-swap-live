@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="crew-shift-history">
+
+  <!-- Header -->
+  <div class="shift-history-header">
+    <a href="{{ url_for('crew_dashboard') }}" class="back-link">← Dashboard</a>
+    <h2>{{ shift.label }}</h2>
+    <p class="shift-history-date muted">
+      {{ shift._DAY_LABELS[shift.day_of_week] }}, {{ shift.week.week_start.strftime('%b %-d') }}
+      {% if run.ended_at %}
+        · Ended {{ run.ended_at.strftime('%-I:%M %p') }}
+      {% endif %}
+    </p>
+  </div>
+
+  <!-- Summary -->
+  <p class="shift-history-summary">
+    {{ pickups | length }} stop{{ 's' if pickups | length != 1 }} collected on Truck {{ assignment.truck_number }}.
+  </p>
+
+  {% if not pickups %}
+    <p class="muted">No completed stops found for your truck on this shift.</p>
+  {% endif %}
+
+  <!-- Stop cards -->
+  {% for pickup in pickups %}
+    {% set seller_items = items_by_seller.get(pickup.seller_id, []) %}
+    <div class="history-stop-card">
+
+      <!-- Stop header -->
+      <div class="history-stop-header">
+        <span class="stop-number">#{{ loop.index }}</span>
+        <span class="stop-seller-name">{{ pickup.seller.full_name }}</span>
+        {% if pickup.seller.pickup_display %}
+          <span class="stop-address muted">{{ pickup.seller.pickup_display }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Items -->
+      {% if seller_items %}
+        <div class="history-item-list">
+          {% for item in seller_items %}
+            <div class="history-item-card">
+              {% if item.photo_url %}
+                <img
+                  src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+                  class="history-item-photo"
+                  alt="{{ item.description }}"
+                >
+              {% else %}
+                <div class="history-item-photo history-item-photo--empty"></div>
+              {% endif %}
+              <div class="history-item-info">
+                <span class="item-id-badge">#{{ item.id }}</span>
+                <span class="history-item-desc">{{ item.description }}</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted history-no-items">No items on record for this stop.</p>
+      {% endif %}
+
+    </div>
+  {% endfor %}
+
+</div>
+
+{% endblock %}

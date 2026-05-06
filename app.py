@@ -7666,6 +7666,62 @@ def crew_shift_end(shift_id):
     return redirect(url_for('crew_dashboard'))
 
 
+@app.route('/crew/shift/<int:shift_id>/history')
+@login_required
+def crew_shift_history(shift_id):
+    """Read-only completed shift item list for the current worker."""
+    if (r := require_crew()):
+        return r
+
+    shift = Shift.query.get_or_404(shift_id)
+
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift_id,
+        worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+
+    run = ShiftRun.query.filter_by(
+        shift_id=shift_id,
+        status='completed'
+    ).first()
+    if not run:
+        flash('This shift has not been completed yet.', 'info')
+        return redirect(url_for('crew_dashboard'))
+
+    pickups = (
+        ShiftPickup.query
+        .filter_by(
+            shift_id=shift_id,
+            truck_number=assignment.truck_number,
+            status='completed'
+        )
+        .order_by(ShiftPickup.stop_order.asc().nullslast())
+        .all()
+    )
+
+    PICKUP_ELIGIBLE_STATUSES = ('pending_logistics', 'approved', 'available', 'sold')
+    seller_ids = [p.seller_id for p in pickups]
+    items_by_seller = {}
+    if seller_ids:
+        items = InventoryItem.query.filter(
+            InventoryItem.seller_id.in_(seller_ids),
+            InventoryItem.status.in_(PICKUP_ELIGIBLE_STATUSES)
+        ).all()
+        for item in items:
+            items_by_seller.setdefault(item.seller_id, []).append(item)
+
+    return render_template(
+        'crew/shift_history.html',
+        shift=shift,
+        assignment=assignment,
+        pickups=pickups,
+        items_by_seller=items_by_seller,
+        run=run
+    )
+
+
 # =========================================================
 # SPEC #4 — ORGANIZER INTAKE (Crew routes)
 # =========================================================
