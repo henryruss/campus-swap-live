@@ -7641,6 +7641,17 @@ def crew_shift_view(shift_id):
     for p in all_pickups:
         item_counts[p.seller_id] = len(seller_items.get(p.seller_id, []))
 
+    # TEMPORARY DEBUG — remove after diagnosis
+    logger.warning(f"[DEBUG crew_shift_view] shift_id={shift_id}")
+    logger.warning(f"[DEBUG crew_shift_view] my_truck_number={my_truck_number}")
+    logger.warning(f"[DEBUG crew_shift_view] pickups count: {len(all_pickups)}")
+    logger.warning(f"[DEBUG crew_shift_view] seller_ids: {[p.seller_id for p in all_pickups]}")
+    logger.warning(f"[DEBUG crew_shift_view] seller_items counts: { {k: len(v) for k, v in seller_items.items()} }")
+    _raw_items = InventoryItem.query.filter(
+        InventoryItem.seller_id.in_([p.seller_id for p in all_pickups])
+    ).all() if all_pickups else []
+    logger.warning(f"[DEBUG crew_shift_view] ALL items (no status filter): {[(i.id, i.seller_id, i.status) for i in _raw_items]}")
+
     total_stops = len(all_pickups)
     done_stops = sum(1 for p in all_pickups if p.status in ('completed', 'issue'))
 
