@@ -3546,26 +3546,45 @@ def edit_item(item_id):
     categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
 
     if request.method == 'POST' and request.form.get('withdraw_item') == '1':
+        # TEMPORARY DEBUG — remove after diagnosis
+        logger.warning(f"[DEBUG item_delete] item_id={item_id}, user_id={current_user.id}")
+        logger.warning(f"[DEBUG item_delete] item.status={item.status}, item.seller_id={item.seller_id}")
+        logger.warning(f"[DEBUG item_delete] item.picked_up_at={item.picked_up_at}")
+        _dbg_pickups = ShiftPickup.query.filter_by(seller_id=item.seller_id).all()
+        logger.warning(f"[DEBUG item_delete] seller ShiftPickups: {[(p.id, p.shift_id, p.status) for p in _dbg_pickups]}")
+        logger.warning(f"[DEBUG item_delete] gallery_photos count: {len(item.gallery_photos)}")
+        _dbg_ai = ItemAIResult.query.filter_by(item_id=item_id).first()
+        logger.warning(f"[DEBUG item_delete] ItemAIResult: id={getattr(_dbg_ai,'id',None)}, item_id={getattr(_dbg_ai,'item_id',None)}")
+
         # Seller withdraws/removes item. Allowed only until item is picked up (in our possession).
         if item_is_picked_up(item):
+            logger.warning(f"[DEBUG item_delete] BLOCKED: item_is_picked_up=True")
             flash("This item can no longer be removed. Contact support if needed.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
         if item.status not in ('pending_valuation', 'pending_logistics', 'rejected', 'available'):
+            logger.warning(f"[DEBUG item_delete] BLOCKED: status={item.status} not in allowed list")
             flash("This item can no longer be removed. Contact support if needed.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
         if current_user.is_admin:
             flash("Admins should use the admin panel to delete items.", "error")
             return redirect(url_for('edit_item', item_id=item_id))
-        item_desc = item.description
-        # Decrement count_in_stock if item was available (was in stock)
-        if item.status == 'available' and item.category:
-            if (item.category.count_in_stock or 0) > 0:
-                item.category.count_in_stock = item.category.count_in_stock - 1
-        for photo in item.gallery_photos[:]:
-            db.session.delete(photo)
-        db.session.delete(item)
-        db.session.commit()
-        logger.info(f"Item {item.id} withdrawn by seller {current_user.id}")
+        try:
+            item_desc = item.description
+            # Decrement count_in_stock if item was available (was in stock)
+            if item.status == 'available' and item.category:
+                if (item.category.count_in_stock or 0) > 0:
+                    item.category.count_in_stock = item.category.count_in_stock - 1
+            for photo in item.gallery_photos[:]:
+                db.session.delete(photo)
+            db.session.delete(item)
+            db.session.commit()
+            logger.warning(f"[DEBUG item_delete] SUCCESS: item {item_id} deleted")
+        except Exception as _dbg_exc:
+            import traceback as _tb
+            logger.warning(f"[DEBUG item_delete] EXCEPTION: {_dbg_exc}")
+            logger.warning(f"[DEBUG item_delete] TRACEBACK: {_tb.format_exc()}")
+            raise
+        logger.info(f"Item {item_id} withdrawn by seller {current_user.id}")
         flash("Item removed successfully.", "success")
         return redirect(url_for('dashboard'))
 
@@ -11772,6 +11791,20 @@ def admin_crew_panel():
             user_id=app_rec.user_id, week_start=None
         ).first()
 
+    # Build availability dict for JS modal pre-fill (keyed by str(worker.id))
+    _AVAIL_FIELDS = [
+        f'{d}_{s}'
+        for d in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        for s in ['am', 'pm']
+    ]
+    worker_avail_json = {}
+    for worker in approved_workers:
+        avail = _get_worker_availability_for_week(worker, current_week_start)
+        if avail:
+            worker_avail_json[str(worker.id)] = {f: getattr(avail, f) for f in _AVAIL_FIELDS}
+        else:
+            worker_avail_json[str(worker.id)] = {f: True for f in _AVAIL_FIELDS}
+
     return render_template(
         'admin/crew.html',
         displayed_week=displayed_week,
@@ -11781,7 +11814,43 @@ def admin_crew_panel():
         approved_workers=approved_workers,
         shifts_needing_renotify=shifts_needing_renotify,
         pending_apps=pending_apps,
+        worker_avail_json=worker_avail_json,
     )
+
+
+@app.route('/admin/crew/worker/<int:user_id>/availability', methods=['POST'])
+@login_required
+def admin_crew_override_availability(user_id):
+    """Upsert WorkerAvailability for the current week from admin override."""
+    if not current_user.is_admin:
+        abort(403)
+    worker = User.query.get_or_404(user_id)
+    if not worker.is_worker:
+        abort(404)
+
+    today = _today_eastern()
+    week_start = today - timedelta(days=today.weekday())
+
+    avail = WorkerAvailability.query.filter_by(
+        user_id=worker.id, week_start=week_start
+    ).first()
+    if not avail:
+        avail = WorkerAvailability(user_id=worker.id, week_start=week_start)
+        db.session.add(avail)
+
+    for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+        for slot in ['am', 'pm']:
+            field = f'{day}_{slot}'
+            setattr(avail, field, field in request.form)
+
+    db.session.commit()
+    flash(f'Availability updated for {worker.full_name}.', 'success')
+
+    week_id = request.form.get('week_id')
+    redirect_url = url_for('admin_crew_panel')
+    if week_id:
+        redirect_url += f'?week_id={week_id}'
+    return redirect(redirect_url)
 
 
 @app.route('/admin/crew/shift/<int:shift_id>/quick-add', methods=['POST'])

@@ -240,7 +240,13 @@
     {% for worker in approved_workers %}
     <div class="worker-card">
       <div class="worker-card-name">
-        {{ worker.full_name }}
+        <button
+          class="worker-name-btn"
+          data-worker-id="{{ worker.id }}"
+          data-worker-name="{{ worker.full_name }}"
+          data-week-id="{{ displayed_week.id if displayed_week else '' }}"
+          onclick="openAvailModal(this)"
+        >{{ worker.full_name }}</button>
         <span class="role-badge">{{ worker.worker_role or 'BOTH' }}</span>
       </div>
 
@@ -494,6 +500,49 @@
   </details>
 </div>
 
+{# ── Availability override modal ── #}
+<div id="avail-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <h3 id="avail-modal-title" style="margin: 0 0 4px; font-family: 'DM Serif Display', serif; font-size: 1.1rem; color: var(--primary);">Edit Availability</h3>
+    <p class="modal-subtitle" style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 16px;">Current week only. Overrides worker's submitted availability.</p>
+
+    <form method="POST" id="avail-modal-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="week_id" id="avail-modal-week-id" value="">
+
+      <table class="avail-grid-admin">
+        <thead>
+          <tr>
+            <th></th>
+            {% for label in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              <th>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for slot in ['am', 'pm'] %}
+          <tr>
+            <td class="slot-label">{{ slot.upper() }}</td>
+            {% for day in ['mon','tue','wed','thu','fri','sat','sun'] %}
+              {% set field = day + '_' + slot %}
+              <td>
+                <input type="checkbox" name="{{ field }}" id="avail_{{ field }}" class="avail-checkbox" data-field="{{ field }}">
+                <label for="avail_{{ field }}" class="avail-cell-label"></label>
+              </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="modal-actions" style="display: flex; align-items: center; gap: 14px; margin-top: 4px;">
+        <button type="submit" class="btn-primary" style="padding: 8px 20px; font-size: 0.88rem;">Save</button>
+        <a href="#" class="btn-link" onclick="closeAvailModal(); return false;" style="font-size: 0.85rem; color: var(--text-muted);">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 function toggleExpand(rowId, headerRow) {
   var detailRow = document.getElementById(rowId);
@@ -501,5 +550,36 @@ function toggleExpand(rowId, headerRow) {
   var open = detailRow.classList.toggle('open');
   if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : '';
 }
+
+var workerAvailability = {{ worker_avail_json | tojson }};
+
+function openAvailModal(btn) {
+  var workerId = btn.dataset.workerId;
+  var workerName = btn.dataset.workerName;
+  var weekId = btn.dataset.weekId;
+  var avail = workerAvailability[workerId] || {};
+
+  document.getElementById('avail-modal-title').textContent = workerName;
+  document.getElementById('avail-modal-week-id').value = weekId;
+  document.getElementById('avail-modal-form').action = '/admin/crew/worker/' + workerId + '/availability';
+
+  var fields = ['mon','tue','wed','thu','fri','sat','sun'].flatMap(function(d) {
+    return [d + '_am', d + '_pm'];
+  });
+  fields.forEach(function(field) {
+    var cb = document.getElementById('avail_' + field);
+    if (cb) cb.checked = avail[field] !== false;
+  });
+
+  document.getElementById('avail-modal').style.display = 'flex';
+}
+
+function closeAvailModal() {
+  document.getElementById('avail-modal').style.display = 'none';
+}
+
+document.getElementById('avail-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeAvailModal();
+});
 </script>
 {% endblock %}

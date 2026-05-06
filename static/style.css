@@ -1546,3 +1546,72 @@ body.teaser-page footer { display: none; }
     line-height: 1.6;
     margin-top: 0;
 }
+
+/* =========================================
+   Admin Crew HQ — Availability Override Modal
+   ========================================= */
+.worker-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.worker-name-btn:hover { color: var(--primary-light); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-box {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 24px 28px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+
+.avail-grid-admin {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0 20px;
+}
+.avail-grid-admin th {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px;
+}
+.avail-grid-admin td { text-align: center; padding: 2px; }
+.avail-grid-admin .slot-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 8px;
+  font-weight: 500;
+}
+
+.avail-checkbox { display: none; }
+.avail-cell-label {
+  display: block;
+  width: 28px;
+  height: 20px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  cursor: pointer;
+  margin: 0 auto;
+  transition: background 0.15s;
+}
+.avail-checkbox:checked + .avail-cell-label { background: #c8e6c9; }
