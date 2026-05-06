@@ -862,25 +862,28 @@ Do not guess. Only return identified: true if you are confident in the product m
 
 def run_ai_item_lookup(item_id):
     """Run AI lookup for an item in a background thread. Must be called with app context."""
+    if not item_id:
+        logger.error("run_ai_item_lookup called with item_id=None — skipping")
+        return
+
+    def _safe_set_error(msg):
+        result = ItemAIResult.query.filter_by(item_id=item_id).first()
+        if result and result.item_id is not None:
+            result.status = 'error'
+            result.raw_response = msg
+            db.session.commit()
+
     try:
         import anthropic
     except ImportError:
         logger.error("anthropic package not installed — AI lookup skipped")
-        result = ItemAIResult.query.filter_by(item_id=item_id).first()
-        if result:
-            result.status = 'error'
-            result.raw_response = 'anthropic package not installed'
-            db.session.commit()
+        _safe_set_error('anthropic package not installed')
         return
 
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
         logger.error("ANTHROPIC_API_KEY not set — AI lookup skipped")
-        result = ItemAIResult.query.filter_by(item_id=item_id).first()
-        if result:
-            result.status = 'error'
-            result.raw_response = 'ANTHROPIC_API_KEY not set'
-            db.session.commit()
+        _safe_set_error('ANTHROPIC_API_KEY not set')
         return
 
     try:
@@ -1015,6 +1018,9 @@ def run_ai_item_lookup(item_id):
 
 def trigger_ai_lookup(item_id):
     """Create ItemAIResult record and start background thread for AI lookup."""
+    if not item_id:
+        logger.error("trigger_ai_lookup called with item_id=None — skipping")
+        return
     existing = ItemAIResult.query.filter_by(item_id=item_id).first()
     if not existing:
         existing = ItemAIResult(item_id=item_id, status='pending')
@@ -7625,9 +7631,11 @@ def crew_shift_view(shift_id):
 
     shift_run = shift.run
 
-    # Include approved + available — approved items are confirmed for pickup but
-    # seller hasn't completed logistics setup yet; they still need to be collected.
-    _PICKUP_ELIGIBLE_STATUSES = ('approved', 'available')
+    # Include all statuses that represent real items needing physical collection.
+    # pending_logistics = seller submitted but hasn't confirmed logistics yet (most common in practice)
+    # approved = admin approved, logistics pending
+    # available = fully confirmed, listed in shop
+    _PICKUP_ELIGIBLE_STATUSES = ('pending_logistics', 'approved', 'available')
     seller_items = {}
     item_counts = {}
     seller_ids = [p.seller_id for p in all_pickups]
@@ -7640,17 +7648,6 @@ def crew_shift_view(shift_id):
             seller_items.setdefault(item.seller_id, []).append(item)
     for p in all_pickups:
         item_counts[p.seller_id] = len(seller_items.get(p.seller_id, []))
-
-    # TEMPORARY DEBUG — remove after diagnosis
-    logger.warning(f"[DEBUG crew_shift_view] shift_id={shift_id}")
-    logger.warning(f"[DEBUG crew_shift_view] my_truck_number={my_truck_number}")
-    logger.warning(f"[DEBUG crew_shift_view] pickups count: {len(all_pickups)}")
-    logger.warning(f"[DEBUG crew_shift_view] seller_ids: {[p.seller_id for p in all_pickups]}")
-    logger.warning(f"[DEBUG crew_shift_view] seller_items counts: { {k: len(v) for k, v in seller_items.items()} }")
-    _raw_items = InventoryItem.query.filter(
-        InventoryItem.seller_id.in_([p.seller_id for p in all_pickups])
-    ).all() if all_pickups else []
-    logger.warning(f"[DEBUG crew_shift_view] ALL items (no status filter): {[(i.id, i.seller_id, i.status) for i in _raw_items]}")
 
     total_stops = len(all_pickups)
     done_stops = sum(1 for p in all_pickups if p.status in ('completed', 'issue'))
