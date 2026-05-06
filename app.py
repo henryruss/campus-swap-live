@@ -37,7 +37,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import or_, and_, func, nulls_last
+from sqlalchemy import or_, and_, func, nulls_last, delete
 
 # PostHog analytics
 import posthog
@@ -8287,6 +8287,10 @@ def admin_shift_remove_stop(shift_id, pickup_id):
     if pickup.status != 'pending':
         flash("Cannot remove a stop that is already in progress.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    # Delete RescheduleTokens first (FK dependency on pickup_id)
+    db.session.execute(
+        delete(RescheduleToken).where(RescheduleToken.pickup_id == pickup.id)
+    )
     db.session.delete(pickup)
     db.session.commit()
     flash("Stop removed.", "success")
