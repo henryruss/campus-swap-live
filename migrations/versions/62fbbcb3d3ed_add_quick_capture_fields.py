@@ -40,7 +40,7 @@ def upgrade():
                 'INSERT INTO "user" (email, full_name, password_hash, is_seller, is_worker, is_admin, '
                 "is_super_admin, is_internal_account, payout_rate, has_paid_boost, sms_opted_out, "
                 "referral_source, unsubscribed) "
-                "VALUES ('internal@campusswap.com', 'Campus Swap', :pw, 1, 0, 0, 0, 1, 0, 0, 0, 'internal', 0)"
+                "VALUES ('internal@campusswap.com', 'Campus Swap', :pw, TRUE, FALSE, FALSE, FALSE, TRUE, 0, FALSE, FALSE, 'internal', FALSE)"
             ),
             {"pw": secrets.token_hex(30)}
         )
