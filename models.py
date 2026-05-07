@@ -84,7 +84,7 @@ class User(UserMixin, db.Model):
     # Values: 'freshman' | 'sophomore' | 'junior' | 'senior' | 'grad' | NULL = not provided
 
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
-    items = db.relationship('InventoryItem', backref='seller', lazy=True)
+    items = db.relationship('InventoryItem', backref='seller', lazy=True, foreign_keys='InventoryItem.seller_id')
 
     @property
     def has_pickup_location(self):
