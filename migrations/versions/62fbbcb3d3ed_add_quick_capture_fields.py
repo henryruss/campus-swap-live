@@ -32,12 +32,12 @@ def upgrade():
     # Seed the internal "Campus Swap" account if not already present
     conn = op.get_bind()
     existing = conn.execute(
-        sa.text("SELECT id FROM user WHERE email = 'internal@campusswap.com'")
+        sa.text('SELECT id FROM "user" WHERE email = \'internal@campusswap.com\'')
     ).fetchone()
     if not existing:
         conn.execute(
             sa.text(
-                "INSERT INTO user (email, full_name, password_hash, is_seller, is_worker, is_admin, "
+                'INSERT INTO "user" (email, full_name, password_hash, is_seller, is_worker, is_admin, '
                 "is_super_admin, is_internal_account, payout_rate, has_paid_boost, sms_opted_out, "
                 "referral_source, unsubscribed) "
                 "VALUES ('internal@campusswap.com', 'Campus Swap', :pw, 1, 0, 0, 0, 1, 0, 0, 0, 'internal', 0)"
