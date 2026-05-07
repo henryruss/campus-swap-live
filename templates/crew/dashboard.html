@@ -331,6 +331,40 @@
       {% endif %}
     </div>
 
+    {% if recent_captures %}
+    <div class="crew-card">
+      <h3><i class="fas fa-camera"></i> Recent Captures</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin: -8px 0 14px;">Write the ID on each item's sticker.</p>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        {% for item in recent_captures %}
+        <div class="history-item-card qc-card">
+          {% if item.photo_url %}
+            <img
+              src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+              class="history-item-photo qc-photo"
+              alt="Quick capture item"
+            >
+          {% else %}
+            <div class="history-item-photo qc-photo history-item-photo--empty"></div>
+          {% endif %}
+          <div class="history-item-info" style="flex: 1; min-width: 0;">
+            <span class="qc-id-badge">#{{ item.id }}</span>
+            <span class="history-item-desc">{{ item.seller.full_name if item.seller else 'Campus Swap' }}</span>
+            {% if item.quick_capture_shift %}
+              {% set _day_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
+              {% set _shift_date = item.quick_capture_shift.week.week_start + timedelta(days=_day_order.index(item.quick_capture_shift.day_of_week)) %}
+              <span class="history-no-items">{{ _shift_date.strftime('%b %-d') }} · {{ item.quick_capture_shift.slot | upper }}</span>
+            {% else %}
+              <span class="history-no-items">Off-shift capture</span>
+            {% endif %}
+            <span class="history-no-items">{{ item.date_added | format_eastern_time }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 </div>
 

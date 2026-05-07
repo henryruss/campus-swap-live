@@ -66,6 +66,31 @@
     </div>
   {% endfor %}
 
+  {% if quick_captures %}
+  <div class="quick-captures-section">
+    <h3 class="quick-captures-heading">Your Quick Captures</h3>
+    <p class="quick-captures-subtext">Items you captured during this shift. Write the ID on each sticker.</p>
+    {% for item in quick_captures %}
+    <div class="history-item-card qc-card">
+      {% if item.photo_url %}
+        <img
+          src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+          class="history-item-photo qc-photo"
+          alt="Quick capture item"
+        >
+      {% else %}
+        <div class="history-item-photo qc-photo history-item-photo--empty"></div>
+      {% endif %}
+      <div class="history-item-info">
+        <span class="qc-id-badge">#{{ item.id }}</span>
+        <span class="history-item-desc">{{ item.seller.full_name if item.seller else 'Campus Swap' }}</span>
+        <span class="history-no-items">Captured at {{ item.date_added | format_eastern_time }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
 </div>
 
 {% endblock %}

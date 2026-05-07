@@ -791,6 +791,19 @@ def fromjson_filter(value):
         return []
 
 
+@app.template_filter('format_eastern_time')
+def format_eastern_time_filter(dt):
+    """Jinja filter: format a UTC datetime as Eastern time (e.g. '2:14 PM')."""
+    if not dt:
+        return ''
+    from zoneinfo import ZoneInfo
+    eastern = ZoneInfo('America/New_York')
+    if dt.tzinfo is None:
+        from datetime import timezone
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(eastern).strftime('%-I:%M %p')
+
+
 # --- ERROR HANDLERS ---
 
 @app.errorhandler(404)
@@ -7268,6 +7281,23 @@ def crew_dashboard():
 
     internal_user = User.query.filter_by(is_internal_account=True).first()
 
+    recent_captures_cutoff = _now_eastern() - timedelta(days=7)
+    recent_captures = (
+        InventoryItem.query
+        .options(
+            joinedload(InventoryItem.quick_capture_shift).joinedload(Shift.week),
+            joinedload(InventoryItem.seller),
+        )
+        .filter(
+            InventoryItem.is_quick_capture == True,
+            InventoryItem.captured_by_id == current_user.id,
+            InventoryItem.arrived_at_store_at == None,
+            InventoryItem.date_added >= recent_captures_cutoff,
+        )
+        .order_by(InventoryItem.date_added.desc())
+        .all()
+    )
+
     return render_template(
         'crew/dashboard.html',
         avail=avail_dict,
@@ -7282,6 +7312,7 @@ def crew_dashboard():
         is_organizer=is_organizer,
         flagged_shift_ids=flagged_shift_ids,
         internal_user=internal_user,
+        recent_captures=recent_captures,
     )
 
 
@@ -7766,13 +7797,25 @@ def crew_shift_history(shift_id):
         for item in items:
             items_by_seller.setdefault(item.seller_id, []).append(item)
 
+    quick_captures = (
+        InventoryItem.query
+        .filter_by(
+            is_quick_capture=True,
+            quick_capture_shift_id=shift.id,
+            captured_by_id=current_user.id,
+        )
+        .order_by(InventoryItem.date_added.desc())
+        .all()
+    )
+
     return render_template(
         'crew/shift_history.html',
         shift=shift,
         assignment=assignment,
         pickups=pickups,
         items_by_seller=items_by_seller,
-        run=run
+        run=run,
+        quick_captures=quick_captures,
     )
 
 
@@ -8066,6 +8109,7 @@ def crew_quick_capture():
         picked_up_at=now,
         is_quick_capture=True,
         quick_capture_shift_id=shift.id if shift else None,
+        captured_by_id=current_user.id,
         collection_method='free',
         date_added=now,
         quality=1,

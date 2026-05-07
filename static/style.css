@@ -1720,3 +1720,39 @@ body.teaser-page footer { display: none; }
   font-size: 13px;
   margin: 4px 0 0;
 }
+
+/* Quick Capture ID Lookup */
+.quick-captures-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+.quick-captures-heading {
+  font-size: 1.1rem;
+  color: var(--primary);
+  margin: 0 0 4px;
+}
+.quick-captures-subtext {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+.qc-card {
+  padding: 12px;
+  background: var(--bg-cream);
+  border-radius: 10px;
+  align-items: flex-start;
+}
+.qc-photo {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+}
+.qc-id-badge {
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 1.5rem;
+  color: var(--primary);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}

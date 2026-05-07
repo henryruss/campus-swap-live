@@ -201,6 +201,10 @@ class InventoryItem(db.Model):
     # QUICK CAPTURE (Driver Quick Capture feature)
     is_quick_capture = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     quick_capture_shift_id = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=True)
+    captured_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    quick_capture_shift = db.relationship('Shift', foreign_keys=[quick_capture_shift_id], backref='quick_captured_items')
+    captured_by = db.relationship('User', foreign_keys=[captured_by_id])
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
