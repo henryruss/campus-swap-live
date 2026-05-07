@@ -630,14 +630,20 @@ function selectIssueType(card) {
 // ── Auto-refresh stop list every 30s ──────────────────────
 setInterval(function() {
   fetch('/crew/shift/{{ shift.id }}/stops_partial')
-    .then(function(r) { if (r.ok) return r.text(); })
+    .then(function(r) {
+      if (!r.ok) throw new Error('non-ok');
+      return r.text();
+    })
     .then(function(html) {
-      if (html) {
+      // Sentinel guard: only replace DOM when the partial contains the expected
+      // wrapper attribute. Prevents login-page HTML (or any other unexpected
+      // response) from being injected into #stop-list on session expiry.
+      if (html && html.indexOf('data-stops-partial') !== -1) {
         var el = document.getElementById('stop-list');
         if (el) el.outerHTML = html;
       }
     })
-    .catch(function() {}); // silent fail
+    .catch(function() {}); // network error or non-OK — keep existing DOM
 }, 30000);
 </script>
 {% endblock %}

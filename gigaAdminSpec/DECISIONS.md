@@ -7,6 +7,31 @@
 
 ---
 
+## Production Operations Fixes (2026-05-01 – 2026-05-05)
+
+### Decision: Item eligibility filter expanded to include `'approved'` status
+**Reasoning:** Items sit in `approved` status (not yet `available`) until admin manually pushes them through the final approval step. Filtering only `available` made sellers invisible to the ops system even when their items were real and ready for pickup. Expanded to `status NOT IN ('rejected', 'needs_info')` — covers `pending_valuation`, `approved`, and `available`. The `picked_up_at` write at End Shift still targets `available` only (correct — `approved` items haven't completed seller setup).
+
+### Decision: Crew dashboard no longer gates on published week
+**Reasoning:** In practice, admin assigns workers directly from Crew HQ without a formal publish step — especially for near-term shifts. Workers need to see their assignments immediately. Changed `crew_dashboard()` to query `ShiftAssignment` directly rather than looking up `_get_current_published_week()`. Workers see upcoming assignments regardless of `ShiftWeek.status`. Published state still matters for the admin schedule builder UI.
+
+### Decision: Stop actions are soft until End Shift; `picked_up_at` deferred to confirmed End Shift
+**Reasoning:** An accidental "Completed" tap had no recovery path — `picked_up_at` was written immediately and hard to reverse without a shell fix. Now stop status changes are soft on `ShiftPickup` only. `picked_up_at` is written in bulk when the worker confirms End Shift. Two-step End Shift (redirect to confirm page, then `confirmed=1` POST) prevents accidental shift closures. `crew_shift_complete_retroactive` is the only path that still writes `picked_up_at` immediately — it's an escape hatch for past shifts and intentionally bypasses the confirmation flow.
+
+### Decision: Quick-add defaults driver assignments to `truck_number=1`
+**Reasoning:** Adding a worker via Crew HQ quick-add was creating `ShiftAssignment` records with `truck_number=None`. The ops page truck cards only render workers with a real truck number, so the worker was in limbo — assigned but invisible. Defaulting to truck 1 ensures they appear immediately; admin can reassign to a specific truck via the ops page mover assignment UI.
+
+### Decision: Remove worker sets `worker_status='rejected'` (not a new status value)
+**Reasoning:** Using `'rejected'` for removed workers prevents the account from re-appearing in the pending applications queue if the same person ever reapplies. If they need to be re-hired, admin can approve them normally — the `WorkerApplication` and `WorkerAvailability` records are preserved.
+
+### Decision: `_run_auto_assignment()` week filter fully removed; week is now display-only
+**Reasoning:** Week 1 was skipped operationally (sellers stayed home, pickups postponed). Sellers who had selected Week 1 were invisible to the ops panel for Week 2. The week preference is a suggestion, not a hard filter — movers pick up all sellers regardless of stated week. The week badge on seller cards gives admin visibility into the original preference. Only the `pickup_week IS NULL` exclusion remains (sellers who never selected a week are genuinely not scheduled).
+
+### Decision: Remove Truck route uses raw SQL (same as Add Truck)
+**Reasoning:** Consistent with the existing `admin_shift_add_truck` pattern. ORM mutation of `Shift.trucks` causes identity map conflicts in tests. Raw `UPDATE shift SET trucks = trucks - 1` is safe and predictable.
+
+---
+
 ## Admin UI Redesign (2026-04-15)
 
 ### Decision: Active tab detection via `request.path` in `admin_layout.html` rather than per-route context variable

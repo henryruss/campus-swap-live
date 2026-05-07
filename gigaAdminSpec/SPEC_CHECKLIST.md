@@ -893,7 +893,7 @@
 
 ## Spec #9 — SMS Notifications
 
-**Sign-off status:** ⬜ Built — awaiting Henry sign-off (42/42 automated tests passing)
+**Sign-off status:** ✅ In production (42/42 automated tests passing)
 
 ---
 
@@ -1144,12 +1144,12 @@
 
 ---
 
-**Sign-off date:**
-**Signed off by:**
+**Sign-off date:** In production as of ~2026-04-27
+**Signed off by:** Henry Russell (production operation)
 
 ## Admin UI Redesign (feature_admin_redesign.md)
 
-**Sign-off status:** ⬜ Built 2026-04-15 — awaiting sign-off
+**Sign-off status:** ✅ In production
 **Automated tests:** 69/69 route planning + 42/42 SMS passing
 
 > Items marked [✅] are covered by passing automated tests or confirmed at build time.
@@ -1299,11 +1299,11 @@
 
 ---
 
-**Sign-off date:**
-**Signed off by:**
+**Sign-off date:** In production as of ~2026-04-27
+**Signed off by:** Henry Russell (production operation)
 
 ---
 
 ## Spec #10 — Admin Dashboard Overhaul
 
-**Sign-off status:** ⬜ Spec not yet written
+**Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)

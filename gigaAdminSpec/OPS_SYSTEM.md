@@ -191,11 +191,19 @@ The ops system connects back to the seller experience in three ways:
 | 2 | `feature_shift_scheduling.md` | ✅ Done (signed off 2026-04-06) | Admin shift creation, greedy optimizer, schedule publishing, worker calendar view |
 | 3 | `feature_driver_shift_view.md` | ✅ Done (signed off 2026-04-07) | Phone-optimized mover shift view, ops page, partner preferences, shift history |
 | 4 | `feature_organizer_intake.md` | ✅ Done (signed off 2026-04-08) | Organizer intake page, storage locations, IntakeRecord/IntakeFlag, damaged/missing queue |
-| 5 | `feature_payout_reconciliation.md` | 🔲 Not yet designed | Close loop between intake and existing seller payout workflow |
-| 6 | `feature_route_planning.md` | ✅ Done (signed off 2026-04-14) | Admin route-building tools, bulk vs. scattered pickup handling |
+| 5 | `feature_payout_reconciliation.md` | ✅ Done (signed off 2026-04-14) | Close loop between intake and seller payout workflow |
+| 6 | `feature_route_planning.md` | ✅ Done (signed off 2026-04-14) | Admin route-building tools, geographic clustering, nearest-neighbor ordering |
 | 7 | `feature_seller_progress_tracker.md` | ✅ Done (signed off 2026-04-14) | Visual status pipeline on seller dashboard |
 | 8 | `feature_seller_rescheduling.md` | ✅ Done (signed off 2026-04-14) | Self-serve reschedule flow, overflow truck slots |
-| 9 | `feature_sms_notifications.md` | ✅ Done (built 2026-04-14, 42/42 tests) | Twilio integration, automated texts at route milestones |
+| 9 | `feature_sms_notifications.md` | ✅ Done (in production, 42/42 tests) | Twilio integration, automated texts at route milestones |
+| — | `feature_admin_redesign.md` | ✅ Done (in production) | Admin UI overhaul — ops tab, items tab, sellers tab, settings tab |
+| — | `feature_crew_hq.md` | ✅ Done (in production ~2026-05-04) | Crew HQ — worker cards, shift board, quick-add/remove |
+| — | `feature_admin_availability_override.md` | ✅ Done (in production ~2026-05-04) | Admin can override worker availability from Crew HQ |
+| — | `feature_shift_history_items.md` | ✅ Done (in production ~2026-05-05) | Completed shift item history view for movers |
+| — | `feature_ops_admin_fixes.md` | ✅ Done (in production ~2026-05-03) | Bulk week reassign, unassigned panel filter fix, assign-unit CSS fix |
+| — | `feature_ops_fixes_round2.md` | ✅ Done (in production ~2026-05-03) | Eligibility filter expansion, week filter removal, auto-assign fetch, remove truck |
+| — | `fix_crew_dashboard_and_soft_stops.md` | ✅ Done (in production ~2026-05-05) | Crew dashboard no publish-gate; soft stop actions until confirmed End Shift |
+| — | `fix_remove_ai_pricing.md` | ✅ Done (in production ~2026-05-01) | Removed broken ItemAiResult model (was causing 500 errors) |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

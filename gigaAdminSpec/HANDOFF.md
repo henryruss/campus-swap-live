@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-04-15
+**Last updated:** 2026-05-07
 **Active spec:** None
-**Overall status:** Specs #1–9 complete + Admin UI Redesign built. Ready for sign-off on Spec #9 + Admin Redesign.
+**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. System has been running live pickup operations since ~Apr 27. Multiple rounds of production bug fixes applied May 3–5.
 
 ---
 
@@ -26,15 +26,27 @@
 - Payout Boost ✅ Complete 2026-04-13
 - Item Draft System ✅ Complete 2026-04-13
 - Onboarding Payout Removal ✅ Complete 2026-04-13
-- Buyer Delivery Flow ✅ Complete 2026-04-13 (36/37 tests passing; 1 test has wrong expected range hardcoded)
+- Buyer Delivery Flow ✅ Complete 2026-04-13 (36/37 tests; 1 test hardcoded wrong range)
 - Shop Drop Teaser ✅ Complete 2026-04-13
 - Pickup Location Improvements ✅ Complete 2026-04-14 (50/50 tests passing)
-- **Spec #5 — Payout Reconciliation ✅ Complete 2026-04-14 (signed off)**
-- Spec #6 — Route Planning ✅ Complete 2026-04-14 (69/69 tests passing)
-- **Spec #7 — Seller Progress Tracker ✅ Complete 2026-04-14 (39/39 tests passing)**
-- **Spec #8 — Seller Rescheduling ✅ Signed off 2026-04-14 (69/69 route planning tests passing)**
-- **Spec #9 — SMS Notifications ✅ Built 2026-04-14 (42/42 tests passing)**
-- **Admin UI Redesign ✅ Built 2026-04-15 (69/69 route + 42/42 SMS tests passing)**
+- Spec #5 — Payout Reconciliation ✅ Signed off 2026-04-14
+- Spec #6 — Route Planning ✅ Signed off 2026-04-14 (69/69 tests passing)
+- Spec #7 — Seller Progress Tracker ✅ Signed off 2026-04-14 (39/39 tests passing)
+- Spec #8 — Seller Rescheduling ✅ Signed off 2026-04-14
+- Spec #9 — SMS Notifications ✅ Signed off / in production (42/42 tests passing)
+- Admin UI Redesign ✅ Signed off / in production (69/69 route + 42/42 SMS passing)
+- feature_onboarding_class_year ✅ Complete ~2026-04-29 (adds class year field to onboarding + User model)
+- feature_parents_and_instagram ✅ Complete ~2026-04-29 (parents landing page + Instagram link)
+- fix_remove_ai_pricing ✅ Complete ~2026-05-01 (removed ItemAiResult model + migration; was causing 500 errors)
+- feature_ops_admin_fixes ✅ Complete ~2026-05-03 (bulk week reassign, unassigned panel filter fix, assign-unit CSS fix)
+- feature_ops_fixes_round2 ✅ Complete ~2026-05-03 (eligibility filter expanded, week filter removed, auto-assign fetch, stats bar fix, remove truck feature)
+- feature_crew_hq ✅ Complete ~2026-05-04 (Crew HQ redesign at /admin/crew — worker cards, shift board, quick-add/remove)
+- feature_admin_availability_override ✅ Complete ~2026-05-04 (admin can override worker availability from Crew HQ modal)
+- fix_crew_dashboard_and_soft_stops ✅ Complete ~2026-05-05 (crew dashboard shows all assignments regardless of published state; soft stop actions deferred until End Shift with confirmation page)
+- fix_crew_quick_add_truck_number ✅ Complete ~2026-05-05 (quick-add drivers default to truck_number=1)
+- fix_crew_remove_worker ✅ Complete ~2026-05-05 (admin can remove a worker + all their ShiftAssignments)
+- fix_crew_shift_items_and_phone ✅ Complete ~2026-05-05 (stop cards now show 'approved' items; phone number always visible)
+- feature_shift_history_items ✅ Complete ~2026-05-05 (GET /crew/shift/<id>/history — read-only completed shift item list)
 
 ---
 
@@ -193,6 +205,97 @@
 2. **`admin_storage_index` GET redirects immediately** — old body removed since all content moves to `admin_settings#storage`. The create/edit POST routes still work unchanged.
 3. **`admin_routes_assign_seller` accepts hybrid form data** — existing JSON API preserved; added form `shift_truck` param so the ops panel can use a plain HTML form without JS fetch.
 4. **4 route planning tests updated** — tests that checked for 200 on redirected URLs updated to accept `in (200, 302)`. Semantics preserved.
+
+---
+
+## Production Operations Fixes (2026-05-01 – 2026-05-05)
+
+**Status:** All in production as of 2026-05-05
+**Spec files:** `feature_ops_admin_fixes.md`, `feature_ops_fixes_round2.md`, `fix_crew_dashboard_and_soft_stops.md`, `fix_crew_quick_add_truck_number.md`, `fix_crew_remove_worker.md`, `fix_crew_shift_items_and_phone.md`, `fix_remove_ai_pricing.md`
+
+### fix_remove_ai_pricing — ItemAiResult removal
+- Deleted `ItemAiResult` model (was causing 500 errors on `POST /edit_item` due to orphaned rows with `item_id=NULL`)
+- Removed all app.py routes + references to AI pricing
+- Migration `remove_item_ai_result` drops the table
+- Shell fix: deleted orphaned `item_ai_result` rows on Render before deploy
+
+### feature_ops_admin_fixes — Three ops bugs
+- **Bulk week reassign**: `POST /admin/settings/reassign-week` → `admin_reassign_week` — sets `pickup_week = 2` for all sellers with `pickup_week = 1` and no `ShiftPickup`. Super admin only. Added section to `admin/settings.html`.
+- **Unassigned panel filter**: Removed `pickup_week == current_week` match requirement. Now shows all sellers with `pickup_week IS NOT NULL` and no `ShiftPickup`. Week badge still displayed on cards.
+- **Assign unit CSS fix**: Truck card footer now uses `flex-wrap: wrap` so "Assign unit" button is never clipped.
+
+### feature_ops_fixes_round2 — Four ops bugs + remove truck
+- **Item eligibility expanded**: `_ops_build_unassigned_panel()`, `_run_auto_assignment()`, and `get_seller_unit_count()` now include `'approved'` items (not just `'available'`). Filter: `status NOT IN ('rejected', 'needs_info')`.
+- **Week filter fully removed**: Same two functions — `pickup_week` no longer used as a filter, only displayed as a badge.
+- **Auto-assign fetch**: Changed from `<form>` submit to `fetch()` POST in `ops.html`; page reloads to `?shift_id=<id>` on success. Prevents raw JSON rendering in browser.
+- **Stats bar total count**: `admin_items` now excludes `rejected` items from total count.
+- **Remove truck**: New route `POST /admin/crew/shift/<id>/truck/<n>/remove` → `admin_shift_remove_truck`. Validates: highest truck only, zero stops. Uses raw SQL. Clears truck from `truck_unit_plan`. Button only shown on highest-numbered truck with 0 stops.
+
+### fix_crew_dashboard_and_soft_stops
+- **Crew dashboard**: `crew_dashboard()` now builds `my_shifts` directly from the worker's `ShiftAssignment` records (no publish-state gate). Workers see their assignments immediately even on draft weeks.
+- **`crew_schedule_week`**: No longer 404s on draft weeks if the current user has an assignment in that week.
+- **Soft stop actions**: `crew_shift_stop_update` no longer writes `picked_up_at` immediately. Stop status changes are soft on `ShiftPickup` only until End Shift.
+- **`crew_shift_stop_revert`**: Simplified — no item-level compensating writes needed since nothing was written on complete.
+- **End Shift two-step**: `crew_shift_end` without `confirmed=1` now redirects to confirmation page. New route: `GET /crew/shift/<id>/end-confirm` → `crew_shift_end_confirm`. Shows stop summary + warning. New template: `crew/shift_end_confirm.html`.
+- **`picked_up_at` commit**: Deferred to `crew_shift_end` with `confirmed=1`. Writes to `available`-status items only. `crew_shift_complete_retroactive` still writes immediately (unchanged).
+
+### fix_crew_quick_add_truck_number
+- `admin_crew_quick_add`: Driver-role assignments now default to `truck_number=1` instead of `None`. Fixes "assigned but invisible" bug on ops page.
+
+### fix_crew_remove_worker
+- New route: `POST /admin/crew/remove/<user_id>` → `admin_crew_remove`. Sets `is_worker=False`, `worker_status='rejected'`, bulk-deletes all `ShiftAssignment` records. Admin-only (not super admin required). Confirmation via `<details>` inline pattern in `admin/crew.html`. `SHIFTS ASSIGNED` column added to approved workers table.
+
+### fix_crew_shift_items_and_phone
+- `crew_shift_view`: `seller_items` query now includes `approved` + `available` statuses (`PICKUP_ELIGIBLE_STATUSES`). Fixes "0 items" on stop cards.
+- Phone number always visible on stop card (below address line). `tel:` link if present, "No phone on file" muted text if null.
+
+---
+
+## Feature: Crew HQ — /admin/crew Redesign (Built ~2026-05-04)
+
+**Status:** In production
+**Spec files:** `feature_crew_hq.md`, `feature_admin_availability_override.md`
+
+### What Was Built
+
+**Redesigned `/admin/crew`** (template: `admin/crew.html`):
+- **Section 1 — Worker Cards**: One card per approved worker. Shows name + role badge, assigned shifts this week as pills, mini 7×2 availability grid (read-only, pre-filled from most recent `WorkerAvailability`). Clicking worker name opens availability override modal.
+- **Section 2 — Shift Board**: Week nav (`← Week of [Mon] →`). Each shift row: day/slot/date, assigned worker badges with × remove button, `+ Add Worker` inline dropdown (filtered by availability + not already assigned), re-notify warning badge if assignments changed since `last_notified_at`.
+- **Section 3 — Applications**: Collapsible `<details>`, collapsed by default if 0 pending. Same approve/reject UI as before.
+
+**New routes**:
+- `POST /admin/crew/shift/<id>/quick-add` → `admin_crew_quick_add` — adds worker to shift. Driver defaults to `truck_number=1`.
+- `POST /admin/crew/shift/<id>/quick-remove` → `admin_crew_quick_remove` — removes assignment. No email sent.
+- `POST /admin/crew/worker/<id>/availability` → `admin_crew_override_availability` — upserts `WorkerAvailability` for current week with admin-submitted grid. Lets admin unblock a worker's availability without waiting for them to submit.
+
+**Week navigation**: prev/next week as plain `<a>` links. Route resolves prev/next week IDs at render time.
+
+---
+
+## Feature: Shift History Items (Built ~2026-05-05)
+
+**Status:** In production
+**Spec file:** `feature_shift_history_items.md`
+
+### What Was Built
+- New route: `GET /crew/shift/<id>/history` → `crew_shift_history` — read-only view of completed stops + items for the current worker's truck.
+- Shows all stops where `ShiftPickup.status = 'completed'` filtered to the worker's truck.
+- Each stop shows all items collected (photo, ID, description, seller name).
+- Template: `crew/shift_history.html`
+- Shift History cards on crew dashboard link to this page.
+
+---
+
+## Feature: Onboarding Class Year + Parents/Instagram (Built ~2026-04-29)
+
+**Status:** In production
+**Spec files:** `feature_onboarding_class_year.md`, `feature_parents_and_instagram.md`
+
+### What Was Built
+- `User.class_year` field added (String, nullable). Migration: `add_class_year_to_user`.
+- Class year selector added to onboarding wizard step.
+- Parents landing page at `/parents` (`templates/parents.html`).
+- Instagram link/branding additions to relevant pages.
 
 ---
 
@@ -1028,36 +1131,24 @@ None — built exactly as specced.
 
 ---
 
-## Spec #8 — Seller Rescheduling (Planned)
-
-**Status:** Not started — spec not yet written
-**Dependencies:** Spec #6 must be signed off first
-
----
-
-## Spec #9 — SMS Notifications (Planned)
-
-**Status:** Not started — spec not yet written
-**Dependencies:** Specs #6 and #8 must be signed off first
-
----
-
 ## Known Issues / Tech Debt
 
-- `organizers_per_truck` AppSetting still exists in DB but is no longer used for capacity calculation (superseded by stagger formula). Remove or repurpose before final launch.
-- `worker_role` field still present on `User` model but no longer used for access control. Could be cleaned up in a future migration once all ops specs are complete.
-- SMS notifications (`_notify_next_seller`) are stubs — no Twilio integration yet. Spec #9 dependency.
+- `organizers_per_truck` AppSetting still exists in DB but is no longer used for capacity calculation (superseded by stagger formula). Safe to remove after season.
+- `worker_role` field still present on `User` model but no longer used for access control. Could be cleaned up in a future migration.
+- `merge_buyer_order_and_flat_50` migration exists to resolve a dual-head Alembic conflict — applied in production.
 
 ---
 
 ## Environment Notes
 
-| Variable | Purpose | Added in Spec |
-|----------|---------|---------------|
-| *(none — all config via AppSetting key/value store)* | | |
+**Twilio (production):**
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` — set in Render
+- Inbound webhook: `https://usecampusswap.com/sms/webhook` (HTTP POST) — set in Twilio console
+- A2P 10DLC registration required for bulk SMS
 
 **AppSetting values set in DB (not just seeded as defaults):**
-- `crew_allowed_email_domain` = `unc.edu` — set directly this session
+- `crew_allowed_email_domain` = `unc.edu`
+- `maps_static_api_key` — provision via Google Cloud Console
 
 ---
 
@@ -1073,5 +1164,3 @@ None — built exactly as specced.
    CODEBASE.md to understand the existing patterns, then implement the spec.
    Ask me before making any decision not covered by the spec."
 4. After the session, update this file with what was built and any deviations.
-
-**Next session starts with:** Claude Desktop writes Spec #5 (`feature_payout_reconciliation.md`). Once written, start a new Claude Code session with CODEBASE.md + OPS_SYSTEM.md + HANDOFF.md + feature_payout_reconciliation.md.

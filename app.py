@@ -5289,7 +5289,15 @@ def onboard_guest_save():
 
     has_files = files and files[0].filename and files[0].filename != ''
     has_temp_photos = len(temp_photo_ids) > 0
-    if not has_files and not has_temp_photos:
+
+    # Mattress photo exemption (consistent with onboard and add_item handlers)
+    try:
+        _cat_early = db.session.get(InventoryCategory, int(cat_id)) if cat_id else None
+        is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
+    except (ValueError, TypeError):
+        is_mattress = False
+
+    if not is_mattress and not has_files and not has_temp_photos:
         return _err("Please add at least one photo.")
     if not cat_id:
         return _err("Please select a category.")
@@ -11004,18 +11012,24 @@ def admin_toggle_reschedule_lock(shift_id):
 
 
 @app.route('/crew/shift/<int:shift_id>/stops_partial')
-@login_required
 def crew_shift_stops_partial(shift_id):
-    """HTML partial of stops for current mover's truck. Used by 30-second auto-refresh."""
-    if (r := require_crew()):
-        return r
+    """HTML partial of stops for current mover's truck. Used by 30-second auto-refresh.
+
+    Returns 204 No Content (not a redirect) when session has expired or user lacks
+    crew access. fetch() sees r.ok=True but html="" which is falsy — the JS guard
+    skips the DOM update, preventing login-page HTML from being injected into #stop-list.
+    """
+    if (not current_user.is_authenticated
+            or not current_user.is_worker
+            or current_user.worker_status != 'approved'):
+        return '', 204
+
     shift = Shift.query.get_or_404(shift_id)
-    # Find the worker's truck assignment for this shift
     assignment = ShiftAssignment.query.filter_by(
         shift_id=shift_id, worker_id=current_user.id, role_on_shift='driver'
     ).first()
     if not assignment or not assignment.truck_number:
-        return '<div id="stop-list"><p style="color:var(--text-muted);font-size:0.875rem;">No stops assigned.</p></div>'
+        return '<div id="stop-list" data-stops-partial="1"><p style="color:var(--text-muted);font-size:0.875rem;">No stops assigned.</p></div>'
 
     pickups = (
         ShiftPickup.query
@@ -11023,10 +11037,14 @@ def crew_shift_stops_partial(shift_id):
         .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id)
         .all()
     )
+    # Include 'approved' items — same eligibility as crew_shift_view
+    PICKUP_ELIGIBLE_STATUSES = ('approved', 'available')
     item_counts = {}
     for p in pickups:
-        item_counts[p.seller_id] = InventoryItem.query.filter_by(
-            seller_id=p.seller_id, status='available').count()
+        item_counts[p.seller_id] = InventoryItem.query.filter(
+            InventoryItem.seller_id == p.seller_id,
+            InventoryItem.status.in_(PICKUP_ELIGIBLE_STATUSES)
+        ).count()
 
     return render_template(
         'crew/stops_partial.html',
