@@ -140,7 +140,7 @@
 {% if active_tab is not defined or active_tab is none %}
   {% if _path.startswith('/admin/ops') %}
     {% set active_tab = 'ops' %}
-  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') %}
+  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') or _path == '/admin/items/needs_info' %}
     {% set active_tab = 'items' %}
   {% elif _path.startswith('/admin/payouts') %}
     {% set active_tab = 'payouts' %}
@@ -171,6 +171,17 @@
          title="Items">
         <i class="fas fa-check-square"></i>
         <span class="nav-tooltip">Items</span>
+      </a>
+
+      <a href="/admin/items/needs_info"
+         class="admin-nav-item {% if request.path == '/admin/items/needs_info' %}active{% endif %}"
+         title="Quick Captures"
+         style="position:relative;">
+        <i class="fas fa-camera"></i>
+        {% if qc_pending_count > 0 %}
+        <span style="position:absolute; top:2px; right:2px; background:var(--accent); color:white; font-size:0.6rem; font-weight:800; min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1;">{{ qc_pending_count }}</span>
+        {% endif %}
+        <span class="nav-tooltip">Quick Captures{% if qc_pending_count > 0 %} ({{ qc_pending_count }}){% endif %}</span>
       </a>
 
       <a href="/admin/payouts"

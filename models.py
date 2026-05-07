@@ -75,6 +75,10 @@ class User(UserMixin, db.Model):
     sms_opted_out = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     # Set True on STOP, False on UNSTOP/START. Only written by the Twilio inbound webhook.
 
+    # INTERNAL ACCOUNT FLAG
+    is_internal_account = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    # True only on the seeded "Campus Swap" user. Excluded from payout reconciliation and all seller-facing UI.
+
     # CLASS YEAR
     class_year = db.Column(db.String(20), nullable=True)
     # Values: 'freshman' | 'sophomore' | 'junior' | 'senior' | 'grad' | NULL = not provided
@@ -193,6 +197,10 @@ class InventoryItem(db.Model):
     storage_row         = db.Column(db.String(50), nullable=True)   # e.g. "Row 1", "Row B"
     storage_note        = db.Column(db.Text, nullable=True)         # e.g. "behind the couch stack"
     unit_size = db.Column(db.Float, nullable=True)  # per-item override; NULL = use category default
+
+    # QUICK CAPTURE (Driver Quick Capture feature)
+    is_quick_capture = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    quick_capture_shift_id = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=True)
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -1,0 +1,291 @@
+{# Quick Capture modal partial — included via {% include %} in crew/dashboard.html and crew/shift.html.
+   Does NOT extend layout.html. Camera path: getUserMedia (HTTPS) with file-input fallback (HTTP/denied). #}
+
+<div id="quick-capture-modal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:white; border-radius:18px; width:100%; max-width:420px; overflow:hidden; box-shadow:var(--glass-shadow);">
+
+    <div style="background:var(--primary); padding:16px 20px; display:flex; align-items:center; justify-content:space-between;">
+      <span style="color:white; font-weight:700; font-size:1rem;"><i class="fas fa-camera"></i> Quick Capture</span>
+      <button id="qc-close-btn" type="button"
+              style="background:none; border:none; color:rgba(255,255,255,0.7); font-size:1.2rem; cursor:pointer; padding:4px 8px; line-height:1;">
+        &times;
+      </button>
+    </div>
+
+    <div style="padding:20px;">
+
+      {# ── Live camera preview (getUserMedia path) ── #}
+      <div id="qc-camera-wrap" style="display:none; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; position:relative; margin-bottom:14px;">
+        <video id="qc-video" autoplay playsinline muted
+               style="width:100%; height:100%; object-fit:cover; display:block;"></video>
+        <button id="qc-snap-btn" type="button"
+                style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+                       background:white; color:var(--primary); border:none; border-radius:999px;
+                       padding:10px 24px; font-weight:700; font-size:0.95rem; cursor:pointer;
+                       box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+          <i class="fas fa-camera"></i> Take Photo
+        </button>
+      </div>
+
+      {# ── File-input fallback (HTTP / camera denied) ── #}
+      <div id="qc-fileinput-wrap" style="display:none; border-radius:12px; border:2px dashed var(--rule); background:var(--bg-cream); aspect-ratio:4/3; margin-bottom:14px; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; cursor:pointer;"
+           onclick="document.getElementById('qc-file-input').click()">
+        <i class="fas fa-camera" style="font-size:2.5rem; color:var(--primary);"></i>
+        <span style="font-weight:700; font-size:1rem; color:var(--primary);">Tap to Take Photo</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Opens your camera</span>
+      </div>
+      <input id="qc-file-input" type="file" accept="image/*" capture="environment" style="display:none;">
+
+      {# ── Thumbnail (shown after capture on either path) ── #}
+      <div id="qc-thumb-wrap" style="display:none; margin-bottom:14px; border-radius:12px; overflow:hidden; position:relative; aspect-ratio:4/3;">
+        <img id="qc-thumb" src="" alt="Captured photo"
+             style="width:100%; height:100%; object-fit:cover; display:block;">
+        <button id="qc-retake-btn" type="button"
+                style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+                       background:white; color:var(--primary); border:none; border-radius:999px;
+                       padding:8px 20px; font-weight:700; font-size:0.9rem; cursor:pointer;
+                       box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+          <i class="fas fa-redo"></i> Retake
+        </button>
+      </div>
+
+      <canvas id="qc-canvas" style="display:none;"></canvas>
+
+      <div style="margin-bottom:16px;">
+        <label for="qc-seller-select"
+               style="display:block; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:6px;">
+          Seller
+        </label>
+        <select id="qc-seller-select"
+                style="width:100%; padding:10px 12px; border:1px solid var(--rule); border-radius:10px; font-size:0.95rem; color:var(--text-main); background:white; appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0l6 8 6-8z' fill='%236B8F6B'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 12px center;">
+        </select>
+      </div>
+
+      <div id="qc-error" style="display:none; background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:10px 14px; font-size:0.875rem; color:#991b1b; margin-bottom:14px;"></div>
+
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button id="qc-cancel-btn" type="button" class="btn-outline"
+                style="padding:10px 20px; font-size:0.9rem;">
+          Cancel
+        </button>
+        <button id="qc-save-btn" type="button" class="btn-primary"
+                style="padding:10px 20px; font-size:0.9rem;" disabled>
+          Save Item &rarr;
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modal          = document.getElementById('quick-capture-modal');
+  var video          = document.getElementById('qc-video');
+  var canvas         = document.getElementById('qc-canvas');
+  var cameraWrap     = document.getElementById('qc-camera-wrap');
+  var fileInputWrap  = document.getElementById('qc-fileinput-wrap');
+  var fileInput      = document.getElementById('qc-file-input');
+  var thumbWrap      = document.getElementById('qc-thumb-wrap');
+  var thumb          = document.getElementById('qc-thumb');
+  var snapBtn        = document.getElementById('qc-snap-btn');
+  var retakeBtn      = document.getElementById('qc-retake-btn');
+  var saveBtn        = document.getElementById('qc-save-btn');
+  var cancelBtn      = document.getElementById('qc-cancel-btn');
+  var closeBtn       = document.getElementById('qc-close-btn');
+  var sellerSel      = document.getElementById('qc-seller-select');
+  var errorDiv       = document.getElementById('qc-error');
+
+  var stream       = null;
+  var capturedBlob = null;
+  var useFileInput = false;  // set true when getUserMedia unavailable or denied
+
+  function showError(msg) {
+    errorDiv.textContent = msg;
+    errorDiv.style.display = 'block';
+  }
+
+  function clearError() {
+    errorDiv.style.display = 'none';
+    errorDiv.textContent = '';
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(function(t){ t.stop(); });
+      stream = null;
+    }
+    video.srcObject = null;
+  }
+
+  // Switch to file-input path (HTTP / camera denied)
+  function switchToFileInput() {
+    useFileInput = true;
+    cameraWrap.style.display   = 'none';
+    fileInputWrap.style.display = 'flex';
+    thumbWrap.style.display    = 'none';
+  }
+
+  function showCameraPreview() {
+    cameraWrap.style.display    = 'block';
+    fileInputWrap.style.display = 'none';
+    thumbWrap.style.display     = 'none';
+    capturedBlob = null;
+    saveBtn.disabled = true;
+  }
+
+  function showFileCapturePicker() {
+    cameraWrap.style.display    = 'none';
+    fileInputWrap.style.display = 'flex';
+    thumbWrap.style.display     = 'none';
+    capturedBlob = null;
+    saveBtn.disabled = true;
+  }
+
+  function showThumbnail(blob) {
+    capturedBlob = blob;
+    thumb.src = URL.createObjectURL(blob);
+    cameraWrap.style.display    = 'none';
+    fileInputWrap.style.display = 'none';
+    thumbWrap.style.display     = 'block';
+    saveBtn.disabled = false;
+    stopCamera();
+  }
+
+  function startCamera() {
+    clearError();
+    // getUserMedia requires a secure context (HTTPS or localhost).
+    // Fall back to file input on plain HTTP LAN addresses.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      switchToFileInput();
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(function(s) {
+        stream = s;
+        video.srcObject = s;
+        showCameraPreview();
+      })
+      .catch(function() {
+        // Permission denied or device unavailable — fall back to file input
+        switchToFileInput();
+      });
+  }
+
+  function populateSellers(sellers, activeSellerId) {
+    sellerSel.innerHTML = '';
+    (sellers || []).forEach(function(s) {
+      var opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === activeSellerId) opt.selected = true;
+      sellerSel.appendChild(opt);
+    });
+  }
+
+  function openModal(triggerBtn) {
+    var sellers = JSON.parse(triggerBtn.dataset.sellers || '[]');
+    var activeSellerId = parseInt(triggerBtn.dataset.activeSellerId || '0', 10);
+    populateSellers(sellers, activeSellerId);
+    useFileInput = false;
+    capturedBlob = null;
+    saveBtn.disabled = true;
+    // Reset to hidden state before startCamera decides which path
+    cameraWrap.style.display    = 'none';
+    fileInputWrap.style.display = 'none';
+    thumbWrap.style.display     = 'none';
+    clearError();
+    modal.style.display = 'flex';
+    startCamera();
+  }
+
+  function closeModal() {
+    stopCamera();
+    modal.style.display = 'none';
+    clearError();
+  }
+
+  // Snap from live stream
+  snapBtn.addEventListener('click', function() {
+    if (!stream) return;
+    var vw = video.videoWidth;
+    var vh = video.videoHeight;
+    if (!vw || !vh) return;
+    canvas.width  = vw;
+    canvas.height = vh;
+    canvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+    canvas.toBlob(function(blob) { showThumbnail(blob); }, 'image/jpeg', 0.92);
+  });
+
+  // File input selected (fallback path)
+  fileInput.addEventListener('change', function() {
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    showThumbnail(file);
+    // Reset so the same file can be re-selected after retake
+    fileInput.value = '';
+  });
+
+  retakeBtn.addEventListener('click', function() {
+    capturedBlob = null;
+    saveBtn.disabled = true;
+    if (useFileInput) {
+      showFileCapturePicker();
+    } else {
+      showCameraPreview();
+      startCamera();
+    }
+  });
+
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) closeModal();
+  });
+
+  saveBtn.addEventListener('click', function() {
+    if (!capturedBlob) return;
+    clearError();
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    var fd = new FormData();
+    var csrfInput = document.querySelector('input[name="csrf_token"]');
+    if (csrfInput) fd.append('csrf_token', csrfInput.value);
+    fd.append('photo', capturedBlob, 'capture.jpg');
+    fd.append('seller_id', sellerSel.value);
+
+    var triggerBtn = document.querySelector('[data-qc-trigger]');
+    var shiftId = triggerBtn ? (triggerBtn.dataset.shiftId || '') : '';
+    if (shiftId) fd.append('shift_id', shiftId);
+
+    fetch('/crew/quick_capture', { method: 'POST', body: fd })
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          closeModal();
+          var btn = document.querySelector('[data-qc-trigger]');
+          if (btn) {
+            var origHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check-circle"></i> Item #' + data.item_id + ' captured';
+            setTimeout(function(){ btn.innerHTML = origHTML; }, 2500);
+          }
+        } else {
+          showError(data.error || 'Something went wrong. Try again.');
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = 'Save Item →';
+        }
+      })
+      .catch(function() {
+        showError('Network error. Check your connection and try again.');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = 'Save Item →';
+      });
+  });
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-qc-trigger]');
+    if (btn) openModal(btn);
+  });
+})();
+</script>

@@ -205,6 +205,22 @@
   {% endif %}
   {% endfor %}
   {% endif %}
+
+  {# Quick Capture button — no shift context #}
+  {% if internal_user %}
+  <div style="max-width:960px; margin:0 auto 24px; display:flex; justify-content:flex-start;">
+    <button type="button"
+            data-qc-trigger
+            data-shift-id=""
+            data-active-seller-id="{{ internal_user.id }}"
+            data-sellers='[{"id": {{ internal_user.id }}, "name": "Campus Swap"}]'
+            style="display:inline-flex; align-items:center; gap:8px; padding:12px 22px; background:var(--accent); color:white; border:none; border-radius:10px; font-weight:700; font-size:0.95rem; cursor:pointer; transition:background 0.15s;"
+            onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
+      <i class="fas fa-camera"></i> Quick Capture
+    </button>
+  </div>
+  {% endif %}
+
   <div class="crew-cards">
 
     <!-- Availability card -->
@@ -364,4 +380,8 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeCalModal();
 });
 </script>
+
+{# Quick Capture modal + hidden CSRF for fetch POST #}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% include 'crew/quick_capture_modal.html' %}
 {% endblock %}

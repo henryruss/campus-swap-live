@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import secrets
+import uuid
 import html as html_module
 import threading
 import base64
@@ -307,6 +308,16 @@ def inject_posthog():
 @app.context_processor
 def inject_template_utils():
     return {'timedelta': timedelta}
+
+
+@app.context_processor
+def inject_qc_pending_count():
+    """Inject quick-capture pending count for admin nav badge."""
+    try:
+        count = InventoryItem.query.filter_by(is_quick_capture=True, status='needs_info').count()
+    except Exception:
+        count = 0
+    return {'qc_pending_count': count}
 
 
 def get_user_dashboard():
@@ -2574,6 +2585,7 @@ def admin_panel():
     # Pickup nudge: sellers with approved/available items but no pickup_week on any item
     nudge_sellers_raw = User.query.filter(
         User.is_seller == True,
+        User.is_internal_account == False,
         User.items.any(InventoryItem.status.in_(['approved', 'available']))
     ).all()
     nudge_sellers = []
@@ -2974,6 +2986,7 @@ def admin_send_pickup_nudge():
 
         candidates = User.query.filter(
             User.is_seller == True,
+            User.is_internal_account == False,
             User.items.any(InventoryItem.status.in_(['approved', 'available']))
         ).all()
         target_users = []
@@ -7253,6 +7266,8 @@ def crew_dashboard():
         .all()
     }
 
+    internal_user = User.query.filter_by(is_internal_account=True).first()
+
     return render_template(
         'crew/dashboard.html',
         avail=avail_dict,
@@ -7266,6 +7281,7 @@ def crew_dashboard():
         shifts_required=shifts_required,
         is_organizer=is_organizer,
         flagged_shift_ids=flagged_shift_ids,
+        internal_user=internal_user,
     )
 
 
@@ -7435,6 +7451,25 @@ def crew_shift_view(shift_id):
     total_stops = len(all_pickups)
     done_stops = sum(1 for p in all_pickups if p.status in ('completed', 'issue'))
 
+    # Quick capture context: active stop = first pending pickup in stop_order for this truck
+    active_stop = next((p for p in all_pickups if p.status == 'pending'), None)
+    internal_user = User.query.filter_by(is_internal_account=True).first()
+
+    # Build ordered seller list for quick-capture dropdown:
+    # 1. Active stop's seller (if exists), 2. Campus Swap, 3. remaining unique sellers in stop_order
+    qc_sellers = []
+    seen_seller_ids = set()
+    if active_stop and active_stop.seller:
+        qc_sellers.append({'id': active_stop.seller.id, 'name': active_stop.seller.full_name or active_stop.seller.email})
+        seen_seller_ids.add(active_stop.seller.id)
+    if internal_user:
+        qc_sellers.append({'id': internal_user.id, 'name': 'Campus Swap'})
+        seen_seller_ids.add(internal_user.id)
+    for p in all_pickups:
+        if p.seller_id not in seen_seller_ids and p.seller:
+            qc_sellers.append({'id': p.seller.id, 'name': p.seller.full_name or p.seller.email})
+            seen_seller_ids.add(p.seller_id)
+
     return render_template(
         'crew/shift.html',
         shift=shift,
@@ -7447,6 +7482,9 @@ def crew_shift_view(shift_id):
         total_stops=total_stops,
         done_stops=done_stops,
         shift_date=shift_date,
+        active_stop=active_stop,
+        internal_user=internal_user,
+        qc_sellers=qc_sellers,
     )
 
 
@@ -7958,6 +7996,84 @@ def crew_intake_log_unknown(shift_id):
     db.session.commit()
     flash("Unknown item logged as a flag for admin review.", "success")
     return redirect(url_for('crew_intake_shift', shift_id=shift_id))
+
+
+@app.route('/crew/quick_capture', methods=['POST'])
+@login_required
+def crew_quick_capture():
+    """Create a quick-capture inventory item from a driver photo. Returns JSON."""
+    if not current_user.is_worker or current_user.worker_status != 'approved':
+        return jsonify({'success': False, 'error': 'Access denied.'}), 403
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return jsonify({'success': False, 'error': 'No photo provided.'}), 400
+
+    seller_id = request.form.get('seller_id', type=int)
+    if not seller_id:
+        return jsonify({'success': False, 'error': 'seller_id required.'}), 400
+    seller = User.query.get(seller_id)
+    if not seller or (not seller.is_seller and not seller.is_internal_account):
+        return jsonify({'success': False, 'error': 'Invalid seller.'}), 400
+
+    shift_id = request.form.get('shift_id', type=int)
+    shift = None
+    if shift_id:
+        shift = Shift.query.get(shift_id)
+        if not shift:
+            return jsonify({'success': False, 'error': 'Shift not found.'}), 400
+        assigned = ShiftAssignment.query.filter_by(
+            shift_id=shift.id, worker_id=current_user.id
+        ).first()
+        if not assigned:
+            return jsonify({'success': False, 'error': 'Not assigned to this shift.'}), 403
+
+    is_valid, error_msg = validate_file_upload(photo)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
+
+    filename = f"qc_{int(time.time())}_{uuid.uuid4().hex[:8]}.jpg"
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    try:
+        img = Image.open(photo)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        max_dimension = 2000
+        if bg.width > max_dimension or bg.height > max_dimension:
+            if bg.width > bg.height:
+                new_width = max_dimension
+                new_height = int(bg.height * (max_dimension / bg.width))
+            else:
+                new_height = max_dimension
+                new_width = int(bg.width * (max_dimension / bg.height))
+            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+    except Exception as e:
+        logger.error(f"Quick capture image processing error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error processing image.'}), 500
+
+    now = _now_eastern()
+    item = InventoryItem(
+        description='',
+        long_description=None,
+        price=0,
+        status='needs_info',
+        category_id=None,
+        seller_id=seller.id,
+        photo_url=filename,
+        picked_up_at=now,
+        is_quick_capture=True,
+        quick_capture_shift_id=shift.id if shift else None,
+        collection_method='free',
+        date_added=now,
+        quality=1,
+    )
+    db.session.add(item)
+    db.session.commit()
+
+    return jsonify({'success': True, 'item_id': item.id})
 
 
 @app.route('/crew/intake/search')
@@ -8577,6 +8693,8 @@ def admin_payouts():
         InventoryItem.query
         .filter_by(payout_sent=False)
         .filter(InventoryItem.status == 'sold')
+        .join(User, InventoryItem.seller_id == User.id)
+        .filter(User.is_internal_account == False)
         .order_by(InventoryItem.sold_at.asc())
         .all()
     )
@@ -8642,6 +8760,8 @@ def admin_payouts():
         InventoryItem.query
         .filter_by(payout_sent=True)
         .filter(InventoryItem.status == 'sold')
+        .join(User, InventoryItem.seller_id == User.id)
+        .filter(User.is_internal_account == False)
         .order_by(nulls_last(InventoryItem.payout_sent_at.desc()))
     )
     paid_pagination = paid_q.paginate(page=page, per_page=50, error_out=False)
@@ -8760,6 +8880,8 @@ def admin_payouts_export():
     sold_items = (
         InventoryItem.query
         .filter(InventoryItem.status == 'sold')
+        .join(User, InventoryItem.seller_id == User.id)
+        .filter(User.is_internal_account == False)
         .order_by(InventoryItem.sold_at.desc())
         .all()
     )
@@ -11487,6 +11609,33 @@ def admin_items():
     )
 
 
+@app.route('/admin/items/needs_info')
+@login_required
+def admin_needs_info_queue():
+    """Quick-capture items awaiting admin completion (is_quick_capture=True, status='needs_info')."""
+    if not current_user.is_admin:
+        abort(403)
+
+    items = (
+        InventoryItem.query
+        .filter_by(is_quick_capture=True, status='needs_info')
+        .order_by(InventoryItem.date_added.desc())
+        .all()
+    )
+
+    shift_ids = [i.quick_capture_shift_id for i in items if i.quick_capture_shift_id]
+    shifts_by_id = {}
+    if shift_ids:
+        for s in Shift.query.filter(Shift.id.in_(shift_ids)).all():
+            shifts_by_id[s.id] = s
+
+    return render_template(
+        'admin/needs_info.html',
+        items=items,
+        shifts_by_id=shifts_by_id,
+    )
+
+
 @app.route('/admin/sellers')
 @login_required
 def admin_sellers():
@@ -11497,6 +11646,7 @@ def admin_sellers():
     sellers = (
         User.query
         .filter_by(is_seller=True)
+        .filter(User.is_internal_account == False)
         .order_by(User.date_joined.desc())
         .all()
     )
