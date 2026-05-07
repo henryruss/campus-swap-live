@@ -7484,6 +7484,16 @@ def crew_shift_view(shift_id):
 
     # Quick capture context: active stop = first pending pickup in stop_order for this truck
     active_stop = next((p for p in all_pickups if p.status == 'pending'), None)
+
+    # Quick captures made by this driver during this shift, grouped by seller_id
+    qc_items = InventoryItem.query.filter_by(
+        is_quick_capture=True,
+        quick_capture_shift_id=shift.id,
+        captured_by_id=current_user.id,
+    ).all()
+    qc_items_by_seller = {}
+    for qc in qc_items:
+        qc_items_by_seller.setdefault(qc.seller_id, []).append(qc)
     internal_user = User.query.filter_by(is_internal_account=True).first()
 
     # Build ordered seller list for quick-capture dropdown:
@@ -7516,6 +7526,7 @@ def crew_shift_view(shift_id):
         active_stop=active_stop,
         internal_user=internal_user,
         qc_sellers=qc_sellers,
+        qc_items_by_seller=qc_items_by_seller,
     )
 
 

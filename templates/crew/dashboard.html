@@ -332,12 +332,12 @@
     </div>
 
     {% if recent_captures %}
-    <div class="crew-card">
+    <div class="crew-card" id="recent-captures-card">
       <h3><i class="fas fa-camera"></i> Recent Captures</h3>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin: -8px 0 14px;">Write the ID on each item's sticker.</p>
       <div style="display: flex; flex-direction: column; gap: 12px;">
         {% for item in recent_captures %}
-        <div class="history-item-card qc-card">
+        <div class="history-item-card qc-card" id="qc-item-{{ item.id }}">
           {% if item.photo_url %}
             <img
               src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
@@ -359,11 +359,24 @@
             {% endif %}
             <span class="history-no-items">{{ item.date_added | format_eastern_time }}</span>
           </div>
+          <button onclick="dismissCapture({{ item.id }})"
+                  style="background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; padding: 4px; align-self: flex-start; flex-shrink: 0;"
+                  aria-label="Dismiss">
+            <i class="fas fa-times"></i>
+          </button>
         </div>
         {% endfor %}
       </div>
     </div>
     {% endif %}
+    <script>
+    function dismissCapture(itemId) {
+      var el = document.getElementById('qc-item-' + itemId);
+      if (el) el.remove();
+      var card = document.getElementById('recent-captures-card');
+      if (card && card.querySelectorAll('.qc-card').length === 0) card.style.display = 'none';
+    }
+    </script>
 
   </div>
 </div>

@@ -481,7 +481,8 @@
 
       {# Item photo preview strip #}
       {% set items = seller_items.get(pickup.seller_id, []) %}
-      {% if items %}
+      {% set qc_items = qc_items_by_seller.get(pickup.seller_id, []) %}
+      {% if items or qc_items %}
       <div class="item-preview-strip">
         {% for item in items %}
         <div class="item-thumb">
@@ -494,6 +495,19 @@
           </div>
           <div style="font-size:0.72rem; font-weight:800; color:var(--primary); text-align:center; font-family:monospace;">#{{ item.id }}</div>
           <div class="item-thumb-desc">{{ item.description[:28] }}{% if item.description|length > 28 %}…{% endif %}</div>
+        </div>
+        {% endfor %}
+        {% for item in qc_items %}
+        <div class="item-thumb">
+          <div class="item-thumb-img" style="border: 2px solid var(--accent);">
+            {% if item.photo_url %}
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="Quick capture">
+            {% else %}
+              <i class="fas fa-camera"></i>
+            {% endif %}
+          </div>
+          <div style="font-size:0.72rem; font-weight:800; color:var(--accent); text-align:center; font-family:monospace;">#{{ item.id }}</div>
+          <div class="item-thumb-desc" style="color:var(--accent);">captured</div>
         </div>
         {% endfor %}
       </div>
