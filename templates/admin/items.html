@@ -266,7 +266,9 @@
         {% endif %}
       </p>
       <div class="approve-actions">
-        <form method="POST" action="{{ url_for('admin_approve') }}" style="display: flex; align-items: center; gap: 6px;">
+        <form method="POST" action="{{ url_for('admin_approve') }}" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;"
+              data-seller-id="{{ item.seller_id }}" data-csrf="{{ csrf_token() }}"
+              onsubmit="maybeBoxAlert(event, this)">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="item_id" value="{{ item.id }}">
@@ -275,6 +277,10 @@
             <input type="number" name="price" step="0.01" min="0" placeholder="Price" required>
           </div>
           <button type="submit" class="btn-approve">Approve</button>
+          <label style="display: flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--text-muted); cursor: pointer; white-space: nowrap;">
+            <input type="checkbox" name="send_box_alert" value="1" style="cursor: pointer;">
+            Box items alert
+          </label>
         </form>
         <form method="POST" action="{{ url_for('admin_approve') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -477,6 +483,18 @@
   function closeSellerPanel() {
     document.getElementById('seller-panel-overlay').style.display = 'none';
     document.getElementById('seller-panel-drawer').style.right = '-480px';
+  }
+
+  function maybeBoxAlert(e, form) {
+    var cb = form.querySelector('input[name="send_box_alert"]');
+    if (!cb || !cb.checked) return;
+    var sellerId = form.dataset.sellerId;
+    var csrf = form.dataset.csrf;
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('alert_type', 'preset');
+    fd.append('preset_reason', 'Please box your items before pickup — loose items can’t be collected');
+    fetch('/admin/seller/' + sellerId + '/send_alert', { method: 'POST', body: fd });
   }
 </script>
 {% endblock %}

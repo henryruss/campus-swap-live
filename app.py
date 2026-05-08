@@ -2326,11 +2326,8 @@ def admin_panel():
                         else:
                             new_price = None
                         
-                        # When admin approves (sets price): item goes to pending_logistics
-                        # Seller must confirm pickup week (and pay) before item goes live
                         if item.status == 'pending_valuation' and new_price is not None:
-                            item.status = 'pending_logistics'
-                            # Don't add to count_in_stock until seller confirms logistics
+                            item.status = 'available'
 
                             # Send email: item approved, confirm pickup
                             if item.seller and item.seller.email:
@@ -2760,8 +2757,8 @@ def admin_approve():
             qv, qr = validate_quality(request.form['quality'])
             if qv:
                 item.quality = qr
-        item.status = 'pending_logistics'
-        
+        item.status = 'available'
+
         # Send approval email
         if item.seller and item.seller.email:
             try:

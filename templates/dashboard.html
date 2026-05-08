@@ -185,6 +185,21 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             </div>
         </div>
     </div>
+    {% elif alert.alert_type == 'preset' %}
+    <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <i class="fas fa-info-circle" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
+            <div style="flex: 1;">
+                <h3 style="color: #92400e; margin: 0 0 6px; font-size: 1rem;">Note from Campus Swap</h3>
+                {% for reason in (alert.reasons | fromjson if alert.reasons else []) %}
+                <p style="color: #92400e; font-size: 0.9rem; margin: 0;">{{ reason }}</p>
+                {% endfor %}
+                {% if alert.custom_note %}
+                <p style="color: #92400e; font-size: 0.9rem; margin: 6px 0 0; font-style: italic;">"{{ alert.custom_note }}"</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
     {% elif alert.alert_type == 'pickup_reminder' %}
     <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
         <div style="display: flex; align-items: flex-start; gap: 12px;">

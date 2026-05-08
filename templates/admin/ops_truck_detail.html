@@ -196,7 +196,11 @@
       {% endif %}
     </div>
     <div class="detail-stop-info">
-      <div class="detail-stop-name">{{ seller.full_name if seller else 'Unknown' }}</div>
+      <div class="detail-stop-name">
+        {% if seller %}
+        <a href="#" class="seller-panel-link" data-user-id="{{ p.seller_id }}" style="color: var(--text-main); text-decoration: none;">{{ seller.full_name }}</a>
+        {% else %}Unknown{% endif %}
+      </div>
       <div class="detail-stop-addr">{{ seller.pickup_display if seller else '—' }}</div>
       <div class="detail-stop-meta">
         {% if seller and seller.phone %}
