@@ -429,6 +429,24 @@
         <i class="fas fa-box"></i>
         {{ item_counts.get(pickup.seller_id, 0) }} item{{ 's' if item_counts.get(pickup.seller_id, 0) != 1 else '' }} to collect
       </div>
+      {% set items = seller_items.get(pickup.seller_id, []) %}
+      {% if items %}
+      <div class="item-preview-strip">
+        {% for item in items %}
+        <div class="item-thumb">
+          <div class="item-thumb-img">
+            {% if item.photo_url %}
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+            {% else %}
+              <i class="fas fa-box-open"></i>
+            {% endif %}
+          </div>
+          <div style="font-size:0.72rem; font-weight:800; color:var(--primary); text-align:center; font-family:monospace;">#{{ item.id }}</div>
+          <div class="item-thumb-desc">{{ item.description[:28] }}{% if item.description|length > 28 %}…{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   {% else %}
@@ -701,6 +719,17 @@
   {% endif %}
 
   {% endif %}{# end is_preview / else #}
+
+  {% if next_shift %}
+  <div style="margin-top: 24px; text-align: center;">
+    <a href="{{ url_for('crew_shift_view', shift_id=next_shift.id) }}"
+       style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: var(--bg-cream); border: 1.5px solid var(--primary); border-radius: 10px; font-size: 0.9rem; font-weight: 700; color: var(--primary); text-decoration: none; transition: background 0.15s;"
+       onmouseover="this.style.background='var(--primary)';this.style.color='white'"
+       onmouseout="this.style.background='var(--bg-cream)';this.style.color='var(--primary)'">
+      Preview {{ shift_date.strftime('%A') }} PM shift &rarr;
+    </a>
+  </div>
+  {% endif %}
 
   <a href="{{ url_for('crew_dashboard') }}" class="back-link">
     <i class="fas fa-arrow-left"></i> Back to Crew Portal

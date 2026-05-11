@@ -7455,6 +7455,23 @@ def crew_shift_view(shift_id):
         ).all()
         coworkers = [a.worker for a in coworker_assignments if a.worker]
 
+    # Same-day PM shift navigation (AM → PM button)
+    next_shift = None
+    if shift.slot == 'am':
+        pm_candidate = (
+            Shift.query
+            .join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
+            .filter(
+                Shift.week_id == shift.week_id,
+                Shift.day_of_week == shift.day_of_week,
+                Shift.slot == 'pm',
+                ShiftAssignment.worker_id == current_user.id,
+            )
+            .first()
+        )
+        if pm_candidate and (pm_candidate.run is None or pm_candidate.run.status != 'in_progress'):
+            next_shift = pm_candidate
+
     # Get pickups for this mover's truck only
     pickup_query = ShiftPickup.query.filter_by(shift_id=shift.id)
     if my_truck_number is not None:
@@ -7524,6 +7541,7 @@ def crew_shift_view(shift_id):
         is_past=is_past,
         is_preview=is_preview,
         coworkers=coworkers,
+        next_shift=next_shift,
         seller_items=seller_items,
         item_counts=item_counts,
         total_stops=total_stops,

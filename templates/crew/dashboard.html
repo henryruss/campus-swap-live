@@ -115,6 +115,8 @@
     letter-spacing: 0.05em; padding: 2px 8px; border-radius: 6px;
     background: var(--primary); color: white;
   }
+  .slot-pill-am { background: #d97706; color: white; }
+  .slot-pill-pm { background: #1d4ed8; color: white; }
   .role-pill {
     font-size: 0.75rem; color: var(--text-muted); margin-left: auto;
     font-weight: 600; text-transform: capitalize;
@@ -255,28 +257,29 @@
         {% if my_shifts_by_day %}
           <div class="my-shift-list">
             {% for day, day_shifts in my_shifts_by_day %}
-            {% set first_shift = day_shifts[0][0] %}
-            {% set first_role = day_shifts[0][1] %}
-            {% set shift_url = url_for('crew_intake_shift', shift_id=first_shift.id) if first_role == 'organizer' else url_for('crew_shift_view', shift_id=first_shift.id) %}
-            <a href="{{ shift_url }}"
-               style="text-decoration: none; display: block;">
-            <div class="my-shift-row" style="cursor: pointer;">
-              <span class="my-shift-day">{{ first_shift._DAY_LABELS[day][:3] }}</span>
-              <span style="display:flex; gap:4px; flex-wrap:wrap;">
+              {% if day_shifts | length == 1 %}
+                {% set shift = day_shifts[0][0] %}
+                {% set role = day_shifts[0][1] %}
+                {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else url_for('crew_shift_view', shift_id=shift.id) %}
+                <a href="{{ shift_url }}" style="text-decoration: none; display: block;">
+                <div class="my-shift-row" style="cursor: pointer;">
+                  <span class="my-shift-day">{{ shift._DAY_LABELS[day][:3] }}</span>
+                  <span class="slot-pill slot-pill-{{ shift.slot }}">{{ shift.slot|upper }}</span>
+                  <span class="role-pill">{{ 'Mover' if role == 'driver' else 'Organizer' }}</span>
+                </div>
+                </a>
+              {% else %}
                 {% for shift, role in day_shifts %}
-                  <span class="slot-pill">{{ shift.slot|upper }}</span>
+                  {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else url_for('crew_shift_view', shift_id=shift.id) %}
+                  <a href="{{ shift_url }}" style="text-decoration: none; display: block;">
+                  <div class="my-shift-row" style="cursor: pointer;">
+                    <span class="my-shift-day">{{ shift._DAY_LABELS[day][:3] }}</span>
+                    <span class="slot-pill slot-pill-{{ shift.slot }}">{{ shift.slot|upper }}</span>
+                    <span class="role-pill">{{ 'Mover' if role == 'driver' else 'Organizer' }}</span>
+                  </div>
+                  </a>
                 {% endfor %}
-              </span>
-              <span class="role-pill">
-                {% set roles = day_shifts | map(attribute=1) | list %}
-                {% if roles | unique | list | length == 1 %}
-                  {% if roles[0] == 'driver' %}Mover{% elif roles[0] == 'organizer' %}Organizer{% else %}{{ roles[0] }}{% endif %}
-                {% else %}
-                  Mixed
-                {% endif %}
-              </span>
-            </div>
-            </a>
+              {% endif %}
             {% endfor %}
           </div>
         {% else %}
