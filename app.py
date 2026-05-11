@@ -7441,12 +7441,19 @@ def crew_shift_view(shift_id):
     is_past  = (shift_date < today)
     is_future = (shift_date > today)
 
-    # Block access to future shifts — not on the clock yet
-    if is_future and not shift.run:
-        flash("This shift isn't scheduled until " + shift_date.strftime('%A, %b %-d') + ". Come back then.", "info")
-        return redirect(url_for('crew_dashboard'))
+    is_preview = is_future and not shift.run
 
     my_truck_number = assignment.truck_number
+
+    # Co-workers on the same truck (only needed for preview banner)
+    coworkers = []
+    if is_preview and my_truck_number is not None:
+        coworker_assignments = ShiftAssignment.query.filter(
+            ShiftAssignment.shift_id == shift.id,
+            ShiftAssignment.worker_id != current_user.id,
+            ShiftAssignment.truck_number == my_truck_number
+        ).all()
+        coworkers = [a.worker for a in coworker_assignments if a.worker]
 
     # Get pickups for this mover's truck only
     pickup_query = ShiftPickup.query.filter_by(shift_id=shift.id)
@@ -7515,6 +7522,8 @@ def crew_shift_view(shift_id):
         pickups=all_pickups,
         is_today=is_today,
         is_past=is_past,
+        is_preview=is_preview,
+        coworkers=coworkers,
         seller_items=seller_items,
         item_counts=item_counts,
         total_stops=total_stops,

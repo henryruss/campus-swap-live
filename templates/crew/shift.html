@@ -41,6 +41,22 @@
     gap: 10px;
   }
 
+  /* Preview banner */
+  .preview-banner {
+    background: var(--bg-cream);
+    border-left: 4px solid var(--primary);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 0.875rem;
+    color: var(--primary);
+    margin-bottom: 20px;
+  }
+  .preview-banner strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+  }
+
   /* Progress bar */
   .progress-row {
     display: flex;
@@ -353,7 +369,7 @@
         &nbsp;·&nbsp; {{ shift.trucks }} truck{{ 's' if shift.trucks != 1 else '' }}
       </p>
     </div>
-    {% if qc_sellers %}
+    {% if qc_sellers and not is_preview %}
     <button type="button"
             data-qc-trigger
             data-shift-id="{{ shift.id }}"
@@ -369,6 +385,59 @@
 
 
 <div class="shift-view-wrap">
+
+  {% if is_preview %}
+  {# ── Preview state (future shift, no ShiftRun) ── #}
+  <div class="preview-banner">
+    <strong><i class="fas fa-calendar-alt"></i>&nbsp; Preview — your shift is on {{ shift_date.strftime('%A, %b %-d') }}.</strong>
+    Actions are available on the day of the shift.
+    {% if coworkers %}
+    <div style="margin-top: 8px; color: var(--text-muted); font-size: 0.82rem;">
+      On your truck: {% for w in coworkers %}{{ w.full_name or w.email }}{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if pickups %}
+    {% for pickup in pickups %}
+    <div class="stop-card">
+      <div class="stop-card-header">
+        <span class="stop-seller-name">{{ pickup.seller.full_name }}</span>
+        {% if pickup.seller.pickup_access_type == 'elevator' %}
+          <span style="font-size:0.72rem; background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 6px; margin-left:8px;">Elevator</span>
+        {% elif pickup.seller.pickup_access_type == 'stairs_only' %}
+          <span style="font-size:0.72rem; background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px; margin-left:8px;">Stairs</span>
+        {% endif %}
+      </div>
+      <div class="stop-address">
+        {% set _addr = pickup.seller.pickup_display %}
+        {% if _addr %}
+          <i class="fas fa-map-marker-alt"></i> {{ _addr }}
+        {% else %}
+          <i class="fas fa-map-marker-alt"></i> No address on file
+        {% endif %}
+      </div>
+      <div class="stop-phone">
+        <i class="fas fa-phone"></i>
+        {% if pickup.seller.phone %}
+          <a href="tel:{{ pickup.seller.phone }}">{{ pickup.seller.phone }}</a>
+        {% else %}
+          <span style="color: var(--text-muted);">No phone on file</span>
+        {% endif %}
+      </div>
+      <div class="stop-item-count">
+        <i class="fas fa-box"></i>
+        {{ item_counts.get(pickup.seller_id, 0) }} item{{ 's' if item_counts.get(pickup.seller_id, 0) != 1 else '' }} to collect
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 40px 0;">
+      Stops haven't been assigned yet — check back closer to your shift date.
+    </p>
+  {% endif %}
+
+  {% else %}
 
   {% if not is_today %}
   <div class="not-today-banner">
@@ -630,6 +699,8 @@
   {% endif %}
 
   {% endif %}
+
+  {% endif %}{# end is_preview / else #}
 
   <a href="{{ url_for('crew_dashboard') }}" class="back-link">
     <i class="fas fa-arrow-left"></i> Back to Crew Portal
