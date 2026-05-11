@@ -8079,6 +8079,13 @@ def crew_quick_capture():
         if not assigned:
             return jsonify({'success': False, 'error': 'Not assigned to this shift.'}), 403
 
+    fallback_category = InventoryCategory.query.filter(
+        InventoryCategory.name.ilike('%other%')
+    ).first()
+    if not fallback_category:
+        fallback_category = InventoryCategory.query.first()
+    fallback_category_id = fallback_category.id if fallback_category else None
+
     is_valid, error_msg = validate_file_upload(photo)
     if not is_valid:
         return jsonify({'success': False, 'error': error_msg}), 400
@@ -8111,7 +8118,7 @@ def crew_quick_capture():
         long_description=None,
         price=0,
         status='needs_info',
-        category_id=None,
+        category_id=fallback_category_id,
         seller_id=seller.id,
         photo_url=filename,
         picked_up_at=now,
