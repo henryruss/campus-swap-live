@@ -7613,6 +7613,12 @@ def crew_shift_stop_update(shift_id, pickup_id):
     if pickup.shift_id != shift.id:
         abort(404)
 
+    if pickup.status in ('completed', 'issue'):
+        return jsonify({
+            'error': 'already_resolved',
+            'current_status': pickup.status
+        }), 409
+
     new_status = request.form.get('status')
     if new_status not in ('completed', 'issue'):
         flash("Invalid status.", "error")

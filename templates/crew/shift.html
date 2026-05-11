@@ -420,6 +420,12 @@
     <div class="progress-bar-wrap">
       <div class="progress-bar-fill" style="width: {{ pct }}%;"></div>
     </div>
+    {% if shift_run.status == 'in_progress' %}
+    <button id="sync-stops-btn" type="button"
+            style="flex-shrink:0; padding:6px 14px; background:none; border:1.5px solid var(--rule); border-radius:8px; font-size:0.82rem; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; transition:opacity 0.15s;">
+      &#x21bb; Sync
+    </button>
+    {% endif %}
   </div>
 
   {# Spec #8: stale route notice for rescheduled-in stops with no stop_order #}
@@ -440,7 +446,7 @@
   <div id="stop-list">
   {% if pickups %}
     {% for pickup in pickups %}
-    <div class="stop-card">
+    <div class="stop-card" data-pickup-id="{{ pickup.id }}">
       <div class="stop-card-header">
         <span class="stop-seller-name">{{ pickup.seller.full_name }}</span>
         <span class="stop-badge badge-{{ pickup.status }}">{{ pickup.status }}</span>
@@ -528,7 +534,8 @@
       {# Inline notes form — complete #}
       <div class="inline-notes-form" id="complete-{{ pickup.id }}">
         <form method="POST"
-              action="{{ url_for('crew_shift_stop_update', shift_id=shift.id, pickup_id=pickup.id) }}">
+              action="{{ url_for('crew_shift_stop_update', shift_id=shift.id, pickup_id=pickup.id) }}"
+              data-stop-form data-pickup-id="{{ pickup.id }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <input type="hidden" name="status" value="completed"/>
           <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 6px;">
@@ -546,7 +553,8 @@
       {# Inline notes form — issue (with type picker) #}
       <div class="inline-notes-form" id="issue-{{ pickup.id }}">
         <form method="POST"
-              action="{{ url_for('crew_shift_stop_update', shift_id=shift.id, pickup_id=pickup.id) }}">
+              action="{{ url_for('crew_shift_stop_update', shift_id=shift.id, pickup_id=pickup.id) }}"
+              data-stop-form data-pickup-id="{{ pickup.id }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <input type="hidden" name="status" value="issue"/>
           <input type="hidden" name="issue_type" id="issue-type-val-{{ pickup.id }}" value="other"/>
@@ -654,24 +662,95 @@ function selectIssueType(card) {
   card.classList.add('is-selected');
 }
 
-// ── Auto-refresh stop list every 30s ──────────────────────
-setInterval(function() {
-  fetch('/crew/shift/{{ shift.id }}/stops_partial')
+// ── Manual sync ─────────────────────────────────────────────
+function triggerSync() {
+  var btn = document.getElementById('sync-stops-btn');
+  if (btn) btn.click();
+}
+
+(function() {
+  var syncBtn = document.getElementById('sync-stops-btn');
+  if (!syncBtn) return;
+  syncBtn.addEventListener('click', function() {
+    syncBtn.disabled = true;
+    syncBtn.textContent = 'Syncing…';
+    fetch('/crew/shift/{{ shift.id }}/stops_partial')
+      .then(function(r) {
+        if (!r.ok) throw new Error('non-ok');
+        return r.text();
+      })
+      .then(function(html) {
+        // Sentinel guard: only replace DOM when partial contains expected wrapper
+        if (html && html.indexOf('data-stops-partial') !== -1) {
+          var el = document.getElementById('stop-list');
+          if (el) el.outerHTML = html;
+        }
+      })
+      .catch(function() {
+        // network error — keep existing stop list intact
+      })
+      .finally(function() {
+        syncBtn.disabled = false;
+        syncBtn.textContent = '↻ Sync';
+      });
+  });
+})();
+
+// ── Stale stop conflict UI ──────────────────────────────────
+function showStopConflict(pickupId, label) {
+  var card = document.querySelector('.stop-card[data-pickup-id="' + pickupId + '"]');
+  if (!card) return;
+  card.querySelectorAll('.inline-notes-form.open').forEach(function(el) {
+    el.classList.remove('open');
+  });
+  card.querySelectorAll('.btn-stop-action').forEach(function(btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+  });
+  var existing = card.querySelector('.stop-conflict-msg');
+  if (existing) existing.remove();
+  var msg = document.createElement('div');
+  msg.className = 'stop-conflict-msg';
+  msg.style.cssText = 'margin-top:10px; padding:10px 12px; background:#fef3c7; border:1px solid #fde68a; border-radius:8px; font-size:0.85rem; color:#92400e;';
+  msg.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + label + '. ' +
+    '<button type="button" onclick="triggerSync()" style="background:none;border:none;padding:0;font-size:0.85rem;font-weight:700;color:#92400e;cursor:pointer;text-decoration:underline;">↻ Sync to update</button>';
+  var actions = card.querySelector('.stop-actions');
+  if (actions) {
+    actions.insertAdjacentElement('afterend', msg);
+  } else {
+    card.appendChild(msg);
+  }
+}
+
+// ── Intercept stop-update form submits via fetch ─────────────
+document.addEventListener('submit', function(e) {
+  var form = e.target.closest('form[data-stop-form]');
+  if (!form) return;
+  e.preventDefault();
+  var pickupId = form.dataset.pickupId;
+  var submitBtn = form.querySelector('button[type="submit"]');
+  var origText = submitBtn ? submitBtn.textContent.trim() : '';
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
+
+  fetch(form.action, { method: 'POST', body: new FormData(form) })
     .then(function(r) {
-      if (!r.ok) throw new Error('non-ok');
-      return r.text();
-    })
-    .then(function(html) {
-      // Sentinel guard: only replace DOM when the partial contains the expected
-      // wrapper attribute. Prevents login-page HTML (or any other unexpected
-      // response) from being injected into #stop-list on session expiry.
-      if (html && html.indexOf('data-stops-partial') !== -1) {
-        var el = document.getElementById('stop-list');
-        if (el) el.outerHTML = html;
+      if (r.status === 409) {
+        return r.json().then(function(data) {
+          var label = data.current_status === 'completed'
+            ? 'Already marked complete by your partner'
+            : 'Already flagged by your partner';
+          showStopConflict(pickupId, label);
+          throw new Error('conflict');
+        });
       }
+      // Success — fetch followed the redirect and got the page HTML; reload to reflect new state
+      window.location.reload();
     })
-    .catch(function() {}); // network error or non-OK — keep existing DOM
-}, 30000);
+    .catch(function(err) {
+      if (err && err.message === 'conflict') return;
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText || 'Confirm'; }
+    });
+});
 </script>
 
 {# Quick Capture modal + hidden CSRF for fetch POST #}
