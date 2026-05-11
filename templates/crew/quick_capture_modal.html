@@ -251,7 +251,8 @@
 
     var fd = new FormData();
     var csrfInput = document.querySelector('input[name="csrf_token"]');
-    if (csrfInput) fd.append('csrf_token', csrfInput.value);
+    var csrfValue = csrfInput ? csrfInput.value : '';
+    if (csrfValue) fd.append('csrf_token', csrfValue);
     fd.append('photo', capturedBlob, 'capture.jpg');
     fd.append('seller_id', sellerSel.value);
 
@@ -259,8 +260,18 @@
     var shiftId = triggerBtn ? (triggerBtn.dataset.shiftId || '') : '';
     if (shiftId) fd.append('shift_id', shiftId);
 
-    fetch('/crew/quick_capture', { method: 'POST', body: fd })
-      .then(function(r){ return r.json(); })
+    var headers = {};
+    if (csrfValue) headers['X-CSRFToken'] = csrfValue;
+
+    fetch('/crew/quick_capture', { method: 'POST', body: fd, headers: headers })
+      .then(function(r) {
+        if (!r.ok && r.status !== 200) {
+          return r.text().then(function(text) {
+            throw new Error('HTTP ' + r.status + ': ' + text.substring(0, 120));
+          });
+        }
+        return r.json();
+      })
       .then(function(data) {
         if (data.success) {
           closeModal();
@@ -273,13 +284,13 @@
         } else {
           showError(data.error || 'Something went wrong. Try again.');
           saveBtn.disabled = false;
-          saveBtn.innerHTML = 'Save Item →';
+          saveBtn.innerHTML = 'Save Item &rarr;';
         }
       })
-      .catch(function() {
-        showError('Network error. Check your connection and try again.');
+      .catch(function(err) {
+        showError((err && err.message) || 'Network error. Check your connection and try again.');
         saveBtn.disabled = false;
-        saveBtn.innerHTML = 'Save Item →';
+        saveBtn.innerHTML = 'Save Item &rarr;';
       });
   });
 

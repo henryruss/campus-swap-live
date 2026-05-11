@@ -8123,7 +8123,12 @@ def crew_quick_capture():
         quality=1,
     )
     db.session.add(item)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Quick capture commit error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Failed to save item. Please try again.'}), 500
 
     return jsonify({'success': True, 'item_id': item.id})
 
