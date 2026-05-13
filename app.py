@@ -4351,7 +4351,7 @@ def dashboard():
     if current_user.pickup_week:
         pickup_method_type = 'week'
         week_label = dict(PICKUP_WEEKS).get(current_user.pickup_week, current_user.pickup_week)
-        week_short_map = {'week1': 'Wk 1', 'week2': 'Wk 2', 'week3': 'Wk 3'}
+        week_short_map = {'week1': 'Wk 1', 'week2': 'Wk 2', 'week3': 'Wk 3', 'week4': 'Wk 4', 'week5': 'Wk 5'}
         week_short = week_short_map.get(current_user.pickup_week, current_user.pickup_week)
         if current_user.pickup_time_preference:
             pickup_method_label = f"{week_short} · {time_labels.get(current_user.pickup_time_preference, '')}"
