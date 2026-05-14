@@ -42,6 +42,7 @@
   .worker-card-name {
     font-weight: 700; color: var(--primary); font-size: 0.92rem;
     display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    flex-wrap: wrap;
   }
   .role-badge {
     display: inline-block; padding: 2px 7px; border-radius: 8px;
@@ -63,6 +64,16 @@
   }
   .mini-avail-grid th { color: var(--text-muted); font-size: 9px; font-weight: 600; }
   .mini-avail-grid .slot-label { color: var(--text-muted); font-size: 9px; padding-right: 4px; text-align: right; }
+  .worker-card-contact { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+  .contact-chip {
+    font-size: 0.72rem; font-weight: 400; color: var(--text-muted);
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-family: inherit; transition: color 0.15s;
+  }
+  .contact-chip:hover { color: var(--primary); }
+  .contact-chip.copied { color: var(--sage); }
+  .contact-chip-none { font-size: 0.72rem; color: var(--text-muted); font-style: italic; }
+
   .avail-cell { border-radius: 2px; }
   .avail-cell.avail-green { background: #c8e6c9; }
   .avail-cell.avail-grey  { background: #e0e0e0; }
@@ -248,6 +259,15 @@
           onclick="openAvailModal(this)"
         >{{ worker.full_name }}</button>
         <span class="role-badge">{{ worker.worker_role or 'BOTH' }}</span>
+      </div>
+
+      <div class="worker-card-contact">
+        <button class="contact-chip" data-copy="{{ worker.email }}" onclick="copyChip(this)">{{ worker.email }}</button>
+        {% if worker.phone %}
+          <button class="contact-chip" data-copy="{{ worker.phone }}" onclick="copyChip(this)">{{ worker.phone }}</button>
+        {% else %}
+          <span class="contact-chip-none">No phone on file</span>
+        {% endif %}
       </div>
 
       {# Shift pills for current calendar week #}
@@ -581,5 +601,25 @@ function closeAvailModal() {
 document.getElementById('avail-modal').addEventListener('click', function(e) {
   if (e.target === this) closeAvailModal();
 });
+
+function copyChip(btn) {
+  var value = btn.dataset.copy;
+  var original = btn.textContent;
+  function done() {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(function() { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(value).then(done, done);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(ta);
+    done();
+  }
+}
 </script>
 {% endblock %}
