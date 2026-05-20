@@ -314,7 +314,10 @@ def inject_template_utils():
 def inject_qc_pending_count():
     """Inject quick-capture pending count for admin nav badge."""
     try:
-        count = InventoryItem.query.filter_by(is_quick_capture=True, status='needs_info').count()
+        count = InventoryItem.query.filter(
+            InventoryItem.is_quick_capture == True,
+            InventoryItem.status.in_(('pending_valuation', 'needs_info')),
+        ).count()
     except Exception:
         count = 0
     return {'qc_pending_count': count}
@@ -8476,7 +8479,7 @@ def crew_quick_capture():
         description='',
         long_description=notes if notes else None,
         price=0,
-        status='needs_info',
+        status='pending_valuation',
         category_id=fallback_category_id,
         seller_id=seller.id,
         photo_url=filename,
@@ -8511,7 +8514,7 @@ def crew_quick_capture_delete(item_id):
     if item.captured_by_id != current_user.id:
         return jsonify({'success': False, 'error': 'Not authorized.'}), 403
 
-    if not item.is_quick_capture or item.status != 'needs_info':
+    if not item.is_quick_capture or item.status not in ('pending_valuation', 'needs_info'):
         return jsonify({'success': False, 'error': 'Cannot delete this item.'}), 400
 
     if item.photo_url:
@@ -12185,7 +12188,10 @@ def admin_needs_info_queue():
 
     items = (
         InventoryItem.query
-        .filter_by(is_quick_capture=True, status='needs_info')
+        .filter(
+            InventoryItem.is_quick_capture == True,
+            InventoryItem.status.in_(('pending_valuation', 'needs_info')),
+        )
         .order_by(InventoryItem.date_added.desc())
         .all()
     )
