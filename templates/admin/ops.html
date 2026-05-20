@@ -775,6 +775,7 @@
                 </button>
               </div>
               <div class="stop-address">{{ row.seller.pickup_display }}</div>
+              {% if row.seller.phone %}<div class="stop-address">{{ row.seller.phone }}</div>{% endif %}
               <div class="stop-badges">
                 {% if row.is_new %}<span class="badge-new">new</span>{% endif %}
                 {% if row.is_rescheduled %}<span class="badge-moved">moved</span>{% endif %}

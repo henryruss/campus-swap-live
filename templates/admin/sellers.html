@@ -48,13 +48,37 @@
   .week-badge.week1 { background: #fef9c3; color: #854d0e; }
   .week-badge.week2 { background: #dbeafe; color: #1e40af; }
   .week-badge.week3 { background: #ede9fe; color: #5b21b6; }
+
+  .badge-proxy { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 10px; margin-left: 6px; }
+  .badge-claimed { background: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 10px; margin-left: 6px; }
+
+  /* Proxy create modal */
+  #proxy-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 400; }
+  #proxy-modal {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 100%; max-width: 440px; background: white; border-radius: 16px;
+    padding: 28px 28px 24px; z-index: 401; box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+  }
+  #proxy-modal h2 { font-family: 'DM Serif Display', serif; font-size: 1.3rem; color: var(--primary); margin: 0 0 18px; }
+  #proxy-modal .field { margin-bottom: 14px; }
+  #proxy-modal label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 4px; }
+  #proxy-modal input, #proxy-modal textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--rule);
+    border-radius: 9px; font-size: 0.88rem; box-sizing: border-box;
+  }
+  #proxy-modal textarea { resize: vertical; min-height: 60px; }
+  #proxy-modal .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+  #proxy-modal-error { color: #dc2626; font-size: 0.82rem; margin-top: 6px; display: none; }
 </style>
 
 <div class="sellers-wrap">
-  <h1>Sellers</h1>
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+    <h1 style="margin: 0;">Sellers</h1>
+    <button onclick="openProxyModal()" class="btn-primary" style="padding: 8px 16px; font-size: 0.85rem;">+ Create Proxy Account</button>
+  </div>
 
   {# ── Seller list ── #}
-  <div class="search-bar">
+  <div class="search-bar" style="margin-bottom: 14px;">
     <input type="text" id="sellerSearch" placeholder="Search by name or email..." oninput="filterSellers(this.value)">
   </div>
 
@@ -82,6 +106,11 @@
             <a href="#" class="seller-name-link" onclick="loadSellerPanel({{ s.id }}); return false;">
               {{ s.full_name }}
             </a>
+            {% if s.is_proxy_account %}
+              <span class="badge-proxy">⚠ Proxy</span>
+            {% elif s.proxy_claimed_at %}
+              <span class="badge-claimed">Claimed</span>
+            {% endif %}
           </td>
           <td>{{ s.email }}</td>
           <td>{{ s.phone or '—' }}</td>
@@ -199,6 +228,33 @@
   {% endif %}
 </div>
 
+{# ── Proxy Create Modal ── #}
+<div id="proxy-modal-overlay" onclick="closeProxyModal()"></div>
+<div id="proxy-modal" style="display: none;">
+  <h2>Create Proxy Account</h2>
+  <div class="field">
+    <label for="pm-name">Name <span style="color: var(--accent);">*</span></label>
+    <input type="text" id="pm-name" placeholder="Full name">
+  </div>
+  <div class="field">
+    <label for="pm-phone">Phone <span style="color: var(--accent);">*</span></label>
+    <input type="tel" id="pm-phone" placeholder="+1 (555) 555-5555">
+  </div>
+  <div class="field">
+    <label for="pm-email">Email <span style="color: var(--text-muted); font-weight: 400;">(optional)</span></label>
+    <input type="email" id="pm-email" placeholder="seller@example.com">
+  </div>
+  <div class="field">
+    <label for="pm-note">Note <span style="color: var(--text-muted); font-weight: 400;">(internal only, optional)</span></label>
+    <textarea id="pm-note" placeholder="e.g. Mom of Jake, Apt 4B, texted 5/20"></textarea>
+  </div>
+  <div id="proxy-modal-error"></div>
+  <div class="modal-actions">
+    <button onclick="closeProxyModal()" class="btn-outline" style="padding: 8px 16px;">Cancel</button>
+    <button id="pm-submit" onclick="submitProxyCreate()" class="btn-primary" style="padding: 8px 16px;">Create Account</button>
+  </div>
+</div>
+
 {# Seller profile panel drawer #}
 <div id="seller-panel-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeSellerPanel()"></div>
 <div id="seller-panel-drawer" style="position:fixed;top:0;right:-480px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:301;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
@@ -240,7 +296,53 @@
     document.getElementById('seller-panel-drawer').style.right = '-480px';
   }
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeSellerPanel();
+    if (e.key === 'Escape') { closeSellerPanel(); closeProxyModal(); }
   });
+
+  // ── Proxy modal ──
+  function openProxyModal() {
+    document.getElementById('proxy-modal-overlay').style.display = 'block';
+    document.getElementById('proxy-modal').style.display = 'block';
+    document.getElementById('pm-name').focus();
+    document.getElementById('proxy-modal-error').style.display = 'none';
+  }
+  function closeProxyModal() {
+    document.getElementById('proxy-modal-overlay').style.display = 'none';
+    document.getElementById('proxy-modal').style.display = 'none';
+  }
+  function submitProxyCreate() {
+    var btn = document.getElementById('pm-submit');
+    var errEl = document.getElementById('proxy-modal-error');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    var form = new FormData();
+    form.append('csrf_token', '{{ csrf_token() }}');
+    form.append('full_name', document.getElementById('pm-name').value.trim());
+    form.append('phone', document.getElementById('pm-phone').value.trim());
+    form.append('email', document.getElementById('pm-email').value.trim());
+    form.append('note', document.getElementById('pm-note').value.trim());
+
+    fetch('/admin/seller/create-proxy', { method: 'POST', body: form })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+        if (d.success) {
+          closeProxyModal();
+          window.location.reload();
+        } else {
+          errEl.textContent = d.message || 'Something went wrong.';
+          errEl.style.display = 'block';
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+        errEl.textContent = 'Network error — please try again.';
+        errEl.style.display = 'block';
+      });
+  }
 </script>
 {% endblock %}

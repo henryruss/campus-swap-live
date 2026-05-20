@@ -463,6 +463,11 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         logger.warning(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
         return False
 
+    # Proxy placeholder emails never receive mail — skip silently
+    if to_email and to_email.startswith('proxy+') and to_email.endswith('@usecampusswap.com'):
+        logger.info(f"Skipping email to proxy placeholder address: {to_email}")
+        return False
+
     # Check if user is unsubscribed (for marketing emails)
     if is_marketing and user and user.unsubscribed:
         logger.info(f"Skipping email to {to_email}: User has unsubscribed")
@@ -2938,6 +2943,143 @@ def admin_seller_panel(user_id):
     return render_template('admin_seller_panel.html', seller=user, seller_items=items, unresolved_alert_count=unresolved_count)
 
 
+# ── Proxy Seller Account helpers ──────────────────────────────────────────────
+
+_PROXY_CODE_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # no O,0,I,1
+
+
+def _gen_proxy_temp_password():
+    import secrets as _secrets
+    return ''.join(_secrets.choice(_PROXY_CODE_CHARSET) for _ in range(6))
+
+
+def _gen_referral_code():
+    import secrets as _secrets
+    for _ in range(20):
+        code = ''.join(_secrets.choice(_PROXY_CODE_CHARSET) for _ in range(8))
+        if not User.query.filter_by(referral_code=code).first():
+            return code
+    raise RuntimeError("Could not generate unique referral code")
+
+
+def _gen_claim_token():
+    import secrets as _secrets
+    return _secrets.token_urlsafe(48)
+
+
+# ── Proxy Seller Routes ───────────────────────────────────────────────────────
+
+@app.route('/admin/seller/create-proxy', methods=['POST'])
+@login_required
+def admin_create_proxy_seller():
+    """Create a proxy seller account on behalf of an off-platform seller."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied.'}), 403
+
+    full_name = (request.form.get('full_name') or '').strip()
+    phone_raw = (request.form.get('phone') or '').strip()
+    email_raw = (request.form.get('email') or '').strip()
+    note = (request.form.get('note') or '').strip() or None
+
+    if not full_name:
+        return jsonify({'success': False, 'message': 'Name is required.'}), 400
+    if not phone_raw:
+        return jsonify({'success': False, 'message': 'Phone is required.'}), 400
+
+    # Validate / normalize phone
+    phone_valid, phone_result = validate_phone(phone_raw)
+    if not phone_valid:
+        return jsonify({'success': False, 'message': phone_result}), 400
+
+    # Determine email
+    if email_raw:
+        if not validate_email(email_raw):
+            return jsonify({'success': False, 'message': 'Invalid email address.'}), 400
+        if User.query.filter_by(email=email_raw).first():
+            return jsonify({'success': False, 'message': 'An account with that email already exists.'}), 409
+        email = email_raw
+    else:
+        digits = ''.join(c for c in phone_result if c.isdigit())
+        email = f'proxy+{digits}@usecampusswap.com'
+        # Ensure uniqueness on placeholder emails too
+        if User.query.filter_by(email=email).first():
+            import secrets as _sec
+            email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
+
+    temp_pw = _gen_proxy_temp_password()
+
+    new_user = User(
+        email=email,
+        full_name=full_name,
+        phone=phone_result,
+        password_hash=generate_password_hash(temp_pw),
+        is_seller=True,
+        payout_rate=20,
+        is_proxy_account=True,
+        proxy_temp_password=temp_pw,
+        proxy_note=note,
+        referral_code=_gen_referral_code(),
+    )
+    db.session.add(new_user)
+    db.session.commit()
+
+    posthog.capture('seller_signed_up', distinct_id=str(new_user.id))
+    logger.info(f"Proxy seller account created: {email} (id={new_user.id}) by admin {current_user.id}")
+
+    return jsonify({'success': True, 'user_id': new_user.id, 'seller_name': full_name})
+
+
+@app.route('/admin/seller/<int:user_id>/generate-claim-link', methods=['POST'])
+@login_required
+def admin_generate_claim_link(user_id):
+    """Generate (or return existing) proxy claim token for a seller."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied.'}), 403
+    user = User.query.get_or_404(user_id)
+    if not user.is_proxy_account:
+        return jsonify({'success': False, 'message': 'Not a proxy account.'}), 400
+
+    now = datetime.utcnow()
+    # Re-use existing valid token unless caller explicitly asks for a new one
+    force_new = request.form.get('force_new') == '1'
+    if (not force_new
+            and user.proxy_claim_token
+            and user.proxy_token_expires_at
+            and user.proxy_token_expires_at > now):
+        token = user.proxy_claim_token
+    else:
+        token = _gen_claim_token()
+        user.proxy_claim_token = token
+        user.proxy_token_expires_at = now.replace(microsecond=0) + __import__('datetime').timedelta(days=30)
+        db.session.commit()
+
+    claim_url = url_for('claim_account', token=token, _external=True)
+    seller_name = (user.full_name or '').split()[0] if user.full_name else 'there'
+    sms_text = (
+        f"Hey {seller_name}! Campus Swap here — we picked up your stuff. "
+        f"Claim your account and track your items here: {claim_url} – Campus Swap"
+    )
+    return jsonify({
+        'claim_url': claim_url,
+        'sms_text': sms_text,
+        'temp_password': user.proxy_temp_password or '',
+    })
+
+
+@app.route('/admin/seller/<int:user_id>/proxy-contacted', methods=['POST'])
+@login_required
+def admin_proxy_mark_contacted(user_id):
+    """Mark that admin has contacted this proxy seller."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied.'}), 403
+    user = User.query.get_or_404(user_id)
+    if not user.is_proxy_account:
+        return jsonify({'success': False, 'message': 'Not a proxy account.'}), 400
+    user.proxy_contacted_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/admin/seller/<int:user_id>/send_alert', methods=['POST'])
 @login_required
 def admin_send_seller_alert(user_id):
@@ -4122,6 +4264,95 @@ def health_check():
         }), 503
 
 
+# ── Proxy Claim Routes ────────────────────────────────────────────────────────
+
+def _send_welcome_email(user):
+    """Send the standard welcome email to a newly claimed seller."""
+    name = (user.full_name or '').split()[0] if user.full_name else 'there'
+    try:
+        html = f"""
+        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+            <h2 style="color: #1A3D1A;">Welcome to Campus Swap!</h2>
+            <p>Hi {name},</p>
+            <p>Your account is all set. You can log in any time to track your items and get paid when they sell.</p>
+            <p><a href="{url_for('dashboard', _external=True)}" style="background: #1A3D1A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+            <p>— Campus Swap Team</p>
+        </div>
+        """
+        send_email(user.email, "Welcome to Campus Swap!", html)
+    except Exception as e:
+        logger.warning(f"Failed to send welcome email to {user.email}: {e}")
+
+
+@app.route('/claim/<token>', methods=['GET', 'POST'])
+def claim_account(token):
+    """Proxy account claim page — seller sets credentials and takes ownership."""
+    now = datetime.utcnow()
+    user = User.query.filter_by(proxy_claim_token=token).first()
+    invalid = (
+        user is None
+        or not user.is_proxy_account
+        or (user.proxy_token_expires_at and user.proxy_token_expires_at < now)
+    )
+
+    if request.method == 'GET':
+        if invalid:
+            return render_template('claim_account.html', invalid=True, token=token)
+        # Pre-fill email only if it's not a placeholder
+        prefill_email = (
+            user.email
+            if user.email and not (user.email.startswith('proxy+') and user.email.endswith('@usecampusswap.com'))
+            else ''
+        )
+        # Stash token so OAuth path can continue the claim
+        session['pending_claim_token'] = token
+        return render_template('claim_account.html', invalid=False, token=token, prefill_email=prefill_email, user=user)
+
+    # POST — email/password path
+    if invalid:
+        return render_template('claim_account.html', invalid=True, token=token)
+
+    email = (request.form.get('email') or '').strip().lower()
+    password = request.form.get('password', '')
+    confirm = request.form.get('confirm_password', '')
+
+    errors = []
+    if not email or not validate_email(email):
+        errors.append('Please enter a valid email address.')
+    else:
+        existing = User.query.filter_by(email=email).first()
+        if existing and existing.id != user.id:
+            errors.append('That email is already in use. Contact us if you need help.')
+    if len(password) < 6:
+        errors.append('Password must be at least 6 characters.')
+    if password != confirm:
+        errors.append('Passwords do not match.')
+
+    if errors:
+        prefill_email = email
+        return render_template('claim_account.html', invalid=False, token=token,
+                               prefill_email=prefill_email, user=user, errors=errors)
+
+    # Re-validate token (race condition guard)
+    user = User.query.filter_by(proxy_claim_token=token).with_for_update().first()
+    if not user or not user.is_proxy_account:
+        return render_template('claim_account.html', invalid=True, token=token)
+
+    user.email = email
+    user.password_hash = generate_password_hash(password)
+    user.is_proxy_account = False
+    user.proxy_claim_token = None
+    user.proxy_temp_password = None
+    user.proxy_claimed_at = datetime.utcnow()
+    db.session.commit()
+
+    session.pop('pending_claim_token', None)
+    login_user(user, remember=True)
+    _send_welcome_email(user)
+    flash("Welcome to Campus Swap! Your items are listed below.", "success")
+    return redirect(url_for('dashboard'))
+
+
 # --- GOOGLE OAUTH ROUTES ---
 
 @app.route('/auth/google')
@@ -4161,6 +4392,39 @@ def auth_google_callback():
     if name and len(name) > MAX_NAME_LENGTH:
         name = name[:MAX_NAME_LENGTH]
     source = session.get('source', 'direct')
+
+    # ── Proxy claim via Google OAuth ──
+    pending_claim = session.get('pending_claim_token')
+    if pending_claim:
+        session.pop('pending_claim_token', None)
+        now = datetime.utcnow()
+        proxy_user = User.query.filter_by(proxy_claim_token=pending_claim).first()
+        if (proxy_user and proxy_user.is_proxy_account
+                and proxy_user.proxy_token_expires_at
+                and proxy_user.proxy_token_expires_at > now):
+            # Check Google email not already on another account
+            conflict = User.query.filter_by(email=email).first()
+            if conflict and conflict.id != proxy_user.id:
+                flash("That Google account is already connected to a different Campus Swap account.", "error")
+                return redirect(url_for('claim_account', token=pending_claim))
+            proxy_user.email = email
+            proxy_user.oauth_provider = 'google'
+            proxy_user.oauth_id = oauth_id
+            if name and not proxy_user.full_name:
+                proxy_user.full_name = name
+            proxy_user.is_proxy_account = False
+            proxy_user.proxy_claim_token = None
+            proxy_user.proxy_temp_password = None
+            proxy_user.proxy_claimed_at = now
+            db.session.commit()
+            login_user(proxy_user, remember=True)
+            _send_welcome_email(proxy_user)
+            flash("Welcome to Campus Swap! Your items are listed below.", "success")
+            return redirect(url_for('dashboard'))
+        # Token invalid/expired — fall through to normal OAuth flow
+        flash("That claim link has expired. Contact us for a new one.", "error")
+        return redirect(url_for('login'))
+
     pickup_period_active = get_pickup_period_active()
     user = User.query.filter_by(email=email).first()
     if user:
@@ -11308,7 +11572,7 @@ def _get_seller_item_photos(seller_id):
         gallery_urls = [
             _url_for('uploaded_file', filename=p.photo_url)
             for p in sorted(item.gallery_photos, key=lambda p: p.id)
-            if p.photo_url
+            if p.photo_url and p.photo_url != item.photo_url  # upload flow stores cover in both fields; skip duplicate
         ]
         result.append({
             'description': item.description or '',

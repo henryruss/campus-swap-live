@@ -1,0 +1,197 @@
+{% extends "layout.html" %}
+
+{% block title %}Claim Your Account — Campus Swap{% endblock %}
+
+{% block content %}
+<style>
+  .claim-wrap {
+    min-height: 80vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+  .claim-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: 16px;
+    padding: 40px 36px;
+    box-shadow: var(--glass-shadow);
+    text-align: center;
+  }
+  .claim-logo {
+    width: 120px;
+    margin: 0 auto 24px;
+    display: block;
+  }
+  .claim-card h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    color: var(--primary);
+    margin: 0 0 10px;
+    line-height: 1.2;
+  }
+  .claim-card .subtext {
+    font-size: 0.92rem;
+    color: var(--text-muted);
+    margin: 0 0 28px;
+    line-height: 1.5;
+  }
+  .claim-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+  }
+  .claim-divider::before,
+  .claim-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  .claim-form .field {
+    text-align: left;
+    margin-bottom: 14px;
+  }
+  .claim-form label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 4px;
+  }
+  .claim-form input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    font-size: 0.92rem;
+    box-sizing: border-box;
+    background: white;
+    color: var(--text-main);
+  }
+  .claim-form input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(26, 61, 26, 0.08);
+  }
+  .claim-errors {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    text-align: left;
+  }
+  .claim-errors li {
+    font-size: 0.85rem;
+    color: #dc2626;
+    margin: 0;
+    padding: 2px 0;
+    list-style: none;
+  }
+  .btn-google {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: white;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .btn-google:hover { background: var(--bg-cream); }
+  .btn-google svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .claim-submit {
+    width: 100%;
+    margin-top: 8px;
+  }
+  .claim-invalid-icon {
+    font-size: 2.5rem;
+    margin-bottom: 16px;
+    color: var(--accent);
+  }
+  .contact-link {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: underline;
+  }
+</style>
+
+<div class="claim-wrap">
+  <div class="claim-card">
+
+    {% if invalid %}
+      {# ── Error state ── #}
+      <div class="claim-invalid-icon">⚠</div>
+      <h1>This link isn't valid</h1>
+      <p class="subtext">
+        This claim link may have expired or already been used.
+        If you think this is a mistake, reach out and we'll send you a new one.
+      </p>
+      <a href="mailto:team@usecampusswap.com" class="contact-link">Contact us →</a>
+
+    {% else %}
+      {# ── Claim form ── #}
+      <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Campus Swap" class="claim-logo"
+           onerror="this.style.display='none'">
+      <h1>Your items are ready — claim your account</h1>
+      <p class="subtext">
+        We've got your stuff. Set up your account to track your items and get paid when they sell.
+      </p>
+
+      {# Google sign-in — posts token to session first #}
+      <a href="{{ url_for('auth_google') }}" class="btn-google">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        Continue with Google
+      </a>
+
+      <div class="claim-divider">or continue with email</div>
+
+      {% if errors %}
+      <ul class="claim-errors">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+
+      <form method="POST" action="{{ url_for('claim_account', token=token) }}" class="claim-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="field">
+          <label for="claim-email">Email</label>
+          <input type="email" id="claim-email" name="email" value="{{ prefill_email or '' }}"
+                 autocomplete="email" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="claim-password">Password</label>
+          <input type="password" id="claim-password" name="password"
+                 autocomplete="new-password" required placeholder="At least 6 characters">
+        </div>
+        <div class="field">
+          <label for="claim-confirm">Confirm password</label>
+          <input type="password" id="claim-confirm" name="confirm_password"
+                 autocomplete="new-password" required placeholder="Repeat password">
+        </div>
+        <button type="submit" class="btn-primary claim-submit">Claim My Account</button>
+      </form>
+
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

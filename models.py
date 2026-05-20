@@ -83,6 +83,15 @@ class User(UserMixin, db.Model):
     class_year = db.Column(db.String(20), nullable=True)
     # Values: 'freshman' | 'sophomore' | 'junior' | 'senior' | 'grad' | NULL = not provided
 
+    # PROXY SELLER ACCOUNTS
+    is_proxy_account = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    proxy_temp_password = db.Column(db.String(20), nullable=True)
+    proxy_claim_token = db.Column(db.String(64), nullable=True, unique=True)
+    proxy_token_expires_at = db.Column(db.DateTime, nullable=True)
+    proxy_contacted_at = db.Column(db.DateTime, nullable=True)
+    proxy_claimed_at = db.Column(db.DateTime, nullable=True)
+    proxy_note = db.Column(db.String(500), nullable=True)
+
     date_joined = db.Column(db.DateTime, default=datetime.utcnow)
     items = db.relationship('InventoryItem', backref='seller', lazy=True, foreign_keys='InventoryItem.seller_id')
 
