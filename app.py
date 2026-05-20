@@ -8124,8 +8124,8 @@ def crew_quick_capture():
         return jsonify({'success': False, 'error': error_msg}), 400
 
     filename = f"qc_{int(time.time())}_{uuid.uuid4().hex[:8]}.jpg"
-    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     try:
+        from io import BytesIO as _BytesIO
         img = Image.open(photo)
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGBA")
@@ -8140,7 +8140,9 @@ def crew_quick_capture():
                 new_height = max_dimension
                 new_width = int(bg.width * (max_dimension / bg.height))
             bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        buf = _BytesIO()
+        bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
     except Exception as e:
         logger.error(f"Quick capture image processing error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': 'Error processing image.'}), 500
