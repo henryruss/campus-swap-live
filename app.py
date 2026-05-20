@@ -8819,8 +8819,11 @@ def admin_shift_remove_stop(shift_id, pickup_id):
     pickup = ShiftPickup.query.get_or_404(pickup_id)
     if pickup.shift_id != shift_id:
         abort(404)
-    if pickup.status != 'pending':
-        flash("Cannot remove a stop that is already in progress.", "error")
+    if pickup.status == 'completed':
+        flash("Cannot remove a completed stop — item has already been picked up.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    if pickup.status not in ('pending', 'issue'):
+        flash("Cannot remove this stop.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     # Delete RescheduleTokens first (FK dependency on pickup_id)
     db.session.execute(
@@ -11392,6 +11395,16 @@ def _do_reschedule(pickup, new_shift):
     ).count()
     effective_cap = get_effective_capacity()
     pickup.capacity_warning = (existing_count >= effective_cap)
+
+    # Invalidate any open token and issue a fresh one so seller retains self-serve reschedule access
+    existing_token = RescheduleToken.query.filter_by(
+        pickup_id=pickup.id,
+        used_at=None,
+        revoked_at=None,
+    ).first()
+    if existing_token:
+        existing_token.used_at = datetime.now().replace(tzinfo=None)
+    _get_or_create_reschedule_token(pickup)
 
     db.session.commit()
 

@@ -468,7 +468,7 @@
         </div>
         <div class="stop-row-actions">
           <span class="stop-badge badge-{{ pickup.status }}">{{ pickup.status }}</span>
-          {% if pickup.status == 'pending' %}
+          {% if pickup.status in ('pending', 'issue') %}
           <form method="POST"
                 action="{{ url_for('admin_shift_remove_stop', shift_id=shift.id, pickup_id=pickup.id) }}"
                 onsubmit="return confirm('Remove {{ pickup.seller.full_name }} from this shift?')">
