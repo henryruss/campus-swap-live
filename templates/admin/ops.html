@@ -2,12 +2,25 @@
 
 {% block admin_content %}
 <style>
+  /* ── Scroll isolation: admin-shell and admin-content must not scroll on ops page ── */
+  /* nav height = 72px (site-header in layout.html) */
+  .admin-shell {
+    height: calc(100vh - 72px);
+    min-height: unset;
+    overflow: hidden;
+  }
+  .admin-content {
+    height: 100%;
+    overflow: hidden;
+  }
+
   /* ── Ops page layout ── */
   .ops-page {
     display: grid;
     grid-template-columns: 220px 1fr 210px;
     grid-template-rows: auto 1fr;
-    min-height: calc(100vh - 72px);
+    height: 100%; /* fill admin-content; each column scrolls independently */
+    overflow: hidden;
     background: var(--bg-body);
   }
 
@@ -437,12 +450,122 @@
     .ops-page { grid-template-columns: 200px 1fr 180px; }
   }
   @media (max-width: 768px) {
-    .ops-page { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; }
+    /* On mobile, restore body scrolling — ops-page stacks vertically */
+    .admin-shell { height: auto; min-height: unset; overflow: visible; }
+    .admin-content { height: auto; overflow: visible; }
+    .ops-page { height: auto; overflow: visible; grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; }
     .ops-shift-panel { grid-column: 1; grid-row: 2; max-height: 280px; border-right: none; border-bottom: var(--card-border); }
     .ops-main { grid-column: 1; grid-row: 3; }
     .ops-unassigned-panel { grid-column: 1; grid-row: 4; border-left: none; border-top: var(--card-border); max-height: 360px; }
     .ops-drawer { width: 100vw; }
   }
+
+  /* ── Photo preview button ── */
+  .ops-photo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+    transition: color 0.12s, background 0.12s;
+  }
+  .ops-photo-btn:hover { color: var(--primary); background: rgba(0,0,0,0.06); }
+
+  /* ── Photo preview modal ── */
+  .ops-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .ops-modal-backdrop[hidden] { display: none; }
+  .ops-modal-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    max-width: 540px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+  }
+  .ops-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .ops-modal-close:hover { background: #f1f5f9; color: var(--text-main); }
+  #ops-modal-seller-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.1rem;
+    color: var(--primary);
+    margin: 0 2rem 1rem 0;
+  }
+  .ops-modal-photo-strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  .ops-modal-photo-strip img {
+    height: 140px;
+    width: auto;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+    object-fit: cover;
+  }
+  .ops-modal-no-photos {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 20px 0;
+  }
+  .ops-modal-item-list {
+    border-top: var(--card-border);
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ops-modal-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.83rem;
+  }
+  .ops-modal-item-desc { flex: 1; min-width: 0; color: var(--text-main); }
+  .ops-modal-item-unit { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+  .ops-modal-badge {
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ops-modal-badge.amber { background: #fef3c7; color: #92400e; }
+  .ops-modal-badge.green { background: #dcfce7; color: #166534; }
+  .ops-modal-badge.muted { background: #f3f4f6; color: #6b7280; }
 </style>
 
 <div class="ops-page">
@@ -641,7 +764,16 @@
               {{ row.pickup.stop_order if row.pickup.stop_order is not none else '–' }}
             </div>
             <div class="stop-info">
-              <div class="stop-seller-name">{{ row.seller.full_name }}</div>
+              <div class="stop-seller-name" style="display:flex;align-items:center;gap:4px;">
+                {{ row.seller.full_name }}
+                <button class="ops-photo-btn"
+                        data-seller-name="{{ row.seller.full_name }}"
+                        data-items='{{ row.item_photos | tojson }}'
+                        aria-label="View photos"
+                        onclick="event.stopPropagation(); openPhotoModal(this)">
+                  <i class="fas fa-camera"></i>
+                </button>
+              </div>
               <div class="stop-address">{{ row.seller.pickup_display }}</div>
               <div class="stop-badges">
                 {% if row.is_new %}<span class="badge-new">new</span>{% endif %}
@@ -737,6 +869,13 @@
         {% elif seller.pickup_time_preference == 'afternoon' %}
         <span class="seller-card-pref pref-pm">PM</span>
         {% endif %}
+        <button class="ops-photo-btn"
+                data-seller-name="{{ seller.full_name }}"
+                data-items='{{ seller._item_photos | tojson }}'
+                aria-label="View photos"
+                onclick="event.stopPropagation(); openPhotoModal(this)">
+          <i class="fas fa-camera"></i>
+        </button>
       </div>
       <div class="seller-card-row2">
         {{ cluster.label }} · {{ seller._unit_count | round(1) }}u
@@ -778,6 +917,13 @@
           {% elif seller.pickup_time_preference == 'afternoon' %}
           <span class="seller-card-pref pref-pm">PM pref</span>
           {% endif %}
+          <button class="ops-photo-btn"
+                  data-seller-name="{{ seller.full_name }}"
+                  data-items='{{ seller._item_photos | tojson }}'
+                  aria-label="View photos"
+                  onclick="event.stopPropagation(); openPhotoModal(this)">
+            <i class="fas fa-camera"></i>
+          </button>
         </div>
         <div class="seller-card-row2">{{ seller._unit_count | round(1) }}u</div>
         <div class="seller-assign-form" data-seller-id="{{ seller.id }}">
@@ -804,6 +950,16 @@
     {% endif %}
   </aside>
 
+</div>
+
+{# ── Photo preview modal ── #}
+<div id="ops-photo-modal" class="ops-modal-backdrop" hidden>
+  <div class="ops-modal-card" onclick="event.stopPropagation()">
+    <button class="ops-modal-close" onclick="closePhotoModal()" aria-label="Close">×</button>
+    <h3 id="ops-modal-seller-name"></h3>
+    <div id="ops-modal-photos" class="ops-modal-photo-strip"></div>
+    <div id="ops-modal-items" class="ops-modal-item-list"></div>
+  </div>
 </div>
 
 {# ── Zone 4: Truck detail drawer (modal) ── #}
@@ -847,7 +1003,58 @@
   }
 
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeDrawer();
+    if (e.key === 'Escape') {
+      closePhotoModal();
+      closeDrawer();
+    }
+  });
+
+  // ── Photo preview modal ──
+  function openPhotoModal(btn) {
+    var name = btn.dataset.sellerName;
+    var items = JSON.parse(btn.dataset.items || '[]');
+
+    document.getElementById('ops-modal-seller-name').textContent = name;
+
+    // Collect all photo URLs: cover first, then gallery
+    var allPhotos = [];
+    items.forEach(function(item) {
+      if (item.cover_url) allPhotos.push(item.cover_url);
+      (item.gallery_urls || []).forEach(function(u) { if (u) allPhotos.push(u); });
+    });
+
+    var photoStrip = document.getElementById('ops-modal-photos');
+    if (allPhotos.length === 0) {
+      photoStrip.innerHTML = '<div class="ops-modal-no-photos">No photos uploaded yet</div>';
+    } else {
+      photoStrip.innerHTML = allPhotos.map(function(url) {
+        return '<img src="' + url + '" alt="" onclick="window.open(this.src, \'_blank\')">';
+      }).join('');
+    }
+
+    // Item list
+    var itemList = document.getElementById('ops-modal-items');
+    itemList.innerHTML = items.map(function(item) {
+      var st = item.status || '';
+      var badgeCls = (st === 'pending_valuation' || st === 'needs_info') ? 'amber'
+                   : (st === 'approved' || st === 'available') ? 'green' : 'muted';
+      var unitHtml = item.unit_size ? '<span class="ops-modal-item-unit">' + item.unit_size + 'u</span>' : '';
+      return '<div class="ops-modal-item-row">' +
+        '<span class="ops-modal-item-desc">' + (item.description || '') + '</span>' +
+        '<span class="ops-modal-badge ' + badgeCls + '">' + st + '</span>' +
+        unitHtml +
+        '</div>';
+    }).join('');
+
+    document.getElementById('ops-photo-modal').removeAttribute('hidden');
+  }
+
+  function closePhotoModal() {
+    document.getElementById('ops-photo-modal').setAttribute('hidden', '');
+  }
+
+  document.getElementById('ops-photo-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePhotoModal();
   });
 
   // ── Order routes (POST per truck, then reload) ──

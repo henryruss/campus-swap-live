@@ -11,14 +11,15 @@
   /* ── Sidebar ── */
   .admin-sidebar {
     width: 52px;
-    min-height: 100%;
     background: var(--primary);
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 16px 0;
-    position: sticky;
-    top: 0;
+    /* Fixed at >768px; mobile overrides below */
+    position: fixed;
+    top: 72px; /* nav height */
+    left: 0;
     height: calc(100vh - 72px);
     flex-shrink: 0;
     z-index: 100;
@@ -91,6 +92,7 @@
     flex: 1;
     min-width: 0;
     overflow-x: auto;
+    padding-left: 52px; /* offset for fixed sidebar */
   }
 
   /* ── Mobile: top icon bar ── */
@@ -100,14 +102,20 @@
     }
 
     .admin-sidebar {
+      position: static; /* reset from fixed */
       width: 100%;
       height: auto;
       min-height: unset;
-      position: static;
       flex-direction: row;
       padding: 8px 12px;
       overflow-x: auto;
       gap: 4px;
+      top: unset;
+      left: unset;
+    }
+
+    .admin-content {
+      padding-left: 0; /* reset sidebar offset */
     }
 
     .admin-sidebar-nav {

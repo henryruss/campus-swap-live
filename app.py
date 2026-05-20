@@ -11293,6 +11293,31 @@ def _ops_shift_date(shift):
     return shift.week.week_start + timedelta(days=_DAY_ORDER_OPS.index(shift.day_of_week))
 
 
+def _get_seller_item_photos(seller_id):
+    """Return list of {description, status, cover_url, gallery_urls, unit_size} for a seller's non-rejected items."""
+    from flask import url_for as _url_for
+    items = (InventoryItem.query
+             .filter(InventoryItem.seller_id == seller_id,
+                     InventoryItem.status.notin_(['rejected']))
+             .order_by(InventoryItem.id)
+             .all())
+    result = []
+    for item in items:
+        gallery_urls = [
+            _url_for('uploaded_file', filename=p.photo_url)
+            for p in sorted(item.gallery_photos, key=lambda p: p.id)
+            if p.photo_url
+        ]
+        result.append({
+            'description': item.description or '',
+            'status': item.status,
+            'cover_url': _url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '',
+            'gallery_urls': gallery_urls,
+            'unit_size': float(item.unit_size) if item.unit_size is not None else None,
+        })
+    return result
+
+
 def _ops_build_truck_cards(shift, pickups, effective_cap):
     """
     Build per-truck card data for the Ops main content area.
@@ -11371,6 +11396,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                     InventoryItem.seller_id == seller.id,
                     InventoryItem.status.notin_(['rejected', 'needs_info']),
                 ).count(),
+                'item_photos': _get_seller_item_photos(seller.id),
             })
 
         # Capacity bar pct
@@ -11427,9 +11453,11 @@ def _ops_build_unassigned_panel(shift):
     for s in slot_matched:
         s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
         s._unit_count = get_seller_unit_count(s)
+        s._item_photos = _get_seller_item_photos(s.id)
     for s in slot_unmatched:
         s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
         s._unit_count = get_seller_unit_count(s)
+        s._item_photos = _get_seller_item_photos(s.id)
 
     return {
         'clusters': clusters,
