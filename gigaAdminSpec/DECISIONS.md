@@ -7,6 +7,37 @@
 
 ---
 
+## Driver Quick Capture (2026-05-20)
+
+### Decision: Quick-capture items start as `pending_valuation`, not `needs_info`
+**Reasoning:** The spec said `status='needs_info'` at creation. This was wrong in practice: `needs_info` is an admin-triggered state (requesting more info from a seller). Quick-capture items just have incomplete data — they need admin to fill in title/price/category, which is exactly what `pending_valuation` means. Keeping them in `pending_valuation` means they enter the normal approval pipeline visibly, and can be pushed to `needs_info` by admin afterward if needed. The admin queue at `/admin/items/needs_info` queries both statuses so nothing is lost.
+
+### Decision: Admin quick-capture queue queries both `pending_valuation` AND `needs_info`
+**Reasoning:** An admin may use the existing "request info" route on a QC item to flag it for internal tracking before completing the listing. Querying only one status would hide those items from the dedicated queue. The queue title ("Quick Captures") is semantically about `is_quick_capture=True`, not about a specific status value.
+
+### Decision: One-click approve route (`POST /admin/item/<id>/approve`) created new; no price required
+**Reasoning:** The spec referenced "the existing approval route" but no REST path `/admin/item/<id>/approve` existed. The existing `admin_approve` POST handler requires a price field — blocking approval on a QC item that hasn't been priced yet. A dedicated route for QC approval (`admin_item_approve`) skips price validation and sets `status='available'` directly. It is gated to `is_quick_capture=True` items only — non-QC items still go through the standard flow with full validation. Returns JSON so the frontend can remove the row without a page reload.
+
+### Decision: `captured_by_id` stored on `InventoryItem` (not inferred from shift assignment)
+**Reasoning:** The capturing worker is not necessarily assigned to the shift when capturing from the crew dashboard (no shift context). Even when a shift exists, multiple workers may be on the same truck. `captured_by_id` is the only unambiguous way to identify who took the photo, enforce crew delete authorization, and provide an audit trail. FK to User, nullable (old items pre-QC will be NULL).
+
+### Decision: Crew delete allowed on `pending_valuation` OR `needs_info` status
+**Reasoning:** With the status correction above, newly captured items are `pending_valuation`. The original spec guard (`status != 'needs_info'`) would have blocked deletion of any QC item (since none start as `needs_info` anymore). Guard updated to `status NOT IN ('pending_valuation', 'needs_info')` — covers both pre- and post-request_info states while still preventing deletion of items admin has already approved or moved further along.
+
+### Decision: Photo deletion uses `photo_storage.delete_photo()`, not `os.remove()`
+**Reasoning:** The app supports both local disk storage (`static/uploads/` in dev, `/var/data/` on Render) and S3 (future). `photo_storage.delete_photo()` handles both backends. Direct `os.remove()` calls would break silently on S3. Consistent with how all other photo deletions work in the codebase.
+
+### Decision: `is_quick_capture == False` filter added to ALL pending approval counts and the digest
+**Reasoning:** Quick-capture items are managed through their own admin queue (`/admin/items/needs_info`), not the standard approval queue. Including them in pending_valuation counts caused the approval queue badge to show a non-zero number even though the queue itself was empty (because the query already filtered them out). All five places that count `pending_valuation` items are now consistent: `admin_items` stats bar, legacy `admin_approve` GET query, `admin_panel` stats counter, `inject_qc_pending_count` context processor (already correct — counts QC only), and `_run_approval_digest`. The digest exclusion prevents automated emails telling admins to review items they can't find in the queue.
+
+### Decision: Event delegation guard (`__qcDeleteListenerAttached`) in `stops_partial.html`
+**Reasoning:** `stops_partial.html` is injected as `innerHTML` every 30 seconds by the auto-refresh loop. A `<script>` tag inside the partial runs each time the HTML is injected, which would attach duplicate `document.click` listeners on every refresh cycle. A `window.__qcDeleteListenerAttached` flag ensures the listener is only attached once regardless of how many times the partial re-renders.
+
+### Decision: Internal Campus Swap account seeded via migration, not a setup script
+**Reasoning:** The internal account must exist before any QC items can be created. A migration is the only mechanism that reliably runs on Render before the app starts serving traffic. A manual seed script can be forgotten or run in the wrong order. Migration is idempotent — checks for existing `internal@campusswap.com` before inserting.
+
+---
+
 ## Production Operations Fixes (2026-05-01 – 2026-05-05)
 
 ### Decision: Item eligibility filter expanded to include `'approved'` status

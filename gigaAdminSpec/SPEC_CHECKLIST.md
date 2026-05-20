@@ -1304,6 +1304,108 @@
 
 ---
 
+## Feature: Driver Quick Capture
+
+**Sign-off status:** ⬜ Not yet signed off
+**Spec files:** `feature_quick_capture.md`, `feature_quick_capture_ux_fixes.md`
+
+### Database & Schema
+- [ ] `flask db upgrade` runs with no errors
+- [ ] `User` table has `is_internal_account` column (Boolean, default False)
+- [ ] `InventoryItem` table has `is_quick_capture` column (Boolean, default False)
+- [ ] `InventoryItem` table has `quick_capture_shift_id` column (Integer, nullable FK → shift)
+- [ ] `InventoryItem` table has `captured_by_id` column (Integer, nullable FK → user)
+- [ ] Internal account exists: `SELECT email, is_internal_account FROM "user" WHERE email = 'internal@campusswap.com'` → row exists with `is_internal_account = true`
+
+### Crew Dashboard Entry Point
+- [ ] Visit `/crew` as approved worker — "Quick Capture" button visible above schedule section
+- [ ] Tap Quick Capture — modal opens with camera activating immediately (rear camera on mobile)
+- [ ] Seller dropdown shows only "Campus Swap" (no shift context)
+- [ ] No shift context — save creates item with `quick_capture_shift_id = NULL`
+
+### Shift View Entry Point
+- [ ] Visit `/crew/shift/<id>` as assigned mover with an active shift — "Quick Capture" button visible in header area
+- [ ] Tap Quick Capture — modal opens, seller dropdown pre-selects current active stop's seller
+- [ ] If all stops are completed, seller dropdown defaults to Campus Swap
+- [ ] Seller dropdown includes all sellers on this truck's route in stop_order sequence
+
+### Modal — Camera & Capture
+- [ ] Camera preview appears (rear camera) on HTTPS — video element streams
+- [ ] On plain HTTP or camera denied — file input fallback appears with "Tap to Take Photo"
+- [ ] Tap "Take Photo" — thumbnail replaces live preview, "Retake" button appears
+- [ ] Notes textarea appears below thumbnail (hidden before photo taken)
+- [ ] "Save Item →" button is disabled until a photo has been taken
+- [ ] Tap "Retake" — live camera preview resumes, thumbnail hidden, notes hidden and cleared
+- [ ] Close (×) or Cancel — modal closes, camera stream stopped
+
+### Modal — State Reset
+- [ ] Take a photo and save it — modal closes with "Item #XXXX captured" flash on button
+- [ ] Reopen the modal — no "Saving…" text, no old thumbnail, no old notes, Save button disabled
+- [ ] Partially fill a capture (take photo, add note) then close without saving — reopen modal shows clean empty state
+
+### Save & Immediate Feedback
+- [ ] Take a photo, select seller, add a note, tap Save — JSON response `{success: true, item_id: N}`
+- [ ] Stop list (#stop-list) updates immediately (before 30s refresh cycle) — new QC thumbnail visible on seller's stop card
+- [ ] `InventoryItem` record in DB: `is_quick_capture=True`, `status='pending_valuation'`, `picked_up_at` set, `long_description` = note text (or NULL if empty)
+- [ ] `captured_by_id` on the item matches the worker who captured it
+
+### Stop Card Photo Strip
+- [ ] QC items for the current seller/shift appear as 64×64 thumbnails below the stop card
+- [ ] Each thumbnail shows the item ID badge in bottom-left corner
+- [ ] `×` button visible in top-right of each thumbnail
+- [ ] 30-second auto-refresh still works — stop list refreshes silently, QC thumbnails persist
+
+### Crew Delete (✕ on stop card)
+- [ ] Tap `×` on a QC thumbnail — confirmation dialog appears ("This cannot be undone")
+- [ ] Confirm — thumbnail removed from stop card immediately, no page reload
+- [ ] Item record gone from DB, photo file gone from disk
+- [ ] Decline — nothing happens
+- [ ] Log in as a different worker, attempt to delete another worker's capture via direct POST → 403 returned
+
+### Admin Queue (`/admin/items/needs_info`)
+- [ ] Visit `/admin/items/needs_info` as admin — page loads with Quick Captures table
+- [ ] All `is_quick_capture=True` items with status `pending_valuation` or `needs_info` appear
+- [ ] Columns: ID badge, photo thumbnail, seller name, shift date + slot (or "No shift"), date captured, Edit button, Approve button, Delete button
+- [ ] "Quick Captures" link visible in admin nav with count badge matching queue size
+- [ ] Count badge is 0 when queue is empty
+
+### Admin Approve Button
+- [ ] Click Approve on a row — row disappears from table immediately, no page reload
+- [ ] Item in DB: `status='available'`
+- [ ] No price or description required to approve
+- [ ] Non-quick-capture items cannot be approved via this route (400 returned)
+
+### Admin Delete Button
+- [ ] Click Delete on a row — confirmation dialog ("Permanently delete… cannot be undone")
+- [ ] Confirm — row removed from table, item + photo gone from DB and disk
+- [ ] Decline — nothing happens
+
+### Notes → `long_description`
+- [ ] Enter a note in the modal before saving — check item in admin edit view: `long_description` contains the note text
+- [ ] Save with no note — `long_description` is NULL
+
+### Standard Approval Queue Isolation
+- [ ] Visit `/admin/items?view=approve` — no quick-capture items appear in the list
+- [ ] Pending approval count badge in admin nav shows 0 when only QC items are `pending_valuation`
+- [ ] Trigger the digest email manually — email body does not reference any QC items
+
+### Seller Dashboard (Regression)
+- [ ] Quick-capture item with `status='available'` appears normally on seller's dashboard item grid — no special messaging or pending state
+- [ ] Seller dashboard loads normally for sellers with no QC items
+
+### Regression Check
+- [ ] Normal `add_item` flow unaffected — no `is_quick_capture` flag set on manually added items
+- [ ] Standard approval queue (`/admin/items?view=approve`) still works for regular items
+- [ ] 30-second stop list auto-refresh still works on `/crew/shift/<id>`
+- [ ] Existing stop card data (address, navigate button, item count, status badge) unchanged
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
+
 ## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)

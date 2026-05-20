@@ -3218,9 +3218,10 @@ def _run_approval_digest():
     """Core digest logic. Returns (success: bool, message: str)."""
     now = datetime.utcnow()
 
-    # Query all items currently pending approval
+    # Query all items currently pending approval (exclude quick captures)
     new_items = InventoryItem.query.filter(
-        InventoryItem.status == 'pending_valuation'
+        InventoryItem.status == 'pending_valuation',
+        InventoryItem.is_quick_capture == False,
     ).all()
 
     if not new_items:

@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-20
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. System has been running live pickup operations since ~Apr 27. Multiple rounds of production bug fixes applied May 3–5.
+**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture feature + UX fixes + follow-up approval queue fixes built 2026-05-20.
 
 ---
 
@@ -47,6 +47,69 @@
 - fix_crew_remove_worker ✅ Complete ~2026-05-05 (admin can remove a worker + all their ShiftAssignments)
 - fix_crew_shift_items_and_phone ✅ Complete ~2026-05-05 (stop cards now show 'approved' items; phone number always visible)
 - feature_shift_history_items ✅ Complete ~2026-05-05 (GET /crew/shift/<id>/history — read-only completed shift item list)
+- feature_quick_capture ✅ Complete 2026-05-20 (driver photo capture at pickup; internal Campus Swap account; admin queue)
+- feature_quick_capture_ux_fixes ✅ Complete 2026-05-20 (notes field, modal reset, stop card photo strip, crew+admin hard delete)
+- fix_quick_capture_status_and_approval ✅ Complete 2026-05-20 (status→pending_valuation, one-click approve, approval queue filtering, digest filtering)
+
+---
+
+## Feature: Driver Quick Capture + UX Fixes + Approval Queue Fixes (Built 2026-05-20)
+
+**Status:** In production
+**Spec files:** `feature_quick_capture.md`, `feature_quick_capture_ux_fixes.md`
+
+### What Was Built
+
+**Model changes (`models.py`)**
+- `User.is_internal_account` (Boolean, default False, server_default='0') — marks the seeded "Campus Swap" internal account
+- `InventoryItem.is_quick_capture` (Boolean, default False, server_default='0') — set only on items created via this flow
+- `InventoryItem.quick_capture_shift_id` (Integer, FK → Shift, nullable) — shift during which the item was captured
+- `InventoryItem.captured_by_id` (Integer, FK → User, nullable) — worker who took the photo
+
+**Migration:** `add_quick_capture_fields` — adds all four columns. Separate migration for `User.is_internal_account` seeds the internal Campus Swap account (`internal@campusswap.com`, `is_internal_account=True`, `is_seller=True`, randomized unusable password hash).
+
+**New routes (`app.py`)**
+| Route | Function | Notes |
+|---|---|---|
+| `POST /crew/quick_capture` | `crew_quick_capture` | Create item from driver photo. Returns JSON `{success, item_id}`. Worker-approved guard only — no shift assignment required. |
+| `GET /admin/items/needs_info` | `admin_needs_info_queue` | Admin queue: `is_quick_capture=True AND status IN ('pending_valuation', 'needs_info')`. |
+| `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price/description required. Sets `status='available'`, resolves open SellerAlerts. Returns JSON. |
+| `POST /crew/quick_capture/<id>/delete` | `crew_quick_capture_delete` | Hard delete by capturing worker. Guards: `captured_by_id == current_user.id`, `is_quick_capture=True`, `status IN ('pending_valuation', 'needs_info')`. Deletes disk file + gallery + DB record. |
+| `POST /admin/quick_capture/<id>/delete` | `admin_quick_capture_delete` | Hard delete by admin. No `captured_by_id` guard. Same disk+DB cleanup. |
+
+**Modified routes (`app.py`)**
+- `crew_shift_stops_partial` — adds `quick_captures_by_seller` dict to template context (QC items for this shift, keyed by seller_id)
+- `crew_quick_capture` — reads `notes` from form → `long_description` on item; initial `status='pending_valuation'` (not `'needs_info'`)
+
+**Context processor (`app.py`)**
+- `inject_qc_pending_count` — injects `qc_pending_count` for admin nav badge. Counts `is_quick_capture=True AND status IN ('pending_valuation', 'needs_info')`.
+
+**Approval queue filtering (`app.py`)** — `is_quick_capture == False` added to:
+- `admin_items` approval queue query (line ~12135)
+- Legacy `admin_approve` GET query (line ~2814)
+- `pending_items_count` stats counter in `admin_panel`
+- `pending_approval` stats counter in `admin_items`
+- `_run_approval_digest` query — QC items never trigger or appear in the hourly digest email
+
+**New templates**
+- `templates/crew/quick_capture_modal.html` — standalone modal partial included in `crew/dashboard.html` and `crew/shift.html`. Camera: `getUserMedia` (rear-facing) with file-input fallback. Full state reset on every open (blob, button text, notes, camera stream). After save: re-fetches `stops_partial` before closing modal so photo appears immediately.
+- `templates/admin/needs_info.html` — table of pending QC items with Edit, Approve (green, one-click), and Delete buttons. Delete and Approve both use JS event delegation with `fetch` + DOM row removal on success.
+
+**Modified templates**
+- `crew/stops_partial.html` — QC photo strip below each stop card. Each thumbnail has an `×` delete button (`data-item-id`, `data-csrf`). Event delegation JS on `document` (survives 30s innerHTML replacement). `__qcDeleteListenerAttached` guard prevents duplicate listeners.
+- `crew/dashboard.html` — Quick Capture button opens modal (`data-qc-trigger`, no shift context)
+- `crew/shift.html` — Quick Capture button in shift header (`data-qc-trigger`, `data-shift-id`, `data-active-seller-id`)
+
+### Deviations from Spec
+1. **Initial status is `pending_valuation`, not `needs_info`** — spec said `needs_info`; changed during session. QC items enter the normal approval pipeline. `needs_info` is only reached via explicit admin action (request_info). The admin queue at `/admin/items/needs_info` queries both statuses.
+2. **One-click approve route is new, not pre-existing** — spec referenced "the existing approval route." No such REST path existed. New `admin_item_approve` route created: quick-capture-only, no price required, returns JSON for DOM removal.
+3. **Crew delete guards `status IN ('pending_valuation', 'needs_info')`** — spec said `status != 'needs_info'`; updated to cover `pending_valuation` since that's the new initial status.
+4. **Photo deletion uses `photo_storage.delete_photo()`** — not direct `os.remove()`. Handles both local and S3 storage backends correctly.
+
+### Known Issues / Follow-up
+- Internal Campus Swap account should not appear in seller-facing UI. Gate already exists via `is_internal_account=False` on seller queries.
+- Payout reconciliation queue should exclude internal account items. Filter `seller.is_internal_account == False` documented in spec; verify when running first payout export.
+- Google Maps Static API key needed for stop map images (separate from QC) — see existing HANDOFF notes.
 
 ---
 

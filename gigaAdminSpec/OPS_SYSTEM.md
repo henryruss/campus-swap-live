@@ -35,6 +35,8 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 | **Planned unit** | The `ShiftPickup.storage_location_id` (or truck entry in `Shift.truck_unit_plan`) — the destination a truck is expected to deliver to, set by admin before the shift. |
 | **Actual unit** | The `InventoryItem.storage_location_id` — where an item physically ended up, set by the organizer during intake. |
 | **Overflow truck** | A flex truck slot held in reserve to absorb rescheduled pickups |
+| **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Admin completes the listing (title, price, category) afterward via the Quick Captures queue at `/admin/items/needs_info`. |
+| **Internal account** | The seeded "Campus Swap" user (`is_internal_account=True`) that owns donated or unclaimed items captured without an associated seller. `seller_id` on `InventoryItem` is never nullable — this account is the fallback. |
 
 ---
 
@@ -86,6 +88,37 @@ Three scenarios that affect how routes are structured:
 
 Route planning (spec #6) handles sequencing. Earlier specs treat all pickups
 as an unordered list assigned to a truck.
+
+---
+
+## Quick Capture Flow (feature_quick_capture.md)
+
+Movers can photograph found, donated, or spot-consigned items in the field and add them to the Campus Swap inventory in under 10 seconds.
+
+**Entry points:**
+- `/crew` dashboard — Quick Capture button always visible. No shift context. Seller defaults to Campus Swap internal account.
+- `/crew/shift/<id>` shift view — Quick Capture button in header. Seller auto-populates from the current active stop; dropdown shows all sellers on the truck's route.
+
+**Capture flow:**
+1. Mover taps Quick Capture → modal opens with rear camera activating.
+2. Takes photo, optionally adds a note (condition, estimated price, etc.).
+3. Selects which seller the item belongs to (or leaves as Campus Swap).
+4. Taps Save → item created immediately; photo appears on the seller's stop card.
+
+**Item created with:**
+- `is_quick_capture = True`, `status = 'pending_valuation'`
+- `picked_up_at` set to now (item is physically in the truck)
+- `quick_capture_shift_id` = current shift (or NULL if from dashboard)
+- `captured_by_id` = the mover's user ID
+- `long_description` = mover's note (if provided)
+- Seller: selected seller or internal Campus Swap account
+
+**Admin completion queue (`/admin/items/needs_info`):**
+Quick-capture items land in a dedicated queue. Admin fills in title, category, price, quality, then either approves (one-click, no price required) or edits via the standard edit_item flow. Items are excluded from the standard approval queue and approval digest email.
+
+**Crew delete:** The capturing worker can hard-delete their own captures (photo + DB record) via the `×` button on the stop card photo strip, as long as the item is still in `pending_valuation` or `needs_info`. Hard delete only — no soft-reject path.
+
+**Admin delete:** Admins can hard-delete any QC item from the quick captures queue.
 
 ---
 
