@@ -23,20 +23,20 @@ def upgrade():
     # Reset any quick-capture items stuck in needs_info back to pending_valuation
     op.execute(
         "UPDATE inventory_item SET status = 'pending_valuation' "
-        "WHERE is_quick_capture = 1 AND status = 'needs_info'"
+        "WHERE is_quick_capture = True AND status = 'needs_info'"
     )
     # Resolve the stale needs_info SellerAlerts created for those items
     op.execute(
         """
         UPDATE seller_alert
-        SET resolved = 1,
-            resolved_at = datetime('now')
+        SET resolved = True,
+            resolved_at = NOW()
         WHERE alert_type = 'needs_info'
           AND item_id IN (
               SELECT id FROM inventory_item
-              WHERE is_quick_capture = 1
+              WHERE is_quick_capture = True
           )
-          AND resolved = 0
+          AND resolved = False
         """
     )
 
