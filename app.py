@@ -2814,7 +2814,10 @@ def admin_approve():
     base_query = InventoryItem.query.options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
-    ).filter_by(status='pending_valuation')
+    ).filter(
+        InventoryItem.status == 'pending_valuation',
+        InventoryItem.is_quick_capture == False,
+    )
 
     if sort_param == 'price_desc':
         base_query = base_query.order_by(nulls_last(InventoryItem.suggested_price.desc()), InventoryItem.date_added.asc())
@@ -2854,6 +2857,31 @@ def admin_approve():
         sort=sort_param,
         resubmitted_item_ids=resubmitted_item_ids,
     )
+
+
+@app.route('/admin/item/<int:item_id>/approve', methods=['POST'])
+@login_required
+def admin_item_approve(item_id):
+    """Quick-capture one-click approve: sets status='available' without requiring price/description."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied.'}), 403
+
+    item = InventoryItem.query.get_or_404(item_id)
+
+    if not item.is_quick_capture:
+        return jsonify({'success': False, 'error': 'Use the standard approval flow for non-quick-capture items.'}), 400
+
+    if item.status not in ('pending_valuation', 'needs_info'):
+        return jsonify({'success': False, 'error': 'Item cannot be approved from its current status.'}), 400
+
+    # Auto-resolve any outstanding needs_info alerts
+    for alert in SellerAlert.query.filter_by(item_id=item.id, resolved=False).all():
+        alert.resolved = True
+        alert.resolved_at = datetime.utcnow()
+
+    item.status = 'available'
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/admin/item/<int:item_id>/request_info', methods=['POST'])
