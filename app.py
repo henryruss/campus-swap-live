@@ -3139,6 +3139,7 @@ def admin_send_pickup_nudge():
         candidates = User.query.filter(
             User.is_seller == True,
             User.is_internal_account == False,
+            User.is_proxy_account == False,
             User.items.any(InventoryItem.status.in_(['approved', 'available']))
         ).all()
         target_users = []
@@ -4344,6 +4345,13 @@ def claim_account(token):
     user.proxy_claim_token = None
     user.proxy_temp_password = None
     user.proxy_claimed_at = datetime.utcnow()
+
+    # Clear onboarding nag alerts — pickup_reminder alerts are stale for a
+    # newly claimed account; the setup strip will guide them through completion.
+    SellerAlert.query.filter_by(
+        user_id=user.id, alert_type='pickup_reminder'
+    ).delete(synchronize_session=False)
+
     db.session.commit()
 
     session.pop('pending_claim_token', None)
@@ -4416,6 +4424,9 @@ def auth_google_callback():
             proxy_user.proxy_claim_token = None
             proxy_user.proxy_temp_password = None
             proxy_user.proxy_claimed_at = now
+            SellerAlert.query.filter_by(
+                user_id=proxy_user.id, alert_type='pickup_reminder'
+            ).delete(synchronize_session=False)
             db.session.commit()
             login_user(proxy_user, remember=True)
             _send_welcome_email(proxy_user)
