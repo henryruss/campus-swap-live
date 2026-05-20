@@ -6641,39 +6641,87 @@ def admin_delete_user(user_id):
         flash("Cannot delete the last admin account.", "error")
         return redirect(url_for('admin_sellers'))
 
-    try:
-        # 1. Delete user's items (and their photo files)
-        for item in list(user.items):
-            if item.status == 'available':
-                cat = InventoryCategory.query.get(item.category_id)
-                if cat and cat.count_in_stock > 0:
-                    cat.count_in_stock -= 1
-            photo_filenames = []
-            if item.photo_url:
-                photo_filenames.append(item.photo_url)
-            for p in item.gallery_photos:
-                if p.photo_url:
-                    photo_filenames.append(p.photo_url)
-            for fn in photo_filenames:
-                try:
-                    photo_storage.delete_photo(fn)
-                except Exception as e:
-                    logger.error(f"Error deleting photo file {fn}: {e}", exc_info=True)
-            db.session.delete(item)
+    user_email = user.email
 
-        # 2. Delete UploadSessions and related TempUploads
+    try:
+        # Collect item_ids via scalar query — don't load ORM objects into identity map
+        # before the bulk deletes so SQLAlchemy cascade can't interfere.
+        item_ids = [row[0] for row in
+                    db.session.execute(
+                        db.select(InventoryItem.id).where(InventoryItem.seller_id == user_id)
+                    ).fetchall()]
+
+        # Delete photo files and decrement stock counters while item rows still exist.
+        if item_ids:
+            items_for_files = InventoryItem.query.filter(InventoryItem.id.in_(item_ids)).all()
+            for item in items_for_files:
+                if item.status == 'available':
+                    cat = InventoryCategory.query.get(item.category_id)
+                    if cat and cat.count_in_stock > 0:
+                        cat.count_in_stock -= 1
+                fns = [item.photo_url] if item.photo_url else []
+                fns += [p.photo_url for p in item.gallery_photos if p.photo_url]
+                for fn in fns:
+                    try:
+                        photo_storage.delete_photo(fn)
+                    except Exception as e:
+                        logger.error(f"Error deleting photo file {fn}: {e}", exc_info=True)
+
+        # ── Bulk SQL deletes in FK dependency order ──────────────────────────
+        # All use synchronize_session=False to bypass the ORM identity map.
+
+        # 1. Reservations this user made as a buyer (user_id NOT NULL)
+        ItemReservation.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # 2. Seller alerts addressed to this user
+        SellerAlert.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # 3. Referral records in either direction (both FK columns NOT NULL)
+        Referral.query.filter(
+            or_(Referral.referrer_id == user_id, Referral.referred_id == user_id)
+        ).delete(synchronize_session=False)
+
+        # 4. Worker preferences in either direction (both FK columns NOT NULL)
+        WorkerPreference.query.filter(
+            or_(WorkerPreference.user_id == user_id,
+                WorkerPreference.target_user_id == user_id)
+        ).delete(synchronize_session=False)
+
+        # 5. Worker availability + application
+        WorkerAvailability.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+        WorkerApplication.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # 6. Children of this user's items
+        if item_ids:
+            IntakeFlag.query.filter(IntakeFlag.item_id.in_(item_ids)).delete(synchronize_session=False)
+            IntakeRecord.query.filter(IntakeRecord.item_id.in_(item_ids)).delete(synchronize_session=False)
+            ItemReservation.query.filter(ItemReservation.item_id.in_(item_ids)).delete(synchronize_session=False)
+            ItemPhoto.query.filter(ItemPhoto.item_id.in_(item_ids)).delete(synchronize_session=False)
+            SellerAlert.query.filter(SellerAlert.item_id.in_(item_ids)).delete(synchronize_session=False)
+
+        # 7. Reschedule tokens reference ShiftPickup — must precede pickup delete
+        RescheduleToken.query.filter_by(seller_id=user_id).delete(synchronize_session=False)
+
+        # 8. Shift pickups for this seller (seller_id NOT NULL)
+        ShiftPickup.query.filter_by(seller_id=user_id).delete(synchronize_session=False)
+
+        # 9. Shift assignments (worker_id NOT NULL)
+        ShiftAssignment.query.filter_by(worker_id=user_id).delete(synchronize_session=False)
+
+        # 10. Items themselves (seller_id nullable, but children are gone so FK is clean)
+        if item_ids:
+            InventoryItem.query.filter(InventoryItem.id.in_(item_ids)).delete(synchronize_session=False)
+
+        # 11. Upload sessions + temp uploads
         sessions = UploadSession.query.filter_by(user_id=user_id).all()
-        session_tokens = [s.session_token for s in sessions]
-        for token in session_tokens:
-            TempUpload.query.filter_by(session_token=token).delete(synchronize_session=False)
         for s in sessions:
+            TempUpload.query.filter_by(session_token=s.session_token).delete(synchronize_session=False)
             db.session.delete(s)
 
-        # 3. Delete the user
-        user_email = user.email
-        db.session.delete(user)
-        db.session.commit()
+        # 12. User row — bulk SQL to avoid ORM cascade touching already-deleted rows
+        User.query.filter_by(id=user_id).delete(synchronize_session=False)
 
+        db.session.commit()
         flash(f"Account for {user_email} has been permanently deleted.", "success")
     except Exception as e:
         db.session.rollback()
