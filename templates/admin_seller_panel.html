@@ -8,6 +8,7 @@
     border: 1px solid {% if seller.proxy_contacted_at %}#d1d5db{% else %}#fcd34d{% endif %};
     border-radius: 12px;
     padding: 16px 18px;
+    margin-top: 60px;
     margin-bottom: 24px;
 ">
   <div style="font-weight: 700; font-size: 0.9rem; color: {% if seller.proxy_contacted_at %}#6b7280{% else %}#92400e{% endif %}; margin-bottom: 10px;">
@@ -58,31 +59,74 @@
   var _cachedLink = null;
   var _cachedSms = null;
 
+  function copyToClipboard(text, onSuccess, onFail) {
+    // Try modern async clipboard API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onSuccess).catch(function() {
+        // Async clipboard rejected — fall back to execCommand
+        execCommandCopy(text, onSuccess, onFail);
+      });
+    } else {
+      execCommandCopy(text, onSuccess, onFail);
+    }
+  }
+
+  function execCommandCopy(text, onSuccess, onFail) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) { onSuccess(); } else { onFail(); }
+    } catch (e) {
+      onFail();
+    }
+  }
+
   function fetchLink(sellerId, force, callback) {
     if (_cachedLink && !force) { callback(_cachedLink, _cachedSms); return; }
     var formData = new FormData();
     formData.append('csrf_token', '{{ csrf_token() }}');
     if (force) formData.append('force_new', '1');
     fetch('/admin/seller/' + sellerId + '/generate-claim-link', { method: 'POST', body: formData })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function(d) {
         if (d.claim_url) {
           _cachedLink = d.claim_url;
           _cachedSms = d.sms_text;
           callback(d.claim_url, d.sms_text);
+        } else {
+          alert('Could not generate claim link: ' + (d.message || 'Unknown error'));
         }
+      })
+      .catch(function(err) {
+        alert('Failed to generate claim link. Check the console for details.');
+        console.error('generate-claim-link error:', err);
       });
   }
 
   window.proxyGetLink = function(sellerId, mode) {
+    var btnId = 'copy-' + (mode === 'url' ? 'link' : 'sms') + '-btn-' + sellerId;
     fetchLink(sellerId, false, function(url, sms) {
       var text = mode === 'url' ? url : sms;
-      navigator.clipboard.writeText(text).then(function() {
-        var btn = document.getElementById('copy-' + (mode === 'url' ? 'link' : 'sms') + '-btn-' + sellerId);
-        var orig = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = orig; }, 1500);
-      });
+      var btn = document.getElementById(btnId);
+      var orig = btn ? btn.textContent : '';
+      copyToClipboard(text,
+        function() {
+          if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
+        },
+        function() {
+          // Clipboard completely unavailable — show text in a prompt so admin can copy manually
+          window.prompt('Copy this link:', text);
+        }
+      );
     });
   };
 
@@ -91,8 +135,7 @@
     _cachedLink = null; _cachedSms = null;
     fetchLink(sellerId, true, function(url, sms) {
       var btn = document.getElementById('regen-link-btn-' + sellerId);
-      btn.textContent = 'Regenerated!';
-      setTimeout(function() { btn.textContent = '↺ Regenerate'; }, 2000);
+      if (btn) { btn.textContent = 'Regenerated!'; setTimeout(function() { btn.textContent = '↺ Regenerate'; }, 2000); }
     });
   };
 
@@ -111,7 +154,8 @@
             banner.style.border = '1px solid #d1d5db';
           }
         }
-      });
+      })
+      .catch(function(err) { console.error('proxy-contacted error:', err); cb.disabled = false; });
   };
 })();
 </script>

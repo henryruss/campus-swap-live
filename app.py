@@ -10290,13 +10290,14 @@ def _run_auto_assignment():
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.all()}
 
     # Eligible sellers: has at least one active item (not rejected/needs_info), no pickup yet, pickup_week set, address complete
+    # Proxy accounts are included even without a pickup_week — admin assigns them manually
     eligible_sellers = [
         s for s in (
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status.notin_(['rejected', 'needs_info']),
-                User.pickup_week.isnot(None),
+                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
                 User.id.notin_(existing_pickup_ids),
             )
             .group_by(User.id)
@@ -10865,6 +10866,7 @@ def admin_routes_index():
 def _admin_routes_index_data():
     """Internal: build the route planner data (used by admin_ops)."""
     # Sellers with available items and a pickup_week set (include only those)
+    # Proxy accounts are included even without a pickup_week — admin assigns them manually
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
     unassigned_sellers = [
         s for s in (
@@ -10872,7 +10874,7 @@ def _admin_routes_index_data():
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status == 'available',
-                User.pickup_week.isnot(None),
+                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)
