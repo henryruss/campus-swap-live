@@ -2563,7 +2563,10 @@ def admin_panel():
     total_users = User.query.count()
     total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
     sold_items = InventoryItem.query.filter_by(status='sold').count()
-    pending_items_count = InventoryItem.query.filter_by(status='pending_valuation').count()
+    pending_items_count = InventoryItem.query.filter(
+        InventoryItem.status == 'pending_valuation',
+        InventoryItem.is_quick_capture == False,
+    ).count()
     available_items = InventoryItem.query.filter_by(status='available').count()
     
     # Free tier data for admin panel
@@ -12153,7 +12156,10 @@ def admin_items():
 
     # Stats bar
     total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
-    pending_approval = InventoryItem.query.filter_by(status='pending_valuation').count()
+    pending_approval = InventoryItem.query.filter(
+        InventoryItem.status == 'pending_valuation',
+        InventoryItem.is_quick_capture == False,
+    ).count()
     available_count = InventoryItem.query.filter_by(status='available').count()
     sold_count = InventoryItem.query.filter_by(status='sold').count()
 
