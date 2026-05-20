@@ -64,6 +64,7 @@
           <th>Captured On</th>
           <th>Date Captured</th>
           <th></th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -110,6 +111,15 @@
               Edit &rarr;
             </a>
           </td>
+          <td>
+            <button class="ni-delete-btn"
+                    data-item-id="{{ item.id }}"
+                    data-csrf="{{ csrf_token() }}"
+                    type="button"
+                    style="padding:6px 12px; background:none; border:1.5px solid #fca5a5; border-radius:8px; font-size:0.8rem; font-weight:700; color:#991b1b; cursor:pointer; white-space:nowrap;">
+              Delete
+            </button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -117,4 +127,30 @@
   </div>
   {% endif %}
 </div>
+<script>
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.ni-delete-btn');
+  if (!btn) return;
+  if (!confirm('Permanently delete this capture and its photo? This cannot be undone.')) return;
+
+  var itemId = btn.dataset.itemId;
+  var csrf   = btn.dataset.csrf;
+  var row    = btn.closest('tr');
+
+  fetch('/admin/quick_capture/' + itemId + '/delete', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'csrf_token=' + encodeURIComponent(csrf)
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.success) {
+      if (row) row.remove();
+    } else {
+      alert(data.error || 'Could not delete. Try again.');
+    }
+  })
+  .catch(function () { alert('Network error. Try again.'); });
+});
+</script>
 {% endblock %}

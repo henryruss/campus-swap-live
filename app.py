@@ -8459,10 +8459,11 @@ def crew_quick_capture():
         logger.error(f"Quick capture image processing error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': 'Error processing image.'}), 500
 
+    notes = request.form.get('notes', '').strip()
     now = _now_eastern()
     item = InventoryItem(
         description='',
-        long_description=None,
+        long_description=notes if notes else None,
         price=0,
         status='needs_info',
         category_id=fallback_category_id,
@@ -8485,6 +8486,57 @@ def crew_quick_capture():
         return jsonify({'success': False, 'error': 'Failed to save item. Please try again.'}), 500
 
     return jsonify({'success': True, 'item_id': item.id})
+
+
+@app.route('/crew/quick_capture/<int:item_id>/delete', methods=['POST'])
+@login_required
+def crew_quick_capture_delete(item_id):
+    """Hard-delete a quick-capture item. Only the capturing worker can delete."""
+    if not current_user.is_worker or current_user.worker_status != 'approved':
+        return jsonify({'success': False, 'error': 'Access denied.'}), 403
+
+    item = InventoryItem.query.get_or_404(item_id)
+
+    if item.captured_by_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Not authorized.'}), 403
+
+    if not item.is_quick_capture or item.status != 'needs_info':
+        return jsonify({'success': False, 'error': 'Cannot delete this item.'}), 400
+
+    if item.photo_url:
+        photo_storage.delete_photo(item.photo_url)
+    for gallery in list(item.gallery_photos):
+        if gallery.photo_url:
+            photo_storage.delete_photo(gallery.photo_url)
+        db.session.delete(gallery)
+
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/quick_capture/<int:item_id>/delete', methods=['POST'])
+@login_required
+def admin_quick_capture_delete(item_id):
+    """Hard-delete a quick-capture item from the admin queue."""
+    if not current_user.is_admin:
+        abort(403)
+
+    item = InventoryItem.query.get_or_404(item_id)
+
+    if not item.is_quick_capture:
+        return jsonify({'success': False, 'error': 'Not a quick capture item.'}), 400
+
+    if item.photo_url:
+        photo_storage.delete_photo(item.photo_url)
+    for gallery in list(item.gallery_photos):
+        if gallery.photo_url:
+            photo_storage.delete_photo(gallery.photo_url)
+        db.session.delete(gallery)
+
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/crew/intake/search')
@@ -11615,11 +11667,28 @@ def crew_shift_stops_partial(shift_id):
             InventoryItem.status.in_(PICKUP_ELIGIBLE_STATUSES)
         ).count()
 
+    seller_ids = [p.seller_id for p in pickups]
+    quick_captures_by_seller = {}
+    if seller_ids:
+        qc_items = (
+            InventoryItem.query
+            .filter(
+                InventoryItem.is_quick_capture == True,
+                InventoryItem.quick_capture_shift_id == shift.id,
+                InventoryItem.seller_id.in_(seller_ids),
+            )
+            .order_by(InventoryItem.date_added.asc())
+            .all()
+        )
+        for qc in qc_items:
+            quick_captures_by_seller.setdefault(qc.seller_id, []).append(qc)
+
     return render_template(
         'crew/stops_partial.html',
         shift=shift,
         pickups=pickups,
         item_counts=item_counts,
+        quick_captures_by_seller=quick_captures_by_seller,
     )
 
 

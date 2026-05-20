@@ -61,6 +61,18 @@
         </select>
       </div>
 
+      {# ── Notes textarea (shown after photo captured) ── #}
+      <div id="qc-notes-wrap" style="display:none; margin-bottom:14px;">
+        <label for="qc-notes"
+               style="display:block; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:6px;">
+          Notes (optional)
+        </label>
+        <textarea id="qc-notes" name="notes"
+                  placeholder="e.g. $50, small stain on backside, missing remote…"
+                  rows="2" maxlength="500"
+                  style="width:100%; padding:10px 12px; border:1px solid var(--rule); border-radius:10px; font-size:0.9rem; color:var(--text-main); resize:vertical; box-sizing:border-box;"></textarea>
+      </div>
+
       <div id="qc-error" style="display:none; background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:10px 14px; font-size:0.875rem; color:#991b1b; margin-bottom:14px;"></div>
 
       <div style="display:flex; gap:10px; justify-content:flex-end;">
@@ -95,6 +107,8 @@
   var closeBtn       = document.getElementById('qc-close-btn');
   var sellerSel      = document.getElementById('qc-seller-select');
   var errorDiv       = document.getElementById('qc-error');
+  var notesWrap      = document.getElementById('qc-notes-wrap');
+  var notesInput     = document.getElementById('qc-notes');
 
   var stream       = null;
   var capturedBlob = null;
@@ -130,6 +144,7 @@
     cameraWrap.style.display    = 'block';
     fileInputWrap.style.display = 'none';
     thumbWrap.style.display     = 'none';
+    notesWrap.style.display     = 'none';
     capturedBlob = null;
     saveBtn.disabled = true;
   }
@@ -138,6 +153,7 @@
     cameraWrap.style.display    = 'none';
     fileInputWrap.style.display = 'flex';
     thumbWrap.style.display     = 'none';
+    notesWrap.style.display     = 'none';
     capturedBlob = null;
     saveBtn.disabled = true;
   }
@@ -148,6 +164,7 @@
     cameraWrap.style.display    = 'none';
     fileInputWrap.style.display = 'none';
     thumbWrap.style.display     = 'block';
+    notesWrap.style.display     = 'block';
     saveBtn.disabled = false;
     stopCamera();
   }
@@ -184,24 +201,32 @@
   }
 
   function openModal(triggerBtn) {
-    var sellers = JSON.parse(triggerBtn.dataset.sellers || '[]');
-    var activeSellerId = parseInt(triggerBtn.dataset.activeSellerId || '0', 10);
-    populateSellers(sellers, activeSellerId);
-    useFileInput = false;
+    // Full state reset before camera starts
+    stopCamera();
     capturedBlob = null;
+    useFileInput = false;
     saveBtn.disabled = true;
-    // Reset to hidden state before startCamera decides which path
+    saveBtn.innerHTML = 'Save Item &rarr;';
     cameraWrap.style.display    = 'none';
     fileInputWrap.style.display = 'none';
     thumbWrap.style.display     = 'none';
+    notesWrap.style.display     = 'none';
+    notesInput.value            = '';
     clearError();
+
+    var sellers = JSON.parse(triggerBtn.dataset.sellers || '[]');
+    var activeSellerId = parseInt(triggerBtn.dataset.activeSellerId || '0', 10);
+    populateSellers(sellers, activeSellerId);
+
     modal.style.display = 'flex';
     startCamera();
   }
 
   function closeModal() {
     stopCamera();
-    modal.style.display = 'none';
+    modal.style.display  = 'none';
+    notesWrap.style.display = 'none';
+    notesInput.value     = '';
     clearError();
   }
 
@@ -255,6 +280,7 @@
     if (csrfValue) fd.append('csrf_token', csrfValue);
     fd.append('photo', capturedBlob, 'capture.jpg');
     fd.append('seller_id', sellerSel.value);
+    fd.append('notes', notesInput.value.trim());
 
     var triggerBtn = document.querySelector('[data-qc-trigger]');
     var shiftId = triggerBtn ? (triggerBtn.dataset.shiftId || '') : '';
@@ -274,12 +300,25 @@
       })
       .then(function(data) {
         if (data.success) {
-          closeModal();
+          var stopList = document.getElementById('stop-list');
           var btn = document.querySelector('[data-qc-trigger]');
-          if (btn) {
-            var origHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-check-circle"></i> Item #' + data.item_id + ' captured';
-            setTimeout(function(){ btn.innerHTML = origHTML; }, 2500);
+          var refreshShiftId = btn ? (btn.dataset.shiftId || '') : '';
+          function finishClose() {
+            closeModal();
+            if (btn) {
+              var origHTML = btn.innerHTML;
+              btn.innerHTML = '<i class="fas fa-check-circle"></i> Item #' + data.item_id + ' captured';
+              setTimeout(function(){ btn.innerHTML = origHTML; }, 2500);
+            }
+          }
+          if (stopList && refreshShiftId) {
+            fetch('/crew/shift/' + refreshShiftId + '/stops_partial')
+              .then(function(r){ return r.ok ? r.text() : ''; })
+              .then(function(html){ if (html) stopList.outerHTML = html; })
+              .catch(function(){})
+              .finally(finishClose);
+          } else {
+            finishClose();
           }
         } else {
           showError(data.error || 'Something went wrong. Try again.');
