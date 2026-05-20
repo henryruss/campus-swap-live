@@ -3050,7 +3050,7 @@ def admin_generate_claim_link(user_id):
     else:
         token = _gen_claim_token()
         user.proxy_claim_token = token
-        user.proxy_token_expires_at = now.replace(microsecond=0) + __import__('datetime').timedelta(days=30)
+        user.proxy_token_expires_at = now.replace(microsecond=0) + timedelta(days=30)
         db.session.commit()
 
     claim_url = url_for('claim_account', token=token, _external=True)
@@ -8785,7 +8785,7 @@ def admin_shift_assign_seller(shift_id):
         flash("Seller and truck number are required.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     seller = User.query.get_or_404(seller_id)
-    if not seller.pickup_week or not seller.has_pickup_location:
+    if not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
         flash(f"{seller.full_name} hasn't set their pickup week and address yet.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     # Check for duplicate — a seller should only appear on one shift total
@@ -11740,7 +11740,7 @@ def _ops_build_unassigned_panel(shift):
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status.notin_(['rejected', 'needs_info']),
-                User.pickup_week.isnot(None),
+                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)

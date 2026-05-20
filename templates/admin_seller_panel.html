@@ -39,127 +39,23 @@
     </button>
   </div>
 
-  <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
-    <input type="checkbox" id="contacted-cb-{{ seller.id }}"
-           {% if seller.proxy_contacted_at %}checked disabled{% endif %}
-           onchange="proxyMarkContacted({{ seller.id }})">
+  {% if seller.proxy_contacted_at %}
+  <span style="font-size: 0.82rem; color: #6b7280;">✓ Contacted {{ seller.proxy_contacted_at.strftime('%b %d, %I:%M %p') }} UTC</span>
+  {% else %}
+  <button id="contacted-btn-{{ seller.id }}" onclick="proxyMarkContacted({{ seller.id }})"
+          style="padding: 6px 12px; font-size: 0.8rem; border: 1px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; font-weight: 600; color: var(--text-main);">
     Mark as Contacted
-    {% if seller.proxy_contacted_at %}
-    <span style="color: #9ca3af; font-size: 0.78rem;">({{ seller.proxy_contacted_at.strftime('%b %d %I:%M %p') }} UTC)</span>
-    {% endif %}
-  </label>
+  </button>
+  {% endif %}
 
   {% if seller.proxy_note %}
   <div style="margin-top: 10px; font-size: 0.8rem; color: #6b7280; font-style: italic;">{{ seller.proxy_note }}</div>
   {% endif %}
 </div>
 
-<script>
-(function() {
-  var _cachedLink = null;
-  var _cachedSms = null;
-
-  function copyToClipboard(text, onSuccess, onFail) {
-    // Try modern async clipboard API first
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(onSuccess).catch(function() {
-        // Async clipboard rejected — fall back to execCommand
-        execCommandCopy(text, onSuccess, onFail);
-      });
-    } else {
-      execCommandCopy(text, onSuccess, onFail);
-    }
-  }
-
-  function execCommandCopy(text, onSuccess, onFail) {
-    try {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      var ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      if (ok) { onSuccess(); } else { onFail(); }
-    } catch (e) {
-      onFail();
-    }
-  }
-
-  function fetchLink(sellerId, force, callback) {
-    if (_cachedLink && !force) { callback(_cachedLink, _cachedSms); return; }
-    var formData = new FormData();
-    formData.append('csrf_token', '{{ csrf_token() }}');
-    if (force) formData.append('force_new', '1');
-    fetch('/admin/seller/' + sellerId + '/generate-claim-link', { method: 'POST', body: formData })
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        if (d.claim_url) {
-          _cachedLink = d.claim_url;
-          _cachedSms = d.sms_text;
-          callback(d.claim_url, d.sms_text);
-        } else {
-          alert('Could not generate claim link: ' + (d.message || 'Unknown error'));
-        }
-      })
-      .catch(function(err) {
-        alert('Failed to generate claim link. Check the console for details.');
-        console.error('generate-claim-link error:', err);
-      });
-  }
-
-  window.proxyGetLink = function(sellerId, mode) {
-    var btnId = 'copy-' + (mode === 'url' ? 'link' : 'sms') + '-btn-' + sellerId;
-    fetchLink(sellerId, false, function(url, sms) {
-      var text = mode === 'url' ? url : sms;
-      var btn = document.getElementById(btnId);
-      var orig = btn ? btn.textContent : '';
-      copyToClipboard(text,
-        function() {
-          if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
-        },
-        function() {
-          // Clipboard completely unavailable — show text in a prompt so admin can copy manually
-          window.prompt('Copy this link:', text);
-        }
-      );
-    });
-  };
-
-  window.proxyRegenLink = function(sellerId) {
-    if (!confirm('Regenerate claim link? The old link will stop working immediately.')) return;
-    _cachedLink = null; _cachedSms = null;
-    fetchLink(sellerId, true, function(url, sms) {
-      var btn = document.getElementById('regen-link-btn-' + sellerId);
-      if (btn) { btn.textContent = 'Regenerated!'; setTimeout(function() { btn.textContent = '↺ Regenerate'; }, 2000); }
-    });
-  };
-
-  window.proxyMarkContacted = function(sellerId) {
-    var cb = document.getElementById('contacted-cb-' + sellerId);
-    cb.disabled = true;
-    var formData = new FormData();
-    formData.append('csrf_token', '{{ csrf_token() }}');
-    fetch('/admin/seller/' + sellerId + '/proxy-contacted', { method: 'POST', body: formData })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.success) {
-          var banner = document.getElementById('proxy-banner-' + sellerId);
-          if (banner) {
-            banner.style.background = '#f9fafb';
-            banner.style.border = '1px solid #d1d5db';
-          }
-        }
-      })
-      .catch(function(err) { console.error('proxy-contacted error:', err); cb.disabled = false; });
-  };
-})();
-</script>
 {% endif %}
+{# Note: proxyGetLink / proxyRegenLink / proxyMarkContacted are defined in the host page
+   (sellers.html / items.html) because scripts inside innerHTML are not executed by browsers. #}
 
     {# Section 1 — Seller Identity #}
     <div style="margin-bottom: 24px;">

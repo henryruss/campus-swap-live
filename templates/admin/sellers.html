@@ -74,7 +74,7 @@
 <div class="sellers-wrap">
   <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
     <h1 style="margin: 0;">Sellers</h1>
-    <button onclick="openProxyModal()" class="btn-primary" style="padding: 8px 16px; font-size: 0.85rem;">+ Create Proxy Account</button>
+    <button onclick="openProxyModal()" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">+ Create Proxy Account</button>
   </div>
 
   {# ── Seller list ── #}
@@ -298,6 +298,88 @@
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') { closeSellerPanel(); closeProxyModal(); }
   });
+
+  // ── Proxy panel functions (called via inline onclick in admin_seller_panel.html partial) ──
+  // Scripts in innerHTML are not executed by browsers; these must live here in the page.
+  var _proxyLinkCache = {};  // keyed by sellerId
+  var _proxyPanelCsrf = '{{ csrf_token() }}';
+
+  function proxyFetchLink(sellerId, force, callback) {
+    if (_proxyLinkCache[sellerId] && !force) {
+      callback(_proxyLinkCache[sellerId].url, _proxyLinkCache[sellerId].sms);
+      return;
+    }
+    var fd = new FormData();
+    fd.append('csrf_token', _proxyPanelCsrf);
+    if (force) fd.append('force_new', '1');
+    fetch('/admin/seller/' + sellerId + '/generate-claim-link', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(d) {
+        if (d.claim_url) {
+          _proxyLinkCache[sellerId] = { url: d.claim_url, sms: d.sms_text };
+          callback(d.claim_url, d.sms_text);
+        } else {
+          alert('Could not generate link: ' + (d.message || 'unknown error'));
+        }
+      })
+      .catch(function(err) {
+        console.error('generate-claim-link failed:', err);
+        alert('Failed to generate claim link (' + err.message + '). Check the console.');
+      });
+  }
+
+  function proxyGetLink(sellerId, mode) {
+    var btnId = (mode === 'url' ? 'copy-link-btn-' : 'copy-sms-btn-') + sellerId;
+    proxyFetchLink(sellerId, false, function(url, sms) {
+      var text = mode === 'url' ? url : sms;
+      var btn = document.getElementById(btnId);
+      var orig = btn ? btn.textContent.trim() : '';
+      navigator.clipboard.writeText(text).then(function() {
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
+      }).catch(function() {
+        window.prompt('Copy this:', text);
+      });
+    });
+  }
+
+  function proxyRegenLink(sellerId) {
+    if (!confirm('Regenerate claim link? The old link stops working immediately.')) return;
+    delete _proxyLinkCache[sellerId];
+    proxyFetchLink(sellerId, true, function() {
+      var btn = document.getElementById('regen-link-btn-' + sellerId);
+      if (btn) { btn.textContent = 'Done!'; setTimeout(function() { btn.textContent = '↺ Regenerate'; }, 2000); }
+    });
+  }
+
+  function proxyMarkContacted(sellerId) {
+    var btn = document.getElementById('contacted-btn-' + sellerId);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    var fd = new FormData();
+    fd.append('csrf_token', _proxyPanelCsrf);
+    fetch('/admin/seller/' + sellerId + '/proxy-contacted', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          var banner = document.getElementById('proxy-banner-' + sellerId);
+          if (banner) {
+            banner.style.background = '#f9fafb';
+            banner.style.borderColor = '#d1d5db';
+          }
+          if (btn) {
+            btn.outerHTML = '<span style="font-size:0.82rem;color:#6b7280;">✓ Contacted just now</span>';
+          }
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = 'Mark as Contacted'; }
+        }
+      })
+      .catch(function(err) {
+        console.error('proxy-contacted error:', err);
+        if (btn) { btn.disabled = false; btn.textContent = 'Mark as Contacted'; }
+      });
+  }
 
   // ── Proxy modal ──
   function openProxyModal() {

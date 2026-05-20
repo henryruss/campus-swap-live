@@ -485,6 +485,82 @@
     document.getElementById('seller-panel-drawer').style.right = '-480px';
   }
 
+  // ── Proxy panel functions (scripts in innerHTML don't execute; these live here) ──
+  var _proxyLinkCache = {};
+  var _proxyPanelCsrf = '{{ csrf_token() }}';
+
+  function proxyFetchLink(sellerId, force, callback) {
+    if (_proxyLinkCache[sellerId] && !force) {
+      callback(_proxyLinkCache[sellerId].url, _proxyLinkCache[sellerId].sms);
+      return;
+    }
+    var fd = new FormData();
+    fd.append('csrf_token', _proxyPanelCsrf);
+    if (force) fd.append('force_new', '1');
+    fetch('/admin/seller/' + sellerId + '/generate-claim-link', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(d) {
+        if (d.claim_url) {
+          _proxyLinkCache[sellerId] = { url: d.claim_url, sms: d.sms_text };
+          callback(d.claim_url, d.sms_text);
+        } else {
+          alert('Could not generate link: ' + (d.message || 'unknown error'));
+        }
+      })
+      .catch(function(err) {
+        console.error('generate-claim-link failed:', err);
+        alert('Failed to generate claim link (' + err.message + '). Check the console.');
+      });
+  }
+
+  function proxyGetLink(sellerId, mode) {
+    var btnId = (mode === 'url' ? 'copy-link-btn-' : 'copy-sms-btn-') + sellerId;
+    proxyFetchLink(sellerId, false, function(url, sms) {
+      var text = mode === 'url' ? url : sms;
+      var btn = document.getElementById(btnId);
+      var orig = btn ? btn.textContent.trim() : '';
+      navigator.clipboard.writeText(text).then(function() {
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
+      }).catch(function() {
+        window.prompt('Copy this:', text);
+      });
+    });
+  }
+
+  function proxyRegenLink(sellerId) {
+    if (!confirm('Regenerate claim link? The old link stops working immediately.')) return;
+    delete _proxyLinkCache[sellerId];
+    proxyFetchLink(sellerId, true, function() {
+      var btn = document.getElementById('regen-link-btn-' + sellerId);
+      if (btn) { btn.textContent = 'Done!'; setTimeout(function() { btn.textContent = '↺ Regenerate'; }, 2000); }
+    });
+  }
+
+  function proxyMarkContacted(sellerId) {
+    var btn = document.getElementById('contacted-btn-' + sellerId);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    var fd = new FormData();
+    fd.append('csrf_token', _proxyPanelCsrf);
+    fetch('/admin/seller/' + sellerId + '/proxy-contacted', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          var banner = document.getElementById('proxy-banner-' + sellerId);
+          if (banner) { banner.style.background = '#f9fafb'; banner.style.borderColor = '#d1d5db'; }
+          if (btn) { btn.outerHTML = '<span style="font-size:0.82rem;color:#6b7280;">✓ Contacted just now</span>'; }
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = 'Mark as Contacted'; }
+        }
+      })
+      .catch(function(err) {
+        console.error('proxy-contacted error:', err);
+        if (btn) { btn.disabled = false; btn.textContent = 'Mark as Contacted'; }
+      });
+  }
+
   function maybeBoxAlert(e, form) {
     var cb = form.querySelector('input[name="send_box_alert"]');
     if (!cb || !cb.checked) return;
