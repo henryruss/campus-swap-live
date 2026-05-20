@@ -2864,6 +2864,9 @@ def admin_request_info(item_id):
         flash("Access denied.", "error")
         return redirect(url_for('index'))
     item = InventoryItem.query.get_or_404(item_id)
+    if item.is_quick_capture:
+        flash("Quick-capture items cannot receive info requests — complete them via the Quick Captures queue.", "error")
+        return redirect(url_for('admin_needs_info_queue'))
     if item.status != 'pending_valuation':
         flash("This item is not in the approval queue.", "error")
         return redirect(url_for('admin_approve'))
@@ -12126,12 +12129,15 @@ def admin_items():
     available_count = InventoryItem.query.filter_by(status='available').count()
     sold_count = InventoryItem.query.filter_by(status='sold').count()
 
-    # Approval queue items (pending_valuation, for super admins)
+    # Approval queue items (pending_valuation, for super admins; excludes quick captures)
     approval_items = []
     if current_user.is_super_admin:
         approval_items = (
             InventoryItem.query
-            .filter_by(status='pending_valuation')
+            .filter(
+                InventoryItem.status == 'pending_valuation',
+                InventoryItem.is_quick_capture == False,
+            )
             .order_by(InventoryItem.date_added.asc())
             .all()
         )
