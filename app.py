@@ -10289,15 +10289,16 @@ def _run_auto_assignment():
     # All seller_ids that already have a ShiftPickup
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.all()}
 
-    # Eligible sellers: has at least one active item (not rejected/needs_info), no pickup yet, pickup_week set, address complete
-    # Proxy accounts are included even without a pickup_week — admin assigns them manually
-    eligible_sellers = [
+    # Eligible sellers: has at least one active item, pickup_week set, address complete
+    # Proxy accounts: included without item/location/pickup_week requirements
+    _regular_eligible = [
         s for s in (
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status.notin_(['rejected', 'needs_info']),
-                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
+                User.pickup_week.isnot(None),
+                User.is_proxy_account == False,
                 User.id.notin_(existing_pickup_ids),
             )
             .group_by(User.id)
@@ -10305,6 +10306,16 @@ def _run_auto_assignment():
         )
         if s.has_pickup_location
     ]
+    _proxy_eligible = (
+        User.query
+        .filter(
+            User.is_proxy_account == True,
+            User.is_seller == True,
+            User.id.notin_(existing_pickup_ids),
+        )
+        .all()
+    )
+    eligible_sellers = _regular_eligible + _proxy_eligible
 
     # Cluster-first sort (Admin UI Redesign spec):
     # 1. Partner buildings (alphabetical) → dorms/on-campus (alphabetical) → proximity → Unlocated
@@ -10865,16 +10876,15 @@ def admin_routes_index():
 
 def _admin_routes_index_data():
     """Internal: build the route planner data (used by admin_ops)."""
-    # Sellers with available items and a pickup_week set (include only those)
-    # Proxy accounts are included even without a pickup_week — admin assigns them manually
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
-    unassigned_sellers = [
+    _regular_unassigned = [
         s for s in (
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status == 'available',
-                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
+                User.pickup_week.isnot(None),
+                User.is_proxy_account == False,
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)
@@ -10883,6 +10893,17 @@ def _admin_routes_index_data():
         )
         if s.has_pickup_location
     ]
+    _proxy_unassigned = (
+        User.query
+        .filter(
+            User.is_proxy_account == True,
+            User.is_seller == True,
+            User.id.notin_(assigned_seller_ids),
+        )
+        .order_by(User.full_name)
+        .all()
+    )
+    unassigned_sellers = _regular_unassigned + _proxy_unassigned
 
     clusters = build_geographic_clusters(unassigned_sellers)
 
@@ -11008,7 +11029,7 @@ def admin_routes_assign_seller(user_id):
         abort(403)
     seller = User.query.get_or_404(user_id)
 
-    if not seller.pickup_week or not seller.has_pickup_location:
+    if not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
         return jsonify({'error': 'Seller has not set their pickup week and address'}), 422
 
     # Global uniqueness check
@@ -11734,13 +11755,14 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
 def _ops_build_unassigned_panel(shift):
     """Build unassigned sellers pool for the right panel, filtered by shift slot."""
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
-    all_unassigned = [
+    _regular_all = [
         s for s in (
             User.query
             .join(InventoryItem, InventoryItem.seller_id == User.id)
             .filter(
                 InventoryItem.status.notin_(['rejected', 'needs_info']),
-                db.or_(User.pickup_week.isnot(None), User.is_proxy_account == True),
+                User.pickup_week.isnot(None),
+                User.is_proxy_account == False,
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)
@@ -11749,6 +11771,17 @@ def _ops_build_unassigned_panel(shift):
         )
         if s.has_pickup_location
     ]
+    _proxy_all = (
+        User.query
+        .filter(
+            User.is_proxy_account == True,
+            User.is_seller == True,
+            User.id.notin_(assigned_seller_ids),
+        )
+        .order_by(User.full_name)
+        .all()
+    )
+    all_unassigned = _regular_all + _proxy_all
 
     # Split by slot preference — sellers with a non-matching pref are dimmed but visible
     def _slot_match(seller):
