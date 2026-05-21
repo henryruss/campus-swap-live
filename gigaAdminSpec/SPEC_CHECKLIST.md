@@ -1469,6 +1469,90 @@
 
 ---
 
+## Feature: Campus Director Tutorial
+
+**Sign-off status:** ⬜ Not yet signed off
+**Built:** 2026-05-21
+
+### Database & Schema
+- [ ] `flask db upgrade` runs with no errors
+- [ ] `tutorial_session` table exists with columns: `id`, `user_id`, `current_step`, `started_at`, `completed_at`
+- [ ] `user` table has `is_campus_director` column (Boolean, default False)
+- [ ] At least one user has `is_campus_director=True` in DB (manually created or seeded)
+
+### Role Switcher — Header Pill
+- [ ] Log in as a campus director — role switcher pill visible in header nav between dashboard link and user icon
+- [ ] Pill shows "Seller" and "Admin" buttons; active button highlighted
+- [ ] On `/dashboard` and all non-admin pages — "Seller" button is active
+- [ ] On `/admin/*` pages — "Admin" button is active
+- [ ] Click "Admin" button — redirects to `/admin/ops` or tutorial start, CD view switches
+- [ ] Click "Seller" button — redirects to `/dashboard`, CD sees seller view
+- [ ] Role switcher NOT visible for regular sellers or admins who are not campus directors
+- [ ] Header does not clip or overflow horizontally with pill present (scroll left/right on mobile)
+
+### CD Seller View — Dashboard
+- [ ] With `cd_view='seller'` in session, visit `/dashboard` as a CD — page loads (no redirect to admin)
+- [ ] With `cd_view='seller'`, visiting `/dashboard` as a CD who has no items does NOT redirect to `/onboard`
+- [ ] Seller dashboard renders normally with item grid (empty state or items)
+- [ ] Role switcher pill shows "Seller" as active
+
+### Tutorial Entry
+- [ ] Visit `/admin/tutorial/welcome` as a campus director — welcome page renders
+- [ ] Visit `/admin/tutorial/welcome` as a non-CD user — 403 or redirect
+- [ ] Click "Start Tutorial" — POST to `/admin/tutorial/start`, creates `TutorialSession` record in DB with `current_step=0`
+- [ ] Starting tutorial again (already started) does NOT create a duplicate `TutorialSession` row
+
+### Tutorial Steps 0–5 (Orientation)
+- [ ] Each step page loads without error when accessed in sequence
+- [ ] Advancing a step (clicking "Next") increments `TutorialSession.current_step` in DB
+- [ ] Navigating away and returning drops the CD back at their current step (not step 0)
+- [ ] Back/forward browser navigation does not corrupt step state
+
+### Tutorial Steps 6–8 (Functional Actions)
+- [ ] Step 6: page shows sellers assigned to the tutorial shift (seed data visible in stops list)
+- [ ] Step 7: "Re-order route" action executes and `stop_order` values are updated on tutorial pickups
+- [ ] Step 8: "Notify sellers" action executes — no real SMS/emails sent (tutorial sellers are flagged)
+- [ ] Each step action advances `current_step` to the next value
+
+### Tutorial Seed Fixtures
+- [ ] Fixture data uses `is_tutorial=True` on `ShiftWeek` and `is_tutorial_user=True` on worker accounts
+- [ ] Tutorial sellers and stops do NOT appear in the real ops panel when a non-tutorial shift is selected
+- [ ] Tutorial workers do NOT appear in Crew HQ approved workers list
+- [ ] Re-starting the tutorial (POST `/admin/tutorial/start` again) resets fixtures to canonical state
+
+### Tutorial Completion
+- [ ] Advancing past step 9 — `TutorialSession.completed_at` set in DB
+- [ ] Completion page (`/admin/tutorial/complete`) renders correctly
+- [ ] "Go to Admin Panel" link on completion page navigates to `/admin/ops`
+- [ ] Completed tutorial: visiting welcome page again shows completion state, not a new tutorial start
+
+### Tutorial Exit
+- [ ] "Exit tutorial" link available on all tutorial step pages
+- [ ] Clicking exit — confirmation dialog or direct redirect to `/admin/ops`
+- [ ] `TutorialSession.current_step` preserved (not reset) on exit — can resume where left off
+
+### Auth Guard Audit — CD Access to Ops Routes
+- [ ] As a campus director in admin view, open `/admin/ops` → page loads (no 403)
+- [ ] As CD, trigger quick-remove on a crew member (Crew HQ) — 200, not 403
+- [ ] As CD, trigger override availability on a worker — 200, not 403
+- [ ] As CD, add truck to a shift — 200, not 403
+- [ ] As CD, remove truck from a shift — 200, not 403
+- [ ] As CD, reorder a stop — 200, not 403
+
+### Regression Check
+- [ ] Regular seller `is_campus_director=False` — role switcher pill not visible in header
+- [ ] Admin (`is_admin=True`, `is_campus_director=False`) — role switcher pill not visible
+- [ ] `/dashboard` for a regular seller with no items still redirects to `/onboard`
+- [ ] All 69/69 route planning tests still pass (`pytest test_route_planning.py`)
+- [ ] All 42/42 SMS tests still pass (`pytest test_sms_notifications.py`)
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
+
 ## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)

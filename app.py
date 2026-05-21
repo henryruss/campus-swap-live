@@ -8908,6 +8908,22 @@ def admin_shift_ops(shift_id):
         for p in pickups
     )
 
+    # Admin force-reassign: eligible target shifts (today+, not started, not locked, not this shift)
+    today_et = _today_eastern()
+    all_future_shifts = (
+        Shift.query
+        .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+        .filter(ShiftWeek.is_tutorial == False)
+        .filter(Shift.reschedule_locked == False)
+        .filter(Shift.id != shift.id)
+        .order_by(ShiftWeek.week_start.asc(), Shift.day_of_week.asc(), Shift.slot.asc())
+        .all()
+    )
+    eligible_shifts = [
+        s for s in all_future_shifts
+        if _shift_date(s) >= today_et and s.run is None
+    ]
+
     return render_template(
         'admin/shift_ops.html',
         shift=shift,
@@ -8929,6 +8945,7 @@ def admin_shift_ops(shift_id):
         rescheduled_in=rescheduled_in,
         rescheduled_out=rescheduled_out,
         has_stale_route=has_stale_route,
+        eligible_shifts=eligible_shifts,
     )
 
 
@@ -9064,6 +9081,99 @@ def admin_shift_remove_stop(shift_id, pickup_id):
     db.session.commit()
     flash("Stop removed.", "success")
     return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/stop/<int:pickup_id>/force-remove', methods=['POST'])
+@login_required
+def admin_shift_force_remove_stop(shift_id, pickup_id):
+    """Remove a pending stop from an in-progress route (force escape hatch)."""
+    if not _has_ops_access():
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift_id:
+        abort(404)
+    if pickup.status != 'pending':
+        flash("Can't remove a stop that's already been visited.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    old_shift_id = pickup.shift_id
+    # Revoke open reschedule tokens before deleting pickup
+    db.session.execute(
+        delete(RescheduleToken).where(RescheduleToken.pickup_id == pickup.id)
+    )
+    db.session.delete(pickup)
+    db.session.flush()
+    # Repack stop_order on the now-shorter route
+    remaining = (ShiftPickup.query
+        .filter_by(shift_id=old_shift_id)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id)
+        .all())
+    for i, p in enumerate(remaining, start=1):
+        p.stop_order = i
+    db.session.commit()
+    flash("Stop removed from route.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=old_shift_id))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/stop/<int:pickup_id>/reassign', methods=['POST'])
+@login_required
+def admin_shift_reassign_stop(shift_id, pickup_id):
+    """Force-remove a pending stop from the current shift and move it to a different shift."""
+    if not _has_ops_access():
+        abort(403)
+    pickup = ShiftPickup.query.get_or_404(pickup_id)
+    if pickup.shift_id != shift_id:
+        abort(404)
+    if pickup.status != 'pending':
+        flash("Can't reassign a stop that's already been visited.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    target_shift_id = request.form.get('target_shift_id', type=int)
+    if not target_shift_id:
+        flash("No target shift selected.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    target_shift = Shift.query.get_or_404(target_shift_id)
+    if target_shift.run is not None:
+        flash("Target shift is already in progress — can't assign to it.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    if _shift_date(target_shift) < _today_eastern():
+        flash("Can't reassign to a past shift.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    old_shift_id = pickup.shift_id
+    old_shift = pickup.shift
+    # Revoke any open reschedule tokens for this pickup (they pointed at the old assignment)
+    open_tokens = RescheduleToken.query.filter_by(
+        pickup_id=pickup.id,
+        used_at=None,
+        revoked_at=None,
+    ).all()
+    now_naive = _now_eastern().replace(tzinfo=None)
+    for tok in open_tokens:
+        tok.revoked_at = now_naive
+    # Determine truck on new shift (overflow truck or truck 1)
+    new_truck = target_shift.overflow_truck_number or 1
+    # Recompute capacity warning for the target truck
+    existing_count = ShiftPickup.query.filter_by(
+        shift_id=target_shift.id, truck_number=new_truck
+    ).count()
+    effective_cap = get_effective_capacity()
+    # Move the pickup
+    pickup.shift_id = target_shift.id
+    pickup.truck_number = new_truck
+    pickup.stop_order = None
+    pickup.rescheduled_from_shift_id = old_shift_id
+    pickup.rescheduled_at = _now_eastern()
+    pickup.notified_at = None
+    pickup.capacity_warning = (existing_count >= effective_cap)
+    db.session.flush()
+    # Repack stop_order on the old shift
+    remaining = (ShiftPickup.query
+        .filter_by(shift_id=old_shift_id)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id)
+        .all())
+    for i, p in enumerate(remaining, start=1):
+        p.stop_order = i
+    db.session.commit()
+    flash(f"Stop moved to {target_shift.label}.", "success")
+    return redirect(url_for('admin_shift_ops', shift_id=old_shift_id))
 
 
 # =========================================================

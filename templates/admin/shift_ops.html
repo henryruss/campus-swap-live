@@ -165,6 +165,34 @@
     color: #dc2626; cursor: pointer; transition: background 0.15s;
   }
   .btn-remove:hover { background: #fef2f2; }
+  .btn-reassign {
+    padding: 5px 12px; background: none; border: 1.5px solid #93c5fd;
+    border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+    color: #1d4ed8; cursor: pointer; transition: background 0.15s;
+  }
+  .btn-reassign:hover { background: #eff6ff; }
+  .reassign-panel {
+    display: none; margin-top: 10px; padding: 14px 16px;
+    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px;
+    font-size: 0.875rem;
+  }
+  .reassign-panel.open { display: block; }
+  .reassign-panel-header {
+    font-weight: 700; color: var(--primary); margin-bottom: 10px; font-size: 0.9rem;
+  }
+  .reassign-panel label {
+    display: block; font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 5px;
+  }
+  .reassign-panel select {
+    width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 0.875rem; background: white; color: var(--text-main); margin-bottom: 10px;
+  }
+  .reassign-panel .remove-link {
+    font-size: 0.8rem; color: #dc2626; cursor: pointer; background: none;
+    border: none; padding: 0; text-decoration: underline; margin-top: 4px;
+  }
+  .reassign-panel .remove-link:hover { color: #991b1b; }
   .no-stops-note {
     color: var(--text-muted); font-size: 0.875rem; padding: 12px 0; font-style: italic;
   }
@@ -465,10 +493,51 @@
           {% if pickup.notes %}
           <div class="stop-notes"><i class="fas fa-sticky-note"></i> {{ pickup.notes }}</div>
           {% endif %}
+
+          {# Reassign inline panel — shown/hidden via JS, pending stops only #}
+          {% if pickup.status == 'pending' %}
+          <div class="reassign-panel" id="reassign-panel-{{ pickup.id }}">
+            <div class="reassign-panel-header">
+              <i class="fas fa-exchange-alt"></i>
+              Reassign: {{ pickup.seller.full_name }}
+              <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem; margin-left:4px;">
+                — {{ pickup.seller.pickup_display or 'No address on file' }}
+              </span>
+            </div>
+            {% if eligible_shifts %}
+            <form method="POST" action="{{ url_for('admin_shift_reassign_stop', shift_id=shift.id, pickup_id=pickup.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <label for="target-shift-{{ pickup.id }}">Move to shift</label>
+              <select name="target_shift_id" id="target-shift-{{ pickup.id }}" required>
+                <option value="">— Select a shift —</option>
+                {% for s in eligible_shifts %}
+                <option value="{{ s.id }}">{{ s.label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn-primary" style="font-size:0.875rem; padding:7px 18px;">Move to this shift</button>
+            </form>
+            {% else %}
+            <p style="color:var(--text-muted); margin:0 0 8px;">No eligible upcoming shifts available.</p>
+            {% endif %}
+            <div style="margin-top:8px;">
+              <form method="POST" action="{{ url_for('admin_shift_force_remove_stop', shift_id=shift.id, pickup_id=pickup.id) }}"
+                    onsubmit="return confirm('Remove {{ pickup.seller.full_name }} from this shift without reassigning?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="remove-link">Remove without reassigning</button>
+              </form>
+            </div>
+          </div>
+          {% endif %}
         </div>
         <div class="stop-row-actions">
           <span class="stop-badge badge-{{ pickup.status }}">{{ pickup.status }}</span>
-          {% if pickup.status in ('pending', 'issue') %}
+          {% if pickup.status == 'pending' %}
+          <button type="button" class="btn-reassign"
+                  data-pickup-id="{{ pickup.id }}"
+                  onclick="toggleReassignPanel({{ pickup.id }})">
+            Reassign
+          </button>
+          {% elif pickup.status == 'issue' %}
           <form method="POST"
                 action="{{ url_for('admin_shift_remove_stop', shift_id=shift.id, pickup_id=pickup.id) }}"
                 onsubmit="return confirm('Remove {{ pickup.seller.full_name }} from this shift?')">
@@ -697,6 +766,16 @@ function addTruck(shiftId) {
     alert('Truck ' + d.new_truck_number + ' added. Reload to see it.');
     location.reload();
   }).catch(function() { alert('Failed to add truck.'); });
+}
+
+// ── Reassign stop panel toggle ────────────────────────────
+function toggleReassignPanel(pickupId) {
+  var panel = document.getElementById('reassign-panel-' + pickupId);
+  if (!panel) return;
+  var isOpen = panel.classList.contains('open');
+  // Close all open panels first
+  document.querySelectorAll('.reassign-panel.open').forEach(function(p) { p.classList.remove('open'); });
+  if (!isOpen) panel.classList.add('open');
 }
 
 // ── Remove mover from truck ───────────────────────────────

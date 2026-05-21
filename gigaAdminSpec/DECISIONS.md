@@ -7,6 +7,34 @@
 
 ---
 
+## Campus Director Tutorial & Role Switcher (2026-05-21)
+
+### Decision: Tutorial gate uses a DB record (`TutorialSession`), not session state
+**Reasoning:** Session state (cookie-based) is lost after a POST/redirect cycle, which happens on every tutorial step action. A DB row (`TutorialSession.current_step`) persists across redirects, browser refreshes, and server restarts. The tutorial advances one step at a time and the current step is the only state needed — a single integer column is sufficient.
+
+### Decision: Tutorial step sequence 0–9 is intentionally non-contiguous in admin UI access
+**Reasoning:** Steps 0–5 are orientation (welcome, settings, crew overview, schedule overview, route builder). Step 6 requires sellers to be assigned to shifts (populated by seed data), so the CD experiences the meaningful "I have stops to manage" state. Steps 7–8 are functional ops actions (reorder, notify). Step 9 is the completion page. Skipping straight to ops without orientation reduces confusion for CDs who have never used the admin panel.
+
+### Decision: `seed_tutorial_fixtures()` enforces canonical fixture state on every restart
+**Reasoning:** If a CD exits mid-tutorial and restarts, the sandbox data must be consistent with the step they re-enter at. A seed function that is idempotent (checks for existing records before inserting, updates existing records to canonical values) ensures the tutorial never gets stuck in a partially-advanced data state. Called on every `/admin/tutorial/start` POST.
+
+### Decision: `is_tutorial_user` on `User` and `is_tutorial` on `ShiftWeek` isolate sandbox data
+**Reasoning:** Tutorial fixtures (workers, shift week, shift pickups) must not appear in any production admin view, optimizer run, or ops page. A boolean flag on each model lets every query that enumerates real data add a simple `.filter_by(is_tutorial=False)` guard. The `is_tutorial_user` flag on User prevents tutorial worker accounts from being approved into the real crew pool or showing up in Crew HQ.
+
+### Decision: `_has_ops_access()` is the correct auth guard for all CD-accessible crew/ops routes
+**Reasoning:** Campus directors have `is_campus_director=True` but `is_admin=False`. The original guard pattern `if not current_user.is_admin: abort(403)` locks out CDs from routes they legitimately need to use during their tutorial (and in production use). `_has_ops_access()` returns `True` for both admins and campus directors. Five routes were fixed: `admin_crew_quick_remove`, `admin_crew_override_availability`, `admin_shift_add_truck`, `admin_shift_remove_truck`, `admin_shift_reorder_stop`. Routes that should remain admin-only (item approval, user management, settings, exports) keep `is_admin`.
+
+### Decision: CD in seller view skips ALL dashboard redirect logic
+**Reasoning:** The dashboard route had interleaved redirect conditions — admin check, campus director check, and then an onboard redirect if the user had no items and was not `is_seller`. A CD who switched to seller view would pass the CD check (because `cd_view == 'seller'`) but then hit the onboard redirect (because they're not `is_seller`). The cleanest fix is a single boolean `cd_seller_view` gate that wraps the entire redirect block — if a CD has explicitly switched to seller view, skip all redirect logic and render the dashboard directly.
+
+### Decision: Role switcher uses inline header pill with `request.path.startswith('/admin')` active state
+**Reasoning:** `request.path` is always available in Jinja2 templates without any route-level context variable. Using `startswith('/admin')` is a reliable, zero-maintenance way to determine which button should be active — it works automatically for all existing and future admin routes without any per-route changes. The pill lives in the inline nav (not a dropdown) so it's always visible and one tap to switch context.
+
+### Decision: `min-width: max-content` removed from `header.site-header`
+**Reasoning:** The rule caused the header to expand to fit its widest content (the role switcher pill added inline nav width). Since `overflow-x: hidden` on the body clipped anything past the viewport edge, the right side of the header (user icon, pill) was invisible. Replaced with `box-sizing: border-box` — header stays within 100% of viewport width regardless of content width.
+
+---
+
 ## Driver Quick Capture (2026-05-20)
 
 ### Decision: Quick-capture items start as `pending_valuation`, not `needs_info`

@@ -37,6 +37,9 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 | **Overflow truck** | A flex truck slot held in reserve to absorb rescheduled pickups |
 | **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Admin completes the listing (title, price, category) afterward via the Quick Captures queue at `/admin/items/needs_info`. |
 | **Internal account** | The seeded "Campus Swap" user (`is_internal_account=True`) that owns donated or unclaimed items captured without an associated seller. `seller_id` on `InventoryItem` is never nullable — this account is the fallback. |
+| **Campus Director (CD)** | A privileged seller account (`is_campus_director=True`) that can access the admin ops panel via a role switcher in the nav. CDs are not `is_admin` or `is_super_admin`. They see a subset of admin functionality (ops, crew, schedule) intended for on-the-ground coordinators at a campus location. |
+| **CD view** | Session state (`session['cd_view']`) set to `'seller'` or `'admin'` by `/switch-role/<role>`. Controls which context a campus director sees. When set to `'seller'`, the CD sees the normal seller dashboard. |
+| **TutorialSession** | DB model tracking a campus director's tutorial progress (`current_step` 0–9, `started_at`, `completed_at`). Step advances via POST; seed fixtures are re-applied on each restart. |
 
 ---
 
@@ -54,6 +57,8 @@ Admin sets trucks-per-shift when building the weekly schedule. Organizer count
 uses the **stagger formula**: `ceil(trucks / 2) × 2`. Two trucks can share two
 organizers because they stagger (one truck is picking up while the other drops
 off). A third truck requires a second organizer pair.
+
+**Campus Director role.** Campus directors (`is_campus_director=True`) are neither workers nor full admins. They can access the ops panel (Ops, Crew, Schedule tabs) but not super-admin-only pages (Settings, User Management, Exports). The role switcher pill in the header nav lets them toggle between their seller dashboard and admin ops context without logging out. Auth guard for CD-accessible routes is `_has_ops_access()` (not `is_admin`).
 
 **Role assignment is per-shift, not per-worker profile.** All workers are treated
 as capable of both roles. The optimizer pools all workers for both mover and
@@ -239,6 +244,7 @@ The ops system connects back to the seller experience in three ways:
 | — | `fix_remove_ai_pricing.md` | ✅ Done (in production ~2026-05-01) | Removed broken ItemAiResult model (was causing 500 errors) |
 | — | `feature_quick_capture.md` | ✅ Done (in production ~2026-05-20) | Driver field photo capture, internal Campus Swap account, admin needs_info queue |
 | — | `feature_approval_queue_modal.md` | ✅ Done (built 2026-05-21) | Single-page modal flow for approval queue — fetch partial detail + fetch POST actions, no new tabs |
+| — | `feature_cd_tutorial.md` | ✅ Done (built 2026-05-21) | Campus Director onboarding tutorial — 10-step interactive walkthrough with sandbox data isolation, role switcher, auth guard fixes |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

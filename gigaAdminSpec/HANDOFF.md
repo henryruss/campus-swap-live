@@ -11,7 +11,7 @@
 
 **Last updated:** 2026-05-21
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal flow built 2026-05-20–21.
+**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal flow built 2026-05-20–21. Campus Director Tutorial + auth guard audit built 2026-05-21.
 
 ---
 
@@ -51,6 +51,125 @@
 - feature_quick_capture_ux_fixes ✅ Complete 2026-05-20 (notes field, modal reset, stop card photo strip, crew+admin hard delete)
 - fix_quick_capture_status_and_approval ✅ Complete 2026-05-20 (status→pending_valuation, one-click approve, approval queue filtering, digest filtering)
 - feature_approval_queue_modal ✅ Complete 2026-05-21 (single-page modal flow for approval queue; no new tabs; fetch partial + fetch POST actions)
+- feature_campus_director_tutorial ✅ Complete 2026-05-21 (5-step onboarding tutorial for new campus directors; sandbox fixtures; step-gated overlay cards)
+- fix_auth_guard_audit ✅ Complete 2026-05-21 (5 crew/ops routes changed from is_admin to _has_ops_access for campus director access)
+
+---
+
+## Feature: Campus Director Tutorial (Built 2026-05-21)
+
+**Status:** In production
+**Spec file:** `feature_tutorial.md`
+
+### What Was Built
+
+A 5-step interactive onboarding tutorial that walks a new campus director through the full ops workflow in a sandboxed environment. Triggered automatically on first login as a CD; can be retaken from CD Settings.
+
+**New model (`models.py`)**
+- `TutorialSession` — one per CD. Fields: `user_id` (FK → User, unique), `step` (Integer, default 0), `started_at` (DateTime), `completed_at` (DateTime, nullable), `is_retaking` (Boolean, default False).
+- `User.is_tutorial_user` (Boolean, default False) — marks seed CD workers (Sam Torres, Riley Chen, Casey Brooks) so they are excluded from all non-tutorial queries.
+- `ShiftWeek.is_tutorial` (Boolean, default False) — marks the sandboxed tutorial shift week so it's excluded from production ops queries.
+
+**Migration:** `add_tutorial_session` — creates `tutorial_session` table, adds `is_tutorial_user` to `User`, adds `is_tutorial` to `ShiftWeek`.
+
+**Tutorial step sequence (0–9):**
+- 0 = not started
+- 1 = started; on schedule, week not yet created
+- 2 = week created (still on schedule → navigate to Crew; or on Crew → approve Sam Torres)
+- 3 = Sam approved; assign crew to shift and assign sellers to ops
+- 4 = worker assigned; on Crew → navigate to Ops; or on Ops → assign remaining sellers
+- 5 = unused/skipped
+- 6 = all sellers assigned; prompt to click Reorder Stops
+- 7 = on reorder page (bumped from 6→7 on GET of ops_reorder_page)
+- 8 = reordered; prompt to click Notify Sellers
+- 9 = complete
+
+**New routes (`app.py`)**
+| Route | Function | Notes |
+|---|---|---|
+| `GET /admin/tutorial` | `admin_tutorial_welcome` | Welcome/restart page. Shows "Start" or "Retake" based on existing TutorialSession.step > 1. |
+| `POST /admin/tutorial/start` | `admin_tutorial_start` | Creates or resets TutorialSession. Resets fixture workers to canonical state (Sam→pending, Riley→approved). Calls `seed_tutorial_fixtures()`. |
+| `GET /admin/tutorial/complete` | `admin_tutorial_complete_page` | Completion page with checklist animation. Guard: ts.step >= 9. |
+| `POST /admin/tutorial/exit` | `admin_tutorial_exit` | Sets ts.step = 9 (marks complete) for is_retaking CDs; redirects to ops. |
+| `GET /admin/cd-settings` | `admin_cd_settings` | CD Settings page showing tutorial status + Retake/Continue button. |
+
+**`seed_tutorial_fixtures()` (helper, `app.py`)**
+- Idempotent. Creates or updates three sandbox users: Sam Torres (pending applicant), Riley Chen (approved worker, both roles), Casey Brooks (seller with existing ShiftPickup, rescheduled-in with moved badge).
+- All tutorial users: `is_tutorial_user=True`. Excluded from all production ops queries.
+- Creates a `ShiftWeek` with `is_tutorial=True`, one shift with 1 truck and 3 ShiftPickups (Casey assigned, Alex Martinez + Jordan Kim unassigned).
+- On restart: resets Sam→pending/not-a-worker, Riley→approved/is_worker. Resets ShiftPickups and ShiftAssignments to canonical state.
+- Ensures WorkerAvailability records exist for all tutorial workers (required for shift board dropdown to show Riley).
+
+**Tutorial gate (`before_request`, `require_ops_access`)**
+- CDs without a completed tutorial are redirected to `/admin/tutorial`.
+- Gate uses DB (`TutorialSession.step >= 1 and completed_at is None and not is_retaking`) — NOT session — to avoid cookie unreliability after POST redirects.
+- "Allow through" check: `in_active_first_run = ts.step >= 1 and completed_at is None and not is_retaking`. If True, gate is open regardless of session state.
+- `session['tutorial_active']` is set on tutorial start and read for tutorial_mode detection in routes.
+
+**Tutorial-mode guards in routes**
+- `admin_crew_reject`: blocked in tutorial mode (flash warning). Hard-blocked for `is_tutorial_user` workers regardless of mode.
+- `admin_crew_remove`: hard-blocked for `is_tutorial_user` workers (`abort(403)`).
+- `admin_schedule_create`: tutorial shift created with `trucks=1` (not 2). Redirects to `admin_schedule_index` (not ops) after creation.
+- `admin_routes_assign_seller`: sets `ts.step = 6` when all tutorial sellers are assigned. No auto-redirect.
+- `admin_ops_reorder_page` GET: bumps step 6→7 and commits before render.
+- `admin_ops_reorder_stops` POST: checks `ts.step == 7` via DB (not session), bumps to 8.
+- `admin_shift_notify_sellers`: guard if `ts.step < 8` (flash + redirect). Bumps to 9 when step == 8.
+
+**Step-advancing mechanism**
+All step-bumping uses DB (`TutorialSession.step = N; db.session.commit()`). Session `tutorial_step` is kept in sync as a cache for template rendering, but is never the source of truth for action-route guards.
+
+**New templates**
+- `templates/admin/tutorial_welcome.html` — standalone welcome/restart page (extends `layout.html`)
+- `templates/admin/tutorial_complete.html` — completion page with CSS checkmark animation and 6-item summary checklist
+- `templates/admin/cd_settings.html` — CD Settings page: tutorial status, Retake/Continue/Start button, sidebar link in admin_layout.html
+- `templates/admin/tutorial_overlay.html` — partial included in schedule_index, crew, ops, ops_reorder. Uses `request.path` to show context-appropriate content for same-step different-page states. `tutorial-highlight` CSS class pulses a ring on target elements.
+
+**Modified templates**
+- `admin/schedule_index.html` — includes overlay; Create Week card gets `tutorial-highlight` at step 1
+- `admin/crew.html` — includes overlay at top; Pending Applications section moved ABOVE shift board (applies all roles, not just tutorial); `<details>` open when `pending_apps or tutorial_mode`; JS reloads page on `tutorial_step_advanced: True` response (no redirect to ops)
+- `admin/ops.html` — includes overlay; Unassigned panel gets `tutorial-highlight` at step 4; Reorder Stops button gets `tutorial-highlight` at step 6 + truck 1; Notify Sellers button disabled/grayed when `tutorial_mode and tutorial_step < 8`
+- `admin/ops_reorder.html` — includes overlay; Save Order button gets `tutorial-highlight`
+- `admin/admin_layout.html` — Crew nav link gets `tutorial-highlight` at step 2 (on schedule); Ops nav link gets `tutorial-highlight` at step 4 (on crew); CD Settings nav item added for `is_campus_director and not is_admin and not is_super_admin`
+
+**Role switcher (nav)**
+- Inline pill in desktop nav header (between Dashboard link and user icon) for `current_user.is_campus_director`.
+- "Seller" button active (dark) on non-admin pages; "Admin" button active on `/admin/*` pages. Uses `request.path.startswith('/admin')` in template.
+- GET `/switch-role/seller` → sets `session['cd_view'] = 'seller'`, redirects to `/dashboard`.
+- GET `/switch-role/admin` → sets `session['cd_view'] = 'admin'`, redirects to `/admin/ops`.
+- Dashboard route: CD with `session['cd_view'] == 'seller'` skips ALL redirect logic (including onboard redirect) and renders the seller dashboard directly.
+- Mobile hamburger menu gets the same pill.
+
+### Deviations from Spec
+
+1. **Step numbering shifted at steps 6–9.** Original spec had no intermediary "sellers assigned" state before reorder. Added step 6 as an explicit "all sellers assigned, click Reorder Stops" state; step 7 = on reorder page; step 8 = reordered; step 9 = complete. Steps 4 and 5 were collapsed (5 unused).
+
+2. **Notify Sellers button disabled below step 8.** Spec didn't spec this guard. Without it, a CD could notify sellers before completing the reorder step, which defeats the tutorial flow.
+
+3. **Tutorial gate uses DB, not session.** Session cookie is unreliable immediately after a POST/redirect cycle. Gate reads `TutorialSession.step` from DB to determine if the CD is mid-tutorial.
+
+4. **`seed_tutorial_fixtures()` enforces canonical state on existing records.** A retake resets Sam/Riley/Casey to their original fixture state, preventing stale state from a prior run from corrupting the tutorial. WorkerAvailability records created for all tutorial workers on every seed call.
+
+5. **Tutorial shift has 1 truck.** Spec implied the same default (2 trucks). Reduced to 1 to keep the tutorial focused and avoid "which truck?" confusion.
+
+---
+
+## Feature: Auth Guard Audit (Built 2026-05-21)
+
+**Status:** In production
+
+Five crew/ops routes were discovered using `if not current_user.is_admin: abort(403)` instead of `if not _has_ops_access(): abort(403)`. Campus directors have ops access via `_has_ops_access()` but are not `is_admin`, so they received 403s on these actions.
+
+**Routes fixed:**
+
+| Route | Function | Was | Now |
+|---|---|---|---|
+| `POST /admin/crew/shift/<id>/quick-remove` | `admin_crew_quick_remove` | `is_admin` | `_has_ops_access()` |
+| `POST /admin/crew/worker/<id>/availability` | `admin_crew_override_availability` | `is_admin` | `_has_ops_access()` |
+| `POST /admin/crew/shift/<id>/add-truck` | `admin_shift_add_truck` | `is_admin` | `_has_ops_access()` |
+| `POST /admin/crew/shift/<id>/truck/<n>/remove` | `admin_shift_remove_truck` | `is_admin` | `_has_ops_access()` |
+| `POST /admin/crew/shift/<id>/stop/<pid>/reorder` | `admin_shift_reorder_stop` | `is_admin` | `_has_ops_access()` |
+
+**Pattern rule:** Any route that appears in the admin sidebar (ops, crew, schedule) and that a campus director would touch during normal operations must use `_has_ops_access()`. Routes that are super-admin-only or full-admin-only (items approval, settings, user management, exports) correctly keep `is_admin` or `require_super_admin()`.
 
 ---
 
