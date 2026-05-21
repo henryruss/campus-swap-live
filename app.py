@@ -2736,21 +2736,29 @@ def admin_approve():
                 a.resolved = True
                 a.resolved_at = datetime.utcnow()
 
+        modal_request = request.form.get('modal') == '1'
+
         if action == 'reject':
             desc = item.description
             item.status = 'rejected'
             db.session.commit()
             flash(f"Rejected '{desc}'.", "success")
+            if modal_request:
+                return jsonify({'success': True})
             return redirect(url_for('admin_approve', sort=sort_val))
-        
+
         # Approve: set price, category, quality, status
         price_str = request.form.get('price', '').strip()
         if not price_str:
+            if modal_request:
+                return jsonify({'success': False, 'error': 'Please set a price to approve.'})
             flash("Please set a price to approve.", "error")
             return redirect(url_for('admin_approve', item=item_id, sort=sort_val))
         
         price_valid, price_result = validate_price(price_str)
         if not price_valid:
+            if modal_request:
+                return jsonify({'success': False, 'error': f'Invalid price: {price_result}'})
             flash(f"Invalid price: {price_result}", "error")
             return redirect(url_for('admin_approve', item=item_id, sort=sort_val))
         
@@ -2813,8 +2821,10 @@ def admin_approve():
         except Exception:
             pass
         flash(f"Approved '{item.description}' at ${item.price:.2f}.", "success")
+        if modal_request:
+            return jsonify({'success': True})
         return redirect(url_for('admin_approve', sort=sort_val))
-    
+
     # GET: fetch pending items with sort; optionally one item for approve form
     sort_param = request.args.get('sort', 'date')
     if sort_param not in ('price_desc', 'price_asc', 'date'):
@@ -2911,6 +2921,8 @@ def admin_request_info(item_id):
     reasons = request.form.getlist('reasons')
     custom_note = (request.form.get('custom_note') or '').strip()[:500]
     if not reasons and not custom_note:
+        if request.form.get('modal') == '1':
+            return jsonify({'success': False, 'error': 'Please select at least one reason or add a note.'})
         flash("Please select at least one reason or add a note.", "error")
         return redirect(url_for('admin_approve', item=item_id))
 
@@ -2927,6 +2939,8 @@ def admin_request_info(item_id):
     db.session.add(alert)
     db.session.commit()
     flash(f"Request sent for '{item.description}'. Item moved to 'Needs Info' status.", "success")
+    if request.form.get('modal') == '1':
+        return jsonify({'success': True})
     return redirect(url_for('admin_approve'))
 
 
@@ -2950,6 +2964,22 @@ def admin_cancel_info_request(item_id):
     db.session.commit()
     flash(f"Request cancelled. '{item.description}' returned to approval queue.", "success")
     return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/item/<int:item_id>/approval-detail')
+@login_required
+def admin_item_approval_detail(item_id):
+    """HTML partial with full item data for the approval queue modal."""
+    if not (current_user.is_admin or current_user.is_super_admin):
+        abort(403)
+    item = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.seller),
+        joinedload(InventoryItem.gallery_photos),
+    ).get_or_404(item_id)
+    if item.status != 'pending_valuation':
+        abort(404)
+    return render_template('admin/approval_detail_partial.html', item=item)
 
 
 @app.route('/item/<int:item_id>/resubmit', methods=['POST'])

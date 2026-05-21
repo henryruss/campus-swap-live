@@ -97,17 +97,92 @@
   .btn-need-info { background: white; color: #92400e; border: 1px solid #fde68a; padding: 8px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; }
   .btn-need-info:hover { background: #fffbeb; }
 
-  /* Need Info modal */
-  .info-modal-overlay {
-    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-    z-index: 2000; align-items: center; justify-content: center; padding: 16px;
+  /* Approval modal */
+  .approval-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 2000; align-items: flex-start; justify-content: center; padding: 24px 16px;
+    overflow-y: auto;
   }
-  .info-modal-overlay.open { display: flex; }
-  .info-modal-box {
-    background: white; border-radius: 16px; padding: 28px;
-    max-width: 480px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  .approval-modal-overlay.open { display: flex; }
+  .approval-modal-panel {
+    background: white; border-radius: 20px; width: 100%; max-width: 800px;
+    box-shadow: var(--glass-shadow); position: relative; margin: auto;
+    display: flex; flex-direction: column; max-height: 90vh;
   }
-  .info-modal-box h3 { margin: 0 0 16px; font-size: 1.1rem; }
+  .approval-modal-close {
+    position: absolute; top: 14px; right: 16px; background: none; border: none;
+    font-size: 1.5rem; color: var(--text-muted); cursor: pointer; z-index: 10;
+    line-height: 1; padding: 4px 8px; border-radius: 8px;
+  }
+  .approval-modal-close:hover { background: #f1f5f9; color: var(--text-main); }
+  .approval-modal-panel-inner { overflow-y: auto; flex: 1; }
+
+  /* Gallery */
+  .approval-modal-gallery { background: #f8fafc; border-radius: 20px 20px 0 0; overflow: hidden; }
+  .approval-gallery-track-wrap {
+    position: relative; aspect-ratio: 4/3; max-height: 380px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .approval-gallery-track { display: flex; width: 100%; height: 100%; transition: transform 0.3s ease; }
+  .approval-gallery-slide { flex-shrink: 0; width: 100%; height: 100%; object-fit: contain; }
+  .approval-gallery-placeholder { background: #f1f5f9; }
+  .approval-gallery-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,0.85); border: none; border-radius: 50%;
+    width: 36px; height: 36px; font-size: 1.4rem; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; color: var(--text-main);
+  }
+  .approval-gallery-prev { left: 10px; }
+  .approval-gallery-next { right: 10px; }
+  .approval-gallery-counter {
+    position: absolute; bottom: 10px; right: 14px; background: rgba(0,0,0,0.5);
+    color: white; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px;
+  }
+
+  /* Modal info body */
+  .approval-modal-info-body { padding: 20px 24px 4px; }
+  .approval-modal-title { font-size: 1.3rem; font-weight: 800; color: var(--text-main); margin: 0 0 8px; }
+  .approval-modal-meta { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+  .approval-modal-meta a { color: var(--primary); font-weight: 600; text-decoration: none; }
+  .approval-modal-meta a:hover { text-decoration: underline; }
+  .approval-modal-description {
+    font-size: 0.9rem; color: var(--text-main); line-height: 1.6;
+    margin: 0 0 12px; white-space: pre-line;
+  }
+  .approval-modal-suggested-price {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 8px 14px; font-size: 0.88rem; color: #92400e; font-weight: 600;
+    margin-bottom: 12px; display: inline-block;
+  }
+
+  /* Modal footer */
+  .approval-modal-footer { padding: 16px 24px 24px; border-top: 1px solid var(--rule); }
+  .approval-price-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+  }
+  .approval-price-row label { font-weight: 700; font-size: 0.88rem; white-space: nowrap; }
+  .approval-price-input-wrap {
+    display: flex; align-items: center; gap: 4px; border: 2px solid var(--rule);
+    border-radius: 8px; padding: 0 10px; background: white; flex: 1; max-width: 160px;
+  }
+  .approval-price-input-wrap span { color: var(--text-muted); font-weight: 700; font-size: 1rem; }
+  .approval-price-input-wrap input {
+    border: none; outline: none; padding: 9px 4px; font-size: 1rem; background: transparent; width: 100%;
+  }
+  .approval-modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .approval-modal-status {
+    margin-top: 10px; font-size: 0.85rem; font-weight: 600; color: #dc2626; display: none;
+  }
+  .btn-danger {
+    background: white; color: #dc2626; border: 1px solid #fca5a5;
+    padding: 9px 18px; border-radius: 8px; font-size: 0.88rem; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-danger:hover { background: #fef2f2; }
+
+  /* Need Info panel */
+  .approval-need-info-panel { padding: 20px 24px 24px; }
+  .approval-need-info-panel h4 { margin: 0 0 12px; font-size: 1rem; }
   .info-reason-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
   .info-reason-btn {
     display: flex; flex-direction: column; align-items: center; text-align: center;
@@ -118,7 +193,23 @@
   .info-reason-btn:has(input:checked) { border-color: #f59e0b; background: #fffbeb; }
   .info-reason-btn strong { font-size: 0.88rem; margin-bottom: 3px; }
   .info-reason-btn span { font-size: 0.76rem; color: var(--text-muted); }
+  .info-need-status { margin-top: 10px; font-size: 0.85rem; font-weight: 600; color: #dc2626; display: none; }
   @media (max-width: 560px) { .info-reason-grid { grid-template-columns: 1fr; } }
+
+  /* Clickable approval cards */
+  .approve-card { cursor: pointer; transition: box-shadow 0.18s, transform 0.15s; }
+  .approve-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.13); transform: translateY(-1px); }
+  .approve-card-review-hint {
+    font-size: 0.76rem; color: var(--text-muted); font-weight: 600; margin-top: 10px;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  @media (max-width: 640px) {
+    .approval-modal-panel { max-height: 100vh; border-radius: 0; }
+    .approval-modal-overlay { padding: 0; align-items: stretch; }
+    .approval-gallery-track-wrap { max-height: 260px; }
+    .approval-modal-actions { flex-direction: column; }
+  }
 </style>
 
 <div class="items-wrap">
@@ -226,120 +317,128 @@
 
   {# ── APPROVAL QUEUE sub-tab ── #}
   {% if view == 'approve' and current_user.is_super_admin %}
+  <div id="approval-queue-list">
   {% if not approval_items %}
-  <div style="text-align: center; padding: 48px; color: var(--text-muted);">
+  <div id="approval-empty-state" style="text-align: center; padding: 48px; color: var(--text-muted);">
     <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--sage); display: block; margin-bottom: 12px;"></i>
     No items pending approval.
   </div>
   {% endif %}
   {% for item in approval_items %}
-  <div class="approve-card">
-    {# Thumbnail — click to open the full single-item approval view #}
-    <a href="{{ url_for('admin_approve') }}?item={{ item.id }}" target="_blank" class="approve-thumb" title="View full listing">
-      {% if item.photo_url %}
-      <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-           alt="{{ item.description }}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;display:block;">
-      {% else %}
-      <div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;">
-        <i class="fas fa-image fa-lg"></i>
-      </div>
-      {% endif %}
-    </a>
+  <div class="approve-card" data-item-id="{{ item.id }}" onclick="openApprovalModal({{ item.id }})"
+       role="button" aria-label="Review {{ item.description }}">
+    {% if item.photo_url %}
+    <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+         alt="{{ item.description }}" class="approve-thumb"
+         onclick="event.stopPropagation(); openApprovalModal({{ item.id }})">
+    {% else %}
+    <div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;flex-shrink:0;">
+      <i class="fas fa-image fa-lg"></i>
+    </div>
+    {% endif %}
 
     <div class="approve-info">
-      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px;">
-        <h4 style="margin: 0;">{{ item.description }}</h4>
-        <a href="{{ url_for('admin_approve') }}?item={{ item.id }}" target="_blank"
-           style="font-size: 0.75rem; color: var(--text-muted); text-decoration: none; white-space: nowrap;">
-          View full →
-        </a>
-      </div>
+      <h4 style="margin: 0 0 4px;">{{ item.description }}</h4>
       <p>
-        Seller: <a href="#" class="seller-link"
-                   onclick="loadSellerPanel({{ item.seller_id }}); return false;">
+        <a href="#" class="seller-link"
+           onclick="event.stopPropagation(); loadSellerPanel({{ item.seller_id }}); return false;">
           {{ item.seller.full_name if item.seller else 'Unknown' }}
         </a>
-        &middot; Added {{ item.date_added.strftime('%b %-d') if item.date_added else '—' }}
+        &middot; {{ item.date_added.strftime('%b %-d') if item.date_added else '—' }}
         &middot; {{ item.category.name if item.category else 'Uncategorized' }}
-        {% if item.long_description %}
-        <br><span style="color: var(--text-main);">{{ item.long_description[:180] }}{% if item.long_description|length > 180 %}…{% endif %}</span>
+        {% if item.suggested_price %}
+        &middot; <span style="background:#f0fdf4;color:#166534;border-radius:6px;padding:1px 7px;font-size:0.78rem;font-weight:700;">${{ '%.2f'|format(item.suggested_price) }}</span>
         {% endif %}
       </p>
-      <div class="approve-actions">
-        <form method="POST" action="{{ url_for('admin_approve') }}" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;"
-              data-seller-id="{{ item.seller_id }}" data-csrf="{{ csrf_token() }}"
-              onsubmit="maybeBoxAlert(event, this)">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-          <input type="hidden" name="action" value="approve">
-          <input type="hidden" name="item_id" value="{{ item.id }}">
-          <div class="approve-price-wrap">
-            <span>$</span>
-            <input type="number" name="price" step="0.01" min="0" placeholder="Price" required>
-          </div>
-          <button type="submit" class="btn-approve">Approve</button>
-          <label style="display: flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--text-muted); cursor: pointer; white-space: nowrap;">
-            <input type="checkbox" name="send_box_alert" value="1" style="cursor: pointer;">
-            Box items alert
-          </label>
-        </form>
-        <form method="POST" action="{{ url_for('admin_approve') }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-          <input type="hidden" name="action" value="reject">
-          <input type="hidden" name="item_id" value="{{ item.id }}">
-          <button type="submit" class="btn-reject"
-                  onclick="return confirm('Reject this item?')">Reject</button>
-        </form>
-        <button type="button" class="btn-need-info"
-                onclick="openInfoModal({{ item.id }})">
-          <i class="fas fa-question-circle"></i> Need Info
-        </button>
+      <div class="approve-card-review-hint">
+        <i class="fas fa-arrow-right" style="font-size:0.68rem;"></i> Click to review
       </div>
-    </div>
-  </div>
-
-  {# Need Info modal — one per item, unique ID #}
-  <div class="info-modal-overlay" id="info-modal-{{ item.id }}">
-    <div class="info-modal-box">
-      <h3><i class="fas fa-question-circle" style="color: #f59e0b;"></i> Request More Info</h3>
-      <form method="POST" action="{{ url_for('admin_request_info', item_id=item.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 14px;">Select the reason(s) — the seller will see these on their dashboard.</p>
-        <div class="info-reason-grid">
-          <label class="info-reason-btn">
-            <input type="checkbox" name="reasons" value="Better photos needed — current photos are unclear or low quality">
-            <strong><i class="fas fa-camera" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Better photos</strong>
-            <span>Current photos are unclear or low quality</span>
-          </label>
-          <label class="info-reason-btn">
-            <input type="checkbox" name="reasons" value="Video required — please upload a video showing the item powers on">
-            <strong><i class="fas fa-video" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Video required</strong>
-            <span>Show the item powers on</span>
-          </label>
-          <label class="info-reason-btn">
-            <input type="checkbox" name="reasons" value="Better description needed — please add more detail about the item's condition">
-            <strong><i class="fas fa-align-left" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Better description</strong>
-            <span>Add more detail about condition</span>
-          </label>
-          <label class="info-reason-btn">
-            <input type="checkbox" name="reasons" value="Different angle needed — please photograph a specific part of the item">
-            <strong><i class="fas fa-sync-alt" style="margin-bottom: 5px; color: #f59e0b;"></i><br>Different angle</strong>
-            <span>Photograph a specific part</span>
-          </label>
-        </div>
-        <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 6px;">Custom note (optional)</label>
-        <textarea name="custom_note" rows="3" maxlength="500" placeholder="Add a specific note to the seller..."
-                  style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.88rem; resize: vertical; box-sizing: border-box;"></textarea>
-        <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
-          <button type="button" class="btn-outline" style="padding: 8px 16px;"
-                  onclick="closeInfoModal({{ item.id }})">Cancel</button>
-          <button type="submit" style="background: #f59e0b; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.88rem;">
-            Send Request
-          </button>
-        </div>
-      </form>
     </div>
   </div>
   {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── APPROVAL MODAL (single instance, reused for all items) ── #}
+  {% if view == 'approve' and current_user.is_super_admin %}
+  <div id="approval-modal" class="approval-modal-overlay" role="dialog" aria-modal="true">
+    <div class="approval-modal-panel">
+      <button class="approval-modal-close" onclick="closeApprovalModal()" aria-label="Close">×</button>
+      <div class="approval-modal-panel-inner">
+
+        {# Loading spinner #}
+        <div id="approval-modal-spinner" style="text-align:center;padding:80px 20px;">
+          <i class="fas fa-spinner fa-spin fa-2x" style="color:var(--text-muted);"></i>
+        </div>
+
+        {# Main content area (populated by fetch) #}
+        <div id="approval-modal-content" hidden></div>
+
+        {# Modal footer: price + action buttons #}
+        <div class="approval-modal-footer" id="approval-modal-footer" hidden>
+          <div class="approval-price-row">
+            <label for="approval-price-input">Set listing price</label>
+            <div class="approval-price-input-wrap">
+              <span>$</span>
+              <input type="number" id="approval-price-input" step="0.01" min="0" placeholder="e.g. 45.00">
+            </div>
+          </div>
+          <div class="approval-modal-actions">
+            <button id="btn-approve" class="btn-approve" onclick="approvalAction('approve')">
+              <i class="fas fa-check"></i> Approve
+            </button>
+            <button id="btn-need-info" class="btn-need-info" onclick="showNeedInfoPanel()">
+              <i class="fas fa-question-circle"></i> Need Info
+            </button>
+            <button id="btn-reject" class="btn-danger" onclick="approvalAction('reject')">
+              <i class="fas fa-times"></i> Reject
+            </button>
+          </div>
+          <p class="approval-modal-status" id="approval-modal-status"></p>
+        </div>
+
+        {# Need Info panel (replaces footer when active) #}
+        <div class="approval-need-info-panel" id="approval-need-info-panel" hidden>
+          <h4><i class="fas fa-question-circle" style="color:#f59e0b;"></i> Request More Info</h4>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 14px;">Select the reason(s) — the seller will see these on their dashboard.</p>
+          <div class="info-reason-grid" id="approval-need-info-reasons">
+            <label class="info-reason-btn">
+              <input type="checkbox" value="Better photos needed — current photos are unclear or low quality">
+              <strong><i class="fas fa-camera" style="margin-bottom:5px;color:#f59e0b;"></i><br>Better photos</strong>
+              <span>Current photos are unclear or low quality</span>
+            </label>
+            <label class="info-reason-btn">
+              <input type="checkbox" value="Video required — please upload a video showing the item powers on">
+              <strong><i class="fas fa-video" style="margin-bottom:5px;color:#f59e0b;"></i><br>Video required</strong>
+              <span>Show the item powers on</span>
+            </label>
+            <label class="info-reason-btn">
+              <input type="checkbox" value="Better description needed — please add more detail about the item's condition">
+              <strong><i class="fas fa-align-left" style="margin-bottom:5px;color:#f59e0b;"></i><br>Better description</strong>
+              <span>Add more detail about condition</span>
+            </label>
+            <label class="info-reason-btn">
+              <input type="checkbox" value="Different angle needed — please photograph a specific part of the item">
+              <strong><i class="fas fa-sync-alt" style="margin-bottom:5px;color:#f59e0b;"></i><br>Different angle</strong>
+              <span>Photograph a specific part</span>
+            </label>
+          </div>
+          <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:6px;">Custom note (optional)</label>
+          <textarea id="approval-need-info-note" rows="3" maxlength="500"
+                    placeholder="Add a specific note to the seller..."
+                    style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.88rem;resize:vertical;box-sizing:border-box;"></textarea>
+          <p class="info-need-status" id="approval-need-info-status"></p>
+          <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end;">
+            <button type="button" class="btn-outline" style="padding:8px 16px;" onclick="hideNeedInfoPanel()">Cancel</button>
+            <button type="button" onclick="submitNeedInfo()"
+                    style="background:#f59e0b;color:white;border:none;padding:10px 20px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.88rem;">
+              Send Request
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   {% endif %}
 
   {# ── ALL ITEMS sub-tab ── #}
@@ -447,24 +546,200 @@
     chevron.style.transform = open ? 'rotate(180deg)' : '';
   }
 
-  function openInfoModal(itemId) {
-    var modal = document.getElementById('info-modal-' + itemId);
-    if (modal) modal.classList.add('open');
+  // ── Approval Modal ──
+  var _approvalCurrentItemId = null;
+  var _approvalGalleryIndex = 0;
+  var _approvalGalleryCount = 0;
+  var _approvalCsrf = '{{ csrf_token() }}';
+
+  function openApprovalModal(itemId) {
+    _approvalCurrentItemId = itemId;
+    var modal = document.getElementById('approval-modal');
+    if (!modal) return;
+
+    // Reset state
+    document.getElementById('approval-modal-spinner').style.display = 'block';
+    document.getElementById('approval-modal-content').hidden = true;
+    document.getElementById('approval-modal-footer').hidden = true;
+    document.getElementById('approval-need-info-panel').hidden = true;
+    document.getElementById('approval-modal-status').style.display = 'none';
+    document.getElementById('approval-price-input').value = '';
+    clearNeedInfoForm();
+
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    fetch('/admin/item/' + itemId + '/approval-detail')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function(html) {
+        var content = document.getElementById('approval-modal-content');
+        content.innerHTML = html;
+        content.hidden = false;
+        document.getElementById('approval-modal-spinner').style.display = 'none';
+        document.getElementById('approval-modal-footer').hidden = false;
+
+        // Pre-fill price from suggested_price data attribute
+        var wrap = content.querySelector('.approval-detail-wrap');
+        if (wrap) {
+          var suggested = wrap.dataset.suggestedPrice;
+          if (suggested) {
+            document.getElementById('approval-price-input').value = suggested;
+          }
+          // Reset gallery state
+          _approvalGalleryIndex = 0;
+          var track = content.querySelector('#approval-gallery-track');
+          var slides = track ? track.querySelectorAll('.approval-gallery-slide') : [];
+          _approvalGalleryCount = slides.length;
+          if (track) track.style.transform = 'translateX(0)';
+          var counter = content.querySelector('.approval-gallery-counter');
+          if (counter) counter.textContent = '1 / ' + _approvalGalleryCount;
+        }
+      })
+      .catch(function(err) {
+        document.getElementById('approval-modal-spinner').style.display = 'none';
+        document.getElementById('approval-modal-content').innerHTML =
+          '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item details.</div>';
+        document.getElementById('approval-modal-content').hidden = false;
+      });
   }
-  function closeInfoModal(itemId) {
-    var modal = document.getElementById('info-modal-' + itemId);
+
+  function closeApprovalModal() {
+    var modal = document.getElementById('approval-modal');
     if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+    _approvalCurrentItemId = null;
   }
-  // Close on overlay click
-  document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('info-modal-overlay')) {
-      e.target.classList.remove('open');
+
+  function approvalGalleryMove(dir) {
+    _approvalGalleryIndex = (_approvalGalleryIndex + dir + _approvalGalleryCount) % _approvalGalleryCount;
+    var track = document.getElementById('approval-gallery-track');
+    if (track) track.style.transform = 'translateX(-' + (_approvalGalleryIndex * 100) + '%)';
+    var counter = document.querySelector('#approval-modal-content .approval-gallery-counter');
+    if (counter) counter.textContent = (_approvalGalleryIndex + 1) + ' / ' + _approvalGalleryCount;
+  }
+
+  function approvalAction(action) {
+    if (!_approvalCurrentItemId) return;
+    var statusEl = document.getElementById('approval-modal-status');
+    statusEl.style.display = 'none';
+
+    if (action === 'reject' && !confirm('Reject this item?')) return;
+
+    var price = document.getElementById('approval-price-input').value.trim();
+    var fd = new FormData();
+    fd.append('csrf_token', _approvalCsrf);
+    fd.append('item_id', _approvalCurrentItemId);
+    fd.append('action', action);
+    fd.append('modal', '1');
+    if (action === 'approve') fd.append('price', price);
+
+    fetch('/admin/approve', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          removeApprovalCard(_approvalCurrentItemId);
+          closeApprovalModal();
+        } else {
+          statusEl.textContent = data.error || 'An error occurred.';
+          statusEl.style.display = 'block';
+        }
+      })
+      .catch(function() {
+        statusEl.textContent = 'Request failed. Please try again.';
+        statusEl.style.display = 'block';
+      });
+  }
+
+  function showNeedInfoPanel() {
+    document.getElementById('approval-modal-footer').hidden = true;
+    document.getElementById('approval-need-info-panel').hidden = false;
+  }
+
+  function hideNeedInfoPanel() {
+    document.getElementById('approval-need-info-panel').hidden = true;
+    document.getElementById('approval-modal-footer').hidden = false;
+    clearNeedInfoForm();
+  }
+
+  function clearNeedInfoForm() {
+    document.querySelectorAll('#approval-need-info-reasons input[type=checkbox]').forEach(function(cb) {
+      cb.checked = false;
+    });
+    var note = document.getElementById('approval-need-info-note');
+    if (note) note.value = '';
+    var status = document.getElementById('approval-need-info-status');
+    if (status) status.style.display = 'none';
+  }
+
+  function submitNeedInfo() {
+    if (!_approvalCurrentItemId) return;
+    var statusEl = document.getElementById('approval-need-info-status');
+    statusEl.style.display = 'none';
+
+    var fd = new FormData();
+    fd.append('csrf_token', _approvalCsrf);
+    fd.append('modal', '1');
+    document.querySelectorAll('#approval-need-info-reasons input[type=checkbox]:checked').forEach(function(cb) {
+      fd.append('reasons', cb.value);
+    });
+    var note = (document.getElementById('approval-need-info-note').value || '').trim();
+    if (note) fd.append('custom_note', note);
+
+    fetch('/admin/item/' + _approvalCurrentItemId + '/request_info', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          removeApprovalCard(_approvalCurrentItemId);
+          closeApprovalModal();
+        } else {
+          statusEl.textContent = data.error || 'An error occurred.';
+          statusEl.style.display = 'block';
+        }
+      })
+      .catch(function() {
+        statusEl.textContent = 'Request failed. Please try again.';
+        statusEl.style.display = 'block';
+      });
+  }
+
+  function removeApprovalCard(itemId) {
+    var card = document.querySelector('.approve-card[data-item-id="' + itemId + '"]');
+    if (card) card.remove();
+
+    // Decrement pending count badge
+    var badge = document.querySelector('.subtab-pill span[style*="accent"]');
+    if (badge) {
+      var n = parseInt(badge.textContent) - 1;
+      if (n <= 0) badge.remove();
+      else badge.textContent = n;
     }
+
+    // Show empty state if no cards remain
+    var list = document.getElementById('approval-queue-list');
+    if (list && !list.querySelector('.approve-card')) {
+      var empty = document.getElementById('approval-empty-state');
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.id = 'approval-empty-state';
+        empty.style.cssText = 'text-align:center;padding:48px;color:var(--text-muted)';
+        empty.innerHTML = '<i class="fas fa-check-circle" style="font-size:2rem;color:var(--sage);display:block;margin-bottom:12px;"></i>No items pending approval.';
+        list.appendChild(empty);
+      }
+    }
+  }
+
+  // Close approval modal on overlay click or Escape
+  document.addEventListener('click', function(e) {
+    var modal = document.getElementById('approval-modal');
+    if (modal && e.target === modal) closeApprovalModal();
   });
-  // Close on Escape
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
-      document.querySelectorAll('.info-modal-overlay.open').forEach(function(m) { m.classList.remove('open'); });
+      var modal = document.getElementById('approval-modal');
+      if (modal && modal.classList.contains('open')) { closeApprovalModal(); return; }
       closeSellerPanel();
     }
   });
@@ -484,6 +759,16 @@
     document.getElementById('seller-panel-overlay').style.display = 'none';
     document.getElementById('seller-panel-drawer').style.right = '-480px';
   }
+
+  // Event delegation for .seller-panel-trigger (used in modal partial innerHTML)
+  document.addEventListener('click', function(e) {
+    var trigger = e.target.closest('.seller-panel-trigger');
+    if (trigger) {
+      e.preventDefault();
+      e.stopPropagation();
+      loadSellerPanel(trigger.dataset.userId);
+    }
+  });
 
   // ── Proxy panel functions (scripts in innerHTML don't execute; these live here) ──
   var _proxyLinkCache = {};
