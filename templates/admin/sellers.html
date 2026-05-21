@@ -245,6 +245,39 @@
     <input type="email" id="pm-email" placeholder="seller@example.com">
   </div>
   <div class="field">
+    <label for="pm-loc-type">Pickup Location Type <span style="color: var(--text-muted); font-weight: 400;">(optional)</span></label>
+    <select id="pm-loc-type" style="width:100%;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font-size:0.9rem;font-family:inherit;background:white;">
+      <option value="">— Select —</option>
+      <option value="on_campus">On campus</option>
+      <option value="off_campus_other">Off campus</option>
+    </select>
+  </div>
+  <div class="field" id="pm-address-fields" style="display:none;">
+    <label>Pickup Address <span style="color: var(--text-muted); font-weight: 400;">(optional)</span></label>
+    <input type="text" id="pm-pickup-address" placeholder="Street address" style="margin-bottom:6px;">
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="pm-city" placeholder="City" style="flex:2;">
+      <input type="text" id="pm-state" placeholder="State" style="flex:1;max-width:80px;">
+    </div>
+  </div>
+  <div class="field">
+    <label for="pm-pickup-week">Pickup Week <span style="color: var(--text-muted); font-weight: 400;">(optional)</span></label>
+    <select id="pm-pickup-week" style="width:100%;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font-size:0.9rem;font-family:inherit;background:white;">
+      <option value="">— Select —</option>
+      {% for val, label in pickup_weeks %}
+      <option value="{{ val }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="pm-time-pref">Time Preference <span style="color: var(--text-muted); font-weight: 400;">(optional)</span></label>
+    <select id="pm-time-pref" style="width:100%;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font-size:0.9rem;font-family:inherit;background:white;">
+      <option value="">— Select —</option>
+      <option value="morning">Morning</option>
+      <option value="afternoon">Afternoon</option>
+    </select>
+  </div>
+  <div class="field">
     <label for="pm-note">Note <span style="color: var(--text-muted); font-weight: 400;">(internal only, optional)</span></label>
     <textarea id="pm-note" placeholder="e.g. Mom of Jake, Apt 4B, texted 5/20"></textarea>
   </div>
@@ -382,6 +415,10 @@
   }
 
   // ── Proxy modal ──
+  document.getElementById('pm-loc-type').addEventListener('change', function() {
+    document.getElementById('pm-address-fields').style.display = this.value === 'off_campus_other' ? '' : 'none';
+  });
+
   function openProxyModal() {
     document.getElementById('proxy-modal-overlay').style.display = 'block';
     document.getElementById('proxy-modal').style.display = 'block';
@@ -405,6 +442,12 @@
     form.append('phone', document.getElementById('pm-phone').value.trim());
     form.append('email', document.getElementById('pm-email').value.trim());
     form.append('note', document.getElementById('pm-note').value.trim());
+    form.append('pickup_location_type', document.getElementById('pm-loc-type').value);
+    form.append('pickup_address', document.getElementById('pm-pickup-address').value.trim());
+    form.append('pickup_city', document.getElementById('pm-city').value.trim());
+    form.append('pickup_state', document.getElementById('pm-state').value.trim());
+    form.append('pickup_week', document.getElementById('pm-pickup-week').value);
+    form.append('pickup_time_preference', document.getElementById('pm-time-pref').value);
 
     fetch('/admin/seller/create-proxy', { method: 'POST', body: form })
       .then(function(r) { return r.json(); })

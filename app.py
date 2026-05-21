@@ -3018,6 +3018,14 @@ def admin_create_proxy_seller():
     email_raw = (request.form.get('email') or '').strip()
     note = (request.form.get('note') or '').strip() or None
 
+    # Optional pickup fields
+    loc_type_raw = (request.form.get('pickup_location_type') or '').strip()
+    pickup_address_raw = (request.form.get('pickup_address') or '').strip()
+    pickup_city_raw = (request.form.get('pickup_city') or '').strip()
+    pickup_state_raw = (request.form.get('pickup_state') or '').strip()
+    pickup_week_raw = (request.form.get('pickup_week') or '').strip()
+    time_pref_raw = (request.form.get('pickup_time_preference') or '').strip()
+
     if not full_name:
         return jsonify({'success': False, 'message': 'Name is required.'}), 400
     if not phone_raw:
@@ -3043,6 +3051,16 @@ def admin_create_proxy_seller():
             import secrets as _sec
             email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
 
+    # Resolve pickup location fields (mirrors update_profile logic)
+    loc_type = loc_type_raw if loc_type_raw in ('on_campus', 'off_campus_other') else None
+    pickup_address = None
+    if loc_type == 'off_campus_other':
+        parts = [p for p in [pickup_address_raw, pickup_city_raw, pickup_state_raw] if p]
+        pickup_address = ', '.join(parts)[:300] or None
+
+    pickup_week = pickup_week_raw if pickup_week_raw in ('week1', 'week2') else None
+    time_pref = time_pref_raw if time_pref_raw in ('morning', 'afternoon') else None
+
     temp_pw = _gen_proxy_temp_password()
 
     new_user = User(
@@ -3056,6 +3074,10 @@ def admin_create_proxy_seller():
         proxy_temp_password=temp_pw,
         proxy_note=note,
         referral_code=_gen_referral_code(),
+        pickup_location_type=loc_type,
+        pickup_address=pickup_address,
+        pickup_week=pickup_week,
+        pickup_time_preference=time_pref,
     )
     db.session.add(new_user)
     db.session.commit()
@@ -4692,14 +4714,17 @@ def dashboard():
     if any(i.collection_method == 'online' for i in my_items):
         user_collection_method = 'online'
 
-    # Setup strip vs. tracker
-    setup_complete = bool(
-        current_user.phone and
-        current_user.pickup_week and
-        current_user.has_pickup_location and
-        current_user.payout_method and
-        current_user.payout_handle
-    )
+    # Setup strip vs. tracker — proxy accounts skip all setup prompts
+    if current_user.is_proxy_account:
+        setup_complete = True
+    else:
+        setup_complete = bool(
+            current_user.phone and
+            current_user.pickup_week and
+            current_user.has_pickup_location and
+            current_user.payout_method and
+            current_user.payout_handle
+        )
     tracker = _compute_seller_tracker(current_user, my_items) if setup_complete else None
 
     # ShiftPickup for the current user (if assigned)
@@ -12297,6 +12322,7 @@ def admin_sellers():
         sellers=sellers,
         nudge_sellers=nudge_sellers,
         free_tier_sellers=free_tier_sellers,
+        pickup_weeks=PICKUP_WEEKS,
     )
 
 

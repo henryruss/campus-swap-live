@@ -200,7 +200,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
             </div>
         </div>
     </div>
-    {% elif alert.alert_type == 'pickup_reminder' %}
+    {% elif alert.alert_type == 'pickup_reminder' and not current_user.is_proxy_account %}
     <div class="dashboard-section" style="margin-bottom: 20px; background: #fffbeb; border: 2px solid #fde68a;">
         <div style="display: flex; align-items: flex-start; gap: 12px;">
             <i class="fas fa-truck" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
@@ -217,7 +217,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
     {% endfor %}
 
     {# 5. Phone nag banner #}
-    {% if not current_user.phone %}
+    {% if not current_user.phone and not current_user.is_proxy_account %}
     <div id="phone-nag-banner" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
             <i class="fas fa-phone" style="color: #d97706;"></i>
