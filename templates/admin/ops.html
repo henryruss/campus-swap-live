@@ -635,11 +635,6 @@
             <i class="fas fa-plus"></i> Add Truck
           </button>
         </form>
-        <button class="btn-sm" id="orderRoutesBtn"
-                data-shift-id="{{ shift.id }}"
-                data-trucks="{{ shift.trucks }}">
-          <i class="fas fa-route"></i> Order Routes
-        </button>
         <button class="btn-sm primary" id="notifyBtn"
                 data-shift-id="{{ shift.id }}"
                 data-unnotified="{{ unnotified_count }}">
@@ -707,6 +702,13 @@
                   onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
             <i class="fas fa-list"></i> View stops
           </button>
+
+          {% if card.stop_rows | length >= 2 %}
+          <a href="{{ url_for('admin_ops_reorder_page', shift_id=shift.id, truck_number=card.truck_number) }}"
+             class="btn-sm">
+            <i class="fas fa-sort"></i> Reorder Stops
+          </a>
+          {% endif %}
 
           {% if card.truck_number == shift.trucks and card.stop_rows | length == 0 %}
           <form method="POST" action="{{ url_for('admin_shift_remove_truck', shift_id=shift.id, truck_number=card.truck_number) }}"
@@ -788,13 +790,6 @@
         {% endif %}
 
         <div class="truck-card-footer">
-          <form method="POST" action="{{ url_for('admin_shift_order_stops', shift_id=shift.id) }}" style="display:inline;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="hidden" name="truck_number" value="{{ card.truck_number }}">
-            <button type="submit" class="btn-sm">
-              <i class="fas fa-sort-numeric-down"></i> Re-order route
-            </button>
-          </form>
           {% if card.map_url %}
           <a href="{{ card.map_url }}" target="_blank" class="btn-sm">
             <i class="fas fa-map-marker-alt"></i> View map
@@ -980,6 +975,12 @@
 </form>
 
 <script>
+  // ── Scroll selected shift into view on load ──
+  document.addEventListener('DOMContentLoaded', function() {
+    var sel = document.querySelector('.ops-shift-row.active');
+    if (sel) sel.scrollIntoView({ block: 'center', behavior: 'instant' });
+  });
+
   // ── Truck detail drawer ──
   function openTruckDrawer(shiftId, truckNum) {
     var overlay = document.getElementById('drawerOverlay');
@@ -1056,25 +1057,6 @@
 
   document.getElementById('ops-photo-modal').addEventListener('click', function(e) {
     if (e.target === this) closePhotoModal();
-  });
-
-  // ── Order routes (POST per truck, then reload) ──
-  document.getElementById('orderRoutesBtn') && document.getElementById('orderRoutesBtn').addEventListener('click', function() {
-    var btn = this;
-    var shiftId = btn.dataset.shiftId;
-    var csrfToken = document.querySelector('input[name="csrf_token"]') ? document.querySelector('input[name="csrf_token"]').value : '';
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ordering...';
-    fetch('/admin/crew/shift/' + shiftId + '/order', {
-      method: 'POST',
-      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'csrf_token=' + encodeURIComponent(csrfToken),
-    }).then(function() {
-      window.location.reload();
-    }).catch(function() {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-route"></i> Order Routes';
-    });
   });
 
   // ── Notify sellers ──

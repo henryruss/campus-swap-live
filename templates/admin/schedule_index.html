@@ -28,33 +28,6 @@
   .badge-draft { background: #f1f5f9; color: #64748b; }
   .badge-published { background: #dcfce7; color: #166534; }
 
-  /* Slot toggle grid */
-  .slot-grid {
-    display: grid;
-    grid-template-columns: 80px repeat(7, 1fr);
-    gap: 6px;
-    align-items: center;
-    margin: 12px 0;
-  }
-  .slot-grid .day-header {
-    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
-    color: var(--text-muted); text-align: center;
-  }
-  .slot-grid .slot-label {
-    font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
-  }
-  .slot-grid input[type="checkbox"] { display: none; }
-  .slot-toggle {
-    display: block; text-align: center; padding: 8px 4px;
-    border-radius: 8px; cursor: pointer; font-size: 0.75rem; font-weight: 600;
-    border: 1px solid var(--rule);
-    background: #f1f5f9; color: #64748b;
-    transition: background 0.15s, color 0.15s;
-    user-select: none;
-  }
-  .slot-grid input[type="checkbox"]:checked + .slot-toggle {
-    background: var(--primary); color: white; border-color: var(--primary);
-  }
   /* No hover lift on any card on this page */
   .card, .card:hover {
     transform: none !important;
@@ -113,26 +86,6 @@
         <input type="date" name="week_start" id="week-start-input" required
                style="padding: 10px 14px; border: 1px solid var(--rule); border-radius: 8px; font-size: 1rem; width: 220px;">
         <p id="week-range-preview" style="font-size: 0.85rem; margin: 6px 0 0;"></p>
-      </div>
-
-      <div style="margin-bottom: 20px;">
-        <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin: 0 0 10px;">Active Slots <span style="font-weight: 400;">(toggle off days that won't run)</span></p>
-        <div class="slot-grid">
-          <div></div>
-          {% for day_label in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
-            <div class="day-header">{{ day_label }}</div>
-          {% endfor %}
-
-          {% for slot, slot_label in [('am', 'AM'), ('pm', 'PM')] %}
-            <div class="slot-label">{{ slot_label }}</div>
-            {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
-              <div>
-                <input type="checkbox" name="slot_{{ day }}_{{ slot }}" id="slot_{{ day }}_{{ slot }}" checked>
-                <label class="slot-toggle" for="slot_{{ day }}_{{ slot }}">ON</label>
-              </div>
-            {% endfor %}
-          {% endfor %}
-        </div>
       </div>
 
       <button type="submit" class="btn-create-week">
@@ -226,13 +179,5 @@ weekInput.addEventListener('change', function () {
   preview.style.color = 'var(--text-muted)';
 });
 
-// Toggle label text ON/OFF
-document.querySelectorAll('.slot-grid input[type="checkbox"]').forEach(function (cb) {
-  const lbl = cb.nextElementSibling;
-  lbl.textContent = cb.checked ? 'ON' : 'OFF';
-  cb.addEventListener('change', function () {
-    lbl.textContent = this.checked ? 'ON' : 'OFF';
-  });
-});
 </script>
 {% endblock %}

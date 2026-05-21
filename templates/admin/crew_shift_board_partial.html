@@ -1,0 +1,105 @@
+{# Partial: crew shift board — included by crew.html and returned standalone by admin_crew_shift_board_partial route #}
+
+<div class="shift-board-header">
+  {% if prev_week %}
+    <button type="button" class="week-nav-arrow" data-week-id="{{ prev_week.id }}">←</button>
+  {% else %}
+    <span class="week-nav-arrow disabled">←</span>
+  {% endif %}
+
+  <h2>
+    {% if displayed_week %}
+      Week of {{ displayed_week.week_start.strftime('%b %-d, %Y') }}
+    {% else %}
+      No weeks scheduled
+    {% endif %}
+  </h2>
+
+  {% if next_week %}
+    <button type="button" class="week-nav-arrow" data-week-id="{{ next_week.id }}">→</button>
+  {% else %}
+    <span class="week-nav-arrow disabled">→</span>
+  {% endif %}
+</div>
+
+{% if not displayed_week %}
+  <p style="color: var(--text-muted); font-size: 0.85rem;">
+    No shift weeks exist yet. <a href="{{ url_for('admin_schedule_index') }}">Create a schedule →</a>
+  </p>
+{% elif not shifts %}
+  <p style="color: var(--text-muted); font-size: 0.85rem;">
+    No shifts for this week. <a href="{{ url_for('admin_schedule_week', week_id=displayed_week.id) }}">Manage schedule →</a>
+  </p>
+{% else %}
+  {% for shift in shifts %}
+  <div class="shift-row" id="shift-{{ shift.id }}">
+    <div class="shift-row-left">
+      <div class="shift-day-label">
+        {{ shift.label.split(' ')[0] }}
+        <span class="slot-pill">{{ shift.slot | upper }}</span>
+      </div>
+      <div class="shift-date-muted">
+        {{ (displayed_week.week_start + timedelta(days=['mon','tue','wed','thu','fri','sat','sun'].index(shift.day_of_week))).strftime('%b %-d') }}
+      </div>
+      <div class="truck-count">{{ shift.trucks }} truck{{ 's' if shift.trucks != 1 else '' }}</div>
+    </div>
+
+    <div class="shift-row-middle">
+      <div class="assigned-workers">
+        {% if shift._assignments %}
+          {% for a in shift._assignments %}
+          <span class="worker-badge">
+            <span class="worker-badge-role {{ a.role_on_shift }}">{{ 'D' if a.role_on_shift == 'driver' else 'O' }}</span>
+            {{ a.worker.full_name }}
+            <form method="POST" action="{{ url_for('admin_crew_quick_remove', shift_id=shift.id) }}"
+                  style="display:inline;" class="quick-remove-form" data-shift-id="{{ shift.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="assignment_id" value="{{ a.id }}">
+              <button type="submit" class="remove-btn" title="Remove">×</button>
+            </form>
+          </span>
+          {% endfor %}
+        {% else %}
+          <span class="no-assigned-text">No workers assigned</span>
+        {% endif %}
+      </div>
+
+      {% if shift._available_workers %}
+      <form method="POST" action="{{ url_for('admin_crew_quick_add', shift_id=shift.id) }}"
+            class="add-worker-form" data-shift-id="{{ shift.id }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select name="worker_id">
+          {% for w in shift._available_workers %}
+            <option value="{{ w.id }}">{{ w.full_name }}</option>
+          {% endfor %}
+        </select>
+        <select name="role" class="role-select">
+          <option value="driver">Driver</option>
+          <option value="organizer">Organizer</option>
+        </select>
+        <button type="submit" class="add-btn">+ Add</button>
+      </form>
+      {% else %}
+      <div style="font-size: 0.78rem; color: var(--text-muted);">All workers assigned or unavailable</div>
+      {% endif %}
+
+      <div class="shift-inline-error" id="shift-error-{{ shift.id }}"
+           style="display:none; margin-top:6px; padding:6px 10px; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.78rem; color:#dc2626;"></div>
+    </div>
+
+    {% if shift.id in shifts_needing_renotify %}
+    <div>
+      <span class="renotify-badge">⚠ Re-notify needed</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="optimizer-row">
+    <form method="POST" action="{{ url_for('admin_schedule_optimize', week_id=displayed_week.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ url_for('admin_crew_panel', week_id=displayed_week.id) }}">
+      <button type="submit" class="btn-outline" style="font-size: 0.82rem; padding: 7px 16px;">Run Optimizer</button>
+    </form>
+  </div>
+{% endif %}

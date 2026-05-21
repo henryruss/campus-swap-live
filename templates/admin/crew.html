@@ -7,6 +7,12 @@
   .crew-hq h1 { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--primary); margin: 0 0 28px; }
   .crew-hq h2 { font-size: 1rem; font-weight: 700; color: var(--primary); margin: 0 0 16px; }
 
+  /* ── Workers collapsible ── */
+  #workers-section > summary { list-style: none; }
+  #workers-section > summary::-webkit-details-marker { display: none; }
+  #workers-section[open] .workers-chevron { transform: rotate(180deg); }
+  .workers-chevron { transition: transform 0.2s; display: inline-block; }
+
   /* ── Section headers ── */
   .section-label {
     font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
@@ -234,211 +240,110 @@
   <h1>Crew HQ</h1>
 
   {# ══════════════════════════════════════════════════════
-     Section 1: Worker Cards
-     Always shows current calendar week's shifts.
+     Section 1: Worker Cards (collapsible)
   ══════════════════════════════════════════════════════ #}
-  <div class="section-label">
-    Workers
-    {% if approved_workers %}
-      <span class="badge-green">{{ approved_workers | length }}</span>
-    {% endif %}
-  </div>
-
-  {% if not approved_workers %}
-    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 32px;">No approved workers yet.</p>
-  {% else %}
-  <div class="worker-card-grid">
-    {% for worker in approved_workers %}
-    <div class="worker-card">
-      <div class="worker-card-name">
-        <button
-          class="worker-name-btn"
-          data-worker-id="{{ worker.id }}"
-          data-worker-name="{{ worker.full_name }}"
-          data-week-id="{{ displayed_week.id if displayed_week else '' }}"
-          onclick="openAvailModal(this)"
-        >{{ worker.full_name }}</button>
-        <span class="role-badge">{{ worker.worker_role or 'BOTH' }}</span>
-      </div>
-
-      <div class="worker-card-contact">
-        <button class="contact-chip" data-copy="{{ worker.email }}" onclick="copyChip(this)">{{ worker.email }}</button>
-        {% if worker.phone %}
-          <button class="contact-chip" data-copy="{{ worker.phone }}" onclick="copyChip(this)">{{ worker.phone }}</button>
-        {% else %}
-          <span class="contact-chip-none">No phone on file</span>
+  <details id="workers-section" open style="margin-bottom: 32px;">
+    <summary style="list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 14px; user-select: none;">
+      <span class="section-label" style="margin: 0;">
+        Workers
+        {% if approved_workers %}
+          <span class="badge-green">{{ approved_workers | length }}</span>
         {% endif %}
-      </div>
+      </span>
+      <span class="workers-chevron" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 4px;">▾</span>
+    </summary>
 
-      {# Shift pills for current calendar week #}
-      <div class="shift-pills">
-        {% if worker._week_shifts %}
-          {% for a in worker._week_shifts %}
-            <span class="shift-pill">{{ a.shift.label }}</span>
-          {% endfor %}
-        {% else %}
-          <span class="no-shifts-text">No shifts this week</span>
-        {% endif %}
-      </div>
-
-      {# Mini 7×2 availability grid #}
-      {% set avail = worker._availability %}
-      <table class="mini-avail-grid" style="margin-bottom: 0;">
-        <tr>
-          <th></th>
-          {% for day_label in ['M','T','W','T','F','S','S'] %}
-            <th>{{ day_label }}</th>
-          {% endfor %}
-        </tr>
-        {% for slot in ['am', 'pm'] %}
-        <tr>
-          <td class="slot-label">{{ slot | upper }}</td>
-          {% for day_key in ['mon','tue','wed','thu','fri','sat','sun'] %}
-            {% set field = day_key + '_' + slot %}
-            {% if avail %}
-              {% set available = avail[field] %}
-            {% else %}
-              {% set available = true %}
-            {% endif %}
-            <td class="avail-cell {% if available %}avail-green{% else %}avail-grey{% endif %}"></td>
-          {% endfor %}
-        </tr>
-        {% endfor %}
-      </table>
-
-      {# Footer: assignment count + remove button #}
-      <div class="worker-card-footer">
-        <span class="assignment-count">
-          {% if worker._assignment_count %}
-            {{ worker._assignment_count }} shift{{ 's' if worker._assignment_count != 1 else '' }} assigned
-          {% else %}
-            —
-          {% endif %}
-        </span>
-        <details class="inline-confirm">
-          <summary class="btn-danger-outline">Remove</summary>
-          <div class="inline-confirm-body">
-            <p>Remove <strong>{{ worker.full_name }}</strong> from the crew? This will unassign them from all shifts.</p>
-            <form method="POST" action="{{ url_for('admin_crew_remove', user_id=worker.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn-danger">Yes, remove</button>
-              <span class="btn-link" onclick="this.closest('details').removeAttribute('open')">Cancel</span>
-            </form>
-          </div>
-        </details>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {# ══════════════════════════════════════════════════════
-     Section 2: Shift Board
-  ══════════════════════════════════════════════════════ #}
-  <div class="shift-board">
-    <div class="shift-board-header">
-      {% if prev_week %}
-        <a href="{{ url_for('admin_crew_panel', week_id=prev_week.id) }}" class="week-nav-arrow">←</a>
-      {% else %}
-        <span class="week-nav-arrow disabled">←</span>
-      {% endif %}
-
-      <h2>
-        {% if displayed_week %}
-          Week of {{ displayed_week.week_start.strftime('%b %-d, %Y') }}
-        {% else %}
-          No weeks scheduled
-        {% endif %}
-      </h2>
-
-      {% if next_week %}
-        <a href="{{ url_for('admin_crew_panel', week_id=next_week.id) }}" class="week-nav-arrow">→</a>
-      {% else %}
-        <span class="week-nav-arrow disabled">→</span>
-      {% endif %}
-    </div>
-
-    {% if not displayed_week %}
-      <p style="color: var(--text-muted); font-size: 0.85rem;">
-        No shift weeks exist yet. <a href="{{ url_for('admin_schedule_index') }}">Create a schedule →</a>
-      </p>
-    {% elif not shifts %}
-      <p style="color: var(--text-muted); font-size: 0.85rem;">
-        No shifts for this week. <a href="{{ url_for('admin_schedule_week', week_id=displayed_week.id) }}">Manage schedule →</a>
-      </p>
+    {% if not approved_workers %}
+      <p style="color: var(--text-muted); font-size: 0.85rem;">No approved workers yet.</p>
     {% else %}
-      {% for shift in shifts %}
-      <div class="shift-row" id="shift-{{ shift.id }}">
-        {# Left: label + date + trucks #}
-        <div class="shift-row-left">
-          <div class="shift-day-label">
-            {{ shift.label.split(' ')[0] }}
-            <span class="slot-pill">{{ shift.slot | upper }}</span>
-          </div>
-          <div class="shift-date-muted">
-            {{ (displayed_week.week_start + timedelta(days=['mon','tue','wed','thu','fri','sat','sun'].index(shift.day_of_week))).strftime('%b %-d') }}
-          </div>
-          <div class="truck-count">{{ shift.trucks }} truck{{ 's' if shift.trucks != 1 else '' }}</div>
+    <div class="worker-card-grid">
+      {% for worker in approved_workers %}
+      <div class="worker-card">
+        <div class="worker-card-name">
+          <button
+            class="worker-name-btn"
+            data-worker-id="{{ worker.id }}"
+            data-worker-name="{{ worker.full_name }}"
+            data-week-id="{{ displayed_week.id if displayed_week else '' }}"
+            onclick="openAvailModal(this)"
+          >{{ worker.full_name }}</button>
+          <span class="role-badge">{{ worker.worker_role or 'BOTH' }}</span>
         </div>
 
-        {# Middle: assigned workers + add form #}
-        <div class="shift-row-middle">
-          <div class="assigned-workers">
-            {% if shift._assignments %}
-              {% for a in shift._assignments %}
-              <span class="worker-badge">
-                <span class="worker-badge-role {{ a.role_on_shift }}">{{ 'D' if a.role_on_shift == 'driver' else 'O' }}</span>
-                {{ a.worker.full_name }}
-                <form method="POST" action="{{ url_for('admin_crew_quick_remove', shift_id=shift.id) }}" style="display:inline;">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="assignment_id" value="{{ a.id }}">
-                  <button type="submit" class="remove-btn" title="Remove">×</button>
-                </form>
-              </span>
-              {% endfor %}
-            {% else %}
-              <span class="no-assigned-text">No workers assigned</span>
-            {% endif %}
-          </div>
-
-          {# Add worker form #}
-          {% if shift._available_workers %}
-          <form method="POST" action="{{ url_for('admin_crew_quick_add', shift_id=shift.id) }}" class="add-worker-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <select name="worker_id">
-              {% for w in shift._available_workers %}
-                <option value="{{ w.id }}">{{ w.full_name }}</option>
-              {% endfor %}
-            </select>
-            <select name="role" class="role-select">
-              <option value="driver">Driver</option>
-              <option value="organizer">Organizer</option>
-            </select>
-            <button type="submit" class="add-btn">+ Add</button>
-          </form>
+        <div class="worker-card-contact">
+          <button class="contact-chip" data-copy="{{ worker.email }}" onclick="copyChip(this)">{{ worker.email }}</button>
+          {% if worker.phone %}
+            <button class="contact-chip" data-copy="{{ worker.phone }}" onclick="copyChip(this)">{{ worker.phone }}</button>
           {% else %}
-          <div style="font-size: 0.78rem; color: var(--text-muted);">All workers assigned or unavailable</div>
+            <span class="contact-chip-none">No phone on file</span>
           {% endif %}
         </div>
 
-        {# Re-notify flag #}
-        {% if shift.id in shifts_needing_renotify %}
-        <div>
-          <span class="renotify-badge">⚠ Re-notify needed</span>
+        <div class="shift-pills">
+          {% if worker._week_shifts %}
+            {% for a in worker._week_shifts %}
+              <span class="shift-pill">{{ a.shift.label }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="no-shifts-text">No shifts this week</span>
+          {% endif %}
         </div>
-        {% endif %}
+
+        {% set avail = worker._availability %}
+        <table class="mini-avail-grid" style="margin-bottom: 0;">
+          <tr>
+            <th></th>
+            {% for day_label in ['M','T','W','T','F','S','S'] %}
+              <th>{{ day_label }}</th>
+            {% endfor %}
+          </tr>
+          {% for slot in ['am', 'pm'] %}
+          <tr>
+            <td class="slot-label">{{ slot | upper }}</td>
+            {% for day_key in ['mon','tue','wed','thu','fri','sat','sun'] %}
+              {% set field = day_key + '_' + slot %}
+              {% if avail %}
+                {% set available = avail[field] %}
+              {% else %}
+                {% set available = true %}
+              {% endif %}
+              <td class="avail-cell {% if available %}avail-green{% else %}avail-grey{% endif %}"></td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </table>
+
+        <div class="worker-card-footer">
+          <span class="assignment-count">
+            {% if worker._assignment_count %}
+              {{ worker._assignment_count }} shift{{ 's' if worker._assignment_count != 1 else '' }} assigned
+            {% else %}
+              —
+            {% endif %}
+          </span>
+          <details class="inline-confirm">
+            <summary class="btn-danger-outline">Remove</summary>
+            <div class="inline-confirm-body">
+              <p>Remove <strong>{{ worker.full_name }}</strong> from the crew? This will unassign them from all shifts.</p>
+              <form method="POST" action="{{ url_for('admin_crew_remove', user_id=worker.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn-danger">Yes, remove</button>
+                <span class="btn-link" onclick="this.closest('details').removeAttribute('open')">Cancel</span>
+              </form>
+            </div>
+          </details>
+        </div>
       </div>
       {% endfor %}
-
-      {# Run Optimizer #}
-      <div class="optimizer-row">
-        <form method="POST" action="{{ url_for('admin_schedule_optimize', week_id=displayed_week.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="next" value="{{ url_for('admin_crew_panel', week_id=displayed_week.id) }}">
-          <button type="submit" class="btn-outline" style="font-size: 0.82rem; padding: 7px 16px;">Run Optimizer</button>
-        </form>
-      </div>
+    </div>
     {% endif %}
+  </details>
+
+  {# ══════════════════════════════════════════════════════
+     Section 2: Shift Board (fetch-swappable)
+  ══════════════════════════════════════════════════════ #}
+  <div class="shift-board" id="shift-board">
+    {% include 'admin/crew_shift_board_partial.html' %}
   </div>
 
   {# ══════════════════════════════════════════════════════
@@ -564,6 +469,97 @@
 </div>
 
 <script>
+// ── Workers section collapse/expand persistence ──
+(function() {
+  var details = document.getElementById('workers-section');
+  if (!details) return;
+  if (localStorage.getItem('crew_workers_collapsed') === 'true') {
+    details.removeAttribute('open');
+  }
+  details.addEventListener('toggle', function() {
+    localStorage.setItem('crew_workers_collapsed', details.open ? 'false' : 'true');
+  });
+})();
+
+// ── Fetch-based shift board ──
+var currentBoardWeekId = {{ displayed_week.id if displayed_week else 'null' }};
+
+function loadShiftBoard(weekId) {
+  currentBoardWeekId = weekId;
+  var board = document.getElementById('shift-board');
+  fetch('/admin/crew/shift-board?week_id=' + weekId, {
+    headers: { 'X-Requested-With': 'fetch' }
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    board.innerHTML = html;
+    bindBoardHandlers();
+  });
+}
+
+function bindBoardHandlers() {
+  // Week nav buttons
+  document.querySelectorAll('#shift-board .week-nav-arrow[data-week-id]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      loadShiftBoard(parseInt(btn.dataset.weekId, 10));
+    });
+  });
+
+  // Add worker forms
+  document.querySelectorAll('#shift-board .add-worker-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var shiftId = form.dataset.shiftId;
+      var fd = new FormData(form);
+      fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+        body: fd,
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          loadShiftBoard(currentBoardWeekId);
+        } else {
+          showShiftError(shiftId, data.message || 'Error adding worker.');
+        }
+      })
+      .catch(function() { showShiftError(shiftId, 'Network error.'); });
+    });
+  });
+
+  // Remove worker forms
+  document.querySelectorAll('#shift-board .quick-remove-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var shiftId = form.dataset.shiftId;
+      var fd = new FormData(form);
+      fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+        body: fd,
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          loadShiftBoard(currentBoardWeekId);
+        } else {
+          showShiftError(shiftId, data.message || 'Error removing worker.');
+        }
+      })
+      .catch(function() { showShiftError(shiftId, 'Network error.'); });
+    });
+  });
+}
+
+function showShiftError(shiftId, message) {
+  var el = document.getElementById('shift-error-' + shiftId);
+  if (el) { el.textContent = message; el.style.display = 'block'; }
+}
+
+// Bind on initial load
+bindBoardHandlers();
+
 function toggleExpand(rowId, headerRow) {
   var detailRow = document.getElementById(rowId);
   var chevron = document.getElementById('chevron-' + rowId);

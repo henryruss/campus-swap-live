@@ -1,0 +1,197 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .reorder-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 28px 0 24px;
+    margin-bottom: 32px;
+  }
+  .reorder-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .reorder-header .back-link {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+  .reorder-header .back-link:hover { color: var(--primary); }
+
+  .reorder-body { max-width: 600px; margin: 0 auto; padding: 0 20px 80px; }
+
+  .stop-list-draggable {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px;
+  }
+
+  .stop-drag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: white;
+    border: var(--card-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    cursor: default;
+    transition: box-shadow 0.15s;
+  }
+  .stop-drag-row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+  .drag-handle {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: grab;
+    flex-shrink: 0;
+    padding: 2px 4px;
+    line-height: 1;
+  }
+  .drag-handle:active { cursor: grabbing; }
+
+  .stop-num-badge {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    color: #374151;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .stop-drag-info { flex: 1; min-width: 0; }
+  .stop-drag-name { font-weight: 600; color: var(--text-main); font-size: 0.9rem; }
+  .stop-drag-addr { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .stop-unit-badge {
+    font-size: 0.73rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .sortable-ghost {
+    opacity: 0.5;
+    background: var(--bg-cream);
+    border: 1.5px dashed var(--rule);
+  }
+
+  .reorder-actions { display: flex; gap: 12px; align-items: center; }
+</style>
+
+<div class="reorder-header">
+  <div class="container">
+    <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="back-link">
+      ← Back to Ops
+    </a>
+    <h1>Reorder Stops — Truck {{ truck_number }} · {{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot == 'am' else 'PM' }}</h1>
+    <p style="color: var(--text-muted); margin: 0; font-size: 0.9rem;">Drag to reorder, then save.</p>
+  </div>
+</div>
+
+<div class="reorder-body">
+
+  {% if not pickups %}
+  <p style="color: var(--text-muted);">No stops assigned to this truck.</p>
+  {% else %}
+
+  <ul class="stop-list-draggable" id="sortable-stops">
+    {% for p in pickups %}
+    <li class="stop-drag-row" data-id="{{ p.id }}">
+      <span class="drag-handle">⠿</span>
+      <span class="stop-num-badge">{{ loop.index }}</span>
+      <div class="stop-drag-info">
+        <div class="stop-drag-name">{{ p.seller.full_name }}</div>
+        <div class="stop-drag-addr">{{ p.seller.pickup_display }}</div>
+      </div>
+      <span class="stop-unit-badge">{{ p._item_count }} item{{ 's' if p._item_count != 1 }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
+  <div class="reorder-actions">
+    <button type="button" class="btn-primary" id="save-order-btn" style="padding: 11px 28px; font-size: 0.95rem;">
+      Save Order
+    </button>
+    <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">
+      Cancel
+    </a>
+    <span id="save-status" style="font-size: 0.85rem; color: var(--text-muted);"></span>
+  </div>
+
+  {% endif %}
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+<script>
+var list = document.getElementById('sortable-stops');
+if (list) {
+  Sortable.create(list, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    onEnd: function() { reindexBadges(); }
+  });
+}
+
+function reindexBadges() {
+  var items = list.querySelectorAll('.stop-drag-row');
+  items.forEach(function(row, idx) {
+    var badge = row.querySelector('.stop-num-badge');
+    if (badge) badge.textContent = idx + 1;
+  });
+}
+
+document.getElementById('save-order-btn') && document.getElementById('save-order-btn').addEventListener('click', function() {
+  var btn = this;
+  var statusEl = document.getElementById('save-status');
+  var items = list.querySelectorAll('.stop-drag-row');
+  var stopIds = Array.from(items).map(function(row) { return parseInt(row.dataset.id, 10); });
+
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  statusEl.textContent = '';
+
+  var csrf = (document.getElementById('csrf-token') || {}).value || '';
+
+  fetch('{{ url_for("admin_ops_reorder_stops", shift_id=shift.id, truck_number=truck_number) }}', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrf,
+    },
+    body: JSON.stringify({ stop_ids: stopIds }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      window.location.href = data.redirect;
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Save Order';
+      statusEl.textContent = data.error || 'Error saving order.';
+      statusEl.style.color = '#dc2626';
+    }
+  })
+  .catch(function() {
+    btn.disabled = false;
+    btn.textContent = 'Save Order';
+    statusEl.textContent = 'Network error. Try again.';
+    statusEl.style.color = '#dc2626';
+  });
+});
+</script>
+{% endblock %}

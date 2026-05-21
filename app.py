@@ -9637,6 +9637,28 @@ def _worker_available_for_slot(worker, shift, week_start):
     return bool(getattr(avail, field, False))
 
 
+def _get_current_or_nearest_week():
+    """Current running week → nearest upcoming → most recent past. Any status."""
+    today = _today_eastern()
+    active = (
+        ShiftWeek.query
+        .filter(ShiftWeek.week_start <= today, ShiftWeek.week_start >= today - timedelta(days=6))
+        .order_by(ShiftWeek.week_start.desc())
+        .first()
+    )
+    if active:
+        return active
+    upcoming = (
+        ShiftWeek.query
+        .filter(ShiftWeek.week_start > today)
+        .order_by(ShiftWeek.week_start.asc())
+        .first()
+    )
+    if upcoming:
+        return upcoming
+    return ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).first()
+
+
 def _get_nearest_week_with_shifts():
     """Return the nearest upcoming ShiftWeek that has shifts, else most recent past, else None."""
     today = _today_eastern()
@@ -9913,13 +9935,12 @@ def admin_schedule_create():
 
     for day in _SHIFT_DAY_ORDER:
         for slot in ('am', 'pm'):
-            active = request.form.get(f"slot_{day}_{slot}") == 'on'
             shift = Shift(
                 week_id=week.id,
                 day_of_week=day,
                 slot=slot,
                 trucks=2,
-                is_active=active,
+                is_active=True,
             )
             db.session.add(shift)
 
@@ -12183,6 +12204,64 @@ def admin_ops_truck_detail():
     )
 
 
+@app.route('/admin/ops/shift/<int:shift_id>/truck/<int:truck_number>/reorder', methods=['GET'])
+@login_required
+def admin_ops_reorder_page(shift_id, truck_number):
+    """Drag-to-reorder stops page for one truck."""
+    if not _has_ops_access():
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    pickups = (
+        ShiftPickup.query
+        .filter_by(shift_id=shift_id, truck_number=truck_number)
+        .order_by(nulls_last(ShiftPickup.stop_order.asc()), ShiftPickup.id.asc())
+        .all()
+    )
+    for p in pickups:
+        p._item_count = InventoryItem.query.filter(
+            InventoryItem.seller_id == p.seller_id,
+            InventoryItem.status.notin_(['rejected', 'needs_info']),
+        ).count()
+    shift_date = _ops_shift_date(shift)
+    return render_template(
+        'admin/ops_reorder.html',
+        shift=shift,
+        truck_number=truck_number,
+        pickups=pickups,
+        shift_date=shift_date,
+    )
+
+
+@app.route('/admin/ops/shift/<int:shift_id>/truck/<int:truck_number>/reorder', methods=['POST'])
+@login_required
+def admin_ops_reorder_stops(shift_id, truck_number):
+    """Save new stop_order values from drag-to-reorder page."""
+    if not _has_ops_access():
+        abort(403)
+    Shift.query.get_or_404(shift_id)
+    data = request.get_json()
+    if not data or 'stop_ids' not in data:
+        return jsonify({'error': 'Invalid request'}), 400
+    stop_ids = data['stop_ids']
+
+    pickups = ShiftPickup.query.filter(
+        ShiftPickup.id.in_(stop_ids),
+        ShiftPickup.shift_id == shift_id,
+        ShiftPickup.truck_number == truck_number,
+    ).all()
+    all_truck_count = ShiftPickup.query.filter_by(
+        shift_id=shift_id, truck_number=truck_number
+    ).count()
+    if len(pickups) != len(stop_ids) or all_truck_count != len(stop_ids):
+        return jsonify({'error': 'Invalid stop IDs'}), 400
+
+    pickup_map = {p.id: p for p in pickups}
+    for idx, pid in enumerate(stop_ids):
+        pickup_map[pid].stop_order = idx + 1
+    db.session.commit()
+    return jsonify({'success': True, 'redirect': url_for('admin_ops', shift_id=shift_id)})
+
+
 @app.route('/admin/items')
 @login_required
 def admin_items():
@@ -12350,7 +12429,7 @@ def admin_crew_panel():
     if week_id:
         displayed_week = ShiftWeek.query.get_or_404(week_id)
     else:
-        displayed_week = _get_nearest_week_with_shifts()
+        displayed_week = _get_current_or_nearest_week()
 
     # Prev/next weeks
     prev_week, next_week = _get_adjacent_weeks(displayed_week)
@@ -12495,6 +12574,7 @@ def admin_crew_quick_add(shift_id):
     """Add a worker to a shift from Crew HQ."""
     if not current_user.is_admin:
         abort(403)
+    is_fetch = request.headers.get('X-Requested-With') == 'fetch'
     shift = Shift.query.get_or_404(shift_id)
     worker_id = int(request.form['worker_id'])
     role = request.form.get('role', 'driver')
@@ -12505,11 +12585,12 @@ def admin_crew_quick_add(shift_id):
         shift_id=shift_id, worker_id=worker_id
     ).first()
     if existing:
+        if is_fetch:
+            return jsonify({'success': False, 'message': 'Worker already assigned to this shift.'})
         flash('Worker already assigned to this shift.', 'warning')
         return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
 
     # Drivers default to truck 1 so they appear immediately on the ops page.
-    # Admin can reassign to a specific truck from the ops page if needed.
     truck_number = 1 if role == 'driver' else None
 
     assignment = ShiftAssignment(
@@ -12522,6 +12603,8 @@ def admin_crew_quick_add(shift_id):
     )
     db.session.add(assignment)
     db.session.commit()
+    if is_fetch:
+        return jsonify({'success': True, 'message': f'Worker added to {shift.label}.'})
     flash(f'Worker added to {shift.label}.', 'success')
     return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
 
@@ -12532,15 +12615,79 @@ def admin_crew_quick_remove(shift_id):
     """Remove a worker from a shift from Crew HQ. No email sent."""
     if not current_user.is_admin:
         abort(403)
+    is_fetch = request.headers.get('X-Requested-With') == 'fetch'
     assignment_id = int(request.form['assignment_id'])
     assignment = ShiftAssignment.query.get_or_404(assignment_id)
     shift = assignment.shift
     week_id = shift.week_id
     db.session.delete(assignment)
     db.session.commit()
-    # No email sent. Re-notify flag appears only for adds (no new fields).
+    if is_fetch:
+        return jsonify({'success': True, 'message': f'Worker removed from {shift.label}.'})
     flash(f'Worker removed from {shift.label}.', 'success')
     return redirect(url_for('admin_crew_panel', week_id=week_id) + f'#shift-{shift.id}')
+
+
+@app.route('/admin/crew/shift-board')
+@login_required
+def admin_crew_shift_board_partial():
+    """HTML partial for the crew shift board (no layout). Used by fetch-based week nav."""
+    if not _has_ops_access():
+        abort(403)
+    week_id = request.args.get('week_id', type=int)
+    if week_id:
+        displayed_week = ShiftWeek.query.get_or_404(week_id)
+    else:
+        displayed_week = _get_current_or_nearest_week()
+
+    prev_week, next_week = _get_adjacent_weeks(displayed_week)
+
+    approved_workers = (
+        User.query
+        .filter_by(is_worker=True, worker_status='approved')
+        .order_by(User.full_name.asc())
+        .all()
+    )
+
+    if displayed_week:
+        shifts = (Shift.query
+            .filter_by(week_id=displayed_week.id, is_active=True)
+            .order_by(Shift.day_of_week, Shift.slot)
+            .all())
+        shifts.sort(key=lambda s: s.sort_key)
+    else:
+        shifts = []
+
+    for shift in shifts:
+        shift._assignments = ShiftAssignment.query.filter_by(shift_id=shift.id).all()
+        assigned_ids = {a.worker_id for a in shift._assignments}
+        if displayed_week:
+            shift._available_workers = [
+                w for w in approved_workers
+                if w.id not in assigned_ids
+                and _worker_available_for_slot(w, shift, displayed_week.week_start)
+            ]
+        else:
+            shift._available_workers = []
+
+    shifts_needing_renotify = set()
+    for shift in shifts:
+        if shift.last_notified_at:
+            late_add = any(
+                a.assigned_at and a.assigned_at > shift.last_notified_at
+                for a in shift._assignments
+            )
+            if late_add:
+                shifts_needing_renotify.add(shift.id)
+
+    return render_template(
+        'admin/crew_shift_board_partial.html',
+        displayed_week=displayed_week,
+        prev_week=prev_week,
+        next_week=next_week,
+        shifts=shifts,
+        shifts_needing_renotify=shifts_needing_renotify,
+    )
 
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
