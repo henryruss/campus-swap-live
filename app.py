@@ -352,6 +352,12 @@ def require_super_admin():
         return redirect(url_for('admin_panel'))
     return None
 
+def _has_ops_access():
+    """True if the current user can access ops-level admin routes."""
+    return (getattr(current_user, 'is_admin', False)
+            or getattr(current_user, 'is_super_admin', False)
+            or getattr(current_user, 'is_campus_director', False))
+
 
 # --- EMAIL HELPERS ---
 
@@ -8677,7 +8683,7 @@ def crew_intake_search():
 @login_required
 def admin_shift_ops(shift_id):
     """Live admin ops view — assign sellers to shift stops."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     shift = Shift.query.get_or_404(shift_id)
     max_trucks = int(AppSetting.get('max_trucks_per_shift', '4'))
@@ -9494,7 +9500,7 @@ def admin_payouts_export():
 @login_required
 def admin_crew_approve(user_id):
     """Admin approves a worker application and assigns their role."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         flash("Access denied.", "error")
         return redirect(url_for('index'))
 
@@ -9541,7 +9547,7 @@ def admin_crew_approve(user_id):
 @login_required
 def admin_crew_reject(user_id):
     """Admin rejects a worker application."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         flash("Access denied.", "error")
         return redirect(url_for('index'))
 
@@ -9866,8 +9872,11 @@ def _get_current_published_week():
 @login_required
 def admin_schedule_index():
     """List all ShiftWeeks and form to create a new week. Super admin only."""
-    if (r := require_super_admin()):
-        return r
+    if not _has_ops_access():
+        abort(403)
+    if not (current_user.is_super_admin or current_user.is_campus_director):
+        if (r := require_super_admin()):
+            return r
     weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.asc()).all()
     return render_template('admin/schedule_index.html', weeks=weeks)
 
@@ -9923,8 +9932,11 @@ def admin_schedule_create():
 @login_required
 def admin_schedule_week(week_id):
     """Schedule builder view for a single week. Super admin only."""
-    if (r := require_super_admin()):
-        return r
+    if not _has_ops_access():
+        abort(403)
+    if not (current_user.is_super_admin or current_user.is_campus_director):
+        if (r := require_super_admin()):
+            return r
     week = ShiftWeek.query.get_or_404(week_id)
 
     # All approved workers for the dropdowns
@@ -10641,7 +10653,7 @@ def admin_shift_remove_truck(shift_id, truck_number):
 @login_required
 def admin_shift_order_stops(shift_id):
     """Run nearest-neighbor stop ordering; write stop_order to all ShiftPickups for this shift."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     shift = Shift.query.get_or_404(shift_id)
 
@@ -10719,7 +10731,7 @@ def admin_shift_reorder_stop(shift_id, pickup_id):
 @login_required
 def admin_shift_notify_sellers(shift_id):
     """Send pickup confirmation email to all unnotified sellers on this shift. Idempotent."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     shift = Shift.query.get_or_404(shift_id)
     pickups = ShiftPickup.query.filter_by(shift_id=shift_id).filter(
@@ -11154,7 +11166,7 @@ def admin_routes_move_stop(pickup_id):
 @login_required
 def admin_routes_assign_seller(user_id):
     """Manually assign a single unassigned seller to a shift + truck. Returns JSON (409 if already has ShiftPickup)."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     seller = User.query.get_or_404(user_id)
 
@@ -12002,7 +12014,7 @@ def _ops_build_shift_list():
 @login_required
 def admin_ops():
     """Main ops view — four-zone layout."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
 
     shift_id = request.args.get('shift_id', type=int)
@@ -12111,7 +12123,7 @@ def admin_ops():
 @login_required
 def admin_ops_truck_detail():
     """HTML partial for the truck detail modal/drawer."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     shift_id = request.args.get('shift_id', type=int)
     truck_num = request.args.get('truck', type=int)
@@ -12330,7 +12342,7 @@ def admin_sellers():
 @login_required
 def admin_crew_panel():
     """Crew HQ — worker cards, shift board, and pending applications."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
 
     # Determine displayed week
@@ -12624,6 +12636,7 @@ def admin_settings():
     categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
     storage_locations = StorageLocation.query.order_by(StorageLocation.is_active.desc(), StorageLocation.name).all()
     admin_users = User.query.filter_by(is_admin=True).order_by(User.email).all()
+    campus_directors = User.query.filter_by(is_campus_director=True).order_by(User.full_name).all()
 
     # Count week1 sellers with no existing ShiftPickup (eligible for bulk reassign)
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.with_entities(ShiftPickup.seller_id).all()}
@@ -12637,6 +12650,7 @@ def admin_settings():
         categories=categories,
         storage_locations=storage_locations,
         admin_users=admin_users,
+        campus_directors=campus_directors,
         week1_unassigned_count=week1_unassigned_count,
         # Route settings
         truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
@@ -12664,7 +12678,7 @@ def admin_settings():
 @login_required
 def admin_generate_shifts():
     """Idempotent: generate AM + PM shifts for every date in the configured pickup window."""
-    if not current_user.is_super_admin:
+    if not (current_user.is_super_admin or current_user.is_campus_director):
         abort(403)
 
     from datetime import date as _date_cls
@@ -12721,6 +12735,46 @@ def admin_generate_shifts():
     date_range = f"{start_date.strftime('%b %-d')}–{end_date.strftime('%b %-d')}"
     flash(f"Generated {created_count} shift(s) for {date_range}.", "success")
     return redirect(url_for('admin_settings') + '#pickup-window')
+
+
+@app.route('/admin/user/grant-campus-director', methods=['POST'])
+@login_required
+def admin_grant_campus_director():
+    """Grant is_campus_director to a user by email. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    email = request.form.get('email', '').strip().lower()
+    school = request.form.get('school', '').strip()
+    if not email or not school:
+        flash("Email and school name are required.", "error")
+        return redirect(url_for('admin_settings') + '#campus-directors')
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash("No account with that email exists. The user must sign up first.", "error")
+        return redirect(url_for('admin_settings') + '#campus-directors')
+    if user.is_admin or user.is_super_admin:
+        flash("This user already has full admin access.", "error")
+        return redirect(url_for('admin_settings') + '#campus-directors')
+    user.is_campus_director = True
+    user.campus_director_school = school
+    db.session.commit()
+    flash(f"Campus director access granted to {user.full_name or email} ({school}).", "success")
+    return redirect(url_for('admin_settings') + '#campus-directors')
+
+
+@app.route('/admin/user/revoke-campus-director', methods=['POST'])
+@login_required
+def admin_revoke_campus_director():
+    """Revoke is_campus_director from a user by ID. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    user_id = request.form.get('user_id', type=int)
+    user = User.query.get_or_404(user_id)
+    user.is_campus_director = False
+    user.campus_director_school = None
+    db.session.commit()
+    flash(f"Campus director access revoked from {user.full_name or user.email}.", "success")
+    return redirect(url_for('admin_settings') + '#campus-directors')
 
 
 @app.route('/admin/settings/reassign-week', methods=['POST'])

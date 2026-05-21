@@ -13,6 +13,8 @@ class User(UserMixin, db.Model):
     # ADMIN: is_admin = can access admin panel; is_super_admin = full access (user mgmt, approval, etc.)
     is_admin = db.Column(db.Boolean, default=False)
     is_super_admin = db.Column(db.Boolean, default=False)
+    is_campus_director = db.Column(db.Boolean, default=False, server_default='0', nullable=False)
+    campus_director_school = db.Column(db.String(100), nullable=True)
     
     # SELLER INFO
     phone = db.Column(db.String(20), nullable=True)

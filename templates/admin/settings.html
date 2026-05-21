@@ -422,7 +422,66 @@
     </div>
   </div>
 
-  {# ── 9. Database reset (danger zone) ── #}
+  {# ── 9. Campus Directors ── #}
+  <div class="settings-section" id="campus-directors">
+    <div class="settings-section-header">
+      <i class="fas fa-school" style="color: var(--sage);"></i>
+      <h2>Campus Directors</h2>
+    </div>
+    <div class="settings-section-body">
+      {% if campus_directors %}
+      <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Current campus directors</div>
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-bottom: 18px;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--rule); color: var(--text-muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">
+            <th style="padding: 6px 8px 6px 0; text-align: left;">Name</th>
+            <th style="padding: 6px 8px; text-align: left;">Email</th>
+            <th style="padding: 6px 8px; text-align: left;">School</th>
+            <th style="padding: 6px 8px; text-align: left;">Joined</th>
+            <th style="padding: 6px 0 6px 8px; text-align: right;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in campus_directors %}
+          <tr style="border-bottom: 1px solid #f3f4f6;">
+            <td style="padding: 8px 8px 8px 0; font-weight: 600;">{{ u.full_name or '—' }}</td>
+            <td style="padding: 8px;">{{ u.email }}</td>
+            <td style="padding: 8px;">{{ u.campus_director_school or '—' }}</td>
+            <td style="padding: 8px; color: var(--text-muted);">{{ u.date_joined.strftime('%b %-d, %Y') if u.date_joined else '—' }}</td>
+            <td style="padding: 8px 0 8px 8px; text-align: right;">
+              <form method="POST" action="{{ url_for('admin_revoke_campus_director') }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <button type="submit" class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem; color: #dc2626; border-color: #fecaca;"
+                        onclick="return confirm('Revoke campus director access for {{ u.email }}?')">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="font-size: 0.83rem; color: var(--text-muted); margin: 0 0 16px;">No campus directors yet.</p>
+      {% endif %}
+      <div style="padding-top: 14px; border-top: 1px solid #f3f4f6;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Grant access</div>
+        <form method="POST" action="{{ url_for('admin_grant_campus_director') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <div class="settings-field" style="flex: 1; min-width: 180px;">
+            <label>Email</label>
+            <input type="email" name="email" placeholder="user@example.com" required>
+          </div>
+          <div class="settings-field" style="flex: 1; min-width: 160px;">
+            <label>School name</label>
+            <input type="text" name="school" placeholder="Davidson College" required>
+          </div>
+          <button type="submit" class="btn-primary btn-save" style="margin-bottom: 0;">Grant</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── 10. Database reset (danger zone) ── #}
   <div class="settings-section danger-zone" id="db-reset">
     <div class="settings-section-header">
       <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>

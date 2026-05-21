@@ -629,7 +629,7 @@
         <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-sm" title="Refresh">
           <i class="fas fa-sync-alt"></i>
         </a>
-        <form method="POST" action="{{ url_for('admin_shift_add_truck', shift_id=shift.id) }}" style="display:inline;" id="addTruckForm">
+        <form method="POST" action="{{ url_for('admin_shift_add_truck', shift_id=shift.id) }}" style="display:none;" id="addTruckForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <button type="submit" class="btn-sm">
             <i class="fas fa-plus"></i> Add Truck
@@ -838,7 +838,7 @@
       </div>
       <div class="unassigned-sublabel">Drag to assign or use auto-assign</div>
       {% if shift %}
-      <div style="margin-top: 8px;">
+      <div style="margin-top: 8px; display: none;">
         <input type="hidden" id="autoAssignCsrf" value="{{ csrf_token() }}"/>
         <button type="button" class="btn-sm primary" style="width: 100%; justify-content: center;" onclick="runAutoAssign(this)">
           <i class="fas fa-magic"></i> Auto-Assign
