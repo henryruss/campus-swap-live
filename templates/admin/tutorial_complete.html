@@ -1,0 +1,140 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .tutorial-complete-wrap {
+    min-height: calc(100vh - 72px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-body);
+    padding: 40px 20px;
+  }
+  .tutorial-complete-card {
+    background: white;
+    border: var(--card-border);
+    border-radius: 20px;
+    padding: 48px 48px 40px;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 8px 32px -8px rgba(26,61,26,0.12);
+    text-align: center;
+  }
+  .tutorial-complete-card .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--sage);
+    margin-bottom: 16px;
+  }
+  .tutorial-complete-card h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem;
+    color: var(--primary);
+    margin: 0 0 8px;
+    line-height: 1.15;
+  }
+  .tutorial-complete-card .subtitle {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin: 0 0 28px;
+    line-height: 1.5;
+  }
+  /* Animated checkmark */
+  .tutorial-checkmark-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  .tutorial-checkmark {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--sage);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 2rem;
+    animation: tutorial-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes tutorial-pop {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  .tutorial-complete-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 28px;
+    text-align: left;
+  }
+  .tutorial-complete-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.88rem;
+    color: var(--text-main);
+  }
+  .tutorial-complete-list li:last-child { border-bottom: none; }
+  .check-icon {
+    color: var(--sage);
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+  }
+  .tutorial-go-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--primary);
+    color: white;
+    text-decoration: none;
+    border-radius: 12px;
+    padding: 15px 36px;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 16px -4px rgba(26,61,26,0.35);
+    transition: background 0.15s, transform 0.1s;
+    width: 100%;
+    justify-content: center;
+  }
+  .tutorial-go-btn:hover {
+    background: var(--primary-light);
+    transform: translateY(-1px);
+  }
+</style>
+
+<div class="tutorial-complete-wrap">
+  <div class="tutorial-complete-card">
+
+    <div class="tutorial-checkmark-wrap">
+      <div class="tutorial-checkmark">
+        <i class="fas fa-check"></i>
+      </div>
+    </div>
+
+    <div class="eyebrow">Tutorial Complete</div>
+    <h1>You're ready to run an event</h1>
+    <p class="subtitle">You've seen everything you need to manage a Campus Swap pickup day. The real panel works exactly the same way.</p>
+
+    <ul class="tutorial-complete-list">
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Created a shift week</li>
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Approved a crew application</li>
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Assigned a worker to a shift</li>
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Assigned sellers to truck stops</li>
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Ordered the pickup route</li>
+      <li><span class="check-icon"><i class="fas fa-check"></i></span> Notified sellers</li>
+    </ul>
+
+    <a href="{{ url_for('admin_ops') }}" class="tutorial-go-btn">
+      Go to the Admin Panel <i class="fas fa-arrow-right"></i>
+    </a>
+
+  </div>
+</div>
+{% endblock %}

@@ -81,6 +81,11 @@ class User(UserMixin, db.Model):
     is_internal_account = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     # True only on the seeded "Campus Swap" user. Excluded from payout reconciliation and all seller-facing UI.
 
+    # TUTORIAL SYSTEM
+    is_tutorial_user = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    # Marks dummy sellers and dummy workers seeded for the tutorial.
+    # These users are permanent fixture accounts, never shown outside tutorial mode.
+
     # CLASS YEAR
     class_year = db.Column(db.String(20), nullable=True)
     # Values: 'freshman' | 'sophomore' | 'junior' | 'senior' | 'grad' | NULL = not provided
@@ -364,10 +369,12 @@ class WorkerAvailability(db.Model):
 class ShiftWeek(db.Model):
     """One record per work week. Holds all shifts for that week."""
     id           = db.Column(db.Integer, primary_key=True)
-    week_start   = db.Column(db.Date, unique=True, nullable=False)  # Monday of the work week
+    week_start   = db.Column(db.Date, nullable=False)  # Monday of the work week; uniqueness enforced at app level (non-tutorial only)
     status       = db.Column(db.String(20), nullable=False, default='draft')  # 'draft' | 'published'
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    is_tutorial  = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    # True on ShiftWeeks created during a tutorial session; invisible outside tutorial mode; deleted on completion.
 
     shifts       = db.relationship('Shift', backref='week', lazy=True, order_by='Shift.id')
     created_by   = db.relationship('User', foreign_keys=[created_by_id])
@@ -643,3 +650,25 @@ class RescheduleToken(db.Model):
 
     pickup = db.relationship('ShiftPickup', backref='reschedule_tokens')
     seller = db.relationship('User')
+
+
+# =========================================================
+# TUTORIAL SYSTEM
+# =========================================================
+
+class TutorialSession(db.Model):
+    """Tracks a campus director's progress through the onboarding tutorial."""
+    id               = db.Column(db.Integer, primary_key=True)
+    user_id          = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    step             = db.Column(db.Integer, default=0, nullable=False)
+    # 0=not started, 1=started (on schedule), 2=week created (on crew),
+    # 3=worker approved (on crew), 4=worker assigned (on ops),
+    # 5=sellers assigned (reorder), 6=stops reordered (notify), 7=complete
+    started_at       = db.Column(db.DateTime, nullable=True)
+    completed_at     = db.Column(db.DateTime, nullable=True)
+    tutorial_week_id = db.Column(db.Integer, db.ForeignKey('shift_week.id'), nullable=True)
+    last_retake_at   = db.Column(db.DateTime, nullable=True)
+    is_retaking      = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
+    user          = db.relationship('User', backref=db.backref('tutorial_session', uselist=False))
+    tutorial_week = db.relationship('ShiftWeek', foreign_keys=[tutorial_week_id])

@@ -1,0 +1,96 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<div class="cd-settings-page">
+
+  <div class="cd-settings-header">
+    <h1>Settings</h1>
+    <p class="cd-settings-subtitle">Manage your campus director preferences.</p>
+  </div>
+
+  {# ── Tutorial section ── #}
+  <div class="cd-settings-section">
+    <div class="cd-settings-section-header">
+      <i class="fas fa-graduation-cap" style="color: var(--sage);"></i>
+      <h2>Tutorial</h2>
+    </div>
+    <div class="cd-settings-section-body">
+      {% if ts and ts.completed_at %}
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 16px;">
+        Completed {{ ts.completed_at.strftime('%B %-d, %Y') }}.
+        {% if ts.last_retake_at %}
+          Last retaken {{ ts.last_retake_at.strftime('%B %-d, %Y') }}.
+        {% endif %}
+      </p>
+      <form method="POST" action="{{ url_for('admin_tutorial_restart') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-outline" style="font-size: 0.85rem; padding: 8px 18px;">
+          <i class="fas fa-redo" style="margin-right: 6px;"></i>Retake Tutorial
+        </button>
+      </form>
+      {% elif ts and ts.step > 0 %}
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 16px;">
+        Tutorial in progress (step {{ ts.step }} of 6).
+      </p>
+      <a href="{{ url_for('admin_tutorial_welcome') }}" class="btn-primary" style="font-size: 0.85rem; padding: 8px 18px; text-decoration: none; display: inline-block;">
+        Continue Tutorial
+      </a>
+      {% else %}
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 16px;">
+        You haven't completed the tutorial yet.
+      </p>
+      <a href="{{ url_for('admin_tutorial_welcome') }}" class="btn-primary" style="font-size: 0.85rem; padding: 8px 18px; text-decoration: none; display: inline-block;">
+        Start Tutorial
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .cd-settings-page {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  .cd-settings-header {
+    margin-bottom: 28px;
+  }
+  .cd-settings-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    color: var(--primary);
+    margin: 0 0 6px;
+  }
+  .cd-settings-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .cd-settings-section {
+    background: white;
+    border: var(--card-border);
+    border-radius: 14px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .cd-settings-section-header {
+    padding: 14px 18px;
+    background: var(--bg-cream);
+    border-bottom: var(--card-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .cd-settings-section-header h2 {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin: 0;
+  }
+  .cd-settings-section-body {
+    padding: 18px;
+  }
+</style>
+{% endblock %}

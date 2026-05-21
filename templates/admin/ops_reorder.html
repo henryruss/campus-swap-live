@@ -91,6 +91,8 @@
   .reorder-actions { display: flex; gap: 12px; align-items: center; }
 </style>
 
+{% if tutorial_mode %}{% include 'admin/tutorial_overlay.html' %}{% endif %}
+
 <div class="reorder-header">
   <div class="container">
     <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="back-link">
@@ -123,7 +125,7 @@
 
   <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
   <div class="reorder-actions">
-    <button type="button" class="btn-primary" id="save-order-btn" style="padding: 11px 28px; font-size: 0.95rem;">
+    <button type="button" class="btn-primary {% if tutorial_mode %}tutorial-highlight{% endif %}" id="save-order-btn" style="padding: 11px 28px; font-size: 0.95rem;">
       Save Order
     </button>
     <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-outline" style="padding: 10px 20px; font-size: 0.9rem;">

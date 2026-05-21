@@ -1,0 +1,134 @@
+{#
+  Tutorial overlay card — included in schedule_index, crew, ops, ops_reorder.
+  Expects: tutorial_mode (bool), tutorial_step (int), ts (TutorialSession|None)
+  Uses request.path to distinguish "transition" steps from "action" steps.
+#}
+{% if tutorial_mode %}
+{% set on_schedule = request.path.startswith('/admin/schedule') %}
+{% set on_crew = request.path.startswith('/admin/crew') %}
+{% set on_ops = request.path.startswith('/admin/ops') %}
+
+<div class="tutorial-overlay-card" id="tutorial-overlay">
+
+  {% if tutorial_step == 1 %}
+  {# On schedule, week not yet created #}
+  <div class="tutorial-step-indicator">Step 1 of 5</div>
+  <div class="tutorial-overlay-title">Create your first pickup week</div>
+  <div class="tutorial-overlay-body">
+    Every pickup starts with a week. Pick any Monday and hit <strong>Create Week</strong> — this tells the system what dates your crew will be running.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Pick a Monday from the calendar and create the week</span>
+  </div>
+
+  {% elif tutorial_step == 2 and on_schedule %}
+  {# Week just created, still on schedule — tell them to navigate to Crew #}
+  <div class="tutorial-step-indicator">Step 1 of 5 — Done ✓</div>
+  <div class="tutorial-overlay-title">Week created! Now head to Crew</div>
+  <div class="tutorial-overlay-body">
+    Your pickup week is set up. Next, you'll staff your shift by approving a pending crew application.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Click <strong>Crew</strong> in the sidebar</span>
+  </div>
+
+  {% elif tutorial_step == 2 and on_crew %}
+  {# On crew, approve Sam Torres #}
+  <div class="tutorial-step-indicator">Step 2 of 5</div>
+  <div class="tutorial-overlay-title">Approve your first crew member</div>
+  <div class="tutorial-overlay-body">
+    Sam Torres has applied to join your crew. Find their application in <strong>Pending Applications</strong> below and approve them.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Approve Sam Torres from the pending applications dropdown</span>
+  </div>
+
+  {% elif tutorial_step == 3 %}
+  {# On crew, assign worker to shift #}
+  <div class="tutorial-step-indicator">Step 3 of 5</div>
+  <div class="tutorial-overlay-title">Assign your crew to a shift</div>
+  <div class="tutorial-overlay-body">
+    Now assign a worker to the shift you created. Find your week in the <strong>Shift Board</strong> below and add Sam Torres or Riley Chen.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Add a worker to your shift below</span>
+  </div>
+
+  {% elif tutorial_step == 4 and on_crew %}
+  {# Worker just assigned, still on crew — tell them to navigate to Ops #}
+  <div class="tutorial-step-indicator">Step 3 of 5 — Done ✓</div>
+  <div class="tutorial-overlay-title">Nice work! Now head to Ops</div>
+  <div class="tutorial-overlay-body">
+    Your crew is staffed. Next, you'll assign sellers to stops and build the pickup route.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Click <strong>Ops</strong> in the sidebar</span>
+  </div>
+
+  {% elif tutorial_step == 4 and on_ops %}
+  {# On ops, assign sellers #}
+  <div class="tutorial-step-indicator">Step 4 of 5</div>
+  <div class="tutorial-overlay-title">Build your route</div>
+  <div class="tutorial-overlay-body">
+    Casey Brooks is already on the truck with a <strong>moved</strong> badge. Now assign Alex Martinez and Jordan Kim from the <strong>Unassigned</strong> panel on the right.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Assign the remaining sellers on the right</span>
+  </div>
+
+  {% elif tutorial_step == 6 and on_ops %}
+  {# All sellers assigned, prompt CD to click Reorder Stops #}
+  <div class="tutorial-step-indicator">Step 4 of 5</div>
+  <div class="tutorial-overlay-title">All sellers are assigned</div>
+  <div class="tutorial-overlay-body">
+    Your route has 3 stops. Before you notify the sellers, let's make sure the stop order makes sense. Click <strong>Reorder Stops</strong> on the truck card to arrange them.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Click Reorder Stops on the truck card</span>
+  </div>
+
+  {% elif tutorial_step == 7 %}
+  {# On the reorder page (step bumped from 6→7 on GET) #}
+  <div class="tutorial-step-indicator">Step 4 of 5</div>
+  <div class="tutorial-overlay-title">Set your stop order</div>
+  <div class="tutorial-overlay-body">
+    Drag the stops into the order that makes the most sense geographically. Casey Brooks rescheduled into this route — work them into the sequence.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Drag to reorder, then click Save Order</span>
+  </div>
+
+  {% else %}
+  {# Step 8+ on ops — notify sellers #}
+  <div class="tutorial-step-indicator">Step 5 of 5</div>
+  <div class="tutorial-overlay-title">Notify your sellers</div>
+  <div class="tutorial-overlay-body">
+    Your route is set. Hit <strong>Notify Sellers</strong> to send pickup confirmations. In this sandbox, no real messages are sent.
+  </div>
+  <div class="tutorial-overlay-action">
+    <span class="tutorial-action-arrow">👆</span>
+    <span class="tutorial-action-text">Click Notify Sellers above</span>
+  </div>
+  {% endif %}
+
+  {% if ts and ts.is_retaking %}
+  <div class="tutorial-overlay-exit">
+    <form method="POST" action="{{ url_for('admin_tutorial_exit') }}" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" style="background:none;border:none;cursor:pointer;font-size:0.78rem;color:var(--text-muted);padding:0;">
+        Exit tutorial
+      </button>
+    </form>
+  </div>
+  {% endif %}
+
+</div>
+{% endif %}

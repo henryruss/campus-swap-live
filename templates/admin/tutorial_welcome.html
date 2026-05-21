@@ -1,0 +1,151 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .tutorial-page-wrap {
+    min-height: calc(100vh - 72px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-body);
+    padding: 40px 20px;
+  }
+  .tutorial-page-card {
+    background: white;
+    border: var(--card-border);
+    border-radius: 20px;
+    padding: 48px 48px 40px;
+    max-width: 520px;
+    width: 100%;
+    box-shadow: 0 8px 32px -8px rgba(26,61,26,0.12);
+    text-align: center;
+  }
+  .tutorial-page-card .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--sage);
+    margin-bottom: 12px;
+  }
+  .tutorial-page-card h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2rem;
+    color: var(--primary);
+    margin: 0 0 14px;
+    line-height: 1.15;
+  }
+  .tutorial-page-card .subtitle {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin: 0 0 32px;
+    line-height: 1.5;
+  }
+  .tutorial-steps-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 32px;
+    text-align: left;
+  }
+  .tutorial-steps-list li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.88rem;
+    color: var(--text-main);
+  }
+  .tutorial-steps-list li:last-child { border-bottom: none; }
+  .tutorial-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    font-size: 0.78rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .tutorial-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 15px 36px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 16px -4px rgba(26,61,26,0.35);
+    transition: background 0.15s, transform 0.1s;
+    width: 100%;
+    justify-content: center;
+  }
+  .tutorial-cta:hover {
+    background: var(--primary-light);
+    transform: translateY(-1px);
+  }
+  .tutorial-cta:active { transform: translateY(0); }
+  .tutorial-time-note {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 14px;
+  }
+</style>
+
+<div class="tutorial-page-wrap">
+  <div class="tutorial-page-card">
+
+    {% if has_prior %}
+    {# Restart / resume page for incomplete sessions #}
+    <div class="eyebrow">Campus Director Setup</div>
+    <h1>Let's try that again, {{ first_name }}</h1>
+    <p class="subtitle">
+      Looks like you started the tutorial but didn't finish. No problem — pick up from the beginning and you'll be done in about 5 minutes.
+    </p>
+    {% else %}
+    {# First-time welcome #}
+    <div class="eyebrow">Campus Director Setup</div>
+    <h1>Welcome, {{ first_name }}</h1>
+    <p class="subtitle">
+      Before you can access the admin panel, complete a quick walkthrough of the three core tools you'll use to run a Campus Swap event.
+    </p>
+    {% endif %}
+
+    <ul class="tutorial-steps-list">
+      <li>
+        <span class="tutorial-step-num">1</span>
+        <span><strong>Schedule</strong> — create a shift week for your event</span>
+      </li>
+      <li>
+        <span class="tutorial-step-num">2</span>
+        <span><strong>Crew</strong> — approve a worker application and assign them to the shift</span>
+      </li>
+      <li>
+        <span class="tutorial-step-num">3</span>
+        <span><strong>Ops</strong> — assign sellers, order stops, and notify the crew</span>
+      </li>
+    </ul>
+
+    <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0 0 24px;">
+      <i class="fas fa-clock" style="margin-right: 5px;"></i> About 5 minutes — uses sandbox data only, nothing is sent to real users
+    </p>
+
+    <form method="POST" action="{{ url_for('admin_tutorial_start') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" class="tutorial-cta">
+        {% if has_prior %}Restart Tutorial{% else %}Start Tutorial{% endif %}
+        <i class="fas fa-arrow-right"></i>
+      </button>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

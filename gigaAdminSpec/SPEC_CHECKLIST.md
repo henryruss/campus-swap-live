@@ -1406,6 +1406,69 @@
 
 ---
 
+## Feature: Approval Queue Modal Flow
+
+**Sign-off status:** ⬜ Not started
+**Spec file:** `feature_approval_queue_modal.md`
+
+### Card Grid
+- [ ] Visit `/admin/items?view=approve` — approval queue cards load without inline forms or action buttons
+- [ ] Each card shows thumbnail, title, seller name, date, category, and suggested price badge (if present)
+- [ ] Hovering a card shows hover lift effect and "Click to review" hint arrow
+- [ ] Clicking anywhere on the card opens the modal (not a new tab)
+- [ ] Clicking the seller name on a card opens the seller profile panel without opening the modal
+
+### Modal — Load and Display
+- [ ] Clicking a card shows the modal immediately with a spinner
+- [ ] Spinner replaced by full item detail: gallery, title, category, quality, date added, long description
+- [ ] Seller name link in modal opens the existing seller profile panel (both panels can be open simultaneously)
+- [ ] Suggested price callout appears when item has a `suggested_price`
+- [ ] Price input pre-filled with `suggested_price` value when present; empty otherwise
+- [ ] Gallery prev/next buttons work; counter shows "1 / N" updating correctly
+- [ ] Items with no gallery photos show a placeholder icon (no JS errors)
+- [ ] Escape key closes modal without any action
+- [ ] Clicking the overlay (outside the panel) closes modal without any action
+- [ ] × close button closes modal without any action
+
+### Approve Action
+- [ ] Click Approve with a valid price — fetch POST fires, modal closes, card removed from grid
+- [ ] Item appears as `status='available'` in DB after approval
+- [ ] Click Approve with empty price field — inline error shown ("Please set a price"), modal stays open
+- [ ] Page count badge in admin nav decrements after successful approval
+- [ ] No new tab or page navigation occurs
+
+### Reject Action
+- [ ] Click Reject — confirmation dialog appears before firing the request
+- [ ] Confirm reject — fetch POST fires, modal closes, card removed from grid
+- [ ] Item appears as `status='rejected'` in DB after rejection
+- [ ] Cancel reject — modal stays open with no change
+
+### Need Info Action
+- [ ] Click Need Info — footer swaps to Need Info sub-panel (reason checkboxes + note textarea + Cancel/Send)
+- [ ] Click Cancel — sub-panel hides, footer returns, no request fired
+- [ ] Submit with no reasons and no note — inline error shown, no request fired
+- [ ] Submit with a reason checked — fetch POST fires, modal closes, card removed from grid
+- [ ] Item no longer appears in approval queue after Need Info (status changed to `needs_info`)
+- [ ] Item appears in quick-capture/needs_info queue at `/admin/items/needs_info`
+
+### Empty State
+- [ ] After approving/rejecting all cards: empty-queue state message shown ("No items pending approval" or equivalent)
+- [ ] No JS errors when last card is removed from DOM
+
+### Regression
+- [ ] "All Items" sub-tab (`/admin/items?view=all`) completely unchanged — no new modal, no missing forms
+- [ ] Quick Captures queue (`/admin/items/needs_info`) completely unchanged
+- [ ] Seller profile panel (slide-out drawer) still works on "All Items" tab
+- [ ] Stats bar counts unchanged
+- [ ] No new tabs opened at any point in the approval flow
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
+
 ## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)

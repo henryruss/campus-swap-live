@@ -44,7 +44,7 @@ from sqlalchemy import or_, and_, func, nulls_last, delete
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession
 
 # Import Constants
 from constants import (
@@ -311,6 +311,15 @@ def inject_template_utils():
 
 
 @app.context_processor
+def inject_admin_context():
+    in_admin = (
+        request.path.startswith('/admin') or
+        request.path.startswith('/crew')
+    )
+    return {'in_admin_context': in_admin}
+
+
+@app.context_processor
 def inject_qc_pending_count():
     """Inject quick-capture pending count for admin nav badge."""
     try:
@@ -357,6 +366,42 @@ def _has_ops_access():
     return (getattr(current_user, 'is_admin', False)
             or getattr(current_user, 'is_super_admin', False)
             or getattr(current_user, 'is_campus_director', False))
+
+
+@app.before_request
+def tutorial_gate():
+    """
+    Redirect campus directors who haven't finished the tutorial away from admin routes.
+    Super admins and is_admin users are never gated.
+    """
+    from flask_login import current_user as _cu
+    if not _cu.is_authenticated:
+        return
+    if not request.path.startswith('/admin/'):
+        return
+    # Exempt tutorial routes themselves so they're never caught in the redirect loop
+    _exempt_prefixes = (
+        '/admin/tutorial',
+        '/admin/cd-settings',
+    )
+    if any(request.path.startswith(p) for p in _exempt_prefixes):
+        return
+    if (getattr(_cu, 'is_campus_director', False)
+            and not getattr(_cu, 'is_admin', False)
+            and not getattr(_cu, 'is_super_admin', False)):
+        ts = getattr(_cu, 'tutorial_session', None)
+        # Active first-run: step >= 1, not yet complete, not a retake → allow through
+        in_active_first_run = (
+            ts is not None
+            and ts.step >= 1
+            and ts.completed_at is None
+            and not ts.is_retaking
+        )
+        needs_tutorial = not in_active_first_run and (
+            ts is None or ts.completed_at is None or ts.is_retaking
+        )
+        if needs_tutorial:
+            return redirect(url_for('admin_tutorial_welcome'))
 
 
 # --- EMAIL HELPERS ---
@@ -4646,20 +4691,44 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
+@app.route('/switch-role/seller')
+@login_required
+def switch_role_seller():
+    if not getattr(current_user, 'is_campus_director', False):
+        return redirect(url_for('dashboard'))
+    session['cd_view'] = 'seller'
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/switch-role/admin')
+@login_required
+def switch_role_admin():
+    if not getattr(current_user, 'is_campus_director', False):
+        return redirect(url_for('dashboard'))
+    session['cd_view'] = 'admin'
+    return redirect(url_for('admin_ops'))
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
     """Seller dashboard with optimized queries"""
-    # Admins should use admin panel, not seller dashboard
-    if current_user.is_admin:
-        return redirect(url_for('admin_panel'))
+    # CDs who explicitly switched to seller view render the dashboard directly — skip all redirects
+    if not (getattr(current_user, 'is_campus_director', False) and session.get('cd_view') == 'seller'):
+        # Admins should use admin panel, not seller dashboard
+        if current_user.is_admin:
+            return redirect(url_for('admin_panel'))
 
-    # First-time sellers (0 items) go straight to onboarding - never see setup cards
-    # Returning sellers who removed all items see empty dashboard instead of onboard
-    my_items_pre = InventoryItem.query.filter_by(seller_id=current_user.id).all()
-    if len(my_items_pre) == 0:
-        if not current_user.is_seller:
-            return redirect(url_for('onboard'))
+        # Campus directors default to admin ops
+        if getattr(current_user, 'is_campus_director', False):
+            return redirect(url_for('admin_ops'))
+
+        # First-time sellers (0 items) go straight to onboarding - never see setup cards
+        # Returning sellers who removed all items see empty dashboard instead of onboard
+        my_items_pre = InventoryItem.query.filter_by(seller_id=current_user.id).all()
+        if len(my_items_pre) == 0:
+            if not current_user.is_seller:
+                return redirect(url_for('onboard'))
 
     # Refresh user object to ensure we have latest data (especially has_paid status)
     db.session.expire(current_user)
@@ -9544,33 +9613,47 @@ def admin_crew_approve(user_id):
         worker.worker_application.reviewed_at = datetime.utcnow()
         worker.worker_application.reviewed_by = current_user.id
 
+    # Tutorial: advance step if approving Sam Torres (the tutorial pending applicant)
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    if tutorial_mode and worker.is_tutorial_user:
+        ts = current_user.tutorial_session
+        if ts and ts.step == 2:
+            ts.step = 3
+            session['tutorial_step'] = 3
+
     db.session.commit()
 
-    # Send approval email
-    try:
-        crew_url = url_for('crew_dashboard', _external=True)
-        email_content = f"""
-        <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-            <h2 style="color: #1A3D1A;">You're on the Campus Swap Crew!</h2>
-            <p>Hi {worker.full_name},</p>
-            <p>Your application has been approved. Here's what's next:</p>
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
-                <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
-                <p style="margin: 0 0 8px;"><strong>Season:</strong> ~3 weeks (late April – mid May)</p>
-                <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
+    # Skip real email for tutorial workers
+    if not worker.is_tutorial_user:
+        try:
+            crew_url = url_for('crew_dashboard', _external=True)
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #1A3D1A;">You're on the Campus Swap Crew!</h2>
+                <p>Hi {worker.full_name},</p>
+                <p>Your application has been approved. Here's what's next:</p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
+                    <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
+                    <p style="margin: 0 0 8px;"><strong>Season:</strong> ~3 weeks (late April – mid May)</p>
+                    <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
+                </div>
+                <p><a href="{crew_url}" style="background: #C8832A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Crew Portal</a></p>
+                <p>See you out there!</p>
+                <p>— The Campus Swap Team</p>
             </div>
-            <p><a href="{crew_url}" style="background: #C8832A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Crew Portal</a></p>
-            <p>See you out there!</p>
-            <p>— The Campus Swap Team</p>
-        </div>
-        """
-        send_email(worker.email, "You're on the Campus Swap Crew — here's what's next", email_content)
-    except Exception as e:
-        logger.error(f"Failed to send crew approval email to {worker.email}: {e}")
+            """
+            send_email(worker.email, "You're on the Campus Swap Crew — here's what's next", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send crew approval email to {worker.email}: {e}")
 
     flash(f"Approved {worker.full_name} as a Mover.", "success")
-    return redirect(url_for('admin_panel') + '#crew')
+    return redirect(url_for('admin_crew_panel'))
 
 
 @app.route('/admin/crew/reject/<int:user_id>', methods=['POST'])
@@ -9582,6 +9665,20 @@ def admin_crew_reject(user_id):
         return redirect(url_for('index'))
 
     worker = User.query.get_or_404(user_id)
+
+    # Tutorial fixture accounts can never be rejected through any admin action.
+    if worker.is_tutorial_user:
+        tutorial_mode = (
+            current_user.is_campus_director
+            and not current_user.is_admin
+            and not current_user.is_super_admin
+            and session.get('tutorial_active', False)
+        )
+        if tutorial_mode:
+            flash("You can't reject crew members during the tutorial.", "error")
+            return redirect(url_for('admin_crew_panel'))
+        abort(403)
+
     send_rejection_email = request.form.get('send_email') == 'true'
 
     worker.worker_status = 'rejected'
@@ -9609,7 +9706,7 @@ def admin_crew_reject(user_id):
             logger.error(f"Failed to send crew rejection email to {worker.email}: {e}")
 
     flash(f"Rejected {worker.full_name}'s application.", "success")
-    return redirect(url_for('admin_panel') + '#crew')
+    return redirect(url_for('admin_crew_panel'))
 
 
 @app.route('/admin/crew/remove/<int:user_id>', methods=['POST'])
@@ -9619,6 +9716,8 @@ def admin_crew_remove(user_id):
     if not current_user.is_admin:
         abort(403)
     worker = User.query.get_or_404(user_id)
+    if worker.is_tutorial_user:
+        abort(403)
     if not worker.is_worker or worker.worker_status != 'approved':
         flash('User is not an active worker.', 'warning')
         return redirect(url_for('admin_crew_panel'))
@@ -9929,16 +10028,37 @@ def admin_schedule_index():
     if not (current_user.is_super_admin or current_user.is_campus_director):
         if (r := require_super_admin()):
             return r
-    weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.asc()).all()
-    return render_template('admin/schedule_index.html', weeks=weeks)
+
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    ts = current_user.tutorial_session if tutorial_mode else None
+    tutorial_step = ts.step if ts else 0
+
+    if tutorial_mode:
+        weeks = ShiftWeek.query.filter_by(is_tutorial=True).order_by(ShiftWeek.week_start.asc()).all()
+    else:
+        weeks = ShiftWeek.query.filter_by(is_tutorial=False).order_by(ShiftWeek.week_start.asc()).all()
+    return render_template('admin/schedule_index.html', weeks=weeks,
+                           tutorial_mode=tutorial_mode, tutorial_step=tutorial_step)
 
 
 @app.route('/admin/schedule/create', methods=['POST'])
 @login_required
 def admin_schedule_create():
-    """Create a ShiftWeek + Shifts from the week form. Super admin only."""
-    if (r := require_super_admin()):
-        return r
+    """Create a ShiftWeek + Shifts from the week form."""
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    if not tutorial_mode:
+        if (r := require_super_admin()):
+            return r
 
     monday_str = request.form.get('week_start', '').strip()
     if not monday_str:
@@ -9955,27 +10075,73 @@ def admin_schedule_create():
         flash("Week must start on a Monday.", "error")
         return redirect(url_for('admin_schedule_index'))
 
-    if ShiftWeek.query.filter_by(week_start=week_start).first():
-        flash("A schedule for that week already exists.", "error")
-        return redirect(url_for('admin_schedule_index'))
+    # For non-tutorial weeks, enforce uniqueness. Tutorial weeks may share a Monday.
+    if not tutorial_mode:
+        if ShiftWeek.query.filter_by(week_start=week_start, is_tutorial=False).first():
+            flash("A schedule for that week already exists.", "error")
+            return redirect(url_for('admin_schedule_index'))
 
-    week = ShiftWeek(week_start=week_start, status='draft', created_by_id=current_user.id)
+    week = ShiftWeek(
+        week_start=week_start,
+        status='draft',
+        created_by_id=current_user.id,
+        is_tutorial=tutorial_mode,
+    )
     db.session.add(week)
     db.session.flush()
 
     for day in _SHIFT_DAY_ORDER:
         for slot in ('am', 'pm'):
-            shift = Shift(
+            s = Shift(
                 week_id=week.id,
                 day_of_week=day,
                 slot=slot,
-                trucks=2,
+                trucks=1 if tutorial_mode else 2,
                 is_active=True,
             )
-            db.session.add(shift)
+            db.session.add(s)
+
+    db.session.flush()
+
+    if tutorial_mode:
+        # Pre-create one AM shift on the week's Monday and pre-assign Casey Brooks
+        tutorial_shift = next(
+            (s for s in week.shifts if s.day_of_week == 'mon' and s.slot == 'am'), None
+        )
+        if not tutorial_shift:
+            # Fallback: pick first shift
+            tutorial_shift = week.shifts[0] if week.shifts else None
+
+        casey = User.query.filter_by(email='tutorial_casey@campusswap.internal').first()
+        if tutorial_shift and casey:
+            # Remove any existing pickup for Casey (prior tutorial run)
+            existing_pickup = ShiftPickup.query.filter_by(seller_id=casey.id).first()
+            if existing_pickup:
+                db.session.execute(delete(RescheduleToken).where(
+                    RescheduleToken.pickup_id == existing_pickup.id))
+                db.session.delete(existing_pickup)
+                db.session.flush()
+            pickup = ShiftPickup(
+                shift_id=tutorial_shift.id,
+                seller_id=casey.id,
+                truck_number=1,
+                stop_order=1,
+                rescheduled_at=_now_eastern(),
+                created_by_id=current_user.id,
+            )
+            db.session.add(pickup)
+
+        # Link tutorial week to the TutorialSession
+        ts = current_user.tutorial_session
+        if ts:
+            ts.tutorial_week_id = week.id
+            ts.step = 2
+            session['tutorial_step'] = 2
 
     db.session.commit()
     flash(f"Week of {week_start.strftime('%B %-d')} created.", "success")
+    if tutorial_mode:
+        return redirect(url_for('admin_schedule_index'))
     return redirect(url_for('admin_schedule_week', week_id=week.id))
 
 
@@ -10354,6 +10520,147 @@ def seed_crew_app_settings():
 
 
 # =========================================================
+# TUTORIAL SYSTEM — SEED FIXTURES
+# =========================================================
+
+def seed_tutorial_fixtures():
+    """
+    Seed permanent dummy accounts for the tutorial sandbox.
+    Idempotent — checks for existence before creating.
+    Called at app startup; must not crash if migration hasn't run yet.
+    """
+    # 3 dummy sellers
+    _sellers = [
+        {
+            'email': 'tutorial_alex@campusswap.internal',
+            'full_name': 'Alex Martinez',
+            'pickup_address': '210 Pittsboro St, Chapel Hill NC',
+            'items': [('Desk lamp', 25.0), ('Mini-fridge', 85.0)],
+        },
+        {
+            'email': 'tutorial_jordan@campusswap.internal',
+            'full_name': 'Jordan Kim',
+            'pickup_address': '404 W Franklin St, Chapel Hill NC',
+            'items': [('Couch', 120.0), ('Bookshelf', 40.0)],
+        },
+        {
+            'email': 'tutorial_casey@campusswap.internal',
+            'full_name': 'Casey Brooks',
+            'pickup_address': '108 South Rd, Chapel Hill NC',
+            'items': [('Coffee table', 55.0), ('Desk chair', 45.0)],
+        },
+    ]
+
+    # 2 dummy workers
+    _workers = [
+        {
+            'email': 'tutorial_sam@campusswap.internal',
+            'full_name': 'Sam Torres',
+            'worker_status': 'pending',
+            'why_blurb': "I'm looking for flexible work during move-out season",
+        },
+        {
+            'email': 'tutorial_riley@campusswap.internal',
+            'full_name': 'Riley Chen',
+            'worker_status': 'approved',
+        },
+    ]
+
+    # Use the first available category for tutorial items (or None if no categories yet)
+    default_cat = InventoryCategory.query.first()
+
+    for s_data in _sellers:
+        existing = User.query.filter_by(email=s_data['email']).first()
+        if not existing:
+            import secrets as _sec
+            u = User(
+                email=s_data['email'],
+                full_name=s_data['full_name'],
+                password_hash=_sec.token_hex(20),
+                is_seller=True,
+                is_tutorial_user=True,
+                pickup_week='week1',
+                pickup_location_type='off_campus_other',
+                pickup_address=s_data['pickup_address'],
+                pickup_access_type='stairs_only',
+                pickup_floor=1,
+                payout_rate=20,
+                referral_source='tutorial',
+                unsubscribed=True,  # never real emails
+            )
+            db.session.add(u)
+            db.session.flush()
+            for item_name, item_price in s_data['items']:
+                item = InventoryItem(
+                    description=item_name,
+                    price=item_price,
+                    status='available',
+                    seller_id=u.id,
+                    category_id=default_cat.id if default_cat else None,
+                    quality=3,
+                )
+                db.session.add(item)
+
+    for w_data in _workers:
+        import secrets as _sec
+        existing = User.query.filter_by(email=w_data['email']).first()
+        if not existing:
+            u = User(
+                email=w_data['email'],
+                full_name=w_data['full_name'],
+                password_hash=_sec.token_hex(20),
+                is_worker=(w_data['worker_status'] == 'approved'),
+                worker_status=w_data['worker_status'],
+                worker_role='both' if w_data['worker_status'] == 'approved' else None,
+                is_tutorial_user=True,
+                payout_rate=20,
+                referral_source='tutorial',
+                unsubscribed=True,
+            )
+            db.session.add(u)
+            db.session.flush()
+            if 'why_blurb' in w_data:
+                app_rec = WorkerApplication(
+                    user_id=u.id,
+                    role_pref='both',
+                    why_blurb=w_data['why_blurb'],
+                    applied_at=datetime.utcnow(),
+                )
+                db.session.add(app_rec)
+            # All tutorial workers need a week_start=None availability record
+            avail = WorkerAvailability(user_id=u.id, week_start=None)
+            for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+                setattr(avail, f'{day}_am', True)
+                setattr(avail, f'{day}_pm', True)
+            db.session.add(avail)
+        else:
+            # Always enforce canonical state — reset any drift from admin actions
+            u = existing
+            u.worker_status = w_data['worker_status']
+            u.is_worker = (w_data['worker_status'] == 'approved')
+            u.worker_role = 'both' if w_data['worker_status'] == 'approved' else None
+            u.is_tutorial_user = True
+            # Ensure WorkerApplication exists for Sam Torres
+            if 'why_blurb' in w_data and not u.worker_application:
+                app_rec = WorkerApplication(
+                    user_id=u.id,
+                    role_pref='both',
+                    why_blurb=w_data['why_blurb'],
+                    applied_at=datetime.utcnow(),
+                )
+                db.session.add(app_rec)
+            # Ensure availability record exists (covers Riley who was seeded without one)
+            if not WorkerAvailability.query.filter_by(user_id=u.id, week_start=None).first():
+                avail = WorkerAvailability(user_id=u.id, week_start=None)
+                for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+                    setattr(avail, f'{day}_am', True)
+                    setattr(avail, f'{day}_pm', True)
+                db.session.add(avail)
+
+    db.session.commit()
+
+
+# =========================================================
 # SPEC #6 — ROUTE PLANNING HELPERS
 # =========================================================
 
@@ -10645,7 +10952,7 @@ def _run_auto_assignment():
 @login_required
 def admin_shift_add_truck(shift_id):
     """Increment Shift.trucks by 1. New truck = max existing + 1."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     # Use raw SQL to avoid mutating the ORM identity-mapped object in the caller's session.
     from sqlalchemy import text as _text
@@ -10666,7 +10973,7 @@ def admin_shift_add_truck(shift_id):
 @login_required
 def admin_shift_remove_truck(shift_id, truck_number):
     """Decrement Shift.trucks by 1. Only the highest-numbered empty truck can be removed."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     shift = Shift.query.get_or_404(shift_id)
 
@@ -10764,7 +11071,7 @@ def admin_shift_order_stops(shift_id):
 @login_required
 def admin_shift_reorder_stop(shift_id, pickup_id):
     """Set a specific stop_order value on a pickup."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     pickup = ShiftPickup.query.get_or_404(pickup_id)
     if pickup.shift_id != shift_id:
@@ -10795,10 +11102,27 @@ def admin_shift_notify_sellers(shift_id):
     shift_day_str = shift.label  # e.g. "Monday AM"
 
     base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    if tutorial_mode:
+        ts = current_user.tutorial_session
+        if ts and ts.step < 8:
+            flash("Complete the stop reorder before notifying sellers.", "error")
+            return redirect(url_for('admin_ops', shift_id=shift_id))
+
     sent_count = 0
     for pickup in pickups:
         seller = pickup.seller
         if not seller or not seller.email:
+            continue
+        # Hard guard: never send real email or SMS to tutorial sellers
+        if seller.is_tutorial_user:
+            pickup.notified_at = _now_eastern()
+            sent_count += 1
             continue
         first_name = seller.full_name.split()[0] if seller.full_name else 'there'
         try:
@@ -10839,7 +11163,19 @@ def admin_shift_notify_sellers(shift_id):
     if sent_count > 0 or not pickups:
         shift.sellers_notified = True
         shift.last_notified_at = _now_eastern()
+
+    # Tutorial: advance to step 7 and redirect to completion page
+    if tutorial_mode:
+        ts = current_user.tutorial_session
+        if ts and ts.step == 8:
+            ts.step = 9
+            session['tutorial_step'] = 9
+
     db.session.commit()
+
+    if tutorial_mode:
+        flash(f"Notified {sent_count} seller(s). (Tutorial mode — no real emails sent)", "success")
+        return redirect(url_for('admin_tutorial_complete_page'))
 
     flash(f"Notified {sent_count} seller(s).", "success")
     # Redirect to new ops page if coming from there, otherwise fall back to old shift ops
@@ -11221,7 +11557,8 @@ def admin_routes_assign_seller(user_id):
         abort(403)
     seller = User.query.get_or_404(user_id)
 
-    if not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
+    # Tutorial sellers skip the pickup-week/location validation
+    if not seller.is_tutorial_user and not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
         return jsonify({'error': 'Seller has not set their pickup week and address'}), 422
 
     # Global uniqueness check
@@ -11261,7 +11598,36 @@ def admin_routes_assign_seller(user_id):
         created_by_id=current_user.id,
     )
     db.session.add(pickup)
+
+    # Tutorial: check if all 3 tutorial sellers are now assigned → advance to reorder
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    tutorial_redirect = None
+    if tutorial_mode and seller.is_tutorial_user:
+        ts = current_user.tutorial_session
+        if ts and ts.step == 4:
+            db.session.flush()
+            assigned_tutorial_count = (
+                ShiftPickup.query
+                .join(User, ShiftPickup.seller_id == User.id)
+                .filter(User.is_tutorial_user == True)
+                .count()
+            )
+            if assigned_tutorial_count >= 3:
+                ts.step = 6
+                session['tutorial_step'] = 6
+                # Stay on ops — overlay at step 6 tells the CD to click Reorder Stops
+
     db.session.commit()
+    if tutorial_redirect:
+        if not request.is_json and request.form:
+            return redirect(tutorial_redirect)
+        return jsonify({'ok': True, 'pickup_id': pickup.id, 'capacity_warning': over_cap,
+                        'tutorial_redirect': tutorial_redirect})
     # If request came from the ops panel form (not JSON), redirect back
     if not request.is_json and request.form:
         return redirect(url_for('admin_ops', shift_id=shift.id))
@@ -11947,7 +12313,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'seller': seller,
                 'unit_count': unit_count,
                 'is_new': _is_new(p),
-                'is_rescheduled': p.rescheduled_from_shift_id is not None,
+                'is_rescheduled': (p.rescheduled_from_shift_id is not None or p.rescheduled_at is not None),
                 'item_count': InventoryItem.query.filter(
                     InventoryItem.seller_id == seller.id,
                     InventoryItem.status.notin_(['rejected', 'needs_info']),
@@ -11971,9 +12337,32 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
     return cards, shift_run
 
 
-def _ops_build_unassigned_panel(shift):
+def _ops_build_unassigned_panel(shift, tutorial_mode=False):
     """Build unassigned sellers pool for the right panel, filtered by shift slot."""
     assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
+
+    if tutorial_mode:
+        # Tutorial mode: show only tutorial sellers not yet assigned
+        all_unassigned = (
+            User.query
+            .filter(
+                User.is_tutorial_user == True,
+                User.is_seller == True,
+                User.id.notin_(assigned_seller_ids),
+            )
+            .order_by(User.full_name)
+            .all()
+        )
+        for s in all_unassigned:
+            s._is_new = False
+            s._unit_count = get_seller_unit_count(s)
+            s._item_photos = _get_seller_item_photos(s.id)
+        return {
+            'clusters': [{'label': 'Tutorial Sellers', 'sellers': all_unassigned}],
+            'slot_unmatched': [],
+            'total_unassigned': len(all_unassigned),
+        }
+
     _regular_all = [
         s for s in (
             User.query
@@ -11982,6 +12371,7 @@ def _ops_build_unassigned_panel(shift):
                 InventoryItem.status.notin_(['rejected', 'needs_info']),
                 User.pickup_week.isnot(None),
                 User.is_proxy_account == False,
+                User.is_tutorial_user == False,
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)
@@ -12034,9 +12424,12 @@ def _ops_build_unassigned_panel(shift):
     }
 
 
-def _ops_build_shift_list():
+def _ops_build_shift_list(tutorial_mode=False):
     """All shifts sorted by date+slot, grouped by ShiftWeek, for the left panel."""
-    all_weeks = ShiftWeek.query.order_by(ShiftWeek.week_start.asc()).all()
+    if tutorial_mode:
+        all_weeks = ShiftWeek.query.filter_by(is_tutorial=True).order_by(ShiftWeek.week_start.asc()).all()
+    else:
+        all_weeks = ShiftWeek.query.filter_by(is_tutorial=False).order_by(ShiftWeek.week_start.asc()).all()
     shift_list = []
     for week in all_weeks:
         week_shifts = sorted(
@@ -12068,35 +12461,56 @@ def admin_ops():
     if not _has_ops_access():
         abort(403)
 
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    ts = current_user.tutorial_session if tutorial_mode else None
+    tutorial_step = ts.step if ts else 0
+
     shift_id = request.args.get('shift_id', type=int)
     today = _today_eastern()
 
-    # Select active shift
-    if shift_id:
-        shift = Shift.query.get_or_404(shift_id)
+    if tutorial_mode:
+        # In tutorial mode: select the tutorial shift
+        if shift_id:
+            shift = Shift.query.get_or_404(shift_id)
+        else:
+            shift = (Shift.query
+                     .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                     .filter(ShiftWeek.is_tutorial == True, Shift.is_active == True)
+                     .order_by(ShiftWeek.week_start.asc())
+                     .first())
     else:
-        shift = (Shift.query
-                 .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
-                 .filter(ShiftWeek.week_start.isnot(None))
-                 .filter(Shift.is_active == True)
-                 .order_by(ShiftWeek.week_start.asc(), Shift.slot.asc())
-                 .first())
-        if shift:
-            # Prefer shifts on or after today
-            upcoming = (Shift.query
-                        .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
-                        .filter(ShiftWeek.week_start.isnot(None))
-                        .filter(Shift.is_active == True)
-                        .all())
-            future = [s for s in upcoming if _ops_shift_date(s) >= today]
-            if future:
-                shift = min(future, key=lambda s: (_ops_shift_date(s), s.sort_key))
-            else:
-                past = [s for s in upcoming]
-                if past:
-                    shift = max(past, key=lambda s: (_ops_shift_date(s), s.sort_key))
+        # Select active shift (non-tutorial weeks only)
+        if shift_id:
+            shift = Shift.query.get_or_404(shift_id)
+        else:
+            shift = (Shift.query
+                     .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                     .filter(ShiftWeek.week_start.isnot(None),
+                             ShiftWeek.is_tutorial == False,
+                             Shift.is_active == True)
+                     .order_by(ShiftWeek.week_start.asc(), Shift.slot.asc())
+                     .first())
+            if shift:
+                upcoming = (Shift.query
+                            .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                            .filter(ShiftWeek.week_start.isnot(None),
+                                    ShiftWeek.is_tutorial == False,
+                                    Shift.is_active == True)
+                            .all())
+                future = [s for s in upcoming if _ops_shift_date(s) >= today]
+                if future:
+                    shift = min(future, key=lambda s: (_ops_shift_date(s), s.sort_key))
+                else:
+                    past = [s for s in upcoming]
+                    if past:
+                        shift = max(past, key=lambda s: (_ops_shift_date(s), s.sort_key))
 
-    all_weeks, shift_list = _ops_build_shift_list()
+    all_weeks, shift_list = _ops_build_shift_list(tutorial_mode=tutorial_mode)
 
     if not shift:
         return render_template(
@@ -12111,6 +12525,8 @@ def admin_ops():
             shift_date=None,
             storage_locations=[],
             shift_truck_options=[],
+            tutorial_mode=tutorial_mode,
+            tutorial_step=tutorial_step,
         )
 
     # Zone 2: truck cards
@@ -12127,7 +12543,7 @@ def admin_ops():
     unnotified_count = sum(1 for p in pickups if p.notified_at is None)
 
     # Zone 3: unassigned panel
-    unassigned = _ops_build_unassigned_panel(shift)
+    unassigned = _ops_build_unassigned_panel(shift, tutorial_mode=tutorial_mode)
 
     shift_date = _ops_shift_date(shift)
 
@@ -12167,6 +12583,8 @@ def admin_ops():
         storage_locations=storage_locations,
         shift_truck_options=shift_truck_options,
         effective_cap=effective_cap,
+        tutorial_mode=tutorial_mode,
+        tutorial_step=tutorial_step,
     )
 
 
@@ -12253,12 +12671,28 @@ def admin_ops_reorder_page(shift_id, truck_number):
             InventoryItem.status.notin_(['rejected', 'needs_info']),
         ).count()
     shift_date = _ops_shift_date(shift)
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    ts = current_user.tutorial_session if tutorial_mode else None
+    # Bump step 6→7 on arrival so the reorder page renders with the "drag to reorder" card
+    if ts and ts.step == 6:
+        ts.step = 7
+        session['tutorial_step'] = 7
+        db.session.commit()
+    tutorial_step = ts.step if ts else 0
     return render_template(
         'admin/ops_reorder.html',
         shift=shift,
         truck_number=truck_number,
         pickups=pickups,
         shift_date=shift_date,
+        tutorial_mode=tutorial_mode,
+        tutorial_step=tutorial_step,
+        ts=ts,
     )
 
 
@@ -12288,6 +12722,16 @@ def admin_ops_reorder_stops(shift_id, truck_number):
     pickup_map = {p.id: p for p in pickups}
     for idx, pid in enumerate(stop_ids):
         pickup_map[pid].stop_order = idx + 1
+
+    # Tutorial: advance step after reordering (derive from DB, not session)
+    if (current_user.is_campus_director
+            and not current_user.is_admin
+            and not current_user.is_super_admin):
+        ts = current_user.tutorial_session
+        if ts and ts.step == 7:
+            ts.step = 8
+            session['tutorial_step'] = 8
+
     db.session.commit()
     return jsonify({'success': True, 'redirect': url_for('admin_ops', shift_id=shift_id)})
 
@@ -12454,15 +12898,34 @@ def admin_crew_panel():
     if not _has_ops_access():
         abort(403)
 
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    ts = current_user.tutorial_session if tutorial_mode else None
+    tutorial_step = ts.step if ts else 0
+
     # Determine displayed week
     week_id = request.args.get('week_id', type=int)
     if week_id:
         displayed_week = ShiftWeek.query.get_or_404(week_id)
+    elif tutorial_mode and ts and ts.tutorial_week_id:
+        displayed_week = ShiftWeek.query.get(ts.tutorial_week_id)
     else:
         displayed_week = _get_current_or_nearest_week()
 
-    # Prev/next weeks
-    prev_week, next_week = _get_adjacent_weeks(displayed_week)
+    # For tutorial mode, only show the tutorial week
+    if tutorial_mode and displayed_week and not displayed_week.is_tutorial:
+        displayed_week = (ShiftWeek.query.filter_by(is_tutorial=True)
+                         .order_by(ShiftWeek.week_start.asc()).first())
+
+    # Prev/next weeks (only within the same mode)
+    if tutorial_mode:
+        prev_week, next_week = None, None
+    else:
+        prev_week, next_week = _get_adjacent_weeks(displayed_week)
 
     # Shifts for displayed week, sorted
     if displayed_week:
@@ -12474,13 +12937,21 @@ def admin_crew_panel():
     else:
         shifts = []
 
-    # Approved workers
-    approved_workers = (
-        User.query
-        .filter_by(is_worker=True, worker_status='approved')
-        .order_by(User.full_name.asc())
-        .all()
-    )
+    # Approved workers — filtered by tutorial mode
+    if tutorial_mode:
+        approved_workers = (
+            User.query
+            .filter_by(is_tutorial_user=True, is_worker=True, worker_status='approved')
+            .order_by(User.full_name.asc())
+            .all()
+        )
+    else:
+        approved_workers = (
+            User.query
+            .filter_by(is_worker=True, worker_status='approved', is_tutorial_user=False)
+            .order_by(User.full_name.asc())
+            .all()
+        )
 
     # Current calendar week start (Monday)
     today = _today_eastern()
@@ -12523,14 +12994,23 @@ def admin_crew_panel():
             if late_add:
                 shifts_needing_renotify.add(shift.id)
 
-    # Pending applications
-    pending_apps = (
-        WorkerApplication.query
-        .join(User, WorkerApplication.user_id == User.id)
-        .filter(User.worker_status == 'pending')
-        .order_by(WorkerApplication.applied_at.desc())
-        .all()
-    )
+    # Pending applications — filtered by tutorial mode
+    if tutorial_mode:
+        pending_apps = (
+            WorkerApplication.query
+            .join(User, WorkerApplication.user_id == User.id)
+            .filter(User.worker_status == 'pending', User.is_tutorial_user == True)
+            .order_by(WorkerApplication.applied_at.desc())
+            .all()
+        )
+    else:
+        pending_apps = (
+            WorkerApplication.query
+            .join(User, WorkerApplication.user_id == User.id)
+            .filter(User.worker_status == 'pending', User.is_tutorial_user == False)
+            .order_by(WorkerApplication.applied_at.desc())
+            .all()
+        )
     for app_rec in pending_apps:
         app_rec._avail = WorkerAvailability.query.filter_by(
             user_id=app_rec.user_id, week_start=None
@@ -12560,6 +13040,8 @@ def admin_crew_panel():
         shifts_needing_renotify=shifts_needing_renotify,
         pending_apps=pending_apps,
         worker_avail_json=worker_avail_json,
+        tutorial_mode=tutorial_mode,
+        tutorial_step=tutorial_step,
     )
 
 
@@ -12567,7 +13049,7 @@ def admin_crew_panel():
 @login_required
 def admin_crew_override_availability(user_id):
     """Upsert WorkerAvailability for the current week from admin override."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     worker = User.query.get_or_404(user_id)
     if not worker.is_worker:
@@ -12602,7 +13084,7 @@ def admin_crew_override_availability(user_id):
 @login_required
 def admin_crew_quick_add(shift_id):
     """Add a worker to a shift from Crew HQ."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     is_fetch = request.headers.get('X-Requested-With') == 'fetch'
     shift = Shift.query.get_or_404(shift_id)
@@ -12632,9 +13114,29 @@ def admin_crew_quick_add(shift_id):
         truck_number=truck_number,
     )
     db.session.add(assignment)
+
+    # Tutorial: advance step when a worker is assigned to the tutorial shift
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+    tutorial_step_advanced = False
+    if tutorial_mode and shift.week and shift.week.is_tutorial:
+        ts = current_user.tutorial_session
+        if ts and ts.step == 3:
+            ts.step = 4
+            session['tutorial_step'] = 4
+            tutorial_step_advanced = True
+
     db.session.commit()
     if is_fetch:
-        return jsonify({'success': True, 'message': f'Worker added to {shift.label}.'})
+        resp = {'success': True, 'message': f'Worker added to {shift.label}.'}
+        if tutorial_step_advanced:
+            # Signal the client to reload so the overlay updates to "head to Ops"
+            resp['tutorial_step_advanced'] = True
+        return jsonify(resp)
     flash(f'Worker added to {shift.label}.', 'success')
     return redirect(url_for('admin_crew_panel', week_id=shift.week_id) + f'#shift-{shift_id}')
 
@@ -12643,7 +13145,7 @@ def admin_crew_quick_add(shift_id):
 @login_required
 def admin_crew_quick_remove(shift_id):
     """Remove a worker from a shift from Crew HQ. No email sent."""
-    if not current_user.is_admin:
+    if not _has_ops_access():
         abort(403)
     is_fetch = request.headers.get('X-Requested-With') == 'fetch'
     assignment_id = int(request.form['assignment_id'])
@@ -12814,6 +13316,9 @@ def admin_settings():
     storage_locations = StorageLocation.query.order_by(StorageLocation.is_active.desc(), StorageLocation.name).all()
     admin_users = User.query.filter_by(is_admin=True).order_by(User.email).all()
     campus_directors = User.query.filter_by(is_campus_director=True).order_by(User.full_name).all()
+    # Attach tutorial session to each CD for display in the settings table
+    for cd in campus_directors:
+        cd._tutorial_session = cd.tutorial_session
 
     # Count week1 sellers with no existing ShiftPickup (eligible for bulk reassign)
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.with_entities(ShiftPickup.seller_id).all()}
@@ -12978,6 +13483,182 @@ def admin_reassign_week():
     return redirect(url_for('admin_settings') + '#pickup-week-override')
 
 
+# =========================================================
+# TUTORIAL SYSTEM — ROUTES
+# =========================================================
+
+def _get_tutorial_fixtures():
+    """Return (alex, jordan, casey, sam, riley) tutorial users by email."""
+    def _get(email):
+        return User.query.filter_by(email=email).first()
+    return (
+        _get('tutorial_alex@campusswap.internal'),
+        _get('tutorial_jordan@campusswap.internal'),
+        _get('tutorial_casey@campusswap.internal'),
+        _get('tutorial_sam@campusswap.internal'),
+        _get('tutorial_riley@campusswap.internal'),
+    )
+
+
+def _cleanup_tutorial_week(week_id):
+    """Bulk-delete tutorial ShiftWeek and all its children in FK order."""
+    if not week_id:
+        return
+    week = ShiftWeek.query.get(week_id)
+    if not week:
+        return
+    shift_ids = [s.id for s in week.shifts]
+    if shift_ids:
+        db.session.execute(delete(RescheduleToken).where(
+            RescheduleToken.pickup_id.in_(
+                db.session.query(ShiftPickup.id).filter(ShiftPickup.shift_id.in_(shift_ids))
+            )
+        ))
+        db.session.execute(delete(ShiftPickup).where(ShiftPickup.shift_id.in_(shift_ids)))
+        db.session.execute(delete(ShiftAssignment).where(ShiftAssignment.shift_id.in_(shift_ids)))
+        db.session.execute(delete(Shift).where(Shift.week_id == week_id))
+    db.session.delete(week)
+    db.session.commit()
+
+
+@app.route('/admin/tutorial')
+@login_required
+def admin_tutorial_welcome():
+    """Tutorial welcome page (or restart page if prior incomplete session exists)."""
+    if not _has_ops_access():
+        abort(403)
+    ts = current_user.tutorial_session
+    first_name = current_user.full_name.split()[0] if current_user.full_name else 'there'
+    has_prior = (ts is not None and ts.step > 1)
+    return render_template('admin/tutorial_welcome.html',
+                           ts=ts, first_name=first_name, has_prior=has_prior)
+
+
+@app.route('/admin/tutorial/start', methods=['POST'])
+@login_required
+def admin_tutorial_start():
+    """Create/reset TutorialSession, clean up any prior tutorial week, set session flags."""
+    if not _has_ops_access():
+        abort(403)
+    ts = current_user.tutorial_session
+    if ts:
+        # Clean up prior tutorial week if it exists
+        if ts.tutorial_week_id:
+            _cleanup_tutorial_week(ts.tutorial_week_id)
+            ts.tutorial_week_id = None
+        ts.step = 1
+        ts.started_at = datetime.utcnow()
+        ts.completed_at = None
+        ts.is_retaking = False
+
+        # Reset tutorial worker fixtures to their canonical state
+        alex, jordan, casey, sam, riley = _get_tutorial_fixtures()
+        if sam:
+            sam.worker_status = 'pending'
+            sam.worker_role = None
+            sam.is_worker = False
+            if sam.worker_application:
+                sam.worker_application.reviewed_at = None
+                sam.worker_application.reviewed_by = None
+        if riley:
+            riley.worker_status = 'approved'
+            riley.worker_role = 'both'
+            riley.is_worker = True
+    else:
+        ts = TutorialSession(
+            user_id=current_user.id,
+            step=1,
+            started_at=datetime.utcnow(),
+        )
+        db.session.add(ts)
+    db.session.commit()
+    session['tutorial_active'] = True
+    session['tutorial_step'] = 1
+    return redirect(url_for('admin_schedule_index'))
+
+
+@app.route('/admin/tutorial/complete', methods=['GET', 'POST'])
+@login_required
+def admin_tutorial_complete_page():
+    """Completion page — marks tutorial done on GET, cleans up tutorial week."""
+    if not _has_ops_access():
+        abort(403)
+    ts = current_user.tutorial_session
+    if ts and ts.step >= 9 and not ts.completed_at:
+        # Mark complete and clean up tutorial week
+        if ts.tutorial_week_id:
+            _cleanup_tutorial_week(ts.tutorial_week_id)
+            ts.tutorial_week_id = None
+        ts.completed_at = datetime.utcnow()
+        ts.is_retaking = False
+        db.session.commit()
+    elif ts and ts.is_retaking and ts.step >= 9:
+        # Retake completion
+        if ts.tutorial_week_id:
+            _cleanup_tutorial_week(ts.tutorial_week_id)
+            ts.tutorial_week_id = None
+        ts.is_retaking = False
+        db.session.commit()
+    # Clear session flags
+    session.pop('tutorial_active', None)
+    session.pop('tutorial_step', None)
+    return render_template('admin/tutorial_complete.html')
+
+
+@app.route('/admin/tutorial/exit', methods=['POST'])
+@login_required
+def admin_tutorial_exit():
+    """Exit retake mode only (not first run). Clears is_retaking, lands on /admin/ops."""
+    if not _has_ops_access():
+        abort(403)
+    ts = current_user.tutorial_session
+    if ts and ts.is_retaking:
+        if ts.tutorial_week_id:
+            _cleanup_tutorial_week(ts.tutorial_week_id)
+            ts.tutorial_week_id = None
+        ts.is_retaking = False
+        ts.step = 9
+        db.session.commit()
+    session.pop('tutorial_active', None)
+    session.pop('tutorial_step', None)
+    return redirect(url_for('admin_ops'))
+
+
+@app.route('/admin/tutorial/restart', methods=['POST'])
+@login_required
+def admin_tutorial_restart():
+    """Retake tutorial (post-completion only). Sets is_retaking=True, resets step."""
+    if not _has_ops_access():
+        abort(403)
+    if not current_user.is_campus_director:
+        abort(403)
+    ts = current_user.tutorial_session
+    if not ts or not ts.completed_at:
+        flash("Complete the tutorial first before retaking.", "error")
+        return redirect(url_for('admin_cd_settings'))
+    if ts.tutorial_week_id:
+        _cleanup_tutorial_week(ts.tutorial_week_id)
+        ts.tutorial_week_id = None
+    ts.is_retaking = True
+    ts.step = 1
+    ts.started_at = datetime.utcnow()
+    ts.last_retake_at = datetime.utcnow()
+    db.session.commit()
+    session['tutorial_active'] = True
+    session['tutorial_step'] = 1
+    return redirect(url_for('admin_schedule_index'))
+
+
+@app.route('/admin/cd-settings')
+@login_required
+def admin_cd_settings():
+    """Campus director settings page."""
+    if not current_user.is_campus_director:
+        abort(403)
+    ts = current_user.tutorial_session
+    return render_template('admin/cd_settings.html', ts=ts)
+
+
 if __name__ == '__main__':
     with app.app_context():
         # Only create DB if it doesn't exist (Local SQLite check)
@@ -12988,6 +13669,10 @@ if __name__ == '__main__':
             seed_crew_app_settings()
         except Exception as _seed_err:
             logger.warning(f"seed_crew_app_settings skipped (run flask db upgrade): {_seed_err}")
+        try:
+            seed_tutorial_fixtures()
+        except Exception as _seed_err:
+            logger.warning(f"seed_tutorial_fixtures skipped (run flask db upgrade): {_seed_err}")
         # Auto-seed categories if table is empty (local dev safety net)
         if 'DATABASE_URL' not in os.environ:
             from models import InventoryCategory

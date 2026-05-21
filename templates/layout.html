@@ -213,6 +213,12 @@
                 <a href="/dashboard" class="nav-item" aria-label="Dashboard">
                     <i class="fas fa-columns"></i> Dashboard
                 </a>
+                {% if current_user.is_campus_director %}
+                <div class="role-switcher">
+                    <a href="/switch-role/seller" class="role-switcher-btn {% if not request.path.startswith('/admin') %}active{% endif %}">👤 Seller</a>
+                    <a href="/switch-role/admin" class="role-switcher-btn {% if request.path.startswith('/admin') %}active{% endif %}">⚙ Admin</a>
+                </div>
+                {% endif %}
                 <div style="position: relative; display: inline-block;">
                     <button id="user-menu-btn" class="nav-icon-btn" title="Account Menu" style="background: none; border: none; cursor: pointer; padding: 0;">
                         <i class="fas fa-user-circle" style="font-size: 1.8rem; color: var(--primary);"></i>
@@ -269,6 +275,14 @@
             <a href="/crew" class="mobile-menu-link"><i class="fas fa-hard-hat"></i> Crew Portal</a>
             {% endif %}
             <a href="/dashboard" class="mobile-menu-link"><i class="fas fa-columns"></i> Dashboard</a>
+            {% if current_user.is_campus_director %}
+            <div class="mobile-role-switcher">
+                <div class="role-switcher">
+                    <a href="/switch-role/seller" class="role-switcher-btn {% if not request.path.startswith('/admin') %}active{% endif %}">👤 Seller</a>
+                    <a href="/switch-role/admin" class="role-switcher-btn {% if request.path.startswith('/admin') %}active{% endif %}">⚙ Admin</a>
+                </div>
+            </div>
+            {% endif %}
             <a href="/account_settings" class="mobile-menu-link"><i class="fas fa-user-cog"></i> Account Settings</a>
             {% if current_user.is_admin %}
             <a href="/admin/ops" class="mobile-menu-link"><i class="fas fa-route"></i> Admin</a>
@@ -383,6 +397,34 @@
             margin: 8px 0;
             border: 0;
             border-top: 1px solid #e2e8f0;
+        }
+        .role-switcher {
+            display: inline-flex;
+            border: 1.5px solid var(--primary);
+            border-radius: 20px;
+            overflow: hidden;
+            font-size: 0.8rem;
+        }
+        .role-switcher-btn {
+            padding: 4px 12px;
+            color: var(--primary);
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+        .role-switcher-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+        .role-switcher-btn:hover:not(.active) {
+            background: var(--bg-cream);
+        }
+        .mobile-role-switcher {
+            display: flex;
+            margin: 8px 16px;
+        }
+        .mobile-role-switcher .role-switcher {
+            flex: 1;
+            justify-content: center;
         }
     </style>
 

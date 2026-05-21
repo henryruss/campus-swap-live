@@ -1,6 +1,7 @@
 {% extends "admin/admin_layout.html" %}
 
 {% block admin_content %}
+{% if tutorial_mode %}{% include 'admin/tutorial_overlay.html' %}{% endif %}
 <style>
   .schedule-header {
     background: var(--bg-cream);
@@ -76,7 +77,7 @@
 <div class="container" style="max-width: 900px; margin-bottom: 80px;">
 
   <!-- Create new week form -->
-  <div class="card create-card" style="margin-bottom: 36px;">
+  <div class="card create-card {% if tutorial_mode and tutorial_step == 1 %}tutorial-highlight{% endif %}" style="margin-bottom: 36px;">
     <h2 style="font-family: 'DM Serif Display', serif; font-size: 1.3rem; margin: 0 0 20px; color: var(--primary);">Create New Week</h2>
     <form method="POST" action="{{ url_for('admin_schedule_create') }}" id="create-week-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

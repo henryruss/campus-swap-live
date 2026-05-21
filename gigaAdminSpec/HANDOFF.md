@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-05-20
+**Last updated:** 2026-05-21
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture feature + UX fixes + follow-up approval queue fixes built 2026-05-20.
+**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal flow built 2026-05-20–21.
 
 ---
 
@@ -50,6 +50,50 @@
 - feature_quick_capture ✅ Complete 2026-05-20 (driver photo capture at pickup; internal Campus Swap account; admin queue)
 - feature_quick_capture_ux_fixes ✅ Complete 2026-05-20 (notes field, modal reset, stop card photo strip, crew+admin hard delete)
 - fix_quick_capture_status_and_approval ✅ Complete 2026-05-20 (status→pending_valuation, one-click approve, approval queue filtering, digest filtering)
+- feature_approval_queue_modal ✅ Complete 2026-05-21 (single-page modal flow for approval queue; no new tabs; fetch partial + fetch POST actions)
+
+---
+
+## Feature: Approval Queue Modal Flow (Built 2026-05-21)
+
+**Status:** In production
+**Spec file:** `feature_approval_queue_modal.md`
+
+### What Was Built
+
+**New route (`app.py`)**
+- `GET /admin/item/<id>/approval-detail` → `admin_item_approval_detail` — returns HTML partial (no layout) with full item data: gallery photos, description, long_description, suggested_price, quality, category.name, date_added, seller.full_name. Auth: `is_admin or is_super_admin`. 404 if item not `pending_valuation`. Eager-loads `gallery_photos`, `category`, `seller` via `joinedload`.
+
+**Modified routes (`app.py`)**
+- `admin_approve` (POST `/admin/approve`) — added `modal=1` branch: returns `jsonify({'success': True})` on approve/reject success; `jsonify({'success': False, 'error': '...'})` on validation failures (missing price, invalid price). Existing redirect path unchanged for non-modal requests.
+- `admin_request_info` (POST `/admin/item/<id>/request_info`) — added `modal=1` branch: same JSON response pattern. Existing redirect path unchanged.
+
+**New template (`templates/admin/approval_detail_partial.html`)**
+- HTML partial (no layout). Renders gallery (track + prev/next/counter), item title, meta (seller link, category, quality, date added), long description, suggested price callout. Root div carries `data-item-id`, `data-seller-id`, `data-suggested-price` for JS to read after innerHTML injection.
+
+**Modified template (`templates/admin/items.html`)**
+- Approval queue cards: removed inline price forms and action buttons; cards are now clickable `div[role=button]` triggers with `onclick="openApprovalModal(id)"`. Each card shows thumbnail, title, seller name (stopPropagation → seller panel), date, category, suggested price badge, and "Click to review" hint.
+- Added single modal instance (reused for all items): overlay + panel with close button, inner content area (spinner → partial innerHTML), footer (price input + Approve / Need Info / Reject buttons), and Need Info sub-panel (reason checkboxes + note textarea + Cancel / Send).
+- Added comprehensive CSS: `.approval-modal-overlay/.panel/.close`, gallery track with prev/next buttons and counter, footer price row with input, `.btn-danger` (red outline), `.approve-card` hover lift, mobile full-height responsive layout.
+
+**Key JS functions added:**
+- `openApprovalModal(itemId)` — resets state, opens overlay, fetch-GETs `/admin/item/<id>/approval-detail`, injects innerHTML, pre-fills price from `data-suggested-price`, resets gallery index.
+- `closeApprovalModal()` — removes `open` class, restores `body.overflow`.
+- `approvalGalleryMove(dir)` — updates CSS transform on track + counter text.
+- `approvalAction(action)` — confirm for reject, fetch POST `/admin/approve` with `modal=1`; on success calls `removeApprovalCard`; on error shows inline status message.
+- `showNeedInfoPanel()` / `hideNeedInfoPanel()` / `clearNeedInfoForm()` — swap footer ↔ need-info sub-panel.
+- `submitNeedInfo()` — fetch POST `/admin/item/<id>/request_info` with `modal=1`, collected reasons, note.
+- `removeApprovalCard(itemId)` — removes card from DOM, decrements pending count badge, shows empty-state when grid is empty.
+- Event delegation for `.seller-panel-trigger` inside modal content (required because innerHTML replacement doesn't re-run `<script>` blocks).
+- Overlay click and Escape key close modal without action.
+
+### Deviations from Spec
+
+1. **Need Info as a sub-panel, not a separate modal.** The spec described an inline form but didn't specify whether it was inside the same panel or a second overlay. Implemented as a hidden div inside `.approval-modal-panel` that swaps with the footer — simpler, no z-index stacking issues, and the seller panel can still open simultaneously.
+
+2. **Gallery built from `item.gallery_photos` only.** The partial uses `item.gallery_photos` (the `ItemPhoto` relationship). If `gallery_photos` is empty but `item.photo_url` exists (legacy cover-only items), it falls back to rendering the single `photo_url` image. Consistent with existing item detail pages.
+
+3. **`maybeBoxAlert` JS function left as dead code.** It previously drove `send_box_alert` checkboxes on the inline approval forms. Those forms are gone, so the function is never called. Harmless; can be cleaned up in a future pass.
 
 ---
 

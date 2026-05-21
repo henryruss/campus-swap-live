@@ -1,6 +1,7 @@
 {% extends "admin/admin_layout.html" %}
 
 {% block admin_content %}
+{% if tutorial_mode %}{% include 'admin/tutorial_overlay.html' %}{% endif %}
 <style>
   /* ── Scroll isolation: admin-shell and admin-content must not scroll on ops page ── */
   /* nav height = 72px (site-header in layout.html) */
@@ -635,7 +636,13 @@
             <i class="fas fa-plus"></i> Add Truck
           </button>
         </form>
-        <button class="btn-sm primary" id="notifyBtn"
+        {% if tutorial_mode and tutorial_step < 8 %}
+        <button class="btn-sm" disabled title="Reorder your stops first"
+                style="opacity: 0.45; cursor: not-allowed;">
+          <i class="fas fa-bell"></i> Notify Sellers
+        </button>
+        {% else %}
+        <button class="btn-sm primary {% if tutorial_mode and tutorial_step == 8 %}tutorial-highlight{% endif %}" id="notifyBtn"
                 data-shift-id="{{ shift.id }}"
                 data-unnotified="{{ unnotified_count }}">
           <i class="fas fa-bell"></i> Notify Sellers
@@ -643,6 +650,7 @@
             <span style="background: rgba(255,255,255,0.3); border-radius: 10px; padding: 0 6px; font-size: 0.7rem;">{{ unnotified_count }}</span>
           {% endif %}
         </button>
+        {% endif %}
       </div>
     </div>
 
@@ -705,7 +713,7 @@
 
           {% if card.stop_rows | length >= 2 %}
           <a href="{{ url_for('admin_ops_reorder_page', shift_id=shift.id, truck_number=card.truck_number) }}"
-             class="btn-sm">
+             class="btn-sm {% if tutorial_mode and tutorial_step == 6 and card.truck_number == 1 %}tutorial-highlight{% endif %}">
             <i class="fas fa-sort"></i> Reorder Stops
           </a>
           {% endif %}
@@ -821,7 +829,7 @@
   </section>
 
   {# ── Zone 3: Unassigned sellers panel ── #}
-  <aside class="ops-unassigned-panel">
+  <aside class="ops-unassigned-panel {% if tutorial_mode and tutorial_step == 4 %}tutorial-highlight{% endif %}">
     <div class="unassigned-header">
       <div class="unassigned-header-row">
         <h3>Unassigned</h3>

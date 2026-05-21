@@ -438,6 +438,7 @@
             <th style="padding: 6px 8px; text-align: left;">Email</th>
             <th style="padding: 6px 8px; text-align: left;">School</th>
             <th style="padding: 6px 8px; text-align: left;">Joined</th>
+            <th style="padding: 6px 8px; text-align: left;">Tutorial</th>
             <th style="padding: 6px 0 6px 8px; text-align: right;"></th>
           </tr>
         </thead>
@@ -448,6 +449,16 @@
             <td style="padding: 8px;">{{ u.email }}</td>
             <td style="padding: 8px;">{{ u.campus_director_school or '—' }}</td>
             <td style="padding: 8px; color: var(--text-muted);">{{ u.date_joined.strftime('%b %-d, %Y') if u.date_joined else '—' }}</td>
+            <td style="padding: 8px;">
+              {% set _ts = u._tutorial_session if u._tutorial_session is defined else u.tutorial_session %}
+              {% if _ts and _ts.completed_at %}
+                <span style="color: var(--sage); font-size: 0.78rem; font-weight: 600;"><i class="fas fa-check-circle"></i> Done</span>
+              {% elif _ts and _ts.step > 0 %}
+                <span style="color: #92400e; font-size: 0.78rem;">Step {{ _ts.step }}/6</span>
+              {% else %}
+                <span style="color: var(--text-muted); font-size: 0.78rem;">Not started</span>
+              {% endif %}
+            </td>
             <td style="padding: 8px 0 8px 8px; text-align: right;">
               <form method="POST" action="{{ url_for('admin_revoke_campus_director') }}" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

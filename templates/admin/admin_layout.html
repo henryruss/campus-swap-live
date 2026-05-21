@@ -158,6 +158,8 @@
     {% set active_tab = 'crew' %}
   {% elif _path.startswith('/admin/settings') or _path.startswith('/admin/storage') or _path.startswith('/admin/settings/route') %}
     {% set active_tab = 'settings' %}
+  {% elif _path.startswith('/admin/cd-settings') %}
+    {% set active_tab = 'cd-settings' %}
   {% elif _path.startswith('/admin/schedule') %}
     {% set active_tab = 'schedule' %}
   {% else %}
@@ -169,7 +171,7 @@
     <nav class="admin-sidebar-nav">
       {# Ops: admin, super_admin, campus_director #}
       <a href="/admin/ops"
-         class="admin-nav-item {% if active_tab == 'ops' %}active{% endif %}"
+         class="admin-nav-item {% if active_tab == 'ops' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 4 and request.path.startswith('/admin/crew') %}tutorial-highlight{% endif %}"
          title="Ops">
         <i class="fas fa-route"></i>
         <span class="nav-tooltip">Ops</span>
@@ -212,7 +214,7 @@
 
       {# Crew: admin, super_admin, campus_director #}
       <a href="/admin/crew"
-         class="admin-nav-item {% if active_tab == 'crew' %}active{% endif %}"
+         class="admin-nav-item {% if active_tab == 'crew' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 2 and request.path.startswith('/admin/schedule') %}tutorial-highlight{% endif %}"
          title="Crew">
         <i class="fas fa-users"></i>
         <span class="nav-tooltip">Crew</span>
@@ -234,6 +236,18 @@
 
       <a href="/admin/settings"
          class="admin-nav-item {% if active_tab == 'settings' %}active{% endif %}"
+         title="Settings">
+        <i class="fas fa-cog"></i>
+        <span class="nav-tooltip">Settings</span>
+      </a>
+      {% endif %}
+
+      {# CD Settings: campus_director only (not admin or super_admin) #}
+      {% if current_user.is_campus_director and not current_user.is_admin and not current_user.is_super_admin %}
+      <div class="admin-nav-divider"></div>
+
+      <a href="/admin/cd-settings"
+         class="admin-nav-item {% if active_tab == 'cd-settings' %}active{% endif %}"
          title="Settings">
         <i class="fas fa-cog"></i>
         <span class="nav-tooltip">Settings</span>

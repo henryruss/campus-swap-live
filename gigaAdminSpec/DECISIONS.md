@@ -813,3 +813,48 @@ The grid is already intuitive enough without a shortcut.
 **Decision (section headers like "Dorm", "Floor", etc.):** Changed from `<label>` to `<p>` with explicit inline styles. These aren't functional labels (not associated with a specific input via `for`), so there's no accessibility tradeoff.
 
 **Reasoning:** The global `label` rule was written for form field labels (e.g., "Email", "Phone"). It shouldn't apply to interactive card elements styled as buttons. The cleanest fix short of modifying `style.css` globally is to use class specificity. Modifying `style.css` globally would risk breaking other form labels throughout the app.
+
+
+---
+
+### Decision: Approval queue actions use `modal=1` form field for JSON responses (not a separate endpoint)
+**Date:** 2026-05-21
+**Decision:** Added a `modal=1` branch inside the existing `admin_approve` and `admin_request_info` POST routes. When present, the route returns `jsonify({'success': True})` or `jsonify({'success': False, 'error': '...'})` instead of redirecting. The existing redirect path is completely unchanged.
+
+**Reasoning:** The spec called for using existing routes via fetch. Adding a separate `/admin/approve/ajax` endpoint would duplicate logic and create two code paths to keep in sync. A single field (`modal=1`) is the minimal signal needed to change the response format. Same pattern already used in ops routes (`truck_detail`, etc.).
+
+**Tradeoff accepted:** The route now has two return paths that are slightly awkward to read. Acceptable given it's a small branch and the non-modal path is unchanged.
+
+---
+
+### Decision: Modal item detail is fetched on demand (not embedded in page HTML)
+**Date:** 2026-05-21
+**Decision:** Clicking a card fires `GET /admin/item/<id>/approval-detail` and injects the HTML partial into the modal. Item data is not embedded in the card's `data-*` attributes or in the page's initial render.
+
+**Reasoning:** Long descriptions and gallery photo arrays are too large to embed in all card `data-*` attributes. Pre-rendering all partial HTML would mean fetching and including photo URLs for every item upfront — most of which the admin never reviews in a given session. On-demand fetch means the server only does work for items actually opened. Matches the pattern used by `admin_ops_truck_detail`.
+
+**Tradeoff accepted:** One extra network round-trip on card click. Acceptable at admin page load counts; the spinner shows immediately so the UX doesn't feel slow.
+
+---
+
+### Decision: Need Info form is a sub-panel inside the modal (not a second overlay)
+**Date:** 2026-05-21
+**Decision:** The Need Info reason form lives in a hidden `div` inside `.approval-modal-panel`. Clicking "Need Info" hides the footer (price input + main action buttons) and reveals the sub-panel. "Cancel" reverses this. No second modal or overlay is created.
+
+**Reasoning:** A second overlay would require z-index stacking and would block the seller profile panel from being visible simultaneously (a spec constraint). A sub-panel is simpler: no new DOM insertion, no overlay management, no z-index conflict. The panel is already scrollable so the extra content fits naturally.
+
+---
+
+### Decision: Event delegation for `.seller-panel-trigger` inside modal content
+**Date:** 2026-05-21
+**Decision:** The seller name link in the approval detail partial has class `seller-panel-trigger`. A delegated listener on `document` (or the modal panel) fires `loadSellerPanel(userId)` when any `.seller-panel-trigger` is clicked — not a direct `onclick` on the link.
+
+**Reasoning:** The partial HTML is injected via `innerHTML`, which does not execute `<script>` blocks. Any `onclick` attribute or event listener attached to the element before injection would be discarded. Delegation from a persistent ancestor survives innerHTML replacement and is the correct pattern for dynamically injected content. Same approach used throughout the admin ops page.
+
+---
+
+### Decision: `maybeBoxAlert` JS function left as dead code
+**Date:** 2026-05-21
+**Decision:** The `maybeBoxAlert` function in `items.html` references `send_box_alert` checkbox inputs that were removed with the inline approval forms. The function was not deleted.
+
+**Reasoning:** It is never called in the new flow — no harm, no bug. Deleting it could cause issues if another call site exists that wasn't found during the refactor. Safe to clean up in a future pass once confirmed unreferenced.

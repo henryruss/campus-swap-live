@@ -237,6 +237,8 @@ The ops system connects back to the seller experience in three ways:
 | — | `feature_ops_fixes_round2.md` | ✅ Done (in production ~2026-05-03) | Eligibility filter expansion, week filter removal, auto-assign fetch, remove truck |
 | — | `fix_crew_dashboard_and_soft_stops.md` | ✅ Done (in production ~2026-05-05) | Crew dashboard no publish-gate; soft stop actions until confirmed End Shift |
 | — | `fix_remove_ai_pricing.md` | ✅ Done (in production ~2026-05-01) | Removed broken ItemAiResult model (was causing 500 errors) |
+| — | `feature_quick_capture.md` | ✅ Done (in production ~2026-05-20) | Driver field photo capture, internal Campus Swap account, admin needs_info queue |
+| — | `feature_approval_queue_modal.md` | ✅ Done (built 2026-05-21) | Single-page modal flow for approval queue — fetch partial detail + fetch POST actions, no new tabs |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

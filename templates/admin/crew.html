@@ -1,6 +1,7 @@
 {% extends "admin/admin_layout.html" %}
 
 {% block admin_content %}
+{% if tutorial_mode %}{% include 'admin/tutorial_overlay.html' %}{% endif %}
 <style>
   /* ── Layout ── */
   .crew-hq { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
@@ -340,16 +341,9 @@
   </details>
 
   {# ══════════════════════════════════════════════════════
-     Section 2: Shift Board (fetch-swappable)
+     Section 2: Pending Applications (collapsible)
   ══════════════════════════════════════════════════════ #}
-  <div class="shift-board" id="shift-board">
-    {% include 'admin/crew_shift_board_partial.html' %}
-  </div>
-
-  {# ══════════════════════════════════════════════════════
-     Section 3: Pending Applications (collapsible)
-  ══════════════════════════════════════════════════════ #}
-  <details class="crew-hq-applications" {% if pending_apps %}open{% endif %}>
+  <details class="crew-hq-applications {% if tutorial_mode and tutorial_step == 2 %}tutorial-highlight{% endif %}" {% if pending_apps or tutorial_mode %}open{% endif %}>
     <summary>
       Pending Applications
       {% if pending_apps %}
@@ -423,6 +417,14 @@
       {% endif %}
     </div>
   </details>
+
+  {# ══════════════════════════════════════════════════════
+     Section 3: Shift Board (fetch-swappable)
+  ══════════════════════════════════════════════════════ #}
+  <div class="shift-board {% if tutorial_mode and tutorial_step == 3 %}tutorial-highlight{% endif %}" id="shift-board">
+    {% include 'admin/crew_shift_board_partial.html' %}
+  </div>
+
 </div>
 
 {# ── Availability override modal ── #}
@@ -518,7 +520,10 @@ function bindBoardHandlers() {
       })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data.success) {
+        if (data.tutorial_step_advanced) {
+          // Reload so overlay re-renders with "head to Ops" message
+          window.location.reload();
+        } else if (data.success) {
           loadShiftBoard(currentBoardWeekId);
         } else {
           showShiftError(shiftId, data.message || 'Error adding worker.');
