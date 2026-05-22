@@ -13645,24 +13645,24 @@ def _get_tutorial_fixtures():
 
 
 def _cleanup_tutorial_week(week_id):
-    """Bulk-delete tutorial ShiftWeek and all its children in FK order."""
+    """Bulk-delete tutorial ShiftWeek and all its children in FK dependency order."""
     if not week_id:
         return
     week = ShiftWeek.query.get(week_id)
     if not week:
         return
-    shift_ids = [s.id for s in week.shifts]
-    if shift_ids:
-        db.session.execute(delete(RescheduleToken).where(
-            RescheduleToken.pickup_id.in_(
-                db.session.query(ShiftPickup.id).filter(ShiftPickup.shift_id.in_(shift_ids))
-            )
-        ))
-        db.session.execute(delete(ShiftPickup).where(ShiftPickup.shift_id.in_(shift_ids)))
-        db.session.execute(delete(ShiftAssignment).where(ShiftAssignment.shift_id.in_(shift_ids)))
+    try:
+        shift_ids_q = db.session.query(Shift.id).filter(Shift.week_id == week_id)
+        pickup_ids_q = db.session.query(ShiftPickup.id).filter(ShiftPickup.shift_id.in_(shift_ids_q))
+        db.session.execute(delete(RescheduleToken).where(RescheduleToken.pickup_id.in_(pickup_ids_q)))
+        db.session.execute(delete(ShiftPickup).where(ShiftPickup.shift_id.in_(shift_ids_q)))
+        db.session.execute(delete(ShiftAssignment).where(ShiftAssignment.shift_id.in_(shift_ids_q)))
         db.session.execute(delete(Shift).where(Shift.week_id == week_id))
-    db.session.delete(week)
-    db.session.commit()
+        db.session.execute(delete(ShiftWeek).where(ShiftWeek.id == week_id))
+    except Exception as e:
+        app.logger.error(f"Tutorial cleanup failed for week_id={week_id}: {e}", exc_info=True)
+        db.session.rollback()
+        raise
 
 
 @app.route('/admin/tutorial')
@@ -13686,28 +13686,37 @@ def admin_tutorial_start():
         abort(403)
     ts = current_user.tutorial_session
     if ts:
-        # Clean up prior tutorial week if it exists
-        if ts.tutorial_week_id:
-            _cleanup_tutorial_week(ts.tutorial_week_id)
-            ts.tutorial_week_id = None
+        # Worker resets run first — if cleanup later raises, at least fixtures are reset
+        try:
+            alex, jordan, casey, sam, riley = _get_tutorial_fixtures()
+            if sam:
+                sam.worker_status = 'pending'
+                sam.worker_role = None
+                sam.is_worker = False
+                if sam.worker_application:
+                    sam.worker_application.reviewed_at = None
+                    sam.worker_application.reviewed_by = None
+            if riley:
+                riley.worker_status = 'approved'
+                riley.worker_role = 'both'
+                riley.is_worker = True
+        except Exception as e:
+            app.logger.error(f"Tutorial fixture reset failed: {e}", exc_info=True)
+
+        # Clean up prior tutorial week — always clear the FK even if cleanup raises
+        prior_week_id = ts.tutorial_week_id
+        ts.tutorial_week_id = None  # clear before commit so a failed retry doesn't re-attempt
+        if prior_week_id:
+            try:
+                _cleanup_tutorial_week(prior_week_id)
+            except Exception as e:
+                app.logger.error(f"Tutorial restart cleanup failed: {e}", exc_info=True)
+                # week may be partially deleted; safe to continue — week_id already cleared above
+
         ts.step = 1
         ts.started_at = datetime.utcnow()
         ts.completed_at = None
         ts.is_retaking = False
-
-        # Reset tutorial worker fixtures to their canonical state
-        alex, jordan, casey, sam, riley = _get_tutorial_fixtures()
-        if sam:
-            sam.worker_status = 'pending'
-            sam.worker_role = None
-            sam.is_worker = False
-            if sam.worker_application:
-                sam.worker_application.reviewed_at = None
-                sam.worker_application.reviewed_by = None
-        if riley:
-            riley.worker_status = 'approved'
-            riley.worker_role = 'both'
-            riley.is_worker = True
     else:
         ts = TutorialSession(
             user_id=current_user.id,
@@ -13729,18 +13738,24 @@ def admin_tutorial_complete_page():
         abort(403)
     ts = current_user.tutorial_session
     if ts and ts.step >= 9 and not ts.completed_at:
-        # Mark complete and clean up tutorial week
-        if ts.tutorial_week_id:
-            _cleanup_tutorial_week(ts.tutorial_week_id)
-            ts.tutorial_week_id = None
+        prior_week_id = ts.tutorial_week_id
+        ts.tutorial_week_id = None
+        if prior_week_id:
+            try:
+                _cleanup_tutorial_week(prior_week_id)
+            except Exception as e:
+                app.logger.error(f"Tutorial complete cleanup failed: {e}", exc_info=True)
         ts.completed_at = datetime.utcnow()
         ts.is_retaking = False
         db.session.commit()
     elif ts and ts.is_retaking and ts.step >= 9:
-        # Retake completion
-        if ts.tutorial_week_id:
-            _cleanup_tutorial_week(ts.tutorial_week_id)
-            ts.tutorial_week_id = None
+        prior_week_id = ts.tutorial_week_id
+        ts.tutorial_week_id = None
+        if prior_week_id:
+            try:
+                _cleanup_tutorial_week(prior_week_id)
+            except Exception as e:
+                app.logger.error(f"Tutorial retake-complete cleanup failed: {e}", exc_info=True)
         ts.is_retaking = False
         db.session.commit()
     # Clear session flags
@@ -13757,9 +13772,13 @@ def admin_tutorial_exit():
         abort(403)
     ts = current_user.tutorial_session
     if ts and ts.is_retaking:
-        if ts.tutorial_week_id:
-            _cleanup_tutorial_week(ts.tutorial_week_id)
-            ts.tutorial_week_id = None
+        prior_week_id = ts.tutorial_week_id
+        ts.tutorial_week_id = None
+        if prior_week_id:
+            try:
+                _cleanup_tutorial_week(prior_week_id)
+            except Exception as e:
+                app.logger.error(f"Tutorial exit cleanup failed: {e}", exc_info=True)
         ts.is_retaking = False
         ts.step = 9
         db.session.commit()
@@ -13780,9 +13799,13 @@ def admin_tutorial_restart():
     if not ts or not ts.completed_at:
         flash("Complete the tutorial first before retaking.", "error")
         return redirect(url_for('admin_cd_settings'))
-    if ts.tutorial_week_id:
-        _cleanup_tutorial_week(ts.tutorial_week_id)
-        ts.tutorial_week_id = None
+    prior_week_id = ts.tutorial_week_id
+    ts.tutorial_week_id = None  # clear before commit so a failed retry doesn't re-attempt
+    if prior_week_id:
+        try:
+            _cleanup_tutorial_week(prior_week_id)
+        except Exception as e:
+            app.logger.error(f"Tutorial restart cleanup failed: {e}", exc_info=True)
     ts.is_retaking = True
     ts.step = 1
     ts.started_at = datetime.utcnow()
