@@ -12632,14 +12632,22 @@ def admin_ops():
     tutorial_week_id = ts.tutorial_week_id if ts else None
 
     if tutorial_mode:
-        # In tutorial mode: select the tutorial shift scoped to this CD's tutorial week
+        # In tutorial mode: always land on the shift that has Casey's pre-assigned pickup.
+        # Never use today's date — the tutorial shift is on the Monday of the chosen week.
         if shift_id:
             shift = Shift.query.get_or_404(shift_id)
         elif tutorial_week_id:
+            # Prefer the shift that has a ShiftPickup (Casey pre-assigned)
             shift = (Shift.query
+                     .join(ShiftPickup, ShiftPickup.shift_id == Shift.id)
                      .filter(Shift.week_id == tutorial_week_id, Shift.is_active == True)
-                     .order_by(Shift.day_of_week.asc(), Shift.slot.asc())
                      .first())
+            if not shift:
+                # Fallback: first active shift in the tutorial week
+                shift = (Shift.query
+                         .filter(Shift.week_id == tutorial_week_id, Shift.is_active == True)
+                         .order_by(Shift.day_of_week.asc(), Shift.slot.asc())
+                         .first())
         else:
             shift = None
     else:
@@ -13325,6 +13333,14 @@ def admin_crew_shift_board_partial():
     """HTML partial for the crew shift board (no layout). Used by fetch-based week nav."""
     if not _has_ops_access():
         abort(403)
+
+    tutorial_mode = (
+        current_user.is_campus_director
+        and not current_user.is_admin
+        and not current_user.is_super_admin
+        and session.get('tutorial_active', False)
+    )
+
     week_id = request.args.get('week_id', type=int)
     if week_id:
         displayed_week = ShiftWeek.query.get_or_404(week_id)
@@ -13333,12 +13349,20 @@ def admin_crew_shift_board_partial():
 
     prev_week, next_week = _get_adjacent_weeks(displayed_week)
 
-    approved_workers = (
-        User.query
-        .filter_by(is_worker=True, worker_status='approved')
-        .order_by(User.full_name.asc())
-        .all()
-    )
+    if tutorial_mode:
+        approved_workers = (
+            User.query
+            .filter_by(is_tutorial_user=True, is_worker=True, worker_status='approved')
+            .order_by(User.full_name.asc())
+            .all()
+        )
+    else:
+        approved_workers = (
+            User.query
+            .filter_by(is_worker=True, worker_status='approved', is_tutorial_user=False)
+            .order_by(User.full_name.asc())
+            .all()
+        )
 
     if displayed_week:
         shifts = (Shift.query
