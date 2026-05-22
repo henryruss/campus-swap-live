@@ -13673,6 +13673,12 @@ def _cleanup_tutorial_week(week_id):
         db.session.execute(delete(ShiftPickup).where(ShiftPickup.shift_id.in_(shift_ids_q)))
         db.session.execute(delete(ShiftAssignment).where(ShiftAssignment.shift_id.in_(shift_ids_q)))
         db.session.execute(delete(Shift).where(Shift.week_id == week_id))
+        # Null out tutorial_session FK before deleting the week row
+        from models import TutorialSession
+        db.session.execute(
+            db.text('UPDATE tutorial_session SET tutorial_week_id = NULL WHERE tutorial_week_id = :wid'),
+            {'wid': week_id}
+        )
         db.session.execute(delete(ShiftWeek).where(ShiftWeek.id == week_id))
     except Exception as e:
         app.logger.error(f"Tutorial cleanup failed for week_id={week_id}: {e}", exc_info=True)
