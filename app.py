@@ -39,6 +39,7 @@ from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import or_, and_, func, nulls_last, delete
+from sqlalchemy.exc import IntegrityError
 
 # PostHog analytics
 import posthog
@@ -10212,64 +10213,78 @@ def admin_schedule_create():
             flash("A schedule for that week already exists.", "error")
             return redirect(url_for('admin_schedule_index'))
 
-    week = ShiftWeek(
-        week_start=week_start,
-        status='draft',
-        created_by_id=current_user.id,
-        is_tutorial=tutorial_mode,
-    )
-    db.session.add(week)
-    db.session.flush()
-
-    for day in _SHIFT_DAY_ORDER:
-        for slot in ('am', 'pm'):
-            s = Shift(
-                week_id=week.id,
-                day_of_week=day,
-                slot=slot,
-                trucks=1 if tutorial_mode else 2,
-                is_active=True,
-            )
-            db.session.add(s)
-
-    db.session.flush()
-
-    if tutorial_mode:
-        # Pre-create one AM shift on the week's Monday and pre-assign Casey Brooks
-        tutorial_shift = next(
-            (s for s in week.shifts if s.day_of_week == 'mon' and s.slot == 'am'), None
+    try:
+        week = ShiftWeek(
+            week_start=week_start,
+            status='draft',
+            created_by_id=current_user.id,
+            is_tutorial=tutorial_mode,
         )
-        if not tutorial_shift:
-            # Fallback: pick first shift
-            tutorial_shift = week.shifts[0] if week.shifts else None
+        db.session.add(week)
+        db.session.flush()
 
-        casey = User.query.filter_by(email='tutorial_casey@campusswap.internal').first()
-        if tutorial_shift and casey:
-            # Remove any existing pickup for Casey (prior tutorial run)
-            existing_pickup = ShiftPickup.query.filter_by(seller_id=casey.id).first()
-            if existing_pickup:
-                db.session.execute(delete(RescheduleToken).where(
-                    RescheduleToken.pickup_id == existing_pickup.id))
-                db.session.delete(existing_pickup)
-                db.session.flush()
-            pickup = ShiftPickup(
-                shift_id=tutorial_shift.id,
-                seller_id=casey.id,
-                truck_number=1,
-                stop_order=1,
-                rescheduled_at=_now_eastern(),
-                created_by_id=current_user.id,
+        for day in _SHIFT_DAY_ORDER:
+            for slot in ('am', 'pm'):
+                s = Shift(
+                    week_id=week.id,
+                    day_of_week=day,
+                    slot=slot,
+                    trucks=1 if tutorial_mode else 2,
+                    is_active=True,
+                )
+                db.session.add(s)
+
+        db.session.flush()
+
+        if tutorial_mode:
+            # Pre-create one AM shift on the week's Monday and pre-assign Casey Brooks
+            tutorial_shift = next(
+                (s for s in week.shifts if s.day_of_week == 'mon' and s.slot == 'am'), None
             )
-            db.session.add(pickup)
+            if not tutorial_shift:
+                # Fallback: pick first shift
+                tutorial_shift = week.shifts[0] if week.shifts else None
 
-        # Link tutorial week to the TutorialSession
-        ts = current_user.tutorial_session
-        if ts:
-            ts.tutorial_week_id = week.id
-            ts.step = 2
-            session['tutorial_step'] = 2
+            casey = User.query.filter_by(email='tutorial_casey@campusswap.internal').first()
+            if tutorial_shift and casey:
+                # Remove any existing pickup for Casey (prior tutorial run)
+                existing_pickup = ShiftPickup.query.filter_by(seller_id=casey.id).first()
+                if existing_pickup:
+                    db.session.execute(delete(RescheduleToken).where(
+                        RescheduleToken.pickup_id == existing_pickup.id))
+                    db.session.delete(existing_pickup)
+                    db.session.flush()
+                pickup = ShiftPickup(
+                    shift_id=tutorial_shift.id,
+                    seller_id=casey.id,
+                    truck_number=1,
+                    stop_order=1,
+                    rescheduled_at=_now_eastern(),
+                    created_by_id=current_user.id,
+                )
+                db.session.add(pickup)
 
-    db.session.commit()
+            # Link tutorial week to the TutorialSession
+            ts = current_user.tutorial_session
+            if ts:
+                ts.tutorial_week_id = week.id
+                ts.step = 2
+                session['tutorial_step'] = 2
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(
+            f"admin_schedule_create failed: tutorial_mode={tutorial_mode} "
+            f"week_start={week_start} user={current_user.id} error={e}",
+            exc_info=True,
+        )
+        if tutorial_mode:
+            flash(f"Couldn't create tutorial week: {e}", "error")
+            return redirect(url_for('admin_schedule_index'))
+        raise
+
     flash(f"Week of {week_start.strftime('%B %-d')} created.", "success")
     if tutorial_mode:
         return redirect(url_for('admin_schedule_index'))
