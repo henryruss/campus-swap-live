@@ -235,6 +235,20 @@
   .expand-details { display: none; }
   .expand-details td { padding: 8px 10px 16px; background: #fafafa; font-size: 0.82rem; }
   .expand-details.open { display: table-row; }
+
+  @media (max-width: 640px) {
+    .crew-table thead { display: none; }
+    .crew-table, .crew-table tbody, .crew-table tr, .crew-table td { display: block; width: 100%; }
+    .crew-table tr { border-bottom: 1px solid #e5e7eb; padding: 10px 0; }
+    .crew-table td { padding: 4px 10px; border-bottom: none; word-break: break-word; overflow-x: hidden; }
+    .crew-table td[data-label]::before {
+      content: attr(data-label) ': ';
+      font-weight: 700; font-size: 0.7rem; text-transform: uppercase;
+      color: var(--text-muted); display: block; margin-bottom: 2px;
+    }
+    .expand-details { display: none !important; }
+    .crew-hq-applications-inner { padding: 0 10px 14px; overflow-x: hidden; }
+  }
 </style>
 
 <div class="crew-hq">
@@ -373,10 +387,10 @@
             <td style="width: 28px; color: var(--text-muted);">
               <i class="fas fa-chevron-right" id="chevron-app-{{ app.id }}" style="font-size: 0.75rem; transition: transform 0.2s;"></i>
             </td>
-            <td style="font-weight: 600; color: var(--primary);">{{ app.user.full_name }}</td>
-            <td>{{ app.user.email }}</td>
-            <td style="font-size: 0.78rem; color: var(--text-muted);">{{ app.applied_at.strftime('%b %-d') if app.applied_at else '—' }}</td>
-            <td style="font-size: 0.78rem;">
+            <td data-label="Name" style="font-weight: 600; color: var(--primary);">{{ app.user.full_name }}</td>
+            <td data-label="Email">{{ app.user.email }}</td>
+            <td data-label="Applied" style="font-size: 0.78rem; color: var(--text-muted);">{{ app.applied_at.strftime('%b %-d') if app.applied_at else '—' }}</td>
+            <td data-label="Availability" style="font-size: 0.78rem;">
               {% if app._avail %}
               <div class="avail-grid">
                 {% set avail = app._avail %}
@@ -390,7 +404,7 @@
               </div>
               {% else %}—{% endif %}
             </td>
-            <td onclick="event.stopPropagation()" style="white-space: nowrap;">
+            <td data-label="Actions" onclick="event.stopPropagation()" style="white-space: nowrap;">
               <form method="POST" action="{{ url_for('admin_crew_approve', user_id=app.user_id) }}" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <button type="submit" class="btn-primary" style="padding: 4px 10px; font-size: 0.78rem;">Approve</button>

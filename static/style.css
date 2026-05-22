@@ -1782,8 +1782,12 @@ body.teaser-page footer { display: none; }
     right: 0;
     left: 0;
     width: 100%;
+    max-width: 100%;
     border-radius: 12px 12px 0 0;
     border-bottom: none;
+    padding: 16px;
+    max-height: 45vh;
+    overflow-y: auto;
   }
 }
 

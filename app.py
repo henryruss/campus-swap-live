@@ -10164,7 +10164,13 @@ def admin_schedule_index():
     tutorial_step = ts.step if ts else 0
 
     if tutorial_mode:
-        weeks = ShiftWeek.query.filter_by(is_tutorial=True).order_by(ShiftWeek.week_start.asc()).all()
+        tutorial_week_id = ts.tutorial_week_id if ts else None
+        weeks = (
+            [ShiftWeek.query.get(tutorial_week_id)]
+            if tutorial_week_id
+            else []
+        )
+        weeks = [w for w in weeks if w]  # strip None if week was deleted
     else:
         weeks = ShiftWeek.query.filter_by(is_tutorial=False).order_by(ShiftWeek.week_start.asc()).all()
     return render_template('admin/schedule_index.html', weeks=weeks,
@@ -12558,10 +12564,11 @@ def _ops_build_unassigned_panel(shift, tutorial_mode=False):
     }
 
 
-def _ops_build_shift_list(tutorial_mode=False):
+def _ops_build_shift_list(tutorial_mode=False, tutorial_week_id=None):
     """All shifts sorted by date+slot, grouped by ShiftWeek, for the left panel."""
     if tutorial_mode:
-        all_weeks = ShiftWeek.query.filter_by(is_tutorial=True).order_by(ShiftWeek.week_start.asc()).all()
+        week = ShiftWeek.query.get(tutorial_week_id) if tutorial_week_id else None
+        all_weeks = [week] if week else []
     else:
         all_weeks = ShiftWeek.query.filter_by(is_tutorial=False).order_by(ShiftWeek.week_start.asc()).all()
     shift_list = []
@@ -12607,16 +12614,19 @@ def admin_ops():
     shift_id = request.args.get('shift_id', type=int)
     today = _today_eastern()
 
+    tutorial_week_id = ts.tutorial_week_id if ts else None
+
     if tutorial_mode:
-        # In tutorial mode: select the tutorial shift
+        # In tutorial mode: select the tutorial shift scoped to this CD's tutorial week
         if shift_id:
             shift = Shift.query.get_or_404(shift_id)
-        else:
+        elif tutorial_week_id:
             shift = (Shift.query
-                     .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
-                     .filter(ShiftWeek.is_tutorial == True, Shift.is_active == True)
-                     .order_by(ShiftWeek.week_start.asc())
+                     .filter(Shift.week_id == tutorial_week_id, Shift.is_active == True)
+                     .order_by(Shift.day_of_week.asc(), Shift.slot.asc())
                      .first())
+        else:
+            shift = None
     else:
         # Select active shift (non-tutorial weeks only)
         if shift_id:
@@ -12644,7 +12654,7 @@ def admin_ops():
                     if past:
                         shift = max(past, key=lambda s: (_ops_shift_date(s), s.sort_key))
 
-    all_weeks, shift_list = _ops_build_shift_list(tutorial_mode=tutorial_mode)
+    all_weeks, shift_list = _ops_build_shift_list(tutorial_mode=tutorial_mode, tutorial_week_id=tutorial_week_id)
 
     if not shift:
         return render_template(
@@ -13050,10 +13060,10 @@ def admin_crew_panel():
     else:
         displayed_week = _get_current_or_nearest_week()
 
-    # For tutorial mode, only show the tutorial week
+    # For tutorial mode, only show this CD's tutorial week
     if tutorial_mode and displayed_week and not displayed_week.is_tutorial:
-        displayed_week = (ShiftWeek.query.filter_by(is_tutorial=True)
-                         .order_by(ShiftWeek.week_start.asc()).first())
+        tutorial_week_id = ts.tutorial_week_id if ts else None
+        displayed_week = ShiftWeek.query.get(tutorial_week_id) if tutorial_week_id else None
 
     # Prev/next weeks (only within the same mode)
     if tutorial_mode:

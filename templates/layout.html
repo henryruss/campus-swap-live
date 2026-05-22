@@ -276,12 +276,11 @@
             {% endif %}
             <a href="/dashboard" class="mobile-menu-link"><i class="fas fa-columns"></i> Dashboard</a>
             {% if current_user.is_campus_director %}
-            <div class="mobile-role-switcher">
-                <div class="role-switcher">
-                    <a href="/switch-role/seller" class="role-switcher-btn {% if not request.path.startswith('/admin') %}active{% endif %}">👤 Seller</a>
-                    <a href="/switch-role/admin" class="role-switcher-btn {% if request.path.startswith('/admin') %}active{% endif %}">⚙ Admin</a>
-                </div>
-            </div>
+            {% if request.path.startswith('/admin') %}
+            <a href="/switch-role/seller" class="mobile-menu-link mobile-role-switch-link"><i class="fas fa-user"></i> Switch to Seller View</a>
+            {% else %}
+            <a href="/switch-role/admin" class="mobile-menu-link mobile-role-switch-link"><i class="fas fa-cog"></i> Switch to Admin View</a>
+            {% endif %}
             {% endif %}
             <a href="/account_settings" class="mobile-menu-link"><i class="fas fa-user-cog"></i> Account Settings</a>
             {% if current_user.is_admin %}
@@ -418,13 +417,9 @@
         .role-switcher-btn:hover:not(.active) {
             background: var(--bg-cream);
         }
-        .mobile-role-switcher {
-            display: flex;
-            margin: 8px 16px;
-        }
-        .mobile-role-switcher .role-switcher {
-            flex: 1;
-            justify-content: center;
+        .mobile-role-switch-link {
+            font-weight: 600;
+            color: var(--primary) !important;
         }
     </style>
 
