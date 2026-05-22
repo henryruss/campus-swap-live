@@ -369,12 +369,16 @@ class WorkerAvailability(db.Model):
 class ShiftWeek(db.Model):
     """One record per work week. Holds all shifts for that week."""
     id           = db.Column(db.Integer, primary_key=True)
-    week_start   = db.Column(db.Date, nullable=False)  # Monday of the work week; uniqueness enforced at app level (non-tutorial only)
+    week_start   = db.Column(db.Date, nullable=False)
     status       = db.Column(db.String(20), nullable=False, default='draft')  # 'draft' | 'published'
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     is_tutorial  = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     # True on ShiftWeeks created during a tutorial session; invisible outside tutorial mode; deleted on completion.
+
+    __table_args__ = (
+        db.UniqueConstraint('week_start', 'is_tutorial', name='uq_shift_week_week_start_is_tutorial'),
+    )
 
     shifts       = db.relationship('Shift', backref='week', lazy=True, order_by='Shift.id')
     created_by   = db.relationship('User', foreign_keys=[created_by_id])

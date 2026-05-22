@@ -9877,11 +9877,15 @@ def _worker_available_for_slot(worker, shift, week_start):
 
 
 def _get_current_or_nearest_week():
-    """Current running week → nearest upcoming → most recent past. Any status."""
+    """Current running week → nearest upcoming → most recent past. Any status. Excludes tutorial weeks."""
     today = _today_eastern()
     active = (
         ShiftWeek.query
-        .filter(ShiftWeek.week_start <= today, ShiftWeek.week_start >= today - timedelta(days=6))
+        .filter(
+            ShiftWeek.is_tutorial == False,
+            ShiftWeek.week_start <= today,
+            ShiftWeek.week_start >= today - timedelta(days=6),
+        )
         .order_by(ShiftWeek.week_start.desc())
         .first()
     )
@@ -9889,38 +9893,48 @@ def _get_current_or_nearest_week():
         return active
     upcoming = (
         ShiftWeek.query
-        .filter(ShiftWeek.week_start > today)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.week_start > today)
         .order_by(ShiftWeek.week_start.asc())
         .first()
     )
     if upcoming:
         return upcoming
-    return ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).first()
+    return (
+        ShiftWeek.query
+        .filter(ShiftWeek.is_tutorial == False)
+        .order_by(ShiftWeek.week_start.desc())
+        .first()
+    )
 
 
 def _get_nearest_week_with_shifts():
-    """Return the nearest upcoming ShiftWeek that has shifts, else most recent past, else None."""
+    """Return the nearest upcoming ShiftWeek that has shifts, else most recent past, else None. Excludes tutorial weeks."""
     today = _today_eastern()
     upcoming = (ShiftWeek.query
         .join(Shift, Shift.week_id == ShiftWeek.id)
-        .filter(ShiftWeek.week_start >= today, Shift.is_active == True)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.week_start >= today, Shift.is_active == True)
         .order_by(ShiftWeek.week_start.asc())
         .first())
     if upcoming:
         return upcoming
-    return ShiftWeek.query.order_by(ShiftWeek.week_start.desc()).first()
+    return (
+        ShiftWeek.query
+        .filter(ShiftWeek.is_tutorial == False)
+        .order_by(ShiftWeek.week_start.desc())
+        .first()
+    )
 
 
 def _get_adjacent_weeks(current_week):
-    """Return (prev_week, next_week) ShiftWeek records relative to current_week."""
+    """Return (prev_week, next_week) ShiftWeek records relative to current_week. Excludes tutorial weeks."""
     if not current_week:
         return None, None
     prev = (ShiftWeek.query
-        .filter(ShiftWeek.week_start < current_week.week_start)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.week_start < current_week.week_start)
         .order_by(ShiftWeek.week_start.desc())
         .first())
     next_ = (ShiftWeek.query
-        .filter(ShiftWeek.week_start > current_week.week_start)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.week_start > current_week.week_start)
         .order_by(ShiftWeek.week_start.asc())
         .first())
     return prev, next_
@@ -10100,6 +10114,7 @@ def _get_current_published_week():
     active = (
         ShiftWeek.query
         .filter(
+            ShiftWeek.is_tutorial == False,
             ShiftWeek.status == 'published',
             ShiftWeek.week_start <= today,
             ShiftWeek.week_start >= today - timedelta(days=6),
@@ -10113,7 +10128,7 @@ def _get_current_published_week():
     # 2. Nearest upcoming
     upcoming = (
         ShiftWeek.query
-        .filter(ShiftWeek.status == 'published', ShiftWeek.week_start > today)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.status == 'published', ShiftWeek.week_start > today)
         .order_by(ShiftWeek.week_start.asc())
         .first()
     )
@@ -10123,7 +10138,7 @@ def _get_current_published_week():
     # 3. Most recent past
     return (
         ShiftWeek.query
-        .filter(ShiftWeek.status == 'published', ShiftWeek.week_start < today)
+        .filter(ShiftWeek.is_tutorial == False, ShiftWeek.status == 'published', ShiftWeek.week_start < today)
         .order_by(ShiftWeek.week_start.desc())
         .first()
     )
@@ -10977,7 +10992,7 @@ def _run_auto_assignment():
 
         # Candidate shifts: same week, matching slot (if preference set)
         query = Shift.query.join(ShiftWeek, Shift.week_id == ShiftWeek.id)
-        query = query.filter(ShiftWeek.week_start.isnot(None))
+        query = query.filter(ShiftWeek.week_start.isnot(None), ShiftWeek.is_tutorial == False)
 
         # Sellers are placed into any available shift regardless of their stated
         # pickup_week — admin bulk-reassigns stranded week1 sellers via settings.
@@ -11323,10 +11338,13 @@ def cron_sms_reminders():
     sent = 0
     skipped = 0
 
-    # Load all active shifts and filter to those falling on tomorrow
+    # Load all active non-tutorial shifts and filter to those falling on tomorrow
     _DAY_ORDER_C = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     shifts_tomorrow = [
-        s for s in Shift.query.filter_by(is_active=True).all()
+        s for s in (Shift.query
+                    .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+                    .filter(Shift.is_active == True, ShiftWeek.is_tutorial == False)
+                    .all())
         if s.week and (s.week.week_start + timedelta(days=_DAY_ORDER_C.index(s.day_of_week))) == tomorrow
     ]
 
@@ -11383,6 +11401,9 @@ def cron_no_show_emails():
     for pickup in candidates:
         # Only email for shifts on or before today (don't email before pickup day)
         if not pickup.shift or not pickup.shift.week:
+            skipped += 1
+            continue
+        if pickup.shift.week.is_tutorial:
             skipped += 1
             continue
         shift_date = pickup.shift.week.week_start + timedelta(
@@ -11545,8 +11566,8 @@ def _admin_routes_index_data():
 
     clusters = build_geographic_clusters(unassigned_sellers)
 
-    # All shifts for all active weeks
-    weeks = ShiftWeek.query.filter_by(status='published').order_by(ShiftWeek.week_start).all()
+    # All shifts for all active non-tutorial weeks
+    weeks = ShiftWeek.query.filter_by(status='published', is_tutorial=False).order_by(ShiftWeek.week_start).all()
     all_shifts = []
     for week in weeks:
         all_shifts.extend([s for s in week.shifts if s.is_active])
@@ -11907,10 +11928,13 @@ def _get_eligible_reschedule_slots(pickup):
             all_slots.add((d, 'pm'))
             d += timedelta(days=1)
 
-    # Existing Shift lookup for locked / in-progress checks
+    # Existing Shift lookup for locked / in-progress checks (exclude tutorial weeks)
     _day_names_rs = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     existing_shifts = {}
-    for s in Shift.query.join(ShiftWeek, Shift.week_id == ShiftWeek.id).all():
+    for s in (Shift.query
+              .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+              .filter(ShiftWeek.is_tutorial == False)
+              .all()):
         if s.week and s.week.week_start:
             sd = s.week.week_start + timedelta(days=_day_names_rs.index(s.day_of_week))
             existing_shifts[(sd, s.slot)] = s
@@ -11945,9 +11969,9 @@ def _get_or_create_shift_for_date(target_date, slot):
     day_of_week = _day_names_rs[target_date.weekday()]
     week_start = target_date - timedelta(days=target_date.weekday())
 
-    week = ShiftWeek.query.filter_by(week_start=week_start).first()
+    week = ShiftWeek.query.filter_by(week_start=week_start, is_tutorial=False).first()
     if not week:
-        week = ShiftWeek(week_start=week_start, status='published', created_by_id=None)
+        week = ShiftWeek(week_start=week_start, status='published', created_by_id=None, is_tutorial=False)
         db.session.add(week)
         db.session.flush()
 
