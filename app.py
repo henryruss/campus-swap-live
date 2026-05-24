@@ -5505,10 +5505,15 @@ def onboard():
         has_files = files and files[0].filename and files[0].filename != ''
         has_temp_photos = len(temp_photo_ids) > 0
 
-        # Mattress photo exemption — check category name before photo validation
+        # Mattress photo exemption — check category and subcategory name before photo validation
         try:
             _cat_early = db.session.get(InventoryCategory, int(cat_id)) if cat_id else None
-            is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
+            _sub_id_early = request.form.get('subcategory_id')
+            _sub_early = db.session.get(InventoryCategory, int(_sub_id_early)) if _sub_id_early else None
+            is_mattress = (
+                (_cat_early is not None and _cat_early.name.lower() == 'mattress') or
+                (_sub_early is not None and _sub_early.name.lower() == 'mattress')
+            )
         except (ValueError, TypeError):
             is_mattress = False
 
@@ -6273,10 +6278,15 @@ def add_item():
         has_files = files and files[0].filename and files[0].filename != ''
         has_temp_photos = len(temp_photo_ids) > 0
 
-        # Mattress photo exemption — check category name before photo validation
+        # Mattress photo exemption — check category and subcategory name before photo validation
         try:
             _cat_early = InventoryCategory.query.get(int(cat_id)) if cat_id else None
-            is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
+            _sub_id_early = request.form.get('subcategory_id')
+            _sub_early = InventoryCategory.query.get(int(_sub_id_early)) if _sub_id_early else None
+            is_mattress = (
+                (_cat_early is not None and _cat_early.name.lower() == 'mattress') or
+                (_sub_early is not None and _sub_early.name.lower() == 'mattress')
+            )
         except (ValueError, TypeError):
             is_mattress = False
 
