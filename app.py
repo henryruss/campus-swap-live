@@ -5511,9 +5511,6 @@ def onboard():
             is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
         except (ValueError, TypeError):
             is_mattress = False
-        if is_mattress and request.form.get('mattress_condition_acknowledged') != '1':
-            flash("Please confirm the mattress condition policy.", "error")
-            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
 
         if not is_mattress and not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
@@ -6282,9 +6279,6 @@ def add_item():
             is_mattress = _cat_early is not None and _cat_early.name.lower() == 'mattress'
         except (ValueError, TypeError):
             is_mattress = False
-        if is_mattress and request.form.get('mattress_condition_acknowledged') != '1':
-            flash("Please confirm the mattress condition policy.", "error")
-            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
         if not is_mattress and not has_files and not has_temp_photos:
             flash("Please add at least one photo.", "error")
