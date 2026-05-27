@@ -699,21 +699,72 @@
   {% endif %}
   </div>{# end #stop-list #}
 
-  {# End Shift button:
-     - Today: only when all stops resolved
-     - Past: always (mover may not have resolved all stops in time) #}
+  {# End Shift / Placement section #}
   {% if is_past or (total_stops > 0 and done_stops >= total_stops) %}
-  <div class="end-shift-wrap">
-    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 12px; line-height: 1.5;">
-      Tap End Shift to log this shift as complete. You won't be paid for shifts that aren't marked done.
-    </p>
+  <div id="placement-section" style="display:none;">
+    <div style="margin-bottom: 16px;">
+      <h3 style="font-size:1rem; font-weight:700; color:var(--primary); margin:0 0 4px;">Place your items</h3>
+      <p style="font-size:0.82rem; color:var(--text-muted); margin:0;">Mark where you put each item, or flag it as not picked up.</p>
+    </div>
+    <div id="placement-list"></div>
+  </div>
+
+  <div class="end-shift-wrap" id="end-shift-wrap">
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 12px; line-height: 1.5;"
+       id="end-shift-note">Assign a location to all items first.</p>
     <form method="POST" action="{{ url_for('crew_shift_end', shift_id=shift.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-      <button type="submit" class="btn-end-shift">
+      <button type="submit" class="btn-end-shift" id="btn-end-shift" disabled>
         <i class="fas fa-flag-checkered"></i> End Shift
       </button>
     </form>
   </div>
+
+  <script>
+  (function() {
+    const shiftId = {{ shift.id }};
+    const placementSection = document.getElementById('placement-section');
+    const placementList = document.getElementById('placement-list');
+    const endShiftNote = document.getElementById('end-shift-note');
+    const endShiftBtn = document.getElementById('btn-end-shift');
+
+    function loadPlacement() {
+      fetch('/crew/shift/' + shiftId + '/placement')
+        .then(r => r.text())
+        .then(html => {
+          placementList.innerHTML = html;
+          placementSection.style.display = 'block';
+          checkPlacementState();
+        });
+    }
+
+    function checkPlacementState() {
+      const allRows = document.querySelectorAll('.placement-item');
+      if (allRows.length === 0) {
+        // No items to place — enable End Shift
+        endShiftNote.textContent = 'Tap End Shift to log this shift as complete.';
+        endShiftBtn.disabled = false;
+        return;
+      }
+      const allDone = Array.from(allRows).every(r =>
+        r.dataset.placementStatus === 'placed' || r.dataset.placementStatus === 'not_picked_up'
+      );
+      if (allDone) {
+        endShiftNote.textContent = 'All items placed. Tap End Shift to complete.';
+        endShiftBtn.disabled = false;
+      } else {
+        endShiftNote.textContent = 'Assign a location to all items first.';
+        endShiftBtn.disabled = true;
+      }
+    }
+
+    window.addEventListener('placementComplete', function(e) {
+      checkPlacementState();
+    });
+
+    loadPlacement();
+  })();
+  </script>
   {% endif %}
 
   {% endif %}

@@ -1,0 +1,291 @@
+{% if not items %}
+<p style="font-size:0.88rem; color:var(--text-muted); text-align:center; padding:16px 0;">No items to place for this shift.</p>
+{% else %}
+<style>
+  .placement-item {
+    background: white; border: var(--card-border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .pl-id-badge {
+    background: var(--bg-cream); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 3px 8px;
+    font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .pl-info { flex: 1; min-width: 0; }
+  .pl-title { font-size: 0.9rem; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-seller { font-size: 0.78rem; color: var(--text-muted); }
+  .pl-status-chip {
+    font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 10px;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .pl-chip-placed { background: #dcfce7; color: #166534; }
+  .pl-chip-not-picked-up { background: #f1f5f9; color: #64748b; }
+  .pl-chip-needs-location { background: #fef3c7; color: #92400e; }
+  .btn-assign {
+    background: var(--primary); color: white; border: none;
+    padding: 7px 14px; border-radius: 8px; font-size: 0.83rem; font-weight: 600;
+    cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-assign:hover { background: var(--primary-light); }
+
+  /* Modal overlay */
+  .placement-modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4); z-index: 100;
+    align-items: flex-end; justify-content: center;
+  }
+  .placement-modal-overlay.open { display: flex; }
+  .placement-modal {
+    background: white; border-radius: 20px 20px 0 0;
+    padding: 24px 20px 40px; width: 100%; max-width: 520px;
+    max-height: 85vh; overflow-y: auto;
+  }
+  .modal-title { font-family: 'DM Serif Display', serif; font-size: 1.2rem; color: var(--primary); margin: 0 0 4px; }
+  .modal-item-name { font-size: 0.85rem; color: var(--text-muted); margin: 0 0 20px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group select {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--rule); border-radius: 10px;
+    font-size: 0.92rem; font-family: inherit; box-sizing: border-box;
+  }
+  .zone-diagram {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px;
+  }
+  .zone-box {
+    background: var(--bg-cream); border: 1.5px solid var(--rule); border-radius: 10px;
+    padding: 16px 8px; text-align: center; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; user-select: none; transition: all 0.12s;
+  }
+  .zone-box:hover { border-color: var(--primary); }
+  .zone-box.selected { background: var(--primary); color: white; border-color: var(--primary); }
+  .walkway-label { text-align: center; font-size: 0.7rem; color: var(--text-muted); margin-bottom: 14px; }
+  .btn-not-picked-up {
+    width: 100%; background: none; border: 1.5px solid var(--rule);
+    border-radius: 10px; padding: 12px; font-size: 0.88rem; font-weight: 600;
+    color: var(--text-muted); cursor: pointer; font-family: inherit; margin-bottom: 14px;
+  }
+  .btn-not-picked-up:hover { background: #f1f5f9; }
+  .btn-save-place {
+    width: 100%; background: var(--sage); color: white; border: none;
+    padding: 14px; border-radius: 10px; font-size: 0.95rem; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-save-place:hover { opacity: 0.9; }
+  .btn-close-modal {
+    float: right; background: none; border: none;
+    font-size: 1.3rem; color: var(--text-muted); cursor: pointer; padding: 0;
+  }
+</style>
+
+{% for item in items %}
+{% if item.placement_status == 'placed' %}
+  {% set chip_class = 'pl-chip-placed' %}
+  {% set chip_label = 'Placed' %}
+  {% set btn_label = 'Edit' %}
+{% elif item.placement_status == 'not_picked_up' %}
+  {% set chip_class = 'pl-chip-not-picked-up' %}
+  {% set chip_label = 'Not picked up' %}
+  {% set btn_label = 'Edit' %}
+{% else %}
+  {% set chip_class = 'pl-chip-needs-location' %}
+  {% set chip_label = 'Needs location' %}
+  {% set btn_label = 'Assign' %}
+{% endif %}
+<div class="placement-item"
+     data-item-id="{{ item.id }}"
+     data-placement-status="{{ item.placement_status or '' }}"
+     data-item-name="{{ item.description }}">
+  <span class="pl-id-badge">#{{ item.id }}</span>
+  <div class="pl-info">
+    <div class="pl-title">{{ item.description }}</div>
+    <div class="pl-seller">{{ item.seller.full_name if item.seller else '—' }}</div>
+  </div>
+  <span class="pl-status-chip {{ chip_class }} item-status-chip">{{ chip_label }}</span>
+  <button class="btn-assign" data-action="open-modal">{{ btn_label }}</button>
+</div>
+{% endfor %}
+
+<!-- Placement Modal -->
+<div class="placement-modal-overlay" id="placement-modal-overlay">
+  <div class="placement-modal">
+    <button class="btn-close-modal" id="modal-close-btn" type="button">&times;</button>
+    <h2 class="modal-title">Assign Location</h2>
+    <p class="modal-item-name" id="modal-item-name"></p>
+
+    <div class="form-group">
+      <label>Storage Unit</label>
+      <select id="modal-unit-select">
+        <option value="">Select unit…</option>
+        {% for loc in storage_locations %}
+        <option value="{{ loc.id }}">{{ loc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Zone</label>
+      <div class="zone-diagram" id="modal-zone-diagram">
+        <div class="zone-box" data-zone="back_left">Back Left</div>
+        <div class="zone-box" data-zone="back_right">Back Right</div>
+        <div class="zone-box" data-zone="middle_left">Mid Left</div>
+        <div class="zone-box" data-zone="middle_right">Mid Right</div>
+        <div class="zone-box" data-zone="front_left">Front Left</div>
+        <div class="zone-box" data-zone="front_right">Front Right</div>
+      </div>
+      <div class="walkway-label">← walkway →</div>
+    </div>
+
+    <button class="btn-not-picked-up" id="modal-not-picked-up-btn" type="button">Not picked up</button>
+    <button class="btn-save-place" id="modal-save-btn" type="button">Save Location</button>
+  </div>
+</div>
+
+<input type="hidden" id="modal-selected-zone" value="">
+<input type="hidden" id="modal-current-item-id" value="">
+
+<script>
+(function() {
+  const overlay = document.getElementById('placement-modal-overlay');
+  const closeBtn = document.getElementById('modal-close-btn');
+  const saveBtn = document.getElementById('modal-save-btn');
+  const notPickedUpBtn = document.getElementById('modal-not-picked-up-btn');
+  const unitSelect = document.getElementById('modal-unit-select');
+  const zoneInput = document.getElementById('modal-selected-zone');
+  const itemIdInput = document.getElementById('modal-current-item-id');
+  const defaultUnitId = "{{ default_unit_id or '' }}";
+
+  function openModal(row) {
+    const itemId = row.dataset.itemId;
+    const itemName = row.dataset.itemName;
+    itemIdInput.value = itemId;
+    document.getElementById('modal-item-name').textContent = itemName;
+
+    // Reset zone
+    document.querySelectorAll('#modal-zone-diagram .zone-box').forEach(b => b.classList.remove('selected'));
+    zoneInput.value = '';
+
+    // Pre-fill unit with default or existing
+    if (defaultUnitId) {
+      unitSelect.value = defaultUnitId;
+    } else {
+      unitSelect.value = '';
+    }
+
+    overlay.classList.add('open');
+  }
+
+  function closeModal() {
+    overlay.classList.remove('open');
+  }
+
+  closeBtn.addEventListener('click', closeModal);
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeModal();
+  });
+
+  // Zone diagram clicks
+  document.getElementById('modal-zone-diagram').addEventListener('click', function(e) {
+    const box = e.target.closest('.zone-box');
+    if (!box) return;
+    const wasSelected = box.classList.contains('selected');
+    document.querySelectorAll('#modal-zone-diagram .zone-box').forEach(b => b.classList.remove('selected'));
+    if (!wasSelected) {
+      box.classList.add('selected');
+      zoneInput.value = box.dataset.zone;
+    } else {
+      zoneInput.value = '';
+    }
+  });
+
+  // Open modal from item row
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-action="open-modal"]');
+    if (!btn) return;
+    const row = btn.closest('.placement-item');
+    openModal(row);
+  });
+
+  // Not picked up
+  notPickedUpBtn.addEventListener('click', function() {
+    const itemId = itemIdInput.value;
+    if (!itemId) return;
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    fetch('/crew/item/' + itemId + '/not_picked_up', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          updateRow(itemId, 'not_picked_up');
+          closeModal();
+          checkAllPlaced();
+        } else {
+          alert(data.error || 'Error');
+        }
+      });
+  });
+
+  // Save placement
+  saveBtn.addEventListener('click', function() {
+    const itemId = itemIdInput.value;
+    const unitId = unitSelect.value;
+    const zone = zoneInput.value;
+    if (!unitId) { alert('Please select a storage unit.'); return; }
+    if (!zone) { alert('Please select a zone.'); return; }
+
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    fd.append('storage_location_id', unitId);
+    fd.append('storage_row', zone);
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    fetch('/crew/item/' + itemId + '/place', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          updateRow(itemId, 'placed');
+          closeModal();
+          checkAllPlaced();
+        } else {
+          alert(data.error || 'Error saving');
+        }
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Location';
+      })
+      .catch(() => {
+        alert('Network error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Location';
+      });
+  });
+
+  function updateRow(itemId, status) {
+    const row = document.querySelector(`.placement-item[data-item-id="${itemId}"]`);
+    if (!row) return;
+    row.dataset.placementStatus = status;
+    const chip = row.querySelector('.item-status-chip');
+    const btn = row.querySelector('[data-action="open-modal"]');
+    if (status === 'placed') {
+      chip.className = 'pl-status-chip pl-chip-placed item-status-chip';
+      chip.textContent = 'Placed';
+    } else if (status === 'not_picked_up') {
+      chip.className = 'pl-status-chip pl-chip-not-picked-up item-status-chip';
+      chip.textContent = 'Not picked up';
+    }
+    if (btn) btn.textContent = 'Edit';
+  }
+
+  function checkAllPlaced() {
+    const allRows = document.querySelectorAll('.placement-item');
+    const allDone = Array.from(allRows).every(r =>
+      r.dataset.placementStatus === 'placed' || r.dataset.placementStatus === 'not_picked_up'
+    );
+    // Notify the parent page
+    window.dispatchEvent(new CustomEvent('placementComplete', { detail: { allDone } }));
+  }
+})();
+</script>
+{% endif %}

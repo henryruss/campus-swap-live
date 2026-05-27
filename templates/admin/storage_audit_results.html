@@ -1,0 +1,165 @@
+{% if not items %}
+<p style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 24px 0;">No items found.</p>
+{% else %}
+<style>
+  .audit-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .audit-collapsed {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+  }
+  .audit-expanded { display: none; padding: 16px; border-top: 1px solid var(--rule); }
+  .audit-id-badge {
+    background: var(--bg-cream); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 3px 8px;
+    font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .audit-info { flex: 1; min-width: 0; }
+  .audit-title { font-size: 0.9rem; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .audit-seller { font-size: 0.78rem; color: var(--text-muted); }
+  .audit-location-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .loc-chip {
+    font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+    background: #fef9c3; color: #854d0e;
+  }
+  .loc-chip.assigned { background: #dcfce7; color: #166534; }
+  .btn-edit-loc {
+    background: var(--primary); color: white; border: none;
+    padding: 7px 14px; border-radius: 8px; font-size: 0.83rem; font-weight: 600;
+    cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-edit-loc:hover { background: var(--primary-light); }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group select, .form-group input[type=text] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px;
+    font-size: 0.88rem; font-family: inherit; box-sizing: border-box;
+  }
+  .zone-diagram {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px; margin-bottom: 8px;
+  }
+  .zone-box {
+    background: var(--bg-cream); border: 1.5px solid var(--rule); border-radius: 8px;
+    padding: 12px 8px; text-align: center; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; user-select: none; transition: all 0.12s;
+    color: var(--text-main);
+  }
+  .zone-box:hover { border-color: var(--primary); }
+  .zone-box.selected { background: var(--primary); color: white; border-color: var(--primary); }
+  .zone-label { font-size: 0.68rem; color: var(--text-muted); text-align: center; margin-bottom: 4px; }
+  .btn-not-placed {
+    background: none; border: 1px solid var(--rule); border-radius: 8px;
+    padding: 7px 12px; font-size: 0.8rem; color: var(--text-muted);
+    cursor: pointer; font-family: inherit; margin-bottom: 14px;
+  }
+  .btn-not-placed:hover { background: #f1f5f9; }
+  .expanded-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn-save-loc {
+    background: var(--sage); color: white; border: none;
+    padding: 9px 20px; border-radius: 8px; font-size: 0.88rem; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-save-loc:hover { opacity: 0.9; }
+  .btn-cancel-loc {
+    background: none; border: 1px solid var(--rule); border-radius: 8px;
+    padding: 9px 14px; font-size: 0.88rem; color: var(--text-muted);
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-cancel-loc:hover { background: #f1f5f9; }
+  .walkway-label { text-align: center; font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; }
+</style>
+
+{% for item in items %}
+{% set unit_assigned = item.storage_location_id and item.storage_location %}
+{% set zone_assigned = item.storage_row in ['back_left','middle_left','front_left','back_right','middle_right','front_right'] %}
+<div class="audit-card" data-item-id="{{ item.id }}">
+  <div class="audit-collapsed">
+    <span class="audit-id-badge">#{{ item.id }}</span>
+    <div class="audit-info">
+      <div class="audit-title">{{ item.description }}</div>
+      <div class="audit-seller">{{ item.seller.full_name if item.seller else '—' }}</div>
+      <div class="audit-location-chips">
+        <span class="loc-chip {% if unit_assigned %}assigned{% endif %} summary-unit">
+          {{ item.storage_location.name if unit_assigned else 'No unit' }}
+        </span>
+        <span class="loc-chip {% if zone_assigned %}assigned{% endif %} summary-zone">
+          {{ item.storage_row.replace('_', ' ').title() if zone_assigned else 'No zone' }}
+        </span>
+      </div>
+    </div>
+    <button class="btn-edit-loc" data-action="edit">Edit Location</button>
+  </div>
+
+  <div class="audit-expanded"
+       data-current-zone="{{ item.storage_row or '' }}"
+       data-current-loc="{{ item.storage_location_id or '' }}">
+    <div class="form-group">
+      <label>Storage Unit</label>
+      <select name="storage_location_id">
+        <option value="">— Clear —</option>
+        {% for loc in storage_locations %}
+        <option value="{{ loc.id }}" {% if item.storage_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Zone</label>
+      <div class="zone-label" style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); margin-bottom:2px;">
+        <span>BACK</span>
+      </div>
+      <div class="zone-diagram">
+        {% set zones = [('back_left','Back Left'),('back_right','Back Right'),('middle_left','Mid Left'),('middle_right','Mid Right'),('front_left','Front Left'),('front_right','Front Right')] %}
+        {% for zone_val, zone_label in zones %}
+        <div class="zone-box {% if item.storage_row == zone_val %}selected{% endif %}" data-zone="{{ zone_val }}">{{ zone_label }}</div>
+        {% endfor %}
+      </div>
+      <div class="walkway-label">← walkway →</div>
+      <input type="hidden" name="storage_row" value="{{ item.storage_row or '' }}">
+    </div>
+    <button class="btn-not-placed" data-action="not-placed" type="button">Not placed (clear zone)</button>
+    <div class="form-group">
+      <label>Note (optional)</label>
+      <input type="text" name="storage_note" value="{{ item.storage_note or '' }}" placeholder="e.g. behind the couch stack">
+    </div>
+    <div class="expanded-actions">
+      <button class="btn-save-loc" data-action="save" type="button">Save</button>
+      <button class="btn-cancel-loc" data-action="cancel" type="button">Cancel</button>
+    </div>
+
+    <hr style="border:none; border-top:1px solid var(--rule); margin:16px 0;">
+    <div class="replace-photo-section">
+      <div style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:8px;">Replace Photo</div>
+      {% if item.photo_url %}
+      <img src="{{ url_for('serve_photo', filename=item.photo_url) }}"
+           class="photo-thumb" alt="Current photo"
+           style="width:72px; height:72px; border-radius:8px; object-fit:cover; display:block; margin-bottom:8px;">
+      {% else %}
+      <div style="width:72px; height:72px; border-radius:8px; background:var(--bg-cream); border:1px dashed var(--rule); display:flex; align-items:center; justify-content:center; margin-bottom:8px;">
+        <span style="font-size:0.7rem; color:var(--text-muted);">No photo</span>
+      </div>
+      {% endif %}
+      <input type="file" accept="image/*" capture="environment"
+             class="photo-file-input" style="display:none;">
+      <div class="photo-preview-wrap" style="display:none; margin-bottom:8px;">
+        <img class="photo-preview-img" style="width:72px; height:72px; border-radius:8px; object-fit:cover; display:block;">
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button class="btn-photo-pick" data-action="pick-photo" type="button"
+                style="background:none; border:1px solid var(--rule); border-radius:8px; padding:6px 12px; font-size:0.8rem; cursor:pointer; font-family:inherit;">
+          {{ 'Replace' if item.photo_url else 'Add Photo' }}
+        </button>
+        <button class="btn-photo-save" data-action="save-photo" type="button"
+                style="display:none; background:var(--sage); color:white; border:none; border-radius:8px; padding:6px 14px; font-size:0.8rem; font-weight:600; cursor:pointer; font-family:inherit;">
+          Save Photo
+        </button>
+        <span class="photo-save-badge" style="display:none; font-size:0.82rem; font-weight:700; color:var(--sage);">Photo saved</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}

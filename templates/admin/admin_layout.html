@@ -156,6 +156,8 @@
     {% set active_tab = 'sellers' %}
   {% elif _path.startswith('/admin/crew') %}
     {% set active_tab = 'crew' %}
+  {% elif _path.startswith('/admin/storage/audit') %}
+    {% set active_tab = 'storage-audit' %}
   {% elif _path.startswith('/admin/settings') or _path.startswith('/admin/storage') or _path.startswith('/admin/settings/route') %}
     {% set active_tab = 'settings' %}
   {% elif _path.startswith('/admin/cd-settings') %}
@@ -229,6 +231,14 @@
         <span class="nav-tooltip">Schedule</span>
       </a>
       {% endif %}
+
+      {# Storage Audit: admin, super_admin, campus_director #}
+      <a href="/admin/storage/audit"
+         class="admin-nav-item {% if active_tab == 'storage-audit' %}active{% endif %}"
+         title="Storage Audit">
+        <i class="fas fa-warehouse"></i>
+        <span class="nav-tooltip">Storage Audit</span>
+      </a>
 
       {# Settings: super_admin only #}
       {% if current_user.is_super_admin %}

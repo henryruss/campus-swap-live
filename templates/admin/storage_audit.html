@@ -1,0 +1,208 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .audit-wrap { max-width: 520px; margin: 0 auto; padding: 24px 16px 80px; }
+  .audit-wrap h1 { font-family: 'DM Serif Display', serif; font-size: 1.5rem; color: var(--primary); margin: 0 0 6px; }
+  .audit-subtitle { font-size: 0.85rem; color: var(--text-muted); margin: 0 0 20px; }
+  #audit-search {
+    width: 100%; padding: 12px 16px; font-size: 1rem;
+    border: 1.5px solid var(--rule); border-radius: 10px;
+    outline: none; font-family: inherit; box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  #audit-search:focus { border-color: var(--primary); }
+  #audit-results { margin-top: 20px; }
+</style>
+
+<div class="audit-wrap">
+  <h1>Storage Audit</h1>
+  <p class="audit-subtitle">Search by item ID or title to find and update storage locations.</p>
+  <input id="audit-search" type="search" placeholder="Item ID or title…" autocomplete="off" autofocus>
+  <div id="audit-results"></div>
+</div>
+
+<script>
+(function() {
+  const searchEl = document.getElementById('audit-search');
+  const resultsEl = document.getElementById('audit-results');
+  let debounceTimer;
+
+  searchEl.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    const q = this.value.trim();
+    if (!q) { resultsEl.innerHTML = ''; return; }
+    debounceTimer = setTimeout(() => fetchResults(q), 300);
+  });
+
+  function fetchResults(q) {
+    fetch('/admin/storage/audit/search?q=' + encodeURIComponent(q))
+      .then(r => r.text())
+      .then(html => { resultsEl.innerHTML = html; });
+  }
+
+  // Event delegation for all interactions inside results
+  resultsEl.addEventListener('click', function(e) {
+    // Edit Location toggle
+    const editBtn = e.target.closest('[data-action="edit"]');
+    if (editBtn) {
+      const card = editBtn.closest('.audit-card');
+      card.querySelector('.audit-collapsed').style.display = 'none';
+      card.querySelector('.audit-expanded').style.display = 'block';
+      return;
+    }
+
+    // Cancel
+    const cancelBtn = e.target.closest('[data-action="cancel"]');
+    if (cancelBtn) {
+      const card = cancelBtn.closest('.audit-card');
+      card.querySelector('.audit-collapsed').style.display = 'flex';
+      card.querySelector('.audit-expanded').style.display = 'none';
+      return;
+    }
+
+    // Zone diagram click
+    const zoneBox = e.target.closest('[data-zone]');
+    if (zoneBox && zoneBox.closest('.audit-expanded')) {
+      const diagram = zoneBox.closest('.zone-diagram');
+      const currentSelected = diagram.querySelector('.zone-box.selected');
+      if (currentSelected && currentSelected !== zoneBox) {
+        currentSelected.classList.remove('selected');
+      }
+      zoneBox.classList.toggle('selected');
+      const zoneInput = zoneBox.closest('.audit-expanded').querySelector('[name="storage_row"]');
+      zoneInput.value = zoneBox.classList.contains('selected') ? zoneBox.dataset.zone : '';
+      return;
+    }
+
+    // Not placed button
+    const notPlacedBtn = e.target.closest('[data-action="not-placed"]');
+    if (notPlacedBtn) {
+      const expanded = notPlacedBtn.closest('.audit-expanded');
+      expanded.querySelectorAll('.zone-box').forEach(b => b.classList.remove('selected'));
+      expanded.querySelector('[name="storage_row"]').value = '';
+      return;
+    }
+
+    // Save button
+    const saveBtn = e.target.closest('[data-action="save"]');
+    if (saveBtn) {
+      const card = saveBtn.closest('.audit-card');
+      const expanded = card.querySelector('.audit-expanded');
+      const itemId = card.dataset.itemId;
+      const locId = expanded.querySelector('[name="storage_location_id"]').value;
+      const zone = expanded.querySelector('[name="storage_row"]').value;
+      const note = expanded.querySelector('[name="storage_note"]').value;
+
+      const fd = new FormData();
+      fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+      fd.append('storage_location_id', locId);
+      fd.append('storage_row', zone);
+      fd.append('storage_note', note);
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      fetch('/admin/item/' + itemId + '/set_location', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            // Update collapsed summary
+            const locName = data.location_name || 'No unit';
+            const zoneName = data.zone ? data.zone.replace(/_/g, ' ') : 'No zone';
+            card.querySelector('.summary-unit').textContent = locName;
+            card.querySelector('.summary-zone').textContent = zoneName;
+            // Show saved badge
+            let badge = expanded.querySelector('.save-badge');
+            if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'save-badge';
+              saveBtn.parentNode.appendChild(badge);
+            }
+            badge.textContent = 'Saved ✓';
+            badge.style.color = 'var(--sage)';
+            badge.style.fontWeight = '700';
+            badge.style.fontSize = '0.82rem';
+            badge.style.marginLeft = '8px';
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          } else {
+            alert(data.error || 'Error saving');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          }
+        })
+        .catch(() => {
+          alert('Network error');
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        });
+    }
+
+    // Pick photo
+    const pickBtn = e.target.closest('[data-action="pick-photo"]');
+    if (pickBtn) {
+      const section = pickBtn.closest('.replace-photo-section');
+      section.querySelector('.photo-file-input').click();
+      return;
+    }
+
+    // Save photo
+    const savePhotoBtn = e.target.closest('[data-action="save-photo"]');
+    if (savePhotoBtn) {
+      const card = savePhotoBtn.closest('.audit-card');
+      const itemId = card.dataset.itemId;
+      const section = savePhotoBtn.closest('.replace-photo-section');
+      const fileInput = section.querySelector('.photo-file-input');
+      if (!fileInput.files[0]) return;
+
+      const fd = new FormData();
+      fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+      fd.append('photo', fileInput.files[0]);
+
+      savePhotoBtn.disabled = true;
+      savePhotoBtn.textContent = 'Saving…';
+
+      fetch('/admin/item/' + itemId + '/replace_photo', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            const thumb = section.querySelector('.photo-thumb');
+            const preview = section.querySelector('.photo-preview-img');
+            if (thumb) {
+              thumb.src = preview.src;
+            }
+            savePhotoBtn.style.display = 'none';
+            section.querySelector('.photo-preview-wrap').style.display = 'none';
+            section.querySelector('.photo-save-badge').style.display = 'inline';
+          } else {
+            alert(data.error || 'Error saving photo');
+          }
+          savePhotoBtn.disabled = false;
+          savePhotoBtn.textContent = 'Save Photo';
+        });
+      return;
+    }
+  });
+
+  resultsEl.addEventListener('change', function(e) {
+    if (e.target.classList.contains('photo-file-input')) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const section = e.target.closest('.replace-photo-section');
+      const previewWrap = section.querySelector('.photo-preview-wrap');
+      const previewImg = section.querySelector('.photo-preview-img');
+      const saveBtn = section.querySelector('.btn-photo-save');
+      const reader = new FileReader();
+      reader.onload = ev => {
+        previewImg.src = ev.target.result;
+        previewWrap.style.display = 'block';
+        saveBtn.style.display = 'inline-block';
+        section.querySelector('.photo-save-badge').style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -76,6 +76,10 @@ referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, ge
 referred_by_id (FK → User, nullable) — who gave them the code
 payout_rate (Integer, default 20) — stored percentage; updated when referrals are confirmed
 has_paid_boost (Boolean, default False, server_default='0') — one-time $15 payout boost purchased flag; reset each season
+is_campus_director (Boolean, default False) — has access to ops panel via role switcher; NOT is_admin/is_super_admin; gated by _has_ops_access()
+is_internal_account (Boolean, default False, server_default='0') — marks the seeded "Campus Swap" account that owns donated/unclaimed QC items; excluded from seller-facing UI and payout exports
+is_tutorial_user (Boolean, default False) — marks seed CD tutorial workers (Sam Torres, Riley Chen, Casey Brooks); excluded from all non-tutorial ops queries
+class_year (String 20, nullable) — 'freshman'|'sophomore'|'junior'|'senior'|'grad'|NULL; collected at onboarding
 
 Notes on pickup fields:
 - off_campus_complex: pickup_dorm = building name (one of OFF_CAMPUS_COMPLEXES), pickup_room = unit number
@@ -96,7 +100,7 @@ date_added
 collection_method: 'online' (Pro) | 'free' (Free)
 pickup_week: 'week1' (Apr 27–May 3) | 'week2' (May 4–May 10)
 dropoff_pod: deprecated (pod option removed)
-sold_at, payout_sent (bool)
+sold_at, payout_sent (bool), payout_sent_at (DateTime, nullable) — timestamp set by admin via /admin/payouts
 picked_up_at, arrived_at_store_at
 category_id, seller_id
 photo_url (cover photo), video_url
@@ -107,6 +111,9 @@ storage_location_id (FK → StorageLocation, nullable) — where the item physic
 storage_row (String, nullable) — aisle/row label within the storage location
 storage_note (Text, nullable) — freeform note from organizer (e.g. "large box, shelf 3")
 unit_size (Float, nullable) — per-item override for truck capacity calculation; NULL = use category default
+is_quick_capture (Boolean, default False, server_default='0') — set only on items created via driver quick capture flow
+quick_capture_shift_id (Integer, FK → Shift, nullable) — shift during which the item was captured (NULL if captured from crew dashboard with no shift)
+captured_by_id (Integer, FK → User, nullable) — worker who took the QC photo; NULL on non-QC items
 ```
 
 ### InventoryCategory
@@ -226,8 +233,9 @@ Fields: mon_am, mon_pm, tue_am, tue_pm, wed_am, wed_pm, thu_am, thu_pm,
 ### ShiftWeek
 ```
 One record per work week.
-id, week_start (Date, unique — Monday of the work week)
+id, week_start (Date — Monday of the work week)
 status: 'draft' | 'published'
+is_tutorial (Boolean, default False) — marks the sandboxed tutorial shift week; excluded from all production ops queries. Unique constraint is (week_start, is_tutorial) allowing a tutorial and real week with the same start date.
 created_at, created_by_id (FK → User, nullable)
 Relationships: shifts → [Shift], created_by → User
 ```
@@ -311,6 +319,29 @@ Unique constraint: (user_id, target_user_id, preference_type)
 Relationships: user → User (backref: worker_preferences), target_user → User
 ```
 
+### TutorialSession
+```
+One record per campus director. Tracks progress through the onboarding tutorial.
+id, user_id (FK → User, unique), step (Integer, default 0)
+started_at (DateTime, nullable), completed_at (DateTime, nullable)
+tutorial_week_id (FK → ShiftWeek, nullable) — the sandboxed tutorial shift week created for this CD
+last_retake_at (DateTime, nullable), is_retaking (Boolean, default False, server_default='0')
+
+Step sequence (0–9):
+  0 = not started
+  1 = started; on schedule page, week not yet created
+  2 = week created; on schedule or crew; approve Sam Torres
+  3 = Sam approved; assign crew to shift and sellers to ops
+  4 = worker assigned; navigate to Ops; assign remaining sellers
+  5 = unused/skipped
+  6 = all sellers assigned; click Reorder Stops
+  7 = on reorder page (bumped from 6→7 on GET of ops_reorder_page)
+  8 = stops reordered; click Notify Sellers
+  9 = complete
+
+Relationships: user → User (backref: tutorial_session, uselist=False), tutorial_week → ShiftWeek
+```
+
 ### StorageLocation
 ```
 A physical storage unit or warehouse where items are held after pickup.
@@ -370,6 +401,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /robots.txt` | `robots_txt` | |
 | `GET /uploads/<filename>` | `uploaded_file` | Serve uploaded files |
 | `GET /unsubscribe/<token>` | `unsubscribe` | Email unsubscribe |
+| `GET /parents` | `parents` | Parents landing page |
 
 ### Auth
 | Route | Function | Notes |
@@ -432,6 +464,8 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /change_password` | `change_password` | |
 | `GET/POST /complete_profile` | `complete_profile` | Collect phone after Google OAuth (redirects to `next_after_profile` session key) |
 | `POST /api/user/set_pickup_week` | `api_set_pickup_week` | AJAX: save User.pickup_week + pickup_time_preference; returns JSON |
+| `GET /switch-role/seller` | `switch_role_seller` | CD only: sets session['cd_view']='seller', redirects to /dashboard |
+| `GET /switch-role/admin` | `switch_role_admin` | CD only: sets session['cd_view']='admin', redirects to /admin/ops |
 
 ### Admin (requires is_admin or is_super_admin)
 | Route | Function | Notes |
@@ -487,6 +521,11 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /crew/shift/<shift_id>/stops_partial` | `crew_shift_stops_partial` | HTML partial of stops for current mover's truck. Used by 30s auto-refresh |
 | `GET+POST /admin/settings/route` | `admin_route_settings` | GET → 302 to `/admin/settings#route`. POST saves capacity settings (unchanged). Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan |
+| `POST /admin/crew/shift/<shift_id>/quick-add` | `admin_crew_quick_add` | Add worker to shift from Crew HQ. Driver defaults to truck_number=1. Auth: _has_ops_access() |
+| `POST /admin/crew/shift/<shift_id>/quick-remove` | `admin_crew_quick_remove` | Remove ShiftAssignment from Crew HQ. No email sent. Auth: _has_ops_access() |
+| `POST /admin/crew/worker/<user_id>/availability` | `admin_crew_override_availability` | Admin upserts WorkerAvailability for current week. Auth: _has_ops_access() |
+| `POST /admin/crew/remove/<user_id>` | `admin_crew_remove` | Set is_worker=False, worker_status='rejected', bulk-delete all ShiftAssignments. Admin-only (not super admin). Hard-blocked for is_tutorial_user workers. |
+| `POST /admin/crew/shift/<shift_id>/truck/<truck_number>/remove` | `admin_shift_remove_truck` | Decrement Shift.trucks by 1 via raw SQL. Validates: highest truck only, zero stops. Clears truck from truck_unit_plan. Auth: _has_ops_access() |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/remove` | `admin_shift_remove_stop` | Remove pending stop only |
 | `POST /admin/crew/shift/<shift_id>/mover/<assignment_id>/assign_truck` | `admin_shift_assign_mover_truck` | Assign driver to truck (cap-enforced); truck_number=0 unassigns |
 | `POST /admin/crew/shift/<shift_id>/assign_movers_bulk` | `admin_shift_assign_movers_bulk` | Assign multiple movers to a truck in one submit |
@@ -495,6 +534,19 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/intake/flag/<flag_id>/resolve` | `admin_intake_flag_resolve` | Resolve a single IntakeFlag with resolution note |
 | `GET /admin/intake/flagged` | `admin_intake_flagged` | Damaged/missing review queue — all items with unresolved flags (excl. sold/rejected) |
 | `POST /admin/intake/flagged/remove` | `admin_intake_flagged_remove` | Bulk reject: sets status='rejected', auto-resolves all flags with audit note |
+| `GET /admin/payouts` | `admin_payouts` | Payout reconciliation — Unpaid tab (seller cards) + Paid history tab + CSV export |
+| `POST /admin/payouts/item/<id>/mark_paid` | `admin_payouts_mark_paid` | Mark item as paid — sets payout_sent=True, payout_sent_at=now, sends payout email |
+| `GET /admin/payouts/export` | `admin_payouts_export` | CSV export of all sold items with payout data |
+| `GET /admin/items/needs_info` | `admin_needs_info_queue` | Quick Capture admin queue — is_quick_capture=True AND status IN (pending_valuation, needs_info) |
+| `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price required. Sets status='available'. Returns JSON. |
+| `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation. |
+| `POST /admin/quick_capture/<id>/delete` | `admin_quick_capture_delete` | Hard delete any QC item (photo + DB). No captured_by guard. |
+| `POST /admin/settings/reassign-week` | `admin_reassign_week` | Bulk set pickup_week=2 for all sellers with pickup_week=1 and no ShiftPickup. Super admin only. |
+| `GET /admin/tutorial` | `admin_tutorial_welcome` | Tutorial welcome/restart page for campus directors |
+| `POST /admin/tutorial/start` | `admin_tutorial_start` | Creates or resets TutorialSession; calls seed_tutorial_fixtures() |
+| `GET /admin/tutorial/complete` | `admin_tutorial_complete_page` | Completion page. Guard: ts.step >= 9 |
+| `POST /admin/tutorial/exit` | `admin_tutorial_exit` | Marks tutorial complete for is_retaking CDs; redirects to ops |
+| `GET /admin/cd-settings` | `admin_cd_settings` | CD Settings page — tutorial status, Retake/Continue button |
 | `GET /admin/storage` | `admin_storage_index` | GET → 302 to `/admin/settings#storage`. Content moved to Settings tab. |
 | `POST /admin/storage/create` | `admin_storage_create` | Create StorageLocation. Super admin only. |
 | `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields. Super admin only. |
@@ -526,6 +578,10 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /crew/intake/search` | `crew_intake_search` | Search items by ID or seller name; returns HTML partial for fetch into #search-results |
 | `POST /crew/intake/<shift_id>/unknown` | `crew_intake_log_unknown` | Log an unidentified item as IntakeFlag (flag_type='unknown') |
 | `POST /crew/intake/<shift_id>/complete` | `crew_intake_complete` | Set ShiftAssignment.completed_at for organizer; gated on received_count >= total_items |
+| `GET /crew/shift/<shift_id>/end-confirm` | `crew_shift_end_confirm` | End Shift confirmation page — shows stop summary + warning before final End Shift POST |
+| `GET /crew/shift/<shift_id>/history` | `crew_shift_history` | Read-only completed shift item history for the worker's truck. Linked from crew dashboard Shift History cards. |
+| `POST /crew/quick_capture` | `crew_quick_capture` | Create item from driver photo. Returns JSON {success, item_id}. Worker-approved guard. |
+| `POST /crew/quick_capture/<id>/delete` | `crew_quick_capture_delete` | Hard delete own capture (captured_by_id guard, is_quick_capture guard, status IN pending_valuation/needs_info). |
 
 ### Shift Scheduling (Admin)
 | Route | Function | Notes |
@@ -622,6 +678,21 @@ seller/reschedule.html         — Full pickup-window week grid (Mon–Sun colum
 seller/reschedule_confirm.html — Shared success/error page for reschedule flow (already_used, expired, underway, success, revoked: pickup already completed)
 admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
 admin/intake_flagged.html      — Damaged/missing review queue; checkbox bulk selection + "Remove from Marketplace" bulk action
+admin/payouts.html             — Payout reconciliation: Unpaid tab (seller cards with copy handle + Mark Paid), Paid history tab, CSV export
+admin/needs_info.html          — Quick Capture admin queue: table of pending QC items with Edit, one-click Approve (green), Delete
+admin/approval_detail_partial.html — HTML partial (no layout) for approval modal: gallery track, item meta, long description, suggested price. Root div carries data-item-id, data-seller-id, data-suggested-price.
+admin/crew_shift_board_partial.html — Shift board partial for Crew HQ week navigation
+admin/ops_reorder.html         — Route reorder page: drag-and-drop stop ordering per shift/truck; Save Order button gets tutorial-highlight at step 7
+admin/tutorial_welcome.html    — Standalone CD tutorial welcome/restart page (extends layout.html)
+admin/tutorial_complete.html   — Tutorial completion page with CSS checkmark animation and 6-item checklist
+admin/tutorial_overlay.html    — Overlay partial included in schedule_index, crew, ops, ops_reorder; context-appropriate content per step; tutorial-highlight CSS class pulses ring on target elements
+admin/cd_settings.html         — CD Settings page: tutorial status, Retake/Continue/Start button
+parents.html                   — Parents landing page
+inventory_teaser.html          — Pre-launch blurred mosaic + email capture (shown when shop_teaser_mode='true')
+checkout_delivery.html         — Buyer delivery address form with geocoding + radius check
+crew/shift_end_confirm.html    — End Shift confirmation page: stop summary, warning, confirmed POST
+crew/shift_history.html        — Read-only completed shift item history for mover's truck; linked from crew dashboard
+crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew/dashboard.html and crew/shift.html): getUserMedia rear camera, file-input fallback, notes field, full state reset on open
 ```
 
 ---
@@ -685,7 +756,33 @@ The two-tier Pro/Free system is replaced by a referral-driven payout rate stored
 ### Admin Roles
 - `is_admin`: access to admin panel (inventory, approvals, free-tier management)
 - `is_super_admin`: full access (user management, database reset, mass email, category management, schedule creation, storage unit management)
+- `is_campus_director`: access to ops panel tabs (Ops, Crew, Schedule) via `_has_ops_access()` guard. NOT `is_admin`. Cannot access Settings, User Management, Exports, or item approval. Role-switcher pill in nav lets CD toggle between seller dashboard and admin ops without logging out. Session key `cd_view` ('seller'|'admin') controls which context is shown.
 - Pre-approved via `AdminEmail` table — role assigned at signup
+
+### Campus Director Tutorial
+New CDs without a completed tutorial are auto-redirected to `/admin/tutorial`. Tutorial is a 9-step interactive walkthrough using sandboxed fixture data.
+
+- `seed_tutorial_fixtures()` — idempotent helper. Creates/resets three fixture workers (Sam Torres → pending, Riley Chen → approved, Casey Brooks → seller with ShiftPickup) and a `ShiftWeek` with `is_tutorial=True`. Called on every tutorial start/retake.
+- Tutorial gate uses DB (`TutorialSession.step`, `completed_at`, `is_retaking`), not session — cookie-unreliable after POST/redirect cycles.
+- `session['tutorial_active']` cached for template rendering only; all action-route guards read from DB.
+- Tutorial-mode guards: `admin_crew_reject` blocked; `admin_crew_remove` hard-blocked for `is_tutorial_user` workers; `admin_schedule_create` creates 1-truck shift and redirects to schedule_index; `admin_routes_assign_seller` sets step=6 when all tutorial sellers assigned; `admin_shift_notify_sellers` disabled until step 8, bumps to 9 when done.
+- `is_tutorial_user=True` workers are excluded from all production Crew HQ queries, optimizer runs, and ops assignment dropdowns.
+- `is_tutorial=True` ShiftWeek is excluded from all production shift lists, ops panel, and route planning.
+
+### Quick Capture Flow
+Movers can photograph found/donated/spot-consigned items in the field.
+
+Entry points:
+- `/crew` dashboard — Quick Capture button, no shift context; seller defaults to Campus Swap internal account
+- `/crew/shift/<id>` shift view — Quick Capture button in header; seller auto-populates from active stop
+
+Flow: camera modal → photo + optional note → select seller → Save → `InventoryItem` created with `is_quick_capture=True`, `status='pending_valuation'`, `picked_up_at` set to now.
+
+Admin completion queue at `/admin/items/needs_info`: fill title/category/price → one-click Approve (no price required) or Edit via standard flow.
+
+Delete: mover can hard-delete own captures (photo + DB) while status is `pending_valuation` or `needs_info`. Admin can hard-delete any QC item from the queue.
+
+QC items are excluded from: standard approval queue, approval digest email, pending-items counts in admin stats bar. They have their own `qc_pending_count` badge in the admin nav.
 
 ### Worker / Crew Accounts
 - Users apply at `/crew/apply` — sets `worker_status='pending'`, creates `WorkerApplication`
@@ -725,7 +822,7 @@ The two-tier Pro/Free system is replaced by a referral-driven payout rate stored
 
 2. **Flash messages** — use `flash('message', 'success'|'error'|'info')` for user feedback. Rendered in `layout.html`.
 
-3. **Auth guards** — `@login_required` for user routes. Admin routes check `current_user.is_admin`. Super admin routes use `@require_super_admin` decorator. Crew routes use `require_crew()` helper (not a decorator). Role-specific crew gating (mover vs. organizer) checks `ShiftAssignment.role_on_shift` inside each route — not `User.worker_role`.
+3. **Auth guards** — `@login_required` for user routes. Admin routes check `current_user.is_admin`. Super admin routes use `@require_super_admin` decorator. Crew routes use `require_crew()` helper (not a decorator). Ops/crew/schedule routes accessible to both admins and campus directors use `_has_ops_access()` (returns True for `is_admin` OR `is_campus_director`). Role-specific crew gating (mover vs. organizer) checks `ShiftAssignment.role_on_shift` inside each route — not `User.worker_role`.
 
 4. **New routes** — add to `app.py` following existing patterns. Group logically near related routes.
 

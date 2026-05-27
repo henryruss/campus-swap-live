@@ -222,6 +222,12 @@ class InventoryItem(db.Model):
     quick_capture_shift = db.relationship('Shift', foreign_keys=[quick_capture_shift_id], backref='quick_captured_items')
     captured_by = db.relationship('User', foreign_keys=[captured_by_id])
 
+    # DRIVER PLACEMENT (set during driver placement step after shift)
+    placement_status = db.Column(db.String(20), nullable=True)  # None | 'placed' | 'not_picked_up'
+
+    # PHOTO REFRESH FLAG
+    needs_photo_refresh = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

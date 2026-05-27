@@ -454,8 +454,12 @@
       </select>
       <input type="text" name="email" value="{{ filter_email }}" placeholder="Seller email..." style="min-width: 160px;">
       <input type="text" name="title" value="{{ filter_title }}" placeholder="Item title..." style="min-width: 160px;">
+      <input type="text" name="item_id" value="{{ filter_item_id or '' }}" placeholder="Item ID..." style="min-width: 90px;">
+      <label style="display:flex; align-items:center; gap:5px; font-size:0.83rem; color:var(--text-main); cursor:pointer; white-space:nowrap;">
+        <input type="checkbox" name="needs_refresh" value="1" {% if filter_needs_refresh %}checked{% endif %}> Needs photo refresh
+      </label>
       <button type="submit" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">Filter</button>
-      {% if filter_cat or filter_email or filter_title %}
+      {% if filter_cat or filter_email or filter_title or filter_item_id or filter_needs_refresh %}
       <a href="{{ url_for('admin_items', view='all') }}" style="font-size: 0.83rem; color: var(--text-muted);">Clear</a>
       {% endif %}
     </form>

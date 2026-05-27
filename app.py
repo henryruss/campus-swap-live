@@ -768,6 +768,20 @@ def validate_file_upload(file):
     return True, None
 
 
+_VALID_STORAGE_ZONES = frozenset([
+    'back_left', 'middle_left', 'front_left',
+    'back_right', 'middle_right', 'front_right',
+])
+
+def _validate_storage_zone(value):
+    """Return (True, None) if valid zone or None/empty, else (False, error_msg)."""
+    if not value:
+        return True, None
+    if value not in _VALID_STORAGE_ZONES:
+        return False, f"Invalid zone '{value}'. Must be one of: {', '.join(sorted(_VALID_STORAGE_ZONES))}"
+    return True, None
+
+
 def validate_video_upload(file):
     """Validate uploaded video file: size, extension, and MIME type."""
     if not file or not file.filename:
@@ -8267,6 +8281,16 @@ def crew_shift_end(shift_id):
             return redirect(url_for('crew_shift_view', shift_id=shift_id))
         return redirect(url_for('crew_shift_end_confirm', shift_id=shift_id))
 
+    # Guard: all items must be placed or not_picked_up before ending shift
+    seller_ids_done = [s.seller_id for s in my_stops if s.status in ('completed', 'issue')]
+    if seller_ids_done:
+        unplaced = InventoryItem.query.filter(
+            InventoryItem.seller_id.in_(seller_ids_done),
+            InventoryItem.placement_status == None,
+        ).count()
+        if unplaced:
+            return jsonify({'error': f'{unplaced} item(s) still need a location assigned'}), 400
+
     # Commit step: write picked_up_at on completed stops, close ShiftRun
     for stop in my_stops:
         if stop.status == 'completed':
@@ -8286,6 +8310,115 @@ def crew_shift_end(shift_id):
     db.session.commit()
     flash("Shift complete — great work!", "success")
     return redirect(url_for('crew_dashboard'))
+
+
+@app.route('/crew/shift/<int:shift_id>/placement')
+@login_required
+def crew_shift_placement(shift_id):
+    """Returns HTML partial with placement checklist for this shift."""
+    if (r := require_crew()):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment:
+        abort(403)
+
+    my_truck = assignment.truck_number
+    stop_query = ShiftPickup.query.filter_by(shift_id=shift.id)
+    if my_truck is not None:
+        stop_query = stop_query.filter_by(truck_number=my_truck)
+    my_stops = stop_query.all()
+
+    # Items from completed or issue stops
+    seller_ids = [s.seller_id for s in my_stops if s.status in ('completed', 'issue')]
+    if not seller_ids:
+        items = []
+    else:
+        items = InventoryItem.query.filter(
+            InventoryItem.seller_id.in_(seller_ids)
+        ).all()
+
+    # Default unit from the truck's ShiftPickup (use first completed stop's planned unit)
+    default_unit_id = None
+    for s in my_stops:
+        if s.status in ('completed', 'issue') and s.storage_location_id:
+            default_unit_id = s.storage_location_id
+            break
+
+    storage_locations = StorageLocation.query.filter_by(is_active=True, is_full=False).order_by(StorageLocation.name).all()
+    return render_template(
+        'crew/shift_placement_partial.html',
+        shift=shift,
+        items=items,
+        storage_locations=storage_locations,
+        default_unit_id=default_unit_id,
+    )
+
+
+@app.route('/crew/item/<int:item_id>/place', methods=['POST'])
+@login_required
+def crew_item_place(item_id):
+    if (r := require_crew()):
+        return r
+    item = InventoryItem.query.get_or_404(item_id)
+    # Auth: worker must be on the shift that collected this item
+    if item.seller_id:
+        pickup = ShiftPickup.query.filter_by(seller_id=item.seller_id).join(
+            ShiftAssignment, db.and_(
+                ShiftAssignment.shift_id == ShiftPickup.shift_id,
+                ShiftAssignment.worker_id == current_user.id,
+            )
+        ).first()
+        if not pickup:
+            abort(403)
+
+    loc_id = request.form.get('storage_location_id', '').strip()
+    zone = request.form.get('storage_row', '').strip()
+
+    if not loc_id:
+        return jsonify({'error': 'Storage unit required'}), 400
+    loc = StorageLocation.query.get(int(loc_id))
+    if not loc or not loc.is_active:
+        return jsonify({'error': 'Invalid storage unit'}), 400
+
+    ok, err = _validate_storage_zone(zone)
+    if not ok:
+        return jsonify({'error': err}), 400
+    if not zone:
+        return jsonify({'error': 'Zone required'}), 400
+
+    item.storage_location_id = int(loc_id)
+    item.storage_row = zone
+    item.placement_status = 'placed'
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/crew/item/<int:item_id>/not_picked_up', methods=['POST'])
+@login_required
+def crew_item_not_picked_up(item_id):
+    if (r := require_crew()):
+        return r
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.seller_id:
+        pickup = ShiftPickup.query.filter_by(seller_id=item.seller_id).join(
+            ShiftAssignment, db.and_(
+                ShiftAssignment.shift_id == ShiftPickup.shift_id,
+                ShiftAssignment.worker_id == current_user.id,
+            )
+        ).first()
+        if not pickup:
+            abort(403)
+
+    item.placement_status = 'not_picked_up'
+    # Clear location fields only if intake never confirmed this item
+    if item.arrived_at_store_at is None:
+        item.storage_location_id = None
+        item.storage_row = None
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/crew/shift/<int:shift_id>/history')
@@ -12907,6 +13040,116 @@ def admin_ops_reorder_stops(shift_id, truck_number):
     return jsonify({'success': True, 'redirect': url_for('admin_ops', shift_id=shift_id)})
 
 
+@app.route('/admin/storage/audit')
+@login_required
+def admin_storage_audit():
+    if not _has_ops_access():
+        abort(403)
+    return render_template('admin/storage_audit.html')
+
+
+@app.route('/admin/storage/audit/search')
+@login_required
+def admin_storage_audit_search():
+    if not _has_ops_access():
+        abort(403)
+    q = request.args.get('q', '').strip()
+    if not q:
+        return ''
+    if q.isdigit():
+        items = InventoryItem.query.filter(InventoryItem.id == int(q)).all()
+    else:
+        seller_ids = [
+            u.id for u in User.query.filter(
+                User.full_name.ilike(f'%{q}%'),
+                User.is_tutorial_user == False,
+            ).all()
+        ]
+        items = (
+            InventoryItem.query
+            .join(User, InventoryItem.seller_id == User.id)
+            .filter(
+                User.is_tutorial_user == False,
+                db.or_(
+                    InventoryItem.description.ilike(f'%{q}%'),
+                    InventoryItem.seller_id.in_(seller_ids),
+                )
+            )
+            .limit(20)
+            .all()
+        )
+    storage_locations = StorageLocation.query.filter_by(is_active=True, is_full=False).order_by(StorageLocation.name).all()
+    return render_template(
+        'admin/storage_audit_results.html',
+        items=items,
+        storage_locations=storage_locations,
+    )
+
+
+@app.route('/admin/item/<int:item_id>/set_location', methods=['POST'])
+@login_required
+def admin_item_set_location(item_id):
+    if not _has_ops_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    loc_id = request.form.get('storage_location_id', '').strip()
+    zone = request.form.get('storage_row', '').strip()
+    note = request.form.get('storage_note', '').strip()
+
+    if loc_id:
+        loc = StorageLocation.query.get(int(loc_id))
+        if not loc or not loc.is_active:
+            return jsonify({'error': 'Storage location not found or inactive'}), 400
+        item.storage_location_id = int(loc_id)
+    else:
+        item.storage_location_id = None
+
+    ok, err = _validate_storage_zone(zone)
+    if not ok:
+        return jsonify({'error': err}), 400
+    item.storage_row = zone if zone else None
+    item.storage_note = note if note else None
+
+    db.session.commit()
+    loc_name = item.storage_location.name if item.storage_location_id and item.storage_location else None
+    return jsonify({'success': True, 'location_name': loc_name, 'zone': item.storage_row})
+
+
+@app.route('/admin/item/<int:item_id>/replace_photo', methods=['POST'])
+@login_required
+def admin_item_replace_photo(item_id):
+    if not _has_ops_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    photo_file = request.files.get('photo')
+    if not photo_file:
+        return jsonify({'error': 'No file provided'}), 400
+
+    is_valid, error_msg = validate_file_upload(photo_file)
+    if not is_valid:
+        return jsonify({'error': error_msg}), 400
+
+    old_photo = item.photo_url
+    filename = f"item_{item.id}_{int(time.time())}_refresh.jpg"
+    try:
+        photo_storage.save_photo(photo_file, filename)
+    except Exception as e:
+        logger.error(f"Photo refresh save error: {e}", exc_info=True)
+        return jsonify({'error': 'Error saving photo'}), 500
+
+    # Delete old photo from disk if it's a locally stored file
+    if old_photo and (old_photo.startswith('/var/data/') or not old_photo.startswith('http')):
+        try:
+            photo_storage.delete_photo(old_photo)
+        except Exception:
+            pass
+
+    item.photo_url = filename
+    item.needs_photo_refresh = True
+    db.session.commit()
+    return jsonify({'success': True, 'photo_url': filename})
+
+
 @app.route('/admin/items')
 @login_required
 def admin_items():
@@ -12942,6 +13185,9 @@ def admin_items():
     filter_cat = request.args.get('cat', type=int)
     filter_email = request.args.get('email', '').strip()
     filter_title = request.args.get('title', '').strip()
+    filter_item_id_raw = request.args.get('item_id', '').strip()
+    filter_item_id = int(filter_item_id_raw) if filter_item_id_raw.isdigit() else None
+    filter_needs_refresh = request.args.get('needs_refresh') == '1'
 
     items_q = InventoryItem.query
     if filter_cat:
@@ -12951,6 +13197,10 @@ def admin_items():
         items_q = items_q.filter(InventoryItem.seller_id.in_(seller_ids))
     if filter_title:
         items_q = items_q.filter(InventoryItem.description.ilike(f'%{filter_title}%'))
+    if filter_item_id:
+        items_q = items_q.filter(InventoryItem.id == filter_item_id)
+    if filter_needs_refresh:
+        items_q = items_q.filter(InventoryItem.needs_photo_refresh == True)
 
     all_items = items_q.order_by(InventoryItem.date_added.desc()).all()
     categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
@@ -12978,6 +13228,8 @@ def admin_items():
         filter_cat=filter_cat,
         filter_email=filter_email,
         filter_title=filter_title,
+        filter_item_id=filter_item_id,
+        filter_needs_refresh=filter_needs_refresh,
     )
 
 
