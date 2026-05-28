@@ -6,7 +6,7 @@ The current `inventory_teaser.html` mosaic uses `<img>` tags inside tile `<div>`
 
 ## Goal
 
-Replace the repeating-image tile approach with a CSS `background-image` approach where each tile independently shows one photo as its background, cropped/covered to the card. Blur is applied per-tile via `filter: blur()` on the tile itself. Cards retain their shape and spacing, so the visual reads as a grid of blurred item cards rather than a smeared photo collage.
+Replace the repeating-image tile approach with a CSS `background-image` approach where each tile independently shows one photo as its background, cropped/covered to the card. Blur is applied per-tile via `filter: blur()` on the tile itself. Cards retain their shape and spacing, so the visual reads as a grid of blurred item cards rather than a smeared photo collage..
 
 ## UX Before / After
 
