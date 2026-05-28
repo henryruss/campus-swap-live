@@ -9427,20 +9427,35 @@ def admin_storage_import():
     filename = f.filename.lower()
     rows = []
 
+    # Reject files over 2 MB before touching them
+    f.seek(0, 2)
+    file_size = f.tell()
+    f.seek(0)
+    if file_size > 2 * 1024 * 1024:
+        flash('File too large (max 2 MB).', 'error')
+        return redirect(url_for('admin_settings') + '#storage')
+
     try:
         if filename.endswith('.xlsx') or filename.endswith('.xls'):
             import openpyxl, io as _io
-            wb = openpyxl.load_workbook(_io.BytesIO(f.read()))
+            # read_only=True streams rows without loading the full 1M-row sheet into RAM
+            wb = openpyxl.load_workbook(_io.BytesIO(f.read()), read_only=True, data_only=True)
             ws = wb.active
-            all_rows = [r for r in ws.iter_rows(values_only=True) if any(v is not None for v in r)]
-            if not all_rows:
+            header_detected = False
+            for row in ws.iter_rows(values_only=True):
+                if not any(v is not None for v in row):
+                    continue
+                cells = [str(c).strip() if c is not None else '' for c in row]
+                if not header_detected:
+                    header_detected = True
+                    # Skip if this is the header row
+                    if any(h in ('unit #', 'unit', 'name') for h in (c.lower() for c in cells)):
+                        continue
+                rows.append(cells)
+            wb.close()
+            if not rows:
                 flash('Spreadsheet appears empty.', 'error')
                 return redirect(url_for('admin_settings') + '#storage')
-            # Detect header row
-            header = [str(c).strip().lower() if c else '' for c in all_rows[0]]
-            data_rows = all_rows[1:] if any(h in ('unit #', 'unit', 'name') for h in header) else all_rows
-            for row in data_rows:
-                rows.append([str(c).strip() if c is not None else '' for c in row])
         elif filename.endswith('.csv'):
             import csv, io as _io
             content = f.read().decode('utf-8-sig')
