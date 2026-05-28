@@ -228,6 +228,13 @@ class InventoryItem(db.Model):
     # PHOTO REFRESH FLAG
     needs_photo_refresh = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
+    # AI AUTOFILL — staged fields, reviewed before going live
+    ai_description      = db.Column(db.Text, nullable=True)
+    ai_long_description = db.Column(db.Text, nullable=True)
+    ai_price            = db.Column(db.Numeric(10, 2), nullable=True)
+    ai_review_pending   = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    ai_generated_at     = db.Column(db.DateTime, nullable=True)
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

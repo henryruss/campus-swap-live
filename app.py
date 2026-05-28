@@ -326,15 +326,21 @@ def inject_admin_context():
 
 @app.context_processor
 def inject_qc_pending_count():
-    """Inject quick-capture pending count for admin nav badge."""
+    """Inject quick-capture pending count and AI review pending count for admin nav badges."""
     try:
-        count = InventoryItem.query.filter(
+        qc_count = InventoryItem.query.filter(
             InventoryItem.is_quick_capture == True,
             InventoryItem.status.in_(('pending_valuation', 'needs_info')),
         ).count()
     except Exception:
-        count = 0
-    return {'qc_pending_count': count}
+        qc_count = 0
+    try:
+        ai_count = InventoryItem.query.filter(
+            InventoryItem.ai_review_pending == True,
+        ).count()
+    except Exception:
+        ai_count = 0
+    return {'qc_pending_count': qc_count, 'ai_review_pending_count': ai_count}
 
 
 def get_user_dashboard():
@@ -14314,6 +14320,367 @@ def admin_cd_settings():
         abort(403)
     ts = current_user.tutorial_session
     return render_template('admin/cd_settings.html', ts=ts)
+
+
+# ── AI AUTOFILL ────────────────────────────────────────────────────────────────
+
+# Module-level job store: job_id → {total, completed, errors, results, done, started_at}
+_AI_JOBS = {}
+
+
+@app.route('/admin/ai/generate')
+@login_required
+def admin_ai_generate_page():
+    """AI Autofill control page — counts, run button, run history."""
+    guard = require_super_admin()
+    if guard:
+        return guard
+    api_key_present = bool(os.environ.get('ANTHROPIC_API_KEY'))
+    eligible_count = InventoryItem.query.filter(
+        InventoryItem.status.notin_(['rejected', 'sold']),
+        InventoryItem.ai_generated_at.is_(None),
+        InventoryItem.photo_url.isnot(None),
+    ).count()
+    pending_review_count = InventoryItem.query.filter(
+        InventoryItem.ai_review_pending == True,
+    ).count()
+    run_log_raw = AppSetting.get('ai_autofill_run_log', '[]')
+    try:
+        run_log = json.loads(run_log_raw)
+    except Exception:
+        run_log = []
+    current_model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
+    ai_models = [
+        ('claude-haiku-4-5-20251001', 'Haiku 4.5 — Fast & Cheap'),
+        ('claude-sonnet-4-6', 'Sonnet 4.6 — Balanced (Recommended)'),
+        ('claude-opus-4-7', 'Opus 4.7 — Most Capable'),
+    ]
+    return render_template(
+        'admin/ai_generate.html',
+        api_key_present=api_key_present,
+        eligible_count=eligible_count,
+        pending_review_count=pending_review_count,
+        run_log=run_log,
+        current_model=current_model,
+        ai_models=ai_models,
+    )
+
+
+@app.route('/admin/ai/generate/run', methods=['POST'])
+@login_required
+def admin_ai_generate_run():
+    """Kick off background AI generation job."""
+    import threading, uuid
+    guard = require_super_admin()
+    if guard:
+        return guard, 403
+    if not os.environ.get('ANTHROPIC_API_KEY'):
+        return jsonify({'error': 'ANTHROPIC_API_KEY is not set'}), 400
+    # Prune jobs older than 1 hour (stale/orphaned from server restarts)
+    cutoff = datetime.utcnow() - timedelta(hours=1)
+    for jid in list(_AI_JOBS.keys()):
+        started = _AI_JOBS[jid].get('started_at')
+        if started and started < cutoff:
+            del _AI_JOBS[jid]
+    # Block duplicate concurrent jobs
+    for jid, jdata in list(_AI_JOBS.items()):
+        if not jdata.get('done'):
+            return jsonify({'error': 'A job is already running'}), 409
+    limit_raw = request.form.get('limit', '').strip()
+    limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
+    # Read model from form; fall back to AppSetting default
+    model_choices = {m[0] for m in [
+        ('claude-haiku-4-5-20251001', ''), ('claude-sonnet-4-6', ''), ('claude-opus-4-7', '')
+    ]}
+    model_form = request.form.get('model', '').strip()
+    model = model_form if model_form in model_choices else AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
+    # Collect eligible item IDs now (in request context)
+    query = InventoryItem.query.filter(
+        InventoryItem.status.notin_(['rejected', 'sold']),
+        InventoryItem.ai_generated_at.is_(None),
+        InventoryItem.photo_url.isnot(None),
+    )
+    if limit:
+        query = query.limit(limit)
+    item_ids = [item.id for item in query.all()]
+    job_id = str(uuid.uuid4())
+    _AI_JOBS[job_id] = {
+        'total': len(item_ids),
+        'completed': 0,
+        'errors': [],
+        'results': [],
+        'done': False,
+        'started_at': datetime.utcnow(),
+    }
+    app_obj = current_app._get_current_object()
+    t = threading.Thread(target=_run_ai_generation_job, args=(app_obj, job_id, item_ids, model), daemon=True)
+    t.start()
+    return jsonify({'job_id': job_id, 'total': len(item_ids)})
+
+
+def _run_ai_generation_job(app, job_id, item_ids, model):
+    """Background thread: generate AI content for each item."""
+    import anthropic, base64, time
+    from storage import get_storage_instance
+    started_at = datetime.utcnow()
+    succeeded = 0
+    error_count = 0
+    with app.app_context():
+        storage = get_storage_instance()
+        for item_id in item_ids:
+            try:
+                item = InventoryItem.query.get(item_id)
+                if not item:
+                    _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': 'Item not found'})
+                    error_count += 1
+                    continue
+                # Collect photo filenames
+                photos = []
+                if item.photo_url:
+                    photos.append(item.photo_url)
+                for gp in item.gallery_photos:
+                    if gp.photo_url != item.photo_url:
+                        photos.append(gp.photo_url)
+                photos = photos[:4]
+                # Load photo bytes via storage abstraction (works for both local disk and S3)
+                photo_data = []
+                for filename in photos:
+                    photo_bytes = storage.get_photo_bytes(filename)
+                    if photo_bytes:
+                        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
+                        photo_data.append((photo_bytes, ext))
+                if not photo_data:
+                    item.ai_generated_at = datetime.utcnow()
+                    db.session.commit()
+                    _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': 'No photo files found'})
+                    error_count += 1
+                    continue
+                # Build prompt
+                seller_note = ''
+                if item.description or item.long_description:
+                    parts = []
+                    if item.description:
+                        parts.append(item.description.strip())
+                    if item.long_description:
+                        parts.append(item.long_description.strip())
+                    combined = ' — '.join(parts)
+                    seller_note = f'The seller described it as: "{combined}". Preserve any specific details they mentioned (dimensions, damage, accessories, etc.) in your description.'
+                quality_map = {5: 'Like New', 4: 'Good', 3: 'Fair', 2: 'Poor', 1: 'Very Poor'}
+                condition_label = quality_map.get(item.quality, 'Used')
+                category_name = item.category.name if item.category else 'Item'
+                prompt = f"""You are writing marketplace listings for Campus Swap, a college student consignment shop at UNC Chapel Hill.
+
+Item details:
+- Category: {category_name}
+- Condition: {condition_label}
+{seller_note}
+
+Looking at the photo(s), write a listing with three parts. Respond ONLY with valid JSON, no markdown, no extra text:
+
+{{
+  "title": "Short, specific, buyer-facing title. Max 80 characters. Lead with the item type and one key selling detail. Examples: 'Black Mini Fridge — Perfect Dorm Size', 'Grey IKEA Couch — Great Condition'. Do not start with 'I' or 'This'.",
+  "description": "2-3 sentences. Highlight the best visual features, condition, and why a student would want it. Mention any notable details from the seller if provided. Do not mention price.",
+  "price": A number (no dollar sign, no quotes). Fair resale price in USD for a used college dorm item in this condition. Be realistic — students are price-sensitive. Return only the number.
+}}"""
+                # Build content blocks
+                media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
+                content = []
+                for photo_bytes, ext in photo_data:
+                    content.append({
+                        'type': 'image',
+                        'source': {'type': 'base64', 'media_type': media_map.get(ext, 'image/jpeg'),
+                                   'data': base64.b64encode(photo_bytes).decode('utf-8')}
+                    })
+                content.append({'type': 'text', 'text': prompt})
+                # Call API with one retry
+                client = anthropic.Anthropic()
+                raw = None
+                for attempt in range(2):
+                    try:
+                        response = client.messages.create(
+                            model=model,
+                            max_tokens=500,
+                            messages=[{'role': 'user', 'content': content}],
+                        )
+                        raw = response.content[0].text.strip()
+                        break
+                    except Exception as api_err:
+                        if attempt == 0:
+                            time.sleep(5)
+                        else:
+                            raise api_err
+                if raw is None:
+                    raise Exception('API returned no content')
+                # Strip markdown fences
+                if raw.startswith('```'):
+                    raw = raw.split('```')[1]
+                    if raw.startswith('json'):
+                        raw = raw[4:]
+                raw = raw.strip().rstrip('```').strip()
+                parsed = json.loads(raw)
+                item.ai_description = str(parsed['title'])[:200]
+                item.ai_long_description = str(parsed['description'])[:2000]
+                item.ai_price = round(float(parsed['price']), 2)
+                item.ai_generated_at = datetime.utcnow()
+                item.ai_review_pending = True
+                db.session.commit()
+                succeeded += 1
+                _AI_JOBS[job_id]['results'].append({
+                    'item_id': item_id,
+                    'photo_url': item.photo_url,
+                    'ai_description': item.ai_description,
+                    'ai_price': float(item.ai_price),
+                })
+            except Exception as e:
+                error_count += 1
+                app.logger.error(f'AI generation error for item {item_id}: {e}')
+                try:
+                    item = InventoryItem.query.get(item_id)
+                    if item and item.ai_generated_at is None:
+                        item.ai_generated_at = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': str(e)})
+            finally:
+                _AI_JOBS[job_id]['completed'] += 1
+        _AI_JOBS[job_id]['done'] = True
+        # Save run log
+        try:
+            log_raw = AppSetting.get('ai_autofill_run_log', '[]')
+            run_log = json.loads(log_raw) if log_raw else []
+        except Exception:
+            run_log = []
+        run_log.append({
+            'started_at': started_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'completed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'total': len(item_ids),
+            'succeeded': succeeded,
+            'errors': error_count,
+        })
+        run_log = run_log[-10:]
+        AppSetting.set('ai_autofill_run_log', json.dumps(run_log))
+
+
+@app.route('/admin/ai/generate/cancel', methods=['POST'])
+@login_required
+def admin_ai_generate_cancel():
+    """Cancel/clear any running AI generation job (allows a new job to start)."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    for jid in list(_AI_JOBS.keys()):
+        _AI_JOBS[jid]['done'] = True
+    return jsonify({'success': True})
+
+
+@app.route('/admin/ai/generate/status')
+@login_required
+def admin_ai_generate_status():
+    """Poll AI generation job progress."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'error': 'Forbidden'}), 403
+    job_id = request.args.get('job_id')
+    if not job_id or job_id not in _AI_JOBS:
+        return jsonify({'error': 'Job not found'}), 404
+    job = _AI_JOBS[job_id]
+    return jsonify({
+        'done': job['done'],
+        'total': job['total'],
+        'completed': job['completed'],
+        'errors': job['errors'],
+        'results': job['results'],
+    })
+
+
+@app.route('/admin/ai/review')
+@login_required
+def admin_ai_review_queue():
+    """AI Review queue — card grid of items pending AI review."""
+    guard = require_super_admin()
+    if guard:
+        return guard
+    items = InventoryItem.query.filter(
+        InventoryItem.ai_review_pending == True,
+    ).order_by(InventoryItem.ai_generated_at.asc()).all()
+    return render_template('admin/ai_review.html', items=items)
+
+
+@app.route('/admin/ai/item/<int:item_id>/detail')
+@login_required
+def admin_ai_review_detail(item_id):
+    """HTML partial for AI review modal content."""
+    guard = require_super_admin()
+    if guard:
+        return guard
+    item = InventoryItem.query.get_or_404(item_id)
+    ai_price = float(item.ai_price) if item.ai_price else 0.0
+    seller_price = float(item.suggested_price) if item.suggested_price else 0.0
+    final_price = max(ai_price, seller_price)
+    all_photos = []
+    if item.photo_url:
+        all_photos.append(item.photo_url)
+    for gp in item.gallery_photos:
+        if gp.photo_url not in all_photos:
+            all_photos.append(gp.photo_url)
+    return render_template(
+        'admin/ai_review_detail_partial.html',
+        item=item,
+        all_photos=all_photos,
+        final_price=final_price,
+        ai_price=ai_price,
+        seller_price=seller_price,
+    )
+
+
+@app.route('/admin/ai/item/<int:item_id>/approve', methods=['POST'])
+@login_required
+def admin_ai_approve(item_id):
+    """Write staged AI fields to live fields, clear review pending flag."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status == 'sold':
+        return jsonify({'success': False, 'error': 'Item has been sold — no changes made.'}), 400
+    ai_price = float(item.ai_price) if item.ai_price else 0.0
+    seller_price = float(item.suggested_price) if item.suggested_price else 0.0
+    final_price = max(ai_price, seller_price)
+    title = request.form.get('description', item.ai_description or '').strip()[:200]
+    body = request.form.get('long_description', item.ai_long_description or '').strip()[:2000]
+    price_override = request.form.get('price', '').strip()
+    if price_override:
+        try:
+            final_price = round(float(price_override), 2)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid price'}), 400
+    if not title:
+        return jsonify({'success': False, 'error': 'Title must not be blank'}), 400
+    if final_price <= 0:
+        return jsonify({'success': False, 'error': 'Price must be greater than zero'}), 400
+    item.description = title
+    item.long_description = body
+    item.price = final_price
+    item.ai_review_pending = False
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/ai/item/<int:item_id>/discard', methods=['POST'])
+@login_required
+def admin_ai_discard(item_id):
+    """Clear AI staging fields and remove item from review queue."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    item.ai_description = None
+    item.ai_long_description = None
+    item.ai_price = None
+    item.ai_review_pending = False
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 if __name__ == '__main__':

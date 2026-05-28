@@ -164,6 +164,8 @@
     {% set active_tab = 'cd-settings' %}
   {% elif _path.startswith('/admin/schedule') %}
     {% set active_tab = 'schedule' %}
+  {% elif _path.startswith('/admin/ai') %}
+    {% set active_tab = 'ai-review' %}
   {% else %}
     {% set active_tab = '' %}
   {% endif %}
@@ -240,9 +242,20 @@
         <span class="nav-tooltip">Storage Audit</span>
       </a>
 
-      {# Settings: super_admin only #}
+      {# AI Review + Settings: super_admin only #}
       {% if current_user.is_super_admin %}
       <div class="admin-nav-divider"></div>
+
+      <a href="/admin/ai/review"
+         class="admin-nav-item {% if active_tab == 'ai-review' %}active{% endif %}"
+         title="AI Review"
+         style="position:relative;">
+        <i class="fas fa-robot"></i>
+        {% if ai_review_pending_count > 0 %}
+        <span style="position:absolute; top:2px; right:2px; background:var(--accent); color:white; font-size:0.6rem; font-weight:800; min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1;">{{ ai_review_pending_count }}</span>
+        {% endif %}
+        <span class="nav-tooltip">AI Review{% if ai_review_pending_count > 0 %} ({{ ai_review_pending_count }}){% endif %}</span>
+      </a>
 
       <a href="/admin/settings"
          class="admin-nav-item {% if active_tab == 'settings' %}active{% endif %}"

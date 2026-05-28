@@ -1,0 +1,112 @@
+{# No layout — rendered via fetch into the AI review modal panel #}
+<div class="approval-detail-wrap"
+     data-item-id="{{ item.id }}"
+     data-ai-price="{{ '%.2f'|format(ai_price) }}"
+     data-suggested-price="{{ '%.2f'|format(seller_price) if seller_price else '' }}">
+
+  {# Photo gallery — same pattern as approval_detail_partial.html #}
+  <div class="approval-modal-gallery">
+    {% if all_photos %}
+    <div class="approval-gallery-track-wrap">
+      <div class="approval-gallery-track" id="approval-gallery-track">
+        {% for photo in all_photos %}
+        <img src="{{ url_for('uploaded_file', filename=photo) }}"
+             alt="{{ item.ai_description or item.description }}"
+             class="approval-gallery-slide">
+        {% endfor %}
+      </div>
+      {% if all_photos|length > 1 %}
+      <button class="approval-gallery-btn approval-gallery-prev" onclick="approvalGalleryMove(-1)" type="button">&#8249;</button>
+      <button class="approval-gallery-btn approval-gallery-next" onclick="approvalGalleryMove(1)" type="button">&#8250;</button>
+      <div class="approval-gallery-counter" id="gallery-counter">1 / {{ all_photos|length }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="approval-gallery-track-wrap approval-gallery-placeholder">
+      <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+    </div>
+    {% endif %}
+  </div>
+
+  {# Editable fields #}
+  <div class="approval-modal-info-body">
+    <div class="approval-modal-meta" style="margin-bottom:16px;">
+      {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
+      {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
+      {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
+          Title <span style="font-weight:400;">(max 200 chars)</span>
+        </label>
+        <input type="text" name="description" maxlength="200"
+               value="{{ item.ai_description or '' }}"
+               id="ai-title-input"
+               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.92rem;font-family:inherit;outline:none;"
+               oninput="updateCounter('ai-title-counter', this.value.length, 200)"
+               onfocus="this.style.borderColor='var(--primary)'"
+               onblur="this.style.borderColor='var(--rule)'">
+        <div id="ai-title-counter" style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:3px;">{{ (item.ai_description or '')|length }} / 200</div>
+      </div>
+
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
+          Description <span style="font-weight:400;">(max 2000 chars)</span>
+        </label>
+        <textarea name="long_description" maxlength="2000" rows="4" id="ai-desc-textarea"
+                  style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.88rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;"
+                  oninput="updateCounter('ai-desc-counter', this.value.length, 2000)"
+                  onfocus="this.style.borderColor='var(--primary)'"
+                  onblur="this.style.borderColor='var(--rule)'">{{ item.ai_long_description or '' }}</textarea>
+        <div id="ai-desc-counter" style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:3px;">{{ (item.ai_long_description or '')|length }} / 2000</div>
+      </div>
+
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
+          Price ($)
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;border:1.5px solid var(--rule);border-radius:8px;padding:0 10px;background:white;max-width:140px;"
+               id="price-input-wrap">
+            <span style="color:var(--text-muted);font-weight:700;font-size:1rem;">$</span>
+            <input type="number" name="price" step="0.01" min="0.01"
+                   value="{{ '%.2f'|format(final_price) if final_price > 0 else '' }}"
+                   id="ai-price-input"
+                   style="width:90px;border:none;outline:none;padding:8px 4px;font-size:0.92rem;background:transparent;font-family:inherit;"
+                   onfocus="document.getElementById('price-input-wrap').style.borderColor='var(--primary)'"
+                   onblur="document.getElementById('price-input-wrap').style.borderColor='var(--rule)'">
+          </div>
+        </div>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:6px;">
+          AI suggested: <strong>${{ '%.2f'|format(ai_price) }}</strong>
+          &nbsp;&middot;&nbsp;
+          Seller suggested: <strong>{% if seller_price > 0 %}${{ '%.2f'|format(seller_price) }}{% else %}—{% endif %}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function approvalGalleryMove(dir) {
+  var track = document.getElementById('approval-gallery-track');
+  var counter = document.getElementById('gallery-counter');
+  if (!track) return;
+  var slides = track.querySelectorAll('.approval-gallery-slide');
+  var total = slides.length;
+  if (total < 2) return;
+  var currentTransform = track.style.transform || 'translateX(0px)';
+  var match = currentTransform.match(/-?\d+/);
+  var currentPct = match ? parseInt(match[0], 10) : 0;
+  var idx = Math.round(Math.abs(currentPct) / 100);
+  idx = (idx + dir + total) % total;
+  track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+  if (counter) counter.textContent = (idx + 1) + ' / ' + total;
+}
+function updateCounter(id, len, max) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = len + ' / ' + max;
+}
+</script>
