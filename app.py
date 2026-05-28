@@ -1,10 +1,12 @@
 import os
+import sys
 import math
 import random
 import shutil
 import time
 import json
 import logging
+import traceback
 import re
 import secrets
 import uuid
@@ -68,9 +70,11 @@ from constants import (
 # Configure Logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,  # Render captures stdout; stderr may be swallowed
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def get_pickup_period_active():
     """Get pickup period status from database, fallback to environment variable"""
@@ -898,7 +902,9 @@ def not_found_error(error):
 
 @app.errorhandler(500)
 def internal_error(error):
-    logger.error(f"500 error: {error}", exc_info=True)
+    tb = traceback.format_exc()
+    print(f"\n=== 500 ERROR on {request.method} {request.path} ===\n{tb}", flush=True)
+    logger.error(f"500 error: {error}\n{tb}")
     db.session.rollback()
     try:
         posthog.capture(
@@ -13038,6 +13044,31 @@ def admin_ops_reorder_stops(shift_id, truck_number):
 
     db.session.commit()
     return jsonify({'success': True, 'redirect': url_for('admin_ops', shift_id=shift_id)})
+
+
+@app.route('/admin/diag')
+@login_required
+def admin_diag():
+    if not current_user.is_super_admin:
+        abort(403)
+    from sqlalchemy import inspect, text
+    lines = []
+    try:
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        lines.append(f"DB: {db.engine.url}")
+        lines.append(f"Tables ({len(tables)}): {', '.join(sorted(tables))}")
+        # Check key columns on inventory_item
+        cols = [c['name'] for c in inspector.get_columns('inventory_item')]
+        lines.append(f"inventory_item columns: {', '.join(cols)}")
+        # Row counts
+        for t in ['user', 'app_setting', 'inventory_item', 'storage_location']:
+            if t in tables:
+                count = db.session.execute(text(f'SELECT count(*) FROM "{t}"')).scalar()
+                lines.append(f"  {t}: {count} rows")
+    except Exception as e:
+        lines.append(f"ERROR: {traceback.format_exc()}")
+    return '<pre>' + '\n'.join(lines) + '</pre>'
 
 
 @app.route('/admin/storage/audit')
