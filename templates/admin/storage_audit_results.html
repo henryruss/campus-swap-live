@@ -134,7 +134,7 @@
     <div class="replace-photo-section">
       <div style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:8px;">Replace Photo</div>
       {% if item.photo_url %}
-      <img src="{{ url_for('serve_photo', filename=item.photo_url) }}"
+      <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
            class="photo-thumb" alt="Current photo"
            style="width:72px; height:72px; border-radius:8px; object-fit:cover; display:block; margin-bottom:8px;">
       {% else %}
