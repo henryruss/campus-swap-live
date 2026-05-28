@@ -79,6 +79,12 @@
 <div class="audit-card" data-item-id="{{ item.id }}">
   <div class="audit-collapsed">
     <span class="audit-id-badge">#{{ item.id }}</span>
+    {% if item.photo_url %}
+    <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+         alt="" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0;">
+    {% else %}
+    <div style="width:44px; height:44px; border-radius:8px; background:var(--bg-cream); border:1px solid var(--rule); flex-shrink:0;"></div>
+    {% endif %}
     <div class="audit-info">
       <div class="audit-title">{{ item.description }}</div>
       <div class="audit-seller">{{ item.seller.full_name if item.seller else '—' }}</div>
