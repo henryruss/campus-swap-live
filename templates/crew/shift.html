@@ -733,6 +733,12 @@
         .then(r => r.text())
         .then(html => {
           placementList.innerHTML = html;
+          // Re-execute scripts injected via innerHTML (browsers skip them by default)
+          placementList.querySelectorAll('script').forEach(function(orig) {
+            const s = document.createElement('script');
+            s.textContent = orig.textContent;
+            orig.parentNode.replaceChild(s, orig);
+          });
           placementSection.style.display = 'block';
           checkPlacementState();
         });
