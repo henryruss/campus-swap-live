@@ -24,6 +24,7 @@
 
 <script>
 (function() {
+  const _auditCsrf = '{{ csrf_token() }}';
   const searchEl = document.getElementById('audit-search');
   const resultsEl = document.getElementById('audit-results');
   let debounceTimer;
@@ -95,7 +96,7 @@
       const note = expanded.querySelector('[name="storage_note"]').value;
 
       const fd = new FormData();
-      fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+      fd.append('csrf_token', _auditCsrf);
       fd.append('storage_location_id', locId);
       fd.append('storage_row', zone);
       fd.append('storage_note', note);
@@ -157,7 +158,7 @@
       if (!fileInput.files[0]) return;
 
       const fd = new FormData();
-      fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+      fd.append('csrf_token', _auditCsrf);
       fd.append('photo', fileInput.files[0]);
 
       savePhotoBtn.disabled = true;

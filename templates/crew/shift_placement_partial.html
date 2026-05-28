@@ -147,6 +147,7 @@
 
 <script>
 (function() {
+  const _placementCsrf = '{{ csrf_token() }}';
   const overlay = document.getElementById('placement-modal-overlay');
   const closeBtn = document.getElementById('modal-close-btn');
   const saveBtn = document.getElementById('modal-save-btn');
@@ -212,7 +213,7 @@
     const itemId = itemIdInput.value;
     if (!itemId) return;
     const fd = new FormData();
-    fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    fd.append('csrf_token', _placementCsrf);
     fetch('/crew/item/' + itemId + '/not_picked_up', { method: 'POST', body: fd })
       .then(r => r.json())
       .then(data => {
@@ -235,7 +236,7 @@
     if (!zone) { alert('Please select a zone.'); return; }
 
     const fd = new FormData();
-    fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    fd.append('csrf_token', _placementCsrf);
     fd.append('storage_location_id', unitId);
     fd.append('storage_row', zone);
 
