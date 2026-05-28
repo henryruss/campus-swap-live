@@ -114,6 +114,8 @@ unit_size (Float, nullable) — per-item override for truck capacity calculation
 is_quick_capture (Boolean, default False, server_default='0') — set only on items created via driver quick capture flow
 quick_capture_shift_id (Integer, FK → Shift, nullable) — shift during which the item was captured (NULL if captured from crew dashboard with no shift)
 captured_by_id (Integer, FK → User, nullable) — worker who took the QC photo; NULL on non-QC items
+placement_status (String, nullable) — None | 'placed' | 'not_picked_up'; set by driver during placement flow at End Shift. crew_shift_end (confirmed path) blocks close if any items on the truck have placement_status IS NULL
+needs_photo_refresh (Boolean, default False) — marks items needing a re-photograph; reserved for future UI
 ```
 
 ### InventoryCategory
@@ -549,8 +551,16 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/cd-settings` | `admin_cd_settings` | CD Settings page — tutorial status, Retake/Continue button |
 | `GET /admin/storage` | `admin_storage_index` | GET → 302 to `/admin/settings#storage`. Content moved to Settings tab. |
 | `POST /admin/storage/create` | `admin_storage_create` | Create StorageLocation. Super admin only. |
-| `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields. Super admin only. |
+| `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields (name, address, capacity_note, is_active). Accepts `_next` form param for post-save redirect. Super admin only. |
+| `POST /admin/storage/<id>/delete` | `admin_storage_delete` | Delete StorageLocation. Returns 409 JSON error if any items are assigned to the unit. Super admin only. |
 | `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
+| `GET /admin/storage/audit` | `admin_storage_audit` | Storage audit page — search/filter all items by storage assignment status. Admin. |
+| `GET /admin/storage/audit/search` | `admin_storage_audit_search` | HTML partial (no layout) for audit results. Params: `q` (text search), `status` (all/placed/no_unit/no_zone), `unit_id`. Returns `storage_audit_results.html`. Admin. |
+| `POST /admin/item/<id>/set-location` | `admin_item_set_location` | Update `storage_location_id`, `storage_row`, `storage_note` on item from audit tool. Returns JSON `{success}`. Admin. |
+| `POST /admin/item/<id>/replace-photo` | `admin_item_replace_photo` | Replace item cover photo from audit tool (multipart). Deletes old file if local. Returns JSON `{success, photo_url}`. Admin. |
+| `GET /admin/storage/template` | `admin_storage_template` | Download xlsx template for bulk storage unit import. |
+| `POST /admin/storage/import` | `admin_storage_import` | Bulk import storage units from xlsx/csv. 2 MB file size gate. openpyxl `read_only=True, data_only=True` streaming to prevent OOM. Skips rows with empty name. Returns flash + redirect. Super admin only. |
+| `GET /admin/diag` | `admin_diag` | Diagnostic page showing DB table row counts. Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |
 | `POST /admin/crew/shift/<shift_id>/toggle-reschedule-lock` | `admin_toggle_reschedule_lock` | Lock/unlock shift from appearing in seller reschedule grids |
 | `GET /reschedule/<token>` | `seller_reschedule_get` | Token-gated reschedule page — no login required |
@@ -572,7 +582,10 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion. On completion: revokes open RescheduleTokens, SMSes next seller. On issue: saves issue_type ('no_show'\|'other', defaults 'other'); no_show extends token TTL |
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending. Clears issue_type; preserves no_show_email_sent_at |
 | `POST /crew/shift/<shift_id>/complete_retroactive` | `crew_shift_complete_retroactive` | One-click retroactive completion for past shifts |
-| `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; sets ShiftAssignment.completed_at for driver; unconditional for past shifts |
+| `POST /crew/shift/<shift_id>/end` | `crew_shift_end` | Close ShiftRun; sets ShiftAssignment.completed_at for driver; unconditional for past shifts. Confirmed path checks for unplaced items — blocks with error if any pickup items have `placement_status IS NULL`. |
+| `GET /crew/shift/<shift_id>/placement` | `crew_shift_placement` | HTML partial: items for driver's truck needing placement. Loaded via fetch into shift view after stops are complete. |
+| `POST /crew/item/<item_id>/place` | `crew_item_place` | Save item placement: writes `storage_location_id` + `storage_row` + sets `placement_status='placed'`. Returns JSON `{success}`. Worker guard. |
+| `POST /crew/item/<item_id>/not_picked_up` | `crew_item_not_picked_up` | Mark item as not collected: sets `placement_status='not_picked_up'`. Returns JSON `{success}`. Worker guard. |
 | `GET /crew/intake/<shift_id>` | `crew_intake_shift` | Organizer intake page; requires organizer role_on_shift; phone+desktop responsive |
 | `POST /crew/intake/<shift_id>/item/<item_id>` | `crew_intake_submit` | Submit intake record for one item; creates IntakeRecord (append-only); optionally creates IntakeFlag; updates InventoryItem storage fields |
 | `GET /crew/intake/search` | `crew_intake_search` | Search items by ID or seller name; returns HTML partial for fetch into #search-results |
@@ -693,6 +706,9 @@ checkout_delivery.html         — Buyer delivery address form with geocoding + 
 crew/shift_end_confirm.html    — End Shift confirmation page: stop summary, warning, confirmed POST
 crew/shift_history.html        — Read-only completed shift item history for mover's truck; linked from crew dashboard
 crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew/dashboard.html and crew/shift.html): getUserMedia rear camera, file-input fallback, notes field, full state reset on open
+crew/shift_placement_partial.html — HTML partial (no layout): placement items list for driver's truck; modal with zone diagram for assigning unit + zone; "Not picked up" button; status chips (Placed / Not picked up / Needs location); loaded via fetch into crew/shift.html after #placement-section becomes visible
+admin/storage_audit.html       — Storage audit search page: filter bar (text, status, unit), results div injected via fetch; CSRF rendered inline as JS var
+admin/storage_audit_results.html — HTML partial (no layout): collapsible item cards with photo thumbnail, unit/zone chips, inline zone diagram + unit select, replace photo section; save/cancel/not-placed actions via fetch POST
 ```
 
 ---
@@ -847,6 +863,23 @@ QC items are excluded from: standard approval queue, approval digest email, pend
 14. **Eastern timezone helpers** — `_now_eastern()` and `_today_eastern()` in `app.py` use `zoneinfo.ZoneInfo('America/New_York')`. Use these for all "what day/time is it right now" logic. Never use `datetime.utcnow()` for date comparisons or slot-preference logic. Timestamps stored in DB remain UTC (SQLAlchemy default).
 
 15. **data-* attributes for JS data passing** — never pass structured data to JS event handlers via inline `tojson` in onclick attributes (breaks on special characters in strings). Use `data-*` attributes on the element and read via `element.dataset.*` in the handler.
+
+17. **`innerHTML` injection discards `<script>` tags** — browsers silently drop `<script>` elements added via `innerHTML`. After any `element.innerHTML = html` assignment that includes scripts (e.g., fetch-loaded partials), re-create each script node explicitly:
+    ```javascript
+    container.innerHTML = html;
+    container.querySelectorAll('script').forEach(function(orig) {
+      const s = document.createElement('script');
+      s.textContent = orig.textContent;
+      orig.parentNode.replaceChild(s, orig);
+    });
+    ```
+    This pattern is used in `crew/shift.html` after loading `shift_placement_partial.html`.
+
+18. **CSRF in inline `<script>` blocks** — `layout.html` does NOT include a `<meta name="csrf-token">` tag. Calling `document.querySelector('meta[name=csrf-token]').content` returns `null` and throws silently. Always render the token into a JS variable using Jinja2: `const _csrf = '{{ csrf_token() }}';` at the top of the template's `<script>` block.
+
+19. **openpyxl bulk import** — xlsx files have 1,048,576 rows by default. Always open with `read_only=True, data_only=True` to stream rows rather than load the full sheet into RAM. Also gate on a 2 MB file size check before loading. See `admin_storage_import` in `app.py`.
+
+20. **Startup `db.create_all()`** — runs unconditionally at every app startup (not just when `DATABASE_URL` is absent). Required so a fresh Postgres database gets all tables on first deploy. `db.session.rollback()` is called in both seed exception handlers to prevent Postgres transaction abort cascade (one failed query aborts the entire session until an explicit rollback).
 
 16. **Referral program helpers** — four functions in `app.py` (also re-exported via `helpers.py` for tests):
     - `generate_unique_referral_code()` — 8-char uppercase alphanumeric (excludes O, 0, I, 1), collision-checked against DB.

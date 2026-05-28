@@ -9,9 +9,9 @@
 
 ## Current State
 
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-28
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal flow built 2026-05-20–21. Campus Director Tutorial + auth guard audit built 2026-05-21.
+**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal + Campus Director Tutorial + auth guard audit built 2026-05-20–21. Storage audit tool + driver placement + storage unit management overhaul built 2026-05-28.
 
 ---
 
@@ -53,6 +53,81 @@
 - feature_approval_queue_modal ✅ Complete 2026-05-21 (single-page modal flow for approval queue; no new tabs; fetch partial + fetch POST actions)
 - feature_campus_director_tutorial ✅ Complete 2026-05-21 (5-step onboarding tutorial for new campus directors; sandbox fixtures; step-gated overlay cards)
 - fix_auth_guard_audit ✅ Complete 2026-05-21 (5 crew/ops routes changed from is_admin to _has_ops_access for campus director access)
+- feature_storage_audit_and_placement ✅ Complete 2026-05-28 (storage audit tool, driver placement flow, storage unit management overhaul, bulk import, Postgres startup fix)
+
+---
+
+## Feature: Storage Audit Tool + Driver Placement + Storage Unit Management (Built 2026-05-28)
+
+**Status:** In production
+
+### What Was Built
+
+#### Postgres Startup Fix
+`db.create_all()` previously only ran when `DATABASE_URL` was absent (i.e., SQLite-only). On a fresh Postgres deployment the tables were never created — seed queries failed, Postgres aborted the transaction, and every subsequent request 500'd with `relation "user" does not exist`. Fixed by running `db.create_all()` unconditionally at every app startup. Added `db.session.rollback()` to both seed exception handlers to prevent transaction abort cascade.
+
+#### Storage Audit Tool (`/admin/storage/audit`)
+Admin page to view and correct storage placement for all items across the warehouse.
+
+**New routes:**
+- `GET /admin/storage/audit` → `admin_storage_audit` — audit landing page
+- `GET /admin/storage/audit/search` → `admin_storage_audit_search` — HTML partial loaded via fetch; params: `q`, `status` (all/no_unit/no_zone/placed), `unit_id`. Returns `storage_audit_results.html`.
+- `POST /admin/item/<id>/set-location` → `admin_item_set_location` — update `storage_location_id + storage_row + storage_note`. Returns JSON.
+- `POST /admin/item/<id>/replace-photo` → `admin_item_replace_photo` — replace cover photo from audit tool. Returns JSON `{success, photo_url}`.
+
+**New templates:** `admin/storage_audit.html`, `admin/storage_audit_results.html`
+
+**Bug fixes during build:**
+- `url_for('serve_photo', ...)` → correct endpoint is `url_for('uploaded_file', filename=...)` with S3 URL passthrough check
+- CSRF: `document.querySelector('meta[name=csrf-token]')` returns `null` (no meta tag in `layout.html`). Fixed by rendering token inline: `const _auditCsrf = '{{ csrf_token() }}';`
+
+#### Driver Placement Flow (`/crew/shift/<id>`)
+After all stops are marked complete, drivers are shown a placement list for every item on their truck. They assign each item to a storage unit + zone (or mark it as not picked up) before End Shift is allowed.
+
+**New model fields on `InventoryItem`:**
+- `placement_status` (String, nullable) — `None | 'placed' | 'not_picked_up'`
+- `needs_photo_refresh` (Boolean, default False)
+
+**Migration:** `75591ac8d320_add_placement_status_to_inventory_item`
+
+**New routes:**
+- `GET /crew/shift/<shift_id>/placement` → `crew_shift_placement` — HTML partial of items needing placement; loaded into shift view via fetch
+- `POST /crew/item/<item_id>/place` → `crew_item_place` — sets `storage_location_id + storage_row + placement_status='placed'`. Returns JSON.
+- `POST /crew/item/<item_id>/not_picked_up` → `crew_item_not_picked_up` — sets `placement_status='not_picked_up'`. Returns JSON.
+
+**Modified route:**
+- `crew_shift_end` (confirmed path) now blocks End Shift if any items on the driver's truck have `placement_status IS NULL`
+
+**New template:** `crew/shift_placement_partial.html` — item list with status chips, zone diagram modal, "Not picked up" button
+
+**Bug fix during build:**
+- Partial loaded via `innerHTML` → browsers silently drop `<script>` tags. Fixed by re-creating each script node after injection using `document.createElement('script')`. Pattern documented in CODEBASE.md key patterns.
+
+#### Storage Unit Management Overhaul (`/admin/settings#storage`)
+- Removed lat/lng fields from Add Storage Location form
+- Each existing unit now has an Edit button that toggles an inline form (name, address, capacity note, active checkbox, Save, Cancel, Delete)
+- Delete is server-blocked with 409 JSON error if any items are assigned to the unit
+- New bulk import section: drag-and-drop xlsx/csv, "Download template" button, file picker, "Import units" button
+- OOM fix: openpyxl defaults to loading all 1,048,576 rows — fixed with `read_only=True, data_only=True` and a 2 MB file size gate
+
+**New routes:**
+- `POST /admin/storage/<id>/delete` → `admin_storage_delete`
+- `GET /admin/storage/template` → `admin_storage_template`
+- `POST /admin/storage/import` → `admin_storage_import`
+
+**Bug fix:**
+- `admin_storage_edit` `is_active` was checking `== 'on'` but checkbox sends `value="1"`. Fixed to `bool(request.form.get('is_active'))`.
+
+**New dependency:** `openpyxl>=3.1` added to `requirements.txt`
+
+#### Dev Tooling
+`seed_dev_driver.py` — idempotent script that creates a test driver account (`driver@test.com` / `driver123`), 3 sellers with 2 items each, and a completed ShiftWeek/Shift/ShiftRun/ShiftAssignment chain for testing the placement flow. Run: `python seed_dev_driver.py`. Output includes the URL to the shift view.
+
+#### Diagnostic Route
+`GET /admin/diag` → `admin_diag` — shows DB table row counts. Super admin only. Added for Postgres debugging.
+
+### Deviations from Spec
+No formal spec file — built interactively. All decisions recorded above.
 
 ---
 

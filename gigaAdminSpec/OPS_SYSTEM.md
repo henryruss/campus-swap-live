@@ -245,6 +245,7 @@ The ops system connects back to the seller experience in three ways:
 | — | `feature_quick_capture.md` | ✅ Done (in production ~2026-05-20) | Driver field photo capture, internal Campus Swap account, admin needs_info queue |
 | — | `feature_approval_queue_modal.md` | ✅ Done (built 2026-05-21) | Single-page modal flow for approval queue — fetch partial detail + fetch POST actions, no new tabs |
 | — | `feature_cd_tutorial.md` | ✅ Done (built 2026-05-21) | Campus Director onboarding tutorial — 10-step interactive walkthrough with sandbox data isolation, role switcher, auth guard fixes |
+| — | `feature_storage_audit_and_placement.md` | ✅ Done (built 2026-05-28) | Admin storage audit tool (`/admin/storage/audit`) to view/correct item locations; driver placement flow at End Shift (zone diagram modal, "Not picked up"); storage unit management overhaul (inline edit, delete, bulk xlsx import with OOM-safe streaming); Postgres startup fix (`db.create_all()` unconditional) |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.
