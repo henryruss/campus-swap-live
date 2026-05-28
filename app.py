@@ -8346,6 +8346,17 @@ def crew_shift_placement(shift_id):
             InventoryItem.seller_id.in_(seller_ids)
         ).all()
 
+    # Also include quick capture items taken by this driver on this shift
+    qc_items = InventoryItem.query.filter_by(
+        is_quick_capture=True,
+        quick_capture_shift_id=shift.id,
+        captured_by_id=current_user.id,
+    ).all()
+    existing_ids = {i.id for i in items}
+    for qi in qc_items:
+        if qi.id not in existing_ids:
+            items.append(qi)
+
     # Default unit from the truck's ShiftPickup (use first completed stop's planned unit)
     default_unit_id = None
     for s in my_stops:
@@ -8369,8 +8380,11 @@ def crew_item_place(item_id):
     if (r := require_crew()):
         return r
     item = InventoryItem.query.get_or_404(item_id)
-    # Auth: worker must be on the shift that collected this item
-    if item.seller_id:
+    # Auth: QC items captured by this worker are always allowed;
+    # other items require a ShiftPickup on a shift the worker is assigned to.
+    if item.is_quick_capture and item.captured_by_id == current_user.id:
+        pass
+    elif item.seller_id:
         pickup = ShiftPickup.query.filter_by(seller_id=item.seller_id).join(
             ShiftAssignment, db.and_(
                 ShiftAssignment.shift_id == ShiftPickup.shift_id,
@@ -8379,6 +8393,8 @@ def crew_item_place(item_id):
         ).first()
         if not pickup:
             abort(403)
+    else:
+        abort(403)
 
     loc_id = request.form.get('storage_location_id', '').strip()
     zone = request.form.get('storage_row', '').strip()
@@ -8408,7 +8424,9 @@ def crew_item_not_picked_up(item_id):
     if (r := require_crew()):
         return r
     item = InventoryItem.query.get_or_404(item_id)
-    if item.seller_id:
+    if item.is_quick_capture and item.captured_by_id == current_user.id:
+        pass
+    elif item.seller_id:
         pickup = ShiftPickup.query.filter_by(seller_id=item.seller_id).join(
             ShiftAssignment, db.and_(
                 ShiftAssignment.shift_id == ShiftPickup.shift_id,
@@ -8417,6 +8435,8 @@ def crew_item_not_picked_up(item_id):
         ).first()
         if not pickup:
             abort(403)
+    else:
+        abort(403)
 
     item.placement_status = 'not_picked_up'
     # Clear location fields only if intake never confirmed this item
