@@ -83,6 +83,7 @@
   <p class="settings-subtitle">Super admin only. All configuration in one place.</p>
 
   <div class="nav-links">
+    <a href="#shop" class="nav-link">Shop</a>
     <a href="#pickup-window" class="nav-link">Pickup window</a>
     <a href="#pickup-week-override" class="nav-link">Week override</a>
     <a href="#route" class="nav-link">Route & capacity</a>
@@ -92,6 +93,36 @@
     <a href="#exports" class="nav-link">Data exports</a>
     <a href="#mass-email" class="nav-link">Mass email</a>
     <a href="#db-reset" class="nav-link">Database reset</a>
+  </div>
+
+  {# ── Shop ── #}
+  <div class="settings-section" id="shop">
+    <div class="settings-section-header">
+      <i class="fas fa-store" style="color: var(--sage);"></i>
+      <h2>Shop</h2>
+    </div>
+    <div class="settings-section-body">
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label-text">Shop teaser mode</div>
+          <div class="toggle-label-sub">
+            {% if shop_teaser_mode == 'true' %}
+              Shop is <strong>closed</strong> — visitors see the teaser/waitlist page instead of live items.
+            {% else %}
+              Shop is <strong>open</strong> — buyers can browse and purchase items.
+            {% endif %}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_settings') }}" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="_action" value="toggle_shop_teaser">
+          <label class="toggle-switch" title="Toggle shop teaser mode">
+            <input type="checkbox" onchange="this.form.submit()" {% if shop_teaser_mode == 'true' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+        </form>
+      </div>
+    </div>
   </div>
 
   {# ── 1. Pickup window ── #}

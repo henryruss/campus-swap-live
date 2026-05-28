@@ -228,12 +228,17 @@ class InventoryItem(db.Model):
     # PHOTO REFRESH FLAG
     needs_photo_refresh = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
+    # RETAIL REFERENCE — set at AI approve time, shown to buyers as savings reference
+    retail_price        = db.Column(db.Numeric(10, 2), nullable=True)
+
     # AI AUTOFILL — staged fields, reviewed before going live
     ai_description      = db.Column(db.Text, nullable=True)
     ai_long_description = db.Column(db.Text, nullable=True)
     ai_price            = db.Column(db.Numeric(10, 2), nullable=True)
+    ai_retail_price     = db.Column(db.Numeric(10, 2), nullable=True)
     ai_review_pending   = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     ai_generated_at     = db.Column(db.DateTime, nullable=True)
+    ai_approved         = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)

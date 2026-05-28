@@ -1,0 +1,52 @@
+{# Partial — rendered server-side for both initial load and infinite scroll ajax #}
+{% for item in items %}
+<a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}" class="inventory-card-link" style="text-decoration: none; color: inherit;">
+    <div class="card" style="padding: 0; overflow: hidden; position: relative;">
+
+        {% if item.status == 'sold' %}
+        <div style="position: absolute; inset: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 10;">
+            <div style="color: #dc3545; font-weight: 900; font-size: 1.5rem; border: 4px solid #dc3545; padding: 10px 20px; transform: rotate(-12deg); text-transform: uppercase;">
+                SOLD
+            </div>
+        </div>
+        {% endif %}
+
+        <div style="height: 240px; overflow: hidden; position: relative;">
+            {% if item.photo_url %}
+            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+                 loading="lazy"
+                 alt="{{ item.description }}"
+                 style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
+            {% else %}
+            <div style="width:100%;height:100%;background:var(--bg-cream);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2.5rem;">
+                <i class="fas fa-image"></i>
+            </div>
+            {% endif %}
+            {% if item.video_url %}
+            <div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.6);color:white;border-radius:6px;padding:4px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;z-index:5;">
+                <i class="fas fa-play" style="font-size:0.65rem;"></i> Video
+            </div>
+            {% endif %}
+        </div>
+
+        <div style="padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</span>
+                {% if item.status != 'sold' %}
+                    <span class="badge bg-green">Available</span>
+                {% endif %}
+            </div>
+            {% if item.retail_price and item.price and item.retail_price > item.price %}
+            {% set savings_pct = ((1 - item.price / item.retail_price) * 100)|round|int %}
+            <div style="margin-bottom:6px;">
+                <span style="font-size:0.78rem;color:var(--text-muted);text-decoration:line-through;margin-right:6px;">~${{ "%.0f"|format(item.retail_price) }} retail</span>
+                <span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;">{{ savings_pct }}% off</span>
+            </div>
+            {% endif %}
+            <p style="margin: 0; font-size: 0.95rem; color: var(--text-muted); font-weight: 500;">
+                {{ item.description }}
+            </p>
+        </div>
+    </div>
+</a>
+{% endfor %}

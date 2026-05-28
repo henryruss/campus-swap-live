@@ -30,11 +30,24 @@
 
   {# Editable fields #}
   <div class="approval-modal-info-body">
-    <div class="approval-modal-meta" style="margin-bottom:16px;">
+    <div class="approval-modal-meta">
       {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
       {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
       {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
     </div>
+
+    {# Original seller listing — read-only reference #}
+    {% if item.description or item.long_description %}
+    <div style="background:var(--bg-cream);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:6px;">Original listing</div>
+      {% if item.description %}
+      <div style="font-size:0.88rem;font-weight:600;color:var(--text-main);margin-bottom:4px;">{{ item.description }}</div>
+      {% endif %}
+      {% if item.long_description %}
+      <div style="font-size:0.82rem;color:var(--text-muted);line-height:1.5;">{{ item.long_description }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
 
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>
@@ -79,10 +92,21 @@
                    onblur="document.getElementById('price-input-wrap').style.borderColor='var(--rule)'">
           </div>
         </div>
-        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:6px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
+          {% if retail_price %}
+          <span style="font-size:0.82rem;color:var(--text-muted);">
+            Retail ~<strong>${{ '%.0f'|format(retail_price) }}</strong>
+          </span>
+          {% if savings_pct %}
+          <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">
+            {{ savings_pct }}% off retail
+          </span>
+          {% endif %}
+          {% endif %}
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">
           AI suggested: <strong>${{ '%.2f'|format(ai_price) }}</strong>
-          &nbsp;&middot;&nbsp;
-          Seller suggested: <strong>{% if seller_price > 0 %}${{ '%.2f'|format(seller_price) }}{% else %}—{% endif %}</strong>
+          {% if seller_price > 0 %}&nbsp;&middot;&nbsp;Seller suggested: <strong>${{ '%.2f'|format(seller_price) }}</strong>{% endif %}
         </div>
       </div>
     </div>

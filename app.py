@@ -31,7 +31,7 @@ def _now_eastern():
 def _today_eastern():
     """Current date in US Eastern time."""
     return _now_eastern().date()
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort, current_app
 import csv
 from io import StringIO, BytesIO
 from werkzeug.utils import secure_filename
@@ -1359,7 +1359,7 @@ def inventory():
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
     ).filter(
-        InventoryItem.status != 'pending_valuation',
+        InventoryItem.ai_approved == True,
         InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
         InventoryItem.price > 0
@@ -1393,6 +1393,15 @@ def inventory():
     
     items = pagination.items
     store_info = get_store_info(store_name)
+
+    # Ajax scroll: return rendered card HTML + has_next flag
+    if request.args.get('ajax') == '1':
+        cards_html = render_template('_inventory_cards.html',
+                                     items=items,
+                                     current_store=store_name,
+                                     search_query=search_query,
+                                     active_cat=cat_id)
+        return jsonify({'html': cards_html, 'has_next': pagination.has_next, 'page': page})
 
     return render_template('inventory.html',
                          commodities=commodities,
@@ -14475,12 +14484,13 @@ Item details:
 - Condition: {condition_label}
 {seller_note}
 
-Looking at the photo(s), write a listing with three parts. Respond ONLY with valid JSON, no markdown, no extra text:
+Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markdown, no extra text. Do NOT use em-dashes or en-dashes anywhere in title or description.
 
 {{
-  "title": "Short, specific, buyer-facing title. Max 80 characters. Lead with the item type and one key selling detail. Examples: 'Black Mini Fridge — Perfect Dorm Size', 'Grey IKEA Couch — Great Condition'. Do not start with 'I' or 'This'.",
-  "description": "2-3 sentences. Highlight the best visual features, condition, and why a student would want it. Mention any notable details from the seller if provided. Do not mention price.",
-  "price": A number (no dollar sign, no quotes). Fair resale price in USD for a used college dorm item in this condition. Be realistic — students are price-sensitive. Return only the number.
+  "title": "Short, specific, buyer-facing title. Max 80 characters. Lead with the item type and one key detail. Examples: 'Black Mini Fridge, Perfect for Dorms', 'Grey IKEA Couch in Great Condition'. Do not start with 'I' or 'This'. No dashes as separators.",
+  "description": "2-3 sentences. Highlight the best visual features, condition, and why a student would want it. Mention any notable details from the seller if provided. Do not mention price. No em-dashes.",
+  "price": A number (no dollar sign, no quotes). Used resale price in USD for this item in this condition. Must be at least 40 percent below the retail price. Students are price-sensitive. Return only the number.,
+  "retail_price": A number (no dollar sign, no quotes). Estimated new retail price in USD for this item. Research what this item typically sells for new. Return only the number.
 }}"""
                 # Build content blocks
                 media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
@@ -14518,9 +14528,20 @@ Looking at the photo(s), write a listing with three parts. Respond ONLY with val
                         raw = raw[4:]
                 raw = raw.strip().rstrip('```').strip()
                 parsed = json.loads(raw)
-                item.ai_description = str(parsed['title'])[:200]
-                item.ai_long_description = str(parsed['description'])[:2000]
-                item.ai_price = round(float(parsed['price']), 2)
+                # Strip em-dashes and en-dashes
+                def _strip_dashes(s):
+                    return str(s).replace('—', ' ').replace('–', ' ').replace('  ', ' ').strip()
+                item.ai_description = _strip_dashes(parsed['title'])[:200]
+                item.ai_long_description = _strip_dashes(parsed['description'])[:2000]
+                raw_price = round(float(parsed['price']), 2)
+                raw_retail = round(float(parsed.get('retail_price', 0)), 2) if parsed.get('retail_price') else None
+                # Ensure retail price is high enough to show at least 40% savings on our price
+                if raw_price > 0:
+                    min_retail = round(raw_price / 0.60, 2)
+                    if raw_retail is None or raw_retail < min_retail:
+                        raw_retail = min_retail
+                item.ai_price = raw_price
+                item.ai_retail_price = raw_retail
                 item.ai_generated_at = datetime.utcnow()
                 item.ai_review_pending = True
                 db.session.commit()
@@ -14530,6 +14551,7 @@ Looking at the photo(s), write a listing with three parts. Respond ONLY with val
                     'photo_url': item.photo_url,
                     'ai_description': item.ai_description,
                     'ai_price': float(item.ai_price),
+                    'ai_retail_price': float(item.ai_retail_price) if item.ai_retail_price else None,
                 })
             except Exception as e:
                 error_count += 1
@@ -14624,6 +14646,8 @@ def admin_ai_review_detail(item_id):
     for gp in item.gallery_photos:
         if gp.photo_url not in all_photos:
             all_photos.append(gp.photo_url)
+    retail_price = float(item.ai_retail_price) if item.ai_retail_price else None
+    savings_pct = round((1 - ai_price / retail_price) * 100) if retail_price and retail_price > 0 and ai_price > 0 else None
     return render_template(
         'admin/ai_review_detail_partial.html',
         item=item,
@@ -14631,6 +14655,8 @@ def admin_ai_review_detail(item_id):
         final_price=final_price,
         ai_price=ai_price,
         seller_price=seller_price,
+        retail_price=retail_price,
+        savings_pct=savings_pct,
     )
 
 
@@ -14662,7 +14688,10 @@ def admin_ai_approve(item_id):
     item.description = title
     item.long_description = body
     item.price = final_price
+    if item.ai_retail_price:
+        item.retail_price = item.ai_retail_price
     item.ai_review_pending = False
+    item.ai_approved = True
     db.session.commit()
     return jsonify({'success': True})
 

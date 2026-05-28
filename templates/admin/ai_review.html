@@ -54,6 +54,30 @@
   .air-empty i { font-size: 2.5rem; margin-bottom: 14px; display: block; color: var(--sage); }
   .air-empty p { margin: 0; font-size: 1rem; }
 
+  /* Gallery — mirrors items.html */
+  .approval-modal-gallery { background: #f8fafc; border-radius: 20px 20px 0 0; overflow: hidden; }
+  .approval-gallery-track-wrap {
+    position: relative; aspect-ratio: 4/3; max-height: 320px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .approval-gallery-track { display: flex; width: 100%; height: 100%; transition: transform 0.3s ease; }
+  .approval-gallery-slide { flex-shrink: 0; width: 100%; height: 100%; object-fit: contain; }
+  .approval-gallery-placeholder { background: #f1f5f9; }
+  .approval-gallery-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,0.85); border: none; border-radius: 50%;
+    width: 36px; height: 36px; font-size: 1.4rem; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; color: var(--text-main);
+  }
+  .approval-gallery-prev { left: 10px; }
+  .approval-gallery-next { right: 10px; }
+  .approval-gallery-counter {
+    position: absolute; bottom: 10px; right: 14px; background: rgba(0,0,0,0.5);
+    color: white; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px;
+  }
+  .approval-modal-info-body { padding: 20px 24px 16px; }
+  .approval-modal-meta { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+
   /* Modal (same pattern as items.html approval modal) */
   .approval-modal-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
@@ -112,6 +136,8 @@
     {% set ai_price = item.ai_price|float if item.ai_price else 0 %}
     {% set seller_price = item.suggested_price|float if item.suggested_price else 0 %}
     {% set final_price = [ai_price, seller_price]|max %}
+    {% set retail_price = item.ai_retail_price|float if item.ai_retail_price else 0 %}
+    {% set savings_pct = ((1 - final_price / retail_price) * 100)|round|int if retail_price > 0 and final_price > 0 else 0 %}
     <div class="approve-card"
          data-item-id="{{ item.id }}"
          onclick="openAIModal({{ item.id }})">
@@ -127,10 +153,18 @@
       <div class="approve-card-body">
         <div class="approve-card-title">{{ item.ai_description or '(no title generated)' }}</div>
         {% if final_price > 0 %}
-        <div class="approve-card-price">${{ '%.2f'|format(final_price) }}</div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <div class="approve-card-price">${{ '%.2f'|format(final_price) }}</div>
+          {% if retail_price > 0 %}
+          <div style="font-size:0.78rem;color:var(--text-muted);text-decoration:line-through;">${{ '%.0f'|format(retail_price) }}</div>
+          {% endif %}
+        </div>
+        {% if savings_pct > 0 %}
+        <div style="display:inline-block;background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;">{{ savings_pct }}% off retail</div>
+        {% endif %}
         {% endif %}
         {% if item.suggested_price %}
-        <div class="approve-card-seller-price">Seller suggested: ${{ '%.2f'|format(item.suggested_price) }}</div>
+        <div class="approve-card-seller-price">Seller: ${{ '%.2f'|format(item.suggested_price) }}</div>
         {% endif %}
         <div class="approve-card-meta">
           {% if item.category %}

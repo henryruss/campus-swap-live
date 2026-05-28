@@ -167,8 +167,17 @@
                 </div>
 
                 <h1 style="font-size: 2.5rem; margin-bottom: 10px;">{{ item.description }}</h1>
-                <div style="font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 20px;">
+                <div style="margin-bottom: 20px;">
+                  <div style="font-size: 2rem; font-weight: 800; color: var(--primary);">
                     {% if item.price %}${{ "%.2f"|format(item.price) }}{% else %}Price not set{% endif %}
+                  </div>
+                  {% if item.retail_price and item.price and item.retail_price > item.price %}
+                  {% set savings_pct = ((1 - item.price / item.retail_price) * 100)|round|int %}
+                  <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;">
+                    <span style="font-size:0.95rem;color:var(--text-muted);text-decoration:line-through;">Retail ~${{ "%.0f"|format(item.retail_price) }}</span>
+                    <span style="background:#d1fae5;color:#065f46;font-size:0.82rem;font-weight:800;padding:3px 10px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+                  </div>
+                  {% endif %}
                 </div>
 
                 <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-bottom: 20px;">

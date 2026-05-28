@@ -145,11 +145,6 @@
                 All Inventory
             {% endif %}
         </h2>
-        {% if pagination %}
-        <span style="color: var(--text-muted); font-size: 0.9rem;">
-            ({{ pagination.total }} item{{ 's' if pagination.total != 1 else '' }})
-        </span>
-        {% endif %}
     </div>
     
     {% if not items or items|length == 0 %}
@@ -169,52 +164,58 @@
     </div>
     {% endif %}
     
-    <div class="grid-inventory">
-        {% for item in items %}
-        <a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}{% if pagination and pagination.page > 1 %}&page={{ pagination.page }}{% endif %}" class="inventory-card-link" style="text-decoration: none; color: inherit;">
-            <div class="card" style="padding: 0; overflow: hidden; position: relative;">
-                
-                {% if item.status == 'sold' %}
-                <div style="position: absolute; inset: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 10;">
-                    <div style="color: #dc3545; font-weight: 900; font-size: 1.5rem; border: 4px solid #dc3545; padding: 10px 20px; transform: rotate(-12deg); text-transform: uppercase;">
-                        SOLD
-                    </div>
-                </div>
-                {% endif %}
+    <div class="grid-inventory" id="inv-grid">
+        {% include '_inventory_cards.html' %}
+    </div>
 
-                <div style="height: 240px; overflow: hidden; position: relative;">
-                    {% if item.photo_url %}
-                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
-                         loading="lazy"
-                         alt="{{ item.description }}"
-                         style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
-                    {% else %}
-                    <div style="width:100%;height:100%;background:var(--bg-cream);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:2.5rem;">
-                        <i class="fas fa-image"></i>
-                    </div>
-                    {% endif %}
-                    {% if item.video_url %}
-                    <div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.6);color:white;border-radius:6px;padding:4px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;z-index:5;">
-                        <i class="fas fa-play" style="font-size:0.65rem;"></i> Video
-                    </div>
-                    {% endif %}
-                </div>
-                
-                <div style="padding: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 1.4rem; font-weight: 800; color: var(--text-main);">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</span>
-                        {% if item.status != 'sold' %}
-                            <span class="badge bg-green">Available</span>
-                        {% endif %}
-                    </div>
-                    <p style="margin: 0; font-size: 0.95rem; color: var(--text-muted); font-weight: 500;">
-                        {{ item.description }}
-                    </p>
-                </div>
-            </div>
-        </a>
-        {% endfor %}
+    {# Infinite scroll sentinel #}
+    <div id="inv-sentinel" style="height: 1px; margin-bottom: 60px;"></div>
+    <div id="inv-loading" style="display:none; text-align:center; padding: 24px; color: var(--text-muted); font-size:0.9rem;">
+        <i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i> Loading more…
     </div>
 
 </div>
+
+<script>
+(function() {
+    var nextPage = {{ pagination.page + 1 if pagination.has_next else 'null' }};
+    var loading = false;
+
+    function buildUrl(page) {
+        var params = new URLSearchParams(window.location.search);
+        params.set('page', page);
+        params.set('ajax', '1');
+        return '/inventory?' + params.toString();
+    }
+
+    function loadMore() {
+        if (!nextPage || loading) return;
+        loading = true;
+        document.getElementById('inv-loading').style.display = 'block';
+        fetch(buildUrl(nextPage))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var grid = document.getElementById('inv-grid');
+                var tmp = document.createElement('div');
+                tmp.innerHTML = data.html;
+                while (tmp.firstChild) grid.appendChild(tmp.firstChild);
+                nextPage = data.has_next ? data.page + 1 : null;
+                loading = false;
+                document.getElementById('inv-loading').style.display = 'none';
+            })
+            .catch(function() {
+                loading = false;
+                document.getElementById('inv-loading').style.display = 'none';
+            });
+    }
+
+    var sentinel = document.getElementById('inv-sentinel');
+    if ('IntersectionObserver' in window) {
+        var observer = new IntersectionObserver(function(entries) {
+            if (entries[0].isIntersecting) loadMore();
+        }, { rootMargin: '200px' });
+        observer.observe(sentinel);
+    }
+})();
+</script>
 {% endblock %}
