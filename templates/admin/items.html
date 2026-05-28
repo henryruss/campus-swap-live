@@ -235,6 +235,12 @@
       <div class="stat-num">{{ sold_count }}</div>
       <div class="stat-label">Sold</div>
     </div>
+    <a href="{{ url_for('admin_export_items') }}"
+       class="btn-outline"
+       style="margin-left: auto; align-self: center; padding: 8px 14px; font-size: 0.83rem; font-weight: 600; text-decoration: none; white-space: nowrap;"
+       title="Download all items as CSV">
+      <i class="fas fa-download"></i> Export CSV
+    </a>
   </div>
 
   {# Sub-tab pills #}

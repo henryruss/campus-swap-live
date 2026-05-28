@@ -60,7 +60,7 @@
     </div>
     {% endif %}
     {% if item.retail_price and item.price and item.retail_price > item.price %}
-    {% set savings_pct = ((1 - item.price / item.retail_price) * 100)|round|int %}
+    {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
       <span style="font-size:0.82rem;color:var(--text-muted);">Retail ~<strong>${{ '%.0f'|format(item.retail_price) }}</strong></span>
       <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
