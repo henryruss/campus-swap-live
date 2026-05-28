@@ -121,8 +121,8 @@ Campus Swap is expanding from one school (UNC Chapel Hill) to ~20 schools in the
 | Inventory Photo Refresh | ✅ Complete |
 | #5 Payout Reconciliation | 🔲 Spec written, not built |
 | #6 Route Planning | ✅ Complete |
-| #7 Seller Progress Tracker | 🔲 Not yet specced |
-| #8 Seller Rescheduling | 🔲 Not yet specced |
-| #9 SMS Notifications | 🔲 Not yet specced |
+| #7 Seller Progress Tracker | ✅ Complete |
+| #8 Seller Rescheduling | ✅ Complete |
+| #9 SMS Notifications | ✅ Complete |
 | Crew Tutorial | 🔲 Not yet specced |
 | Multi-School Support | 🔲 Not yet specced (major) |
