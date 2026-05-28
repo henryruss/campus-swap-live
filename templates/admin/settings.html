@@ -226,16 +226,49 @@
     </div>
     <div class="settings-section-body">
       {% for loc in storage_locations %}
-      <div class="storage-location-row">
-        <span class="storage-loc-dot {{ 'active' if loc.is_active else 'inactive' }}"></span>
-        <div style="flex: 1;">
-          <div style="font-weight: 600; color: var(--text-main);">{{ loc.name }}</div>
-          <div style="font-size: 0.76rem; color: var(--text-muted);">{{ loc.address }}{% if loc.capacity_note %} · {{ loc.capacity_note }}{% endif %}</div>
+      <div class="storage-location-row" style="flex-direction: column; align-items: stretch; gap: 0;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="storage-loc-dot {{ 'active' if loc.is_active else 'inactive' }}"></span>
+          <div style="flex: 1;">
+            <div style="font-weight: 600; color: var(--text-main);">{{ loc.name }}</div>
+            <div style="font-size: 0.76rem; color: var(--text-muted);">{{ loc.address or '—' }}{% if loc.capacity_note %} · {{ loc.capacity_note }}{% endif %}</div>
+          </div>
+          {% if loc.is_full %}<span style="font-size: 0.72rem; color: #dc2626; font-weight: 700; background: #fee2e2; padding: 1px 7px; border-radius: 8px;">FULL</span>{% endif %}
+          <button type="button" onclick="toggleStorageEdit({{ loc.id }})"
+                  style="background:none; border:1px solid var(--rule); border-radius:7px; padding:3px 10px; font-size:0.78rem; color:var(--text-muted); cursor:pointer; font-family:inherit;">
+            Edit
+          </button>
         </div>
-        {% if loc.is_full %}<span style="font-size: 0.72rem; color: #dc2626; font-weight: 700; background: #fee2e2; padding: 1px 7px; border-radius: 8px;">FULL</span>{% endif %}
-        <a href="{{ url_for('admin_storage_detail', loc_id=loc.id) }}" style="font-size: 0.78rem; color: var(--text-muted); text-decoration: none;">
-          <i class="fas fa-external-link-alt"></i>
-        </a>
+        <div id="storage-edit-{{ loc.id }}" style="display:none; margin-top:12px;">
+          <form method="POST" action="{{ url_for('admin_storage_edit', loc_id=loc.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="_next" value="{{ url_for('admin_settings') }}#storage">
+            <div class="settings-row">
+              <div class="settings-field">
+                <label>Name</label>
+                <input type="text" name="name" value="{{ loc.name }}" required>
+              </div>
+              <div class="settings-field">
+                <label>Address</label>
+                <input type="text" name="address" value="{{ loc.address or '' }}">
+              </div>
+            </div>
+            <div class="settings-field">
+              <label>Capacity note (optional)</label>
+              <input type="text" name="capacity_note" value="{{ loc.capacity_note or '' }}" placeholder="Max ~80 items">
+            </div>
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;">
+              <button type="submit" class="btn-primary btn-save" style="margin:0;">Save</button>
+              <button type="button" onclick="toggleStorageEdit({{ loc.id }})"
+                      style="background:none; border:1px solid var(--rule); border-radius:8px; padding:7px 14px; font-size:0.85rem; cursor:pointer; font-family:inherit;">
+                Cancel
+              </button>
+              <label style="margin-left:auto; display:flex; align-items:center; gap:6px; font-size:0.83rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" name="is_active" value="1" {% if loc.is_active %}checked{% endif %}> Active
+              </label>
+            </div>
+          </form>
+        </div>
       </div>
       {% endfor %}
       <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
@@ -249,17 +282,7 @@
             </div>
             <div class="settings-field">
               <label>Address</label>
-              <input type="text" name="address" placeholder="123 Main St" required>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div class="settings-field">
-              <label>Lat (optional)</label>
-              <input type="number" name="lat" step="0.000001" placeholder="35.9132">
-            </div>
-            <div class="settings-field">
-              <label>Lng (optional)</label>
-              <input type="number" name="lng" step="0.000001" placeholder="-79.0558">
+              <input type="text" name="address" placeholder="123 Main St">
             </div>
           </div>
           <div class="settings-field">
@@ -271,6 +294,12 @@
           </div>
         </form>
       </div>
+      <script>
+      function toggleStorageEdit(id) {
+        const el = document.getElementById('storage-edit-' + id);
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      }
+      </script>
     </div>
   </div>
 

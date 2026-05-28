@@ -9383,11 +9383,12 @@ def admin_storage_edit(loc_id):
     loc.address = request.form.get('address', '').strip() or None
     loc.location_note = request.form.get('location_note', '').strip() or None
     loc.capacity_note = request.form.get('capacity_note', '').strip() or None
-    loc.is_active = request.form.get('is_active') == 'on'
+    loc.is_active = bool(request.form.get('is_active'))
     loc.is_full = request.form.get('is_full') == 'on'
     db.session.commit()
     flash(f"'{loc.name}' updated.", "success")
-    return redirect(url_for('admin_storage_index'))
+    next_url = request.form.get('_next') or url_for('admin_storage_index')
+    return redirect(next_url)
 
 
 @app.route('/admin/storage/<int:loc_id>')
