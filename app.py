@@ -14129,22 +14129,22 @@ def admin_cd_settings():
 
 if __name__ == '__main__':
     with app.app_context():
-        # Only create DB if it doesn't exist (Local SQLite check)
-        # On Render, we use migrations.
-        if 'DATABASE_URL' not in os.environ:
-            db.create_all()
+        # create_all() is a no-op for existing tables; safe to run on every start.
+        # Postgres: creates tables on a fresh local DB without needing `flask db upgrade`.
+        db.create_all()
         try:
             seed_crew_app_settings()
         except Exception as _seed_err:
-            logger.warning(f"seed_crew_app_settings skipped (run flask db upgrade): {_seed_err}")
+            db.session.rollback()
+            logger.warning(f"seed_crew_app_settings skipped: {_seed_err}")
         try:
             seed_tutorial_fixtures()
         except Exception as _seed_err:
-            logger.warning(f"seed_tutorial_fixtures skipped (run flask db upgrade): {_seed_err}")
+            db.session.rollback()
+            logger.warning(f"seed_tutorial_fixtures skipped: {_seed_err}")
         # Auto-seed categories if table is empty (local dev safety net)
-        if 'DATABASE_URL' not in os.environ:
-            from models import InventoryCategory
-            if InventoryCategory.query.count() == 0:
+        from models import InventoryCategory
+        if InventoryCategory.query.count() == 0:
                 logger.info("No categories found — auto-seeding from seed_categories.py")
                 from seed_categories import seed as seed_cats
                 seed_cats(include_items=False)

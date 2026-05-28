@@ -41,7 +41,7 @@ def upgrade():
     if _table_exists('user') and not _column_exists('user', 'sms_opted_out'):
         with op.batch_alter_table('user', schema=None) as batch_op:
             batch_op.add_column(sa.Column(
-                'sms_opted_out', sa.Boolean(), nullable=False, server_default='0'
+                'sms_opted_out', sa.Boolean(), nullable=False, server_default='false'
             ))
 
     # 2. Add ShiftPickup.issue_type

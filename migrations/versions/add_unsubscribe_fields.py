@@ -19,7 +19,7 @@ depends_on = None
 def upgrade():
     # Add unsubscribe fields to user table
     with op.batch_alter_table('user', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('unsubscribed', sa.Boolean(), nullable=True, server_default='0'))
+        batch_op.add_column(sa.Column('unsubscribed', sa.Boolean(), nullable=True, server_default='false'))
         batch_op.add_column(sa.Column('unsubscribe_token', sa.String(length=64), nullable=True))
         batch_op.create_index(batch_op.f('ix_user_unsubscribe_token'), ['unsubscribe_token'], unique=True)
 

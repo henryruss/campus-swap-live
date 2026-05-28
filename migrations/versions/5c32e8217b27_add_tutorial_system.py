@@ -19,7 +19,7 @@ def upgrade():
     # ── User.is_tutorial_user ──────────────────────────────────────────────
     with op.batch_alter_table('user', schema=None) as batch_op:
         batch_op.add_column(sa.Column(
-            'is_tutorial_user', sa.Boolean(), nullable=False, server_default='0',
+            'is_tutorial_user', sa.Boolean(), nullable=False, server_default='false',
         ))
 
     # ── ShiftWeek.is_tutorial + remove unique constraint on week_start ─────
@@ -28,7 +28,7 @@ def upgrade():
     # This allows multiple concurrent tutorial sessions to use the same Monday.
     with op.batch_alter_table('shift_week', schema=None) as batch_op:
         batch_op.add_column(sa.Column(
-            'is_tutorial', sa.Boolean(), nullable=False, server_default='0',
+            'is_tutorial', sa.Boolean(), nullable=False, server_default='false',
         ))
 
     # ── TutorialSession table ──────────────────────────────────────────────
@@ -41,7 +41,7 @@ def upgrade():
         sa.Column('completed_at', sa.DateTime(), nullable=True),
         sa.Column('tutorial_week_id', sa.Integer(), nullable=True),
         sa.Column('last_retake_at', sa.DateTime(), nullable=True),
-        sa.Column('is_retaking', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('is_retaking', sa.Boolean(), nullable=False, server_default='false'),
         sa.ForeignKeyConstraint(['tutorial_week_id'], ['shift_week.id']),
         sa.ForeignKeyConstraint(['user_id'], ['user.id']),
         sa.PrimaryKeyConstraint('id'),

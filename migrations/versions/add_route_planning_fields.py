@@ -40,7 +40,7 @@ def upgrade():
     # Shift.sellers_notified
     if not _column_exists('shift', 'sellers_notified'):
         with op.batch_alter_table('shift', schema=None) as batch_op:
-            batch_op.add_column(sa.Column('sellers_notified', sa.Boolean(), nullable=False, server_default='0'))
+            batch_op.add_column(sa.Column('sellers_notified', sa.Boolean(), nullable=False, server_default='false'))
 
     # ShiftPickup.notified_at
     if not _column_exists('shift_pickup', 'notified_at'):
@@ -50,7 +50,7 @@ def upgrade():
     # ShiftPickup.capacity_warning
     if not _column_exists('shift_pickup', 'capacity_warning'):
         with op.batch_alter_table('shift_pickup', schema=None) as batch_op:
-            batch_op.add_column(sa.Column('capacity_warning', sa.Boolean(), nullable=False, server_default='0'))
+            batch_op.add_column(sa.Column('capacity_warning', sa.Boolean(), nullable=False, server_default='false'))
 
     # User.pickup_partner_building
     if not _column_exists('user', 'pickup_partner_building'):

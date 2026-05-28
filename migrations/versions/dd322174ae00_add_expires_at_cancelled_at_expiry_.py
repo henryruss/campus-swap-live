@@ -22,7 +22,7 @@ def upgrade():
         # Use server_default for existing rows, then remove it
         batch_op.add_column(sa.Column('expires_at', sa.DateTime(), nullable=False, server_default='2025-06-04 00:00:00'))
         batch_op.add_column(sa.Column('cancelled_at', sa.DateTime(), nullable=True))
-        batch_op.add_column(sa.Column('expiry_email_sent', sa.Boolean(), nullable=True, server_default='0'))
+        batch_op.add_column(sa.Column('expiry_email_sent', sa.Boolean(), nullable=True, server_default='false'))
 
     # Remove server defaults after backfill
     with op.batch_alter_table('item_reservation', schema=None) as batch_op:

@@ -68,7 +68,7 @@ def upgrade():
     # 5. Add shift.reschedule_locked
     if not _column_exists('shift', 'reschedule_locked'):
         with op.batch_alter_table('shift', schema=None) as batch_op:
-            batch_op.add_column(sa.Column('reschedule_locked', sa.Boolean(), nullable=False, server_default='0'))
+            batch_op.add_column(sa.Column('reschedule_locked', sa.Boolean(), nullable=False, server_default='false'))
 
     # 6. Seed AppSettings (skip if key already exists)
     settings = [
