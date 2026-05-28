@@ -268,6 +268,16 @@
               </label>
             </div>
           </form>
+          <form method="POST" action="{{ url_for('admin_storage_delete', loc_id=loc.id) }}"
+                style="margin-top:8px;"
+                onsubmit="return confirm('Delete {{ loc.name }}? This cannot be undone.')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="_next" value="{{ url_for('admin_settings') }}">
+            <button type="submit"
+                    style="background:none; border:1px solid #fca5a5; border-radius:7px; padding:5px 12px; font-size:0.78rem; color:#dc2626; cursor:pointer; font-family:inherit;">
+              Delete unit
+            </button>
+          </form>
         </div>
       </div>
       {% endfor %}
@@ -294,10 +304,66 @@
           </div>
         </form>
       </div>
+      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #f3f4f6;">
+        <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Bulk import from spreadsheet</div>
+          <a href="{{ url_for('admin_storage_template') }}"
+             style="font-size:0.78rem; color:var(--sage); text-decoration:none; font-weight:600;">
+            <i class="fas fa-download" style="margin-right:3px;"></i>Download template
+          </a>
+        </div>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin:0 0 12px;">
+          Upload a <strong>.xlsx</strong> or <strong>.csv</strong> with columns <code>Unit #</code>, <code>Location</code>, <code>Size</code>.
+          Existing units (same name) are skipped. Units not in the file are <em>not</em> deleted.
+        </p>
+        <form method="POST" action="{{ url_for('admin_storage_import') }}" enctype="multipart/form-data" id="storage-import-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <div id="storage-drop-zone"
+               style="border: 2px dashed var(--rule); border-radius: 12px; padding: 28px 20px;
+                      text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s;"
+               onclick="document.getElementById('storage-file-input').click()"
+               ondragover="event.preventDefault(); this.style.borderColor='var(--sage)'; this.style.background='#f0fdf4';"
+               ondragleave="this.style.borderColor=''; this.style.background='';"
+               ondrop="handleStorageDrop(event)">
+            <i class="fas fa-file-excel" style="font-size:1.8rem; color:var(--sage); margin-bottom:8px; display:block;"></i>
+            <div style="font-size:0.88rem; font-weight:600; color:var(--text-main);" id="storage-drop-label">
+              Drag & drop your spreadsheet here, or click to browse
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">.xlsx or .csv</div>
+          </div>
+          <input type="file" id="storage-file-input" name="file" accept=".xlsx,.xls,.csv" style="display:none"
+                 onchange="storageFileSelected(this)">
+          <button type="submit" id="storage-import-btn"
+                  style="display:none; margin-top:12px; background:var(--sage); color:white; border:none;
+                         border-radius:8px; padding:9px 20px; font-size:0.88rem; font-weight:700;
+                         cursor:pointer; font-family:inherit;">
+            Import units
+          </button>
+        </form>
+      </div>
       <script>
       function toggleStorageEdit(id) {
         const el = document.getElementById('storage-edit-' + id);
         el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      }
+      function storageFileSelected(input) {
+        if (!input.files[0]) return;
+        document.getElementById('storage-drop-label').textContent = input.files[0].name;
+        document.getElementById('storage-drop-zone').style.borderColor = 'var(--sage)';
+        document.getElementById('storage-drop-zone').style.background = '#f0fdf4';
+        document.getElementById('storage-import-btn').style.display = 'inline-block';
+      }
+      function handleStorageDrop(e) {
+        e.preventDefault();
+        const dz = document.getElementById('storage-drop-zone');
+        dz.style.borderColor = ''; dz.style.background = '';
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const input = document.getElementById('storage-file-input');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        storageFileSelected(input);
       }
       </script>
     </div>

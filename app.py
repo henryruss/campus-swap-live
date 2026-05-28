@@ -9391,6 +9391,128 @@ def admin_storage_edit(loc_id):
     return redirect(next_url)
 
 
+@app.route('/admin/storage/template')
+@login_required
+def admin_storage_template():
+    """Download a CSV template for bulk storage unit import."""
+    if not current_user.is_super_admin:
+        abort(403)
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Unit #', 'Location', 'Size'])
+    w.writerow(['214', '515 S Greensboro St', '10x30'])
+    w.writerow(['119', '515 S Greensboro St', '10x25'])
+    w.writerow(['360', '515 S Greensboro St', '10x20'])
+    buf.seek(0)
+    from flask import Response
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="storage_units_template.csv"'},
+    )
+
+
+@app.route('/admin/storage/import', methods=['POST'])
+@login_required
+def admin_storage_import():
+    """Bulk-import storage units from an xlsx or csv file."""
+    if not current_user.is_super_admin:
+        abort(403)
+    f = request.files.get('file')
+    if not f or not f.filename:
+        flash('No file selected.', 'error')
+        return redirect(url_for('admin_settings') + '#storage')
+
+    filename = f.filename.lower()
+    rows = []
+
+    try:
+        if filename.endswith('.xlsx') or filename.endswith('.xls'):
+            import openpyxl, io as _io
+            wb = openpyxl.load_workbook(_io.BytesIO(f.read()))
+            ws = wb.active
+            all_rows = [r for r in ws.iter_rows(values_only=True) if any(v is not None for v in r)]
+            if not all_rows:
+                flash('Spreadsheet appears empty.', 'error')
+                return redirect(url_for('admin_settings') + '#storage')
+            # Detect header row
+            header = [str(c).strip().lower() if c else '' for c in all_rows[0]]
+            data_rows = all_rows[1:] if any(h in ('unit #', 'unit', 'name') for h in header) else all_rows
+            for row in data_rows:
+                rows.append([str(c).strip() if c is not None else '' for c in row])
+        elif filename.endswith('.csv'):
+            import csv, io as _io
+            content = f.read().decode('utf-8-sig')
+            reader = csv.reader(_io.StringIO(content))
+            all_rows = list(reader)
+            if not all_rows:
+                flash('CSV appears empty.', 'error')
+                return redirect(url_for('admin_settings') + '#storage')
+            header = [c.strip().lower() for c in all_rows[0]]
+            data_rows = all_rows[1:] if any(h in ('unit #', 'unit', 'name') for h in header) else all_rows
+            rows = [[c.strip() for c in row] for row in data_rows if any(c.strip() for c in row)]
+        else:
+            flash('Please upload a .xlsx or .csv file.', 'error')
+            return redirect(url_for('admin_settings') + '#storage')
+    except Exception as e:
+        flash(f'Could not read file: {e}', 'error')
+        return redirect(url_for('admin_settings') + '#storage')
+
+    created = 0
+    skipped = 0
+    for row in rows:
+        if not row or not row[0]:
+            continue
+        unit_num = row[0]
+        address = row[1] if len(row) > 1 else ''
+        size = row[2] if len(row) > 2 else ''
+        name = f'Unit {unit_num}' if not unit_num.lower().startswith('unit') else unit_num
+        capacity_note = size or None
+        existing = StorageLocation.query.filter_by(name=name).first()
+        if existing:
+            skipped += 1
+            continue
+        loc = StorageLocation(
+            name=name,
+            address=address or None,
+            capacity_note=capacity_note,
+            is_active=True,
+            is_full=False,
+        )
+        db.session.add(loc)
+        created += 1
+
+    db.session.commit()
+    parts = []
+    if created:
+        parts.append(f'{created} unit{"s" if created != 1 else ""} imported')
+    if skipped:
+        parts.append(f'{skipped} already existed (skipped)')
+    flash(', '.join(parts) + '.' if parts else 'Nothing to import.', 'success' if created else 'error')
+    return redirect(url_for('admin_settings') + '#storage')
+
+
+@app.route('/admin/storage/<int:loc_id>/delete', methods=['POST'])
+@login_required
+def admin_storage_delete(loc_id):
+    """Delete a storage location. Only allowed if no items are assigned to it."""
+    if not current_user.is_super_admin:
+        abort(403)
+    loc = StorageLocation.query.get_or_404(loc_id)
+    item_count = InventoryItem.query.filter_by(storage_location_id=loc.id).count()
+    if item_count > 0:
+        flash(f'Cannot delete "{loc.name}" — {item_count} item(s) are assigned to it. Reassign them first.', 'error')
+        next_url = request.form.get('_next') or url_for('admin_settings')
+        return redirect(next_url + '#storage')
+    name = loc.name
+    db.session.delete(loc)
+    db.session.commit()
+    flash(f'"{name}" deleted.', 'success')
+    next_url = request.form.get('_next') or url_for('admin_settings')
+    return redirect(next_url + '#storage')
+
+
 @app.route('/admin/storage/<int:loc_id>')
 @login_required
 def admin_storage_detail(loc_id):
