@@ -15327,10 +15327,13 @@ def admin_warehouse_search():
             db.or_(
                 InventoryItem.description.ilike(search_pat),
                 InventoryItem.long_description.ilike(search_pat),
+                User.name.ilike(search_pat),
+                User.email.ilike(search_pat),
             )
         ]
     base_q = (
         InventoryItem.query
+        .outerjoin(User, User.id == InventoryItem.seller_id)
         .options(joinedload(InventoryItem.category), joinedload(InventoryItem.storage_location))
         .filter(InventoryItem.status != 'rejected', *item_filter)
     )
