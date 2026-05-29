@@ -611,26 +611,14 @@
     {% endfor %}
 
     <div class="ops-panel-footer">
-      <div id="new-shift-toggle-row">
-        <button type="button" class="btn-sm" style="width: 100%; justify-content: center;"
-                onclick="document.getElementById('new-shift-form').style.display='block'; this.parentElement.style.display='none';">
+      <form method="POST" action="{{ url_for('admin_shift_create') }}" style="display: flex; gap: 6px; align-items: center;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="date" name="shift_date" required
+               style="flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.82rem; font-family: inherit;">
+        <button type="submit" class="btn-sm primary" style="white-space: nowrap; flex-shrink: 0;">
           <i class="fas fa-plus"></i> New Shift
         </button>
-      </div>
-      <div id="new-shift-form" style="display: none;">
-        <form method="POST" action="{{ url_for('admin_shift_create') }}" style="display: flex; flex-direction: column; gap: 6px;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-          <input type="date" name="shift_date" required
-                 style="width: 100%; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.82rem; font-family: inherit;">
-          <div style="display: flex; gap: 6px;">
-            <button type="submit" class="btn-sm primary" style="flex: 1; justify-content: center;">Create</button>
-            <button type="button" class="btn-sm" style="flex-shrink: 0;"
-                    onclick="document.getElementById('new-shift-form').style.display='none'; document.getElementById('new-shift-toggle-row').style.display='block';">
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
+      </form>
     </div>
   </aside>
 
@@ -1002,10 +990,19 @@
 </form>
 
 <script>
-  // ── Scroll selected shift into view on load ──
+  // ── Scroll selected shift into view within the panel only ──
   document.addEventListener('DOMContentLoaded', function() {
     var sel = document.querySelector('.ops-shift-row.active');
-    if (sel) sel.scrollIntoView({ block: 'center', behavior: 'instant' });
+    var panel = document.querySelector('.ops-shift-panel');
+    if (sel && panel) {
+      var panelTop = panel.getBoundingClientRect().top;
+      var selTop = sel.getBoundingClientRect().top;
+      panel.scrollTop += (selTop - panelTop) - (panel.clientHeight / 2) + (sel.clientHeight / 2);
+    }
+    // Always load main content scrolled to top
+    var main = document.querySelector('.ops-main');
+    if (main) main.scrollTop = 0;
+    window.scrollTo(0, 0);
   });
 
   // ── Truck detail drawer ──

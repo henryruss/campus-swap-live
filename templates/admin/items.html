@@ -898,16 +898,22 @@
                 {% endif %}
               </td>
             </tr>
-            {% if entry.errors > 0 and entry.error_items is defined and entry.error_items %}
+            {% if entry.errors > 0 %}
             <tr id="run-errors-{{ loop_idx }}" style="display:none;">
               <td colspan="5" style="padding:0 10px 10px;">
                 <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;">
                   <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#dc2626;margin-bottom:6px;">Failed items</div>
-                  {% for err in entry.error_items %}
-                  <div style="font-size:0.8rem;color:#7f1d1d;padding:3px 0;border-bottom:1px solid #fecaca;">
-                    <strong>Item #{{ err.item_id }}</strong> — {{ err.reason }}
+                  {% if entry.error_items is defined and entry.error_items %}
+                    {% for err in entry.error_items %}
+                    <div style="font-size:0.8rem;color:#7f1d1d;padding:3px 0;border-bottom:1px solid #fecaca;">
+                      <strong>Item #{{ err.item_id }}</strong> — {{ err.reason }}
+                    </div>
+                    {% endfor %}
+                  {% else %}
+                  <div style="font-size:0.8rem;color:#7f1d1d;font-style:italic;">
+                    Per-item error details not available for runs before this feature was added.
                   </div>
-                  {% endfor %}
+                  {% endif %}
                 </div>
               </td>
             </tr>

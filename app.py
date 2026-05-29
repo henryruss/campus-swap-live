@@ -10592,7 +10592,7 @@ def admin_shift_create():
         week_id=week.id,
         day_of_week=day_of_week,
         slot=slot,
-        trucks=2,
+        trucks=1,
         is_active=True,
     )
     db.session.add(shift)
