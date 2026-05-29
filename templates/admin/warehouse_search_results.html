@@ -1,0 +1,105 @@
+{# No layout — rendered into search result areas #}
+{% if not items %}
+<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:0.88rem;">No items found.</div>
+{% else %}
+<div style="background:white;border:var(--card-border);border-radius:12px;overflow:hidden;">
+  {% for item in items %}
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:0.83rem;">
+    {% if item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="lightbox-trigger"
+         style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;" loading="lazy" alt="">
+    {% else %}
+    <div style="width:40px;height:40px;border-radius:6px;flex-shrink:0;background:var(--bg-cream);display:flex;align-items:center;justify-content:center;color:var(--text-muted);">
+      <i class="fas fa-image"></i>
+    </div>
+    {% endif %}
+    <span style="font-size:0.7rem;font-weight:700;background:#f1f5f9;color:var(--text-muted);padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
+    <span style="flex:1;min-width:0;font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</span>
+    {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">{{ item.category.name }}</span>{% endif %}
+    <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">
+      {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
+      {% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
+    </span>
+    <span style="font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;
+      {% if item.status == 'available' %}background:#d1fae5;color:#065f46;
+      {% elif item.status in ('pending_valuation','needs_info') %}background:#fef3c7;color:#92400e;
+      {% elif item.status == 'sold' %}background:#fee2e2;color:#991b1b;
+      {% else %}background:#f1f5f9;color:#6b7280;{% endif %}">
+      {{ item.status|replace('_',' ')|title }}
+    </span>
+    {% if current_unit_id and item.storage_location_id != current_unit_id %}
+    <button type="button"
+            onclick="confirmMoveItem({{ item.id }}, '{{ item.description|e }}', {{ current_unit_id }})"
+            style="padding:4px 10px;font-size:0.75rem;border:1.5px solid var(--primary);color:var(--primary);background:white;border-radius:7px;cursor:pointer;white-space:nowrap;">
+      Move here
+    </button>
+    {% endif %}
+    {% if item.needs_new_photo %}
+    <span style="background:#fef3c7;color:#92400e;font-size:0.68rem;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;">📷 Needs Photo</span>
+    <button type="button"
+            onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
+            style="padding:4px 10px;font-size:0.75rem;border:1.5px solid #d97706;color:#d97706;background:white;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;">
+      <i class="fas fa-camera"></i>
+    </button>
+    {% endif %}
+    <button type="button"
+            onclick="openLocatePicker({{ item.id }})"
+            style="padding:4px 10px;font-size:0.75rem;border:1.5px solid var(--sage);color:var(--sage);background:white;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;">
+      Select Unit
+    </button>
+  </div>
+  {# Inline location picker for this item — hidden by default #}
+  <div id="locate-picker-{{ item.id }}" style="display:none;padding:10px 14px 12px;background:#f8fafc;border-bottom:1px solid #f3f4f6;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <select id="locate-unit-{{ item.id }}"
+              style="padding:6px 10px;border:1.5px solid var(--rule);border-radius:8px;font-size:0.83rem;background:white;outline:none;">
+        <option value="">— No unit —</option>
+        {% for loc in storage_locations %}
+        <option value="{{ loc.id }}" {% if item.storage_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+        {% endfor %}
+      </select>
+      <select id="locate-row-{{ item.id }}"
+              style="padding:6px 10px;border:1.5px solid var(--rule);border-radius:8px;font-size:0.83rem;background:white;outline:none;">
+        <option value="">— No row —</option>
+        {% for z in ['back_left','middle_left','front_left','back_right','middle_right','front_right'] %}
+        <option value="{{ z }}" {% if item.storage_row == z %}selected{% endif %}>{{ z|replace('_',' ')|title }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" onclick="saveLocate({{ item.id }})"
+              style="padding:6px 14px;font-size:0.83rem;font-weight:700;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;">
+        Save
+      </button>
+      <button type="button" onclick="closeLocatePicker({{ item.id }})"
+              style="padding:6px 10px;font-size:0.83rem;background:none;border:none;color:var(--text-muted);cursor:pointer;">
+        Cancel
+      </button>
+      <span id="locate-saved-{{ item.id }}" style="font-size:0.78rem;color:var(--sage);display:none;">Saved ✓</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function confirmMoveItem(itemId, title, targetUnitId) {
+  if (!confirm('Move item #' + itemId + ' (' + (title || 'Untitled') + ') to this unit?')) return;
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fd.append('storage_location_id', targetUnitId);
+  fetch('/admin/item/' + itemId + '/set_location', { method:'POST', body:fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        loadUnitContent(targetUnitId);
+        // Clear search
+        var si = document.getElementById('whu-search-' + targetUnitId);
+        if (si) { si.value = ''; document.getElementById('whu-search-results').innerHTML = ''; }
+      } else {
+        alert('Move failed: ' + (data.error || 'Unknown error'));
+      }
+    });
+}
+</script>

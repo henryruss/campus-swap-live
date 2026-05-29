@@ -114,7 +114,7 @@
 
   <div class="card delivery-item-summary">
     {% if item.photo_url %}
-      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="lightbox-trigger">
     {% else %}
       <div style="width: 100%; aspect-ratio: 1; background: var(--bg-cream); border-radius: 8px;"></div>
     {% endif %}

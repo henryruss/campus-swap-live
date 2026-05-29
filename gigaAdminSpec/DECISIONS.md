@@ -886,3 +886,34 @@ The grid is already intuitive enough without a shortcut.
 **Decision:** The `maybeBoxAlert` function in `items.html` references `send_box_alert` checkbox inputs that were removed with the inline approval forms. The function was not deleted.
 
 **Reasoning:** It is never called in the new flow — no harm, no bug. Deleting it could cause issues if another call site exists that wasn't found during the refactor. Safe to clean up in a future pass once confirmed unreferenced.
+
+---
+
+## AI Autofill + Warehouse Floor (2026-05-28)
+
+### Decision: `ai_approved` gates shop visibility, not just `status='available'`
+**Reasoning:** Before AI autofill, items were approved manually — an admin had reviewed and set a price. After AI autofill, items can be `available` without a human ever reviewing the AI-generated title, description, or price. Gating shop visibility on `ai_approved=True` ensures only items that have been through the AI review flow (or explicitly approved) appear to buyers. Items approved before this feature existed are hidden until re-processed — a deliberate decision to maintain listing quality.
+
+### Decision: Retail price floored to ensure ≥40% apparent savings (raise retail, never lower our price)
+**Reasoning:** The AI estimates retail price independently of our price. If the AI's retail estimate is too close to our price (less than 40% savings), we raise the retail reference rather than lowering our price. Our price is set at `max(ai_suggested, seller_suggested)` — it should never decrease to manufacture a savings percentage. The retail reference is an estimate anyway; slightly raising it is honest (we know original retail is usually higher than AI conservatively estimates).
+
+### Decision: `ai_generated_at` used as both success marker and error sentinel
+**Reasoning:** If AI generation fails on an item (bad photo, API error, parse failure), we still set `ai_generated_at` to prevent infinite retries on every generation run. The eligibility query filters `ai_generated_at IS NULL` — items with errors are skipped automatically. A super admin can clear this field manually to force a retry. This is intentional: a bad photo burning API credits on every run is worse than requiring a manual retry for edge cases.
+
+### Decision: `needs_new_photo` + `needs_photo_verification` as separate flags
+**Reasoning:** They represent distinct states in the photo workflow. `needs_new_photo` = "this item needs a replacement photo taken at the warehouse" (set at AI review time). `needs_photo_verification` = "a replacement photo was taken and needs admin to review it before it goes live" (set by replace_photo route). Combining them would lose the distinction between "hasn't been photographed yet" vs "photographed but not yet verified." Each flag has its own UI section in the warehouse with different actions.
+
+### Decision: replace_photo deletes old cover from ItemPhoto to prevent carousel duplication
+**Reasoning:** The `set-cover-photo` swap flow works by moving the old cover into an ItemPhoto record (gallery slot). When replace_photo then runs, it sets a new `item.photo_url` but leaves the old cover in ItemPhoto. The `all_photos` builder in the AI review modal deduplicates by checking `if gp.photo_url not in all_photos`, but only the exact cover is skipped — if the old cover was swapped into ItemPhoto via set-cover-photo, it had a different "slot" and would appear as a gallery photo after replacement. Fix: delete any ItemPhoto matching the old cover filename before setting the new photo.
+
+### Decision: Warehouse Log Item uses payout_rate=50 for new proxy sellers (vs 20 in existing proxy flow)
+**Reasoning:** Word-of-mouth sellers found at the warehouse are different from sellers who never engaged with Campus Swap. They're being asked to part with their item on the spot with no prior commitment. A higher payout rate (50%) is a stronger incentive to agree and trust the process. The existing proxy seller creation at `/admin/seller/create-proxy` uses 20% (for sellers who were pre-enrolled). Two different contexts, two different rates.
+
+### Decision: QC admin queue (`/admin/items/needs_info`) removed in favor of AI autofill pipeline
+**Reasoning:** The old queue required admins to manually fill in title, category, and price for every quick-capture item — tedious at any volume. With AI autofill, the same items are processed automatically and surface in the AI review queue with pre-filled data that admin only needs to verify and optionally edit. The dedicated QC queue was a manual workaround that becomes obsolete once AI autofill is running. Items created via quick capture (`is_quick_capture=True`) are fully eligible for AI autofill — same query, no special handling needed.
+
+### Decision: Infinite scroll on inventory page instead of pagination
+**Reasoning:** The shop is a browsing experience. Pagination interrupts browsing with a hard stop and a navigation action. Infinite scroll keeps the flow continuous — buyers scroll naturally and more content loads as they reach the bottom. The implementation uses IntersectionObserver with a 200px trigger threshold (loads next page before the user actually hits the bottom) and a server-side `?ajax=1` endpoint that returns rendered HTML fragments (no client-side template logic, consistent with server-rendered constraint).
+
+### Decision: Category required in crew quick capture modal
+**Reasoning:** Items without categories are harder for AI autofill to price correctly — category is a strong prior for what something is worth. Adding category selection at capture time costs the mover ~2 seconds and significantly improves AI output quality. The backend remains null-safe (no hard server block) because direct API calls or network errors mid-form shouldn't brick the entire capture flow.

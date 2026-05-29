@@ -1,0 +1,442 @@
+{# Included inline in warehouse.html — not a standalone template #}
+<style>
+  .whl-header { background:var(--primary); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; border-radius:18px 18px 0 0; }
+  .whl-header span { color:white; font-weight:700; font-size:1rem; }
+  .whl-header button { background:none; border:none; color:rgba(255,255,255,0.7); font-size:1.2rem; cursor:pointer; padding:4px 8px; line-height:1; }
+  .whl-body { padding:20px; }
+  .whl-step { display:none; }
+  .whl-step.active { display:block; }
+  .whl-label { font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); display:block; margin-bottom:6px; }
+  .whl-step-indicator { display:flex; gap:6px; margin-bottom:20px; }
+  .whl-dot { height:6px; border-radius:999px; background:#e5e7eb; transition:background 0.2s,flex 0.2s; flex:1; }
+  .whl-dot.done { background:var(--sage); }
+  .whl-dot.active { background:var(--primary); }
+  .whl-cat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+  .whl-cat-btn { border:1.5px solid var(--rule); border-radius:10px; background:white; padding:10px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:0.75rem; font-weight:600; color:var(--text-muted); transition:all 0.12s; }
+  .whl-cat-btn.selected { border-color:var(--primary); background:#f0f9f0; color:var(--primary); }
+  .whl-radio-option { display:flex; align-items:flex-start; justify-content:flex-start; gap:12px; padding:12px 14px; border:1.5px solid var(--rule); border-radius:10px; cursor:pointer; margin-bottom:8px; transition:border-color 0.12s,background 0.12s; }
+  .whl-radio-option.selected { border-color:var(--primary); background:#f0f9f0; }
+  .whl-radio-option input[type=radio] { flex-shrink:0; margin-top:3px; width:16px; height:16px; accent-color:var(--primary); cursor:pointer; }
+  .whl-radio-text { flex:1; min-width:0; text-align:left; }
+  .whl-radio-title { font-weight:700; font-size:0.9rem; color:var(--text-main); margin-bottom:2px; }
+  .whl-radio-sub { font-size:0.78rem; color:var(--text-muted); }
+  .whl-seller-results { background:white; border:1.5px solid var(--rule); border-radius:9px; max-height:180px; overflow-y:auto; display:none; }
+  .whl-seller-row { padding:8px 12px; cursor:pointer; font-size:0.85rem; border-bottom:1px solid #f3f4f6; }
+  .whl-seller-row:last-child { border-bottom:none; }
+  .whl-seller-row:hover { background:#f8fafc; }
+  .whl-error { display:none; background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:10px 14px; font-size:0.875rem; color:#991b1b; margin-bottom:14px; }
+  .whl-footer { display:flex; gap:10px; justify-content:flex-end; padding-top:14px; border-top:1px solid #f3f4f6; }
+  input[type=text].whl-input, input[type=email].whl-input, input[type=tel].whl-input,
+  select.whl-select { width:100%; padding:9px 12px; border:1.5px solid var(--rule); border-radius:9px; font-size:0.88rem; outline:none; box-sizing:border-box; margin-bottom:10px; }
+  input[type=text].whl-input:focus, input[type=email].whl-input:focus, input[type=tel].whl-input:focus,
+  select.whl-select:focus { border-color:var(--primary); }
+</style>
+
+<script>
+// Warehouse log modal state
+var _whlStep = 1; // 1=photo 2=category 3=location 4=seller
+var _whlBlob = null;
+var _whlCatId = null;
+var _whlPreUnitId = null;
+var _whStream = null;
+var _whUseFile = false;
+
+function stopWHCamera() {
+  if (_whStream) { _whStream.getTracks().forEach(function(t){ t.stop(); }); _whStream = null; }
+  var v = document.getElementById('whl-video');
+  if (v) v.srcObject = null;
+}
+
+function whlShowError(msg) {
+  var el = document.getElementById('whl-error');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function whlClearError() {
+  var el = document.getElementById('whl-error');
+  if (el) { el.style.display = 'none'; el.textContent = ''; }
+}
+
+function initLogModal(preUnitId) {
+  _whlStep = 1;
+  _whlBlob = null;
+  _whlCatId = null;
+  _whlPreUnitId = preUnitId || null;
+  _whStream = null;
+  _whUseFile = false;
+
+  document.getElementById('wh-log-modal-content').innerHTML =
+    document.getElementById('whl-template').innerHTML;
+
+  // Pre-populate unit if known
+  if (_whlPreUnitId) {
+    var sel = document.getElementById('whl-loc-select');
+    if (sel) sel.value = _whlPreUnitId;
+  }
+
+  whlUpdateStepUI();
+  whlStartCamera();
+}
+
+function whlUpdateStepUI() {
+  for (var i = 1; i <= 4; i++) {
+    var s = document.getElementById('whl-step-' + i);
+    if (s) s.classList.toggle('active', i === _whlStep);
+    var dot = document.getElementById('whl-dot-' + i);
+    if (dot) {
+      dot.classList.remove('done','active');
+      if (i < _whlStep) dot.classList.add('done');
+      else if (i === _whlStep) dot.classList.add('active');
+    }
+  }
+  var nextBtn = document.getElementById('whl-next-btn');
+  var saveBtn = document.getElementById('whl-save-btn');
+  if (nextBtn) nextBtn.style.display = _whlStep < 4 ? '' : 'none';
+  if (saveBtn) saveBtn.style.display = _whlStep === 4 ? '' : 'none';
+  whlUpdateNextEnabled();
+}
+
+function whlUpdateNextEnabled() {
+  var nextBtn = document.getElementById('whl-next-btn');
+  if (!nextBtn) return;
+  var ok = false;
+  if (_whlStep === 1) ok = !!_whlBlob;
+  else if (_whlStep === 2) ok = !!_whlCatId;
+  else ok = true;
+  nextBtn.disabled = !ok;
+  nextBtn.style.opacity = ok ? '1' : '0.4';
+  nextBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+function whlNext() {
+  if (_whlStep < 4) { _whlStep++; whlUpdateStepUI(); }
+}
+function whlBack() {
+  if (_whlStep > 1) { _whlStep--; whlUpdateStepUI(); }
+}
+
+// ── Camera (step 1) ──
+function whlStartCamera() {
+  var cameraWrap = document.getElementById('whl-camera-wrap');
+  var fileWrap = document.getElementById('whl-fileinput-wrap');
+  var thumbWrap = document.getElementById('whl-thumb-wrap');
+  if (!cameraWrap) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    _whUseFile = true;
+    cameraWrap.style.display = 'none';
+    fileWrap.style.display = 'flex';
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(s) {
+      _whStream = s;
+      var v = document.getElementById('whl-video');
+      v.srcObject = s;
+      cameraWrap.style.display = 'block';
+      fileWrap.style.display = 'none';
+      thumbWrap.style.display = 'none';
+    })
+    .catch(function() {
+      _whUseFile = true;
+      cameraWrap.style.display = 'none';
+      fileWrap.style.display = 'flex';
+    });
+}
+
+function whlSnap() {
+  var v = document.getElementById('whl-video');
+  var c = document.getElementById('whl-canvas');
+  if (!_whStream || !v.videoWidth) return;
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  c.toBlob(function(blob){ whlShowThumb(blob); }, 'image/jpeg', 0.92);
+}
+
+function whlShowThumb(blob) {
+  _whlBlob = blob;
+  stopWHCamera();
+  var thumb = document.getElementById('whl-thumb');
+  thumb.src = URL.createObjectURL(blob);
+  document.getElementById('whl-camera-wrap').style.display = 'none';
+  document.getElementById('whl-fileinput-wrap').style.display = 'none';
+  document.getElementById('whl-thumb-wrap').style.display = 'block';
+  whlUpdateNextEnabled();
+}
+
+function whlRetake() {
+  _whlBlob = null;
+  document.getElementById('whl-thumb-wrap').style.display = 'none';
+  if (_whUseFile) {
+    document.getElementById('whl-fileinput-wrap').style.display = 'flex';
+  } else {
+    whlStartCamera();
+  }
+  whlUpdateNextEnabled();
+}
+
+// ── Category (step 2) ──
+function whlSelectCat(btn, catId) {
+  document.querySelectorAll('.whl-cat-btn').forEach(function(b){ b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  _whlCatId = catId;
+  whlUpdateNextEnabled();
+}
+
+// ── Seller (step 4) ──
+var _whlSellerTimer = null;
+var _whlSelectedSellerId = null;
+
+function whlOnSellerModeChange(val) {
+  document.getElementById('whl-existing-seller-wrap').style.display = val === 'existing' ? 'block' : 'none';
+  document.getElementById('whl-new-seller-wrap').style.display = val === 'new' ? 'block' : 'none';
+  _whlSelectedSellerId = null;
+}
+
+function whlSellerSearch(q) {
+  clearTimeout(_whlSellerTimer);
+  var res = document.getElementById('whl-seller-results');
+  if (q.trim().length < 2) { res.style.display = 'none'; return; }
+  _whlSellerTimer = setTimeout(function() {
+    fetch('/admin/warehouse/seller-search?q=' + encodeURIComponent(q.trim()))
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        res.innerHTML = '';
+        if (!data.length) {
+          res.innerHTML = '<div style="padding:10px 12px;font-size:0.83rem;color:var(--text-muted);">No sellers found</div>';
+        } else {
+          data.forEach(function(s) {
+            var row = document.createElement('div');
+            row.className = 'whl-seller-row';
+            row.innerHTML = '<strong>' + (s.name||'') + '</strong> <span style="color:var(--text-muted);font-size:0.78rem;">' + s.email + ' · ' + s.item_count + ' items · ' + s.payout_rate + '%</span>';
+            row.onclick = function() {
+              _whlSelectedSellerId = s.id;
+              document.getElementById('whl-seller-search').value = (s.name || s.email);
+              res.style.display = 'none';
+            };
+            res.appendChild(row);
+          });
+        }
+        res.style.display = 'block';
+      });
+  }, 300);
+}
+
+// ── Save ──
+function whlSave() {
+  whlClearError();
+  var saveBtn = document.getElementById('whl-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+
+  var fd = new FormData();
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  if (csrf) { fd.append('csrf_token', csrf.value); }
+  fd.append('photo', _whlBlob, 'capture.jpg');
+  if (_whlCatId) fd.append('category_id', _whlCatId);
+
+  // Location
+  var locSel = document.getElementById('whl-loc-select');
+  if (locSel && locSel.value) fd.append('storage_location_id', locSel.value);
+  var rowSel = document.getElementById('whl-row-select');
+  if (rowSel && rowSel.value) fd.append('storage_row', rowSel.value);
+
+  // Seller
+  var sellerMode = document.querySelector('input[name="whl_seller_mode"]:checked');
+  var mode = sellerMode ? sellerMode.value : 'internal';
+  fd.append('seller_mode', mode);
+  if (mode === 'existing') {
+    if (!_whlSelectedSellerId) {
+      whlShowError('Please select a seller from the search results.');
+      saveBtn.disabled = false; saveBtn.textContent = 'Save Item';
+      return;
+    }
+    fd.append('existing_seller_id', _whlSelectedSellerId);
+  } else if (mode === 'new') {
+    var nm = (document.getElementById('whl-new-name').value || '').trim();
+    var em = (document.getElementById('whl-new-email').value || '').trim();
+    var ph = (document.getElementById('whl-new-phone').value || '').trim();
+    if (!nm) { whlShowError('Name required.'); saveBtn.disabled = false; saveBtn.textContent = 'Save Item'; return; }
+    if (!em && !ph) { whlShowError('At least one of email or phone required.'); saveBtn.disabled = false; saveBtn.textContent = 'Save Item'; return; }
+    fd.append('new_name', nm);
+    if (em) fd.append('new_email', em);
+    if (ph) fd.append('new_phone', ph);
+  }
+
+  fetch('/admin/warehouse/log-item', { method:'POST', body:fd, headers: csrf ? {'X-CSRFToken': csrf.value} : {} })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        closeLogModal();
+        // Refresh unit drawer if a unit was set
+        var unitId = data.unit_id || _whlPreUnitId;
+        if (unitId) {
+          loadUnitContent(unitId);
+        }
+        // Brief confirmation
+        var msg = 'Item #' + data.item_id + ' logged — ready for AI autofill.';
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#166534;color:white;padding:10px 22px;border-radius:10px;font-size:0.9rem;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.18);';
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function(){ toast.remove(); }, 3000);
+      } else {
+        whlShowError(data.error || 'Something went wrong.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Item';
+      }
+    })
+    .catch(function(err) {
+      whlShowError('Network error: ' + (err.message||''));
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Item';
+    });
+}
+</script>
+
+{# Hidden template — cloned into modal on open #}
+<script type="text/html" id="whl-template">
+  <div class="whl-header">
+    <span><i class="fas fa-plus-circle"></i> Log Item</span>
+    <button onclick="closeLogModal()">&times;</button>
+  </div>
+  <div class="whl-body">
+    <div class="whl-step-indicator">
+      <div class="whl-dot active" id="whl-dot-1"></div>
+      <div class="whl-dot" id="whl-dot-2"></div>
+      <div class="whl-dot" id="whl-dot-3"></div>
+      <div class="whl-dot" id="whl-dot-4"></div>
+    </div>
+
+    <div id="whl-error" class="whl-error"></div>
+
+    {# Step 1: Photo #}
+    <div class="whl-step active" id="whl-step-1">
+      <label class="whl-label">Step 1 — Photo</label>
+      <div id="whl-camera-wrap" style="display:none;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;position:relative;margin-bottom:14px;">
+        <video id="whl-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+        <button type="button" onclick="whlSnap()"
+                style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:white;color:var(--primary);border:none;border-radius:999px;padding:10px 24px;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+          <i class="fas fa-camera"></i> Take Photo
+        </button>
+      </div>
+      <div id="whl-fileinput-wrap" style="display:none;border-radius:12px;border:2px dashed var(--rule);background:var(--bg-cream);aspect-ratio:4/3;margin-bottom:14px;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:pointer;"
+           onclick="document.getElementById('whl-file-input').click()">
+        <i class="fas fa-camera" style="font-size:2.5rem;color:var(--primary);"></i>
+        <span style="font-weight:700;font-size:1rem;color:var(--primary);">Tap to Take Photo</span>
+        <span style="font-size:0.8rem;color:var(--text-muted);">Opens your camera</span>
+      </div>
+      <input id="whl-file-input" type="file" accept="image/*" capture="environment" style="display:none;"
+             onchange="(function(inp){ var f=inp.files&&inp.files[0]; if(f){whlShowThumb(f);} inp.value=''; })(this)">
+      <div id="whl-thumb-wrap" style="display:none;margin-bottom:14px;border-radius:12px;overflow:hidden;position:relative;aspect-ratio:4/3;">
+        <img id="whl-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">
+        <button type="button" onclick="whlRetake()"
+                style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:white;color:var(--primary);border:none;border-radius:999px;padding:8px 20px;font-weight:700;font-size:0.9rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+          <i class="fas fa-redo"></i> Retake
+        </button>
+      </div>
+      <canvas id="whl-canvas" style="display:none;"></canvas>
+    </div>
+
+    {# Step 2: Category #}
+    <div class="whl-step" id="whl-step-2">
+      <label class="whl-label">Step 2 — Category <span style="color:#dc2626;">*</span></label>
+      <div class="whl-cat-grid">
+        {% for cat in categories %}
+        <button type="button" class="whl-cat-btn" onclick="whlSelectCat(this, {{ cat.id }})">
+          <i class="fas {{ cat.icon or cat.image_url or 'fa-box' }}" style="font-size:1.1rem;"></i>
+          {{ cat.name }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Step 3: Location #}
+    <div class="whl-step" id="whl-step-3">
+      <label class="whl-label">Step 3 — Storage Location <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+      <select id="whl-loc-select" class="whl-select">
+        <option value="">— No unit —</option>
+        {% for loc in storage_locations %}
+        <option value="{{ loc.id }}" {% if loc.is_full %}disabled{% endif %}>
+          {{ loc.name }}{% if loc.is_full %} (Full){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <select id="whl-row-select" class="whl-select">
+        <option value="">— No row —</option>
+        {% for z in ['back_left','middle_left','front_left','back_right','middle_right','front_right'] %}
+        <option value="{{ z }}">{{ z|replace('_',' ')|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Step 4: Seller #}
+    <div class="whl-step" id="whl-step-4">
+      <label class="whl-label">Step 4 — Assign Seller</label>
+      <div class="whl-radio-option selected" id="whl-opt-internal" onclick="whlSetMode('internal')">
+        <input type="radio" name="whl_seller_mode" value="internal" checked>
+        <div class="whl-radio-text">
+          <div class="whl-radio-title">Campus Swap owns it</div>
+          <div class="whl-radio-sub">No payout owed</div>
+        </div>
+      </div>
+      <div class="whl-radio-option" id="whl-opt-existing" onclick="whlSetMode('existing')">
+        <input type="radio" name="whl_seller_mode" value="existing">
+        <div class="whl-radio-text">
+          <div class="whl-radio-title">Existing seller</div>
+          <div id="whl-existing-seller-wrap" style="display:none;margin-top:8px;">
+            <input type="text" id="whl-seller-search" class="whl-input" placeholder="Search by name or email…"
+                   oninput="whlSellerSearch(this.value)" autocomplete="off" style="margin-bottom:4px;">
+            <div id="whl-seller-results" class="whl-seller-results"></div>
+          </div>
+        </div>
+      </div>
+      <div class="whl-radio-option" id="whl-opt-new" onclick="whlSetMode('new')">
+        <input type="radio" name="whl_seller_mode" value="new">
+        <div class="whl-radio-text">
+          <div class="whl-radio-title">New word-of-mouth seller</div>
+          <div class="whl-radio-sub">50% payout · proxy account created</div>
+          <div id="whl-new-seller-wrap" style="display:none;margin-top:8px;">
+            <input type="text" id="whl-new-name" class="whl-input" placeholder="Full name *" autocomplete="off">
+            <input type="email" id="whl-new-email" class="whl-input" placeholder="Email (required if no phone)" autocomplete="off">
+            <input type="tel" id="whl-new-phone" class="whl-input" placeholder="Phone (required if no email)" autocomplete="off">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="whl-footer">
+      <button type="button" id="whl-back-btn" onclick="whlBack()"
+              style="padding:9px 18px;font-size:0.88rem;font-family:inherit;font-weight:600;border:1.5px solid var(--rule);border-radius:8px;background:white;color:var(--text-muted);cursor:pointer;">
+        Back
+      </button>
+      <button type="button" onclick="closeLogModal()"
+              style="padding:9px 18px;font-size:0.88rem;font-family:inherit;font-weight:600;border:1.5px solid var(--rule);border-radius:8px;background:white;color:var(--text-muted);cursor:pointer;">
+        Cancel
+      </button>
+      <button type="button" id="whl-next-btn" onclick="whlNext()" disabled
+              style="padding:9px 18px;font-size:0.88rem;font-family:inherit;font-weight:700;border:none;border-radius:8px;background:var(--primary);color:white;cursor:pointer;opacity:0.4;">
+        Next &rarr;
+      </button>
+      <button type="button" id="whl-save-btn" onclick="whlSave()" style="display:none;padding:9px 18px;font-size:0.88rem;font-family:inherit;font-weight:700;border:none;border-radius:8px;background:var(--primary);color:white;cursor:pointer;">
+        Save Item
+      </button>
+    </div>
+  </div>
+</script>
+
+<script>
+function whlSetMode(mode) {
+  ['internal','existing','new'].forEach(function(m) {
+    var opt = document.getElementById('whl-opt-' + m);
+    var radio = opt ? opt.querySelector('input[type=radio]') : null;
+    if (opt) opt.classList.toggle('selected', m === mode);
+    if (radio) radio.checked = m === mode;
+  });
+  document.getElementById('whl-existing-seller-wrap').style.display = mode === 'existing' ? 'block' : 'none';
+  document.getElementById('whl-new-seller-wrap').style.display = mode === 'new' ? 'block' : 'none';
+  _whlSelectedSellerId = null;
+}
+
+// Need a categories list for the log modal template — pass via page context
+// The warehouse.html template already has access to storage_locations (passed from route)
+// but categories need to be passed too — handled in admin_warehouse route.
+</script>

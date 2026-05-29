@@ -436,7 +436,7 @@
         <div class="item-thumb">
           <div class="item-thumb-img">
             {% if item.photo_url %}
-              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="lightbox-trigger">
             {% else %}
               <i class="fas fa-box-open"></i>
             {% endif %}
@@ -581,7 +581,7 @@
         <div class="item-thumb">
           <div class="item-thumb-img">
             {% if item.photo_url %}
-              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="lightbox-trigger">
             {% else %}
               <i class="fas fa-box-open"></i>
             {% endif %}
@@ -594,7 +594,7 @@
         <div class="item-thumb">
           <div class="item-thumb-img" style="border: 2px solid var(--accent);">
             {% if item.photo_url %}
-              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="Quick capture">
+              <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="Quick capture" class="lightbox-trigger">
             {% else %}
               <i class="fas fa-camera"></i>
             {% endif %}

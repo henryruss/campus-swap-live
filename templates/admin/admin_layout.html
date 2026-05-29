@@ -148,7 +148,7 @@
 {% if active_tab is not defined or active_tab is none %}
   {% if _path.startswith('/admin/ops') %}
     {% set active_tab = 'ops' %}
-  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') or _path == '/admin/items/needs_info' %}
+  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') %}
     {% set active_tab = 'items' %}
   {% elif _path.startswith('/admin/payouts') %}
     {% set active_tab = 'payouts' %}
@@ -156,8 +156,8 @@
     {% set active_tab = 'sellers' %}
   {% elif _path.startswith('/admin/crew') %}
     {% set active_tab = 'crew' %}
-  {% elif _path.startswith('/admin/storage/audit') %}
-    {% set active_tab = 'storage-audit' %}
+  {% elif _path.startswith('/admin/warehouse') %}
+    {% set active_tab = 'warehouse' %}
   {% elif _path.startswith('/admin/settings') or _path.startswith('/admin/storage') or _path.startswith('/admin/settings/route') %}
     {% set active_tab = 'settings' %}
   {% elif _path.startswith('/admin/cd-settings') %}
@@ -188,17 +188,6 @@
          title="Items">
         <i class="fas fa-check-square"></i>
         <span class="nav-tooltip">Items</span>
-      </a>
-
-      <a href="/admin/items/needs_info"
-         class="admin-nav-item {% if request.path == '/admin/items/needs_info' %}active{% endif %}"
-         title="Quick Captures"
-         style="position:relative;">
-        <i class="fas fa-camera"></i>
-        {% if qc_pending_count > 0 %}
-        <span style="position:absolute; top:2px; right:2px; background:var(--accent); color:white; font-size:0.6rem; font-weight:800; min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1;">{{ qc_pending_count }}</span>
-        {% endif %}
-        <span class="nav-tooltip">Quick Captures{% if qc_pending_count > 0 %} ({{ qc_pending_count }}){% endif %}</span>
       </a>
 
       <a href="/admin/payouts"
@@ -234,12 +223,12 @@
       </a>
       {% endif %}
 
-      {# Storage Audit: admin, super_admin, campus_director #}
-      <a href="/admin/storage/audit"
-         class="admin-nav-item {% if active_tab == 'storage-audit' %}active{% endif %}"
-         title="Storage Audit">
+      {# Warehouse Floor: admin, super_admin, campus_director #}
+      <a href="/admin/warehouse"
+         class="admin-nav-item {% if active_tab == 'warehouse' %}active{% endif %}"
+         title="Warehouse Floor">
         <i class="fas fa-warehouse"></i>
-        <span class="nav-tooltip">Storage Audit</span>
+        <span class="nav-tooltip">Warehouse</span>
       </a>
 
       {# AI Review + Settings: super_admin only #}

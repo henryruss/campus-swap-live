@@ -521,7 +521,7 @@
                 <div class="approve-list-card">
                     <div class="thumb-wrap">
                         {% if item.photo_url %}
-                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}">
+                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="lightbox-trigger">
                         {% else %}
                         <div class="thumb-placeholder"><i class="fas fa-image"></i></div>
                         {% endif %}

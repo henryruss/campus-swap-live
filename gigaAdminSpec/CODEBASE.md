@@ -115,7 +115,15 @@ is_quick_capture (Boolean, default False, server_default='0') — set only on it
 quick_capture_shift_id (Integer, FK → Shift, nullable) — shift during which the item was captured (NULL if captured from crew dashboard with no shift)
 captured_by_id (Integer, FK → User, nullable) — worker who took the QC photo; NULL on non-QC items
 placement_status (String, nullable) — None | 'placed' | 'not_picked_up'; set by driver during placement flow at End Shift. crew_shift_end (confirmed path) blocks close if any items on the truck have placement_status IS NULL
-needs_photo_refresh (Boolean, default False) — marks items needing a re-photograph; reserved for future UI
+needs_photo_refresh (Boolean, default False) — set True when replace_photo runs; used by review tools
+retail_price (Numeric 10,2, nullable) — live retail reference set at AI approve time; shown to buyers as savings callout on inventory cards and product page
+needs_new_photo (Boolean, default False, server_default='0') — hides item from shop; set at AI review approval when "Flag for new photo" checked; cleared by replace_photo route
+needs_photo_verification (Boolean, default False, server_default='0') — item enters photo verification queue after replace_photo; cleared by verify-photo route when admin confirms photo looks good
+ai_description, ai_long_description (Text, nullable) — staged AI-generated title and description; reviewed in AI review queue before going live
+ai_price, ai_retail_price (Numeric 10,2, nullable) — staged AI-suggested price and retail reference; reviewed before going live
+ai_review_pending (Boolean, default False, server_default='0') — item is in AI review queue awaiting admin approval
+ai_generated_at (DateTime, nullable) — UTC timestamp of AI generation run; NULL = not yet generated and eligible for autofill; set on both success AND error (error sentinel prevents retry loop)
+ai_approved (Boolean, default False, server_default='0') — set True at AI review approval; gates shop visibility (items must be ai_approved=True to appear in /inventory)
 ```
 
 ### InventoryCategory
@@ -352,6 +360,7 @@ location_note (Text, nullable) — directions, access code, landmarks
 capacity_note (Text, nullable) — e.g. "Unit 14B, max ~80 items"
 is_active (Boolean, default True), is_full (Boolean, default False)
 lat (Float, nullable), lng (Float, nullable) — coordinates for nearest-neighbor stop ordering
+snapshot_capacity (Float, nullable) — set when admin marks unit full via warehouse floor; used to compute capacity battery %; NOT cleared when unit is marked available
 created_at, created_by_id (FK → User, nullable)
 Relationships: items → [InventoryItem], intake_records → [IntakeRecord]
 ```
@@ -539,7 +548,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/payouts` | `admin_payouts` | Payout reconciliation — Unpaid tab (seller cards) + Paid history tab + CSV export |
 | `POST /admin/payouts/item/<id>/mark_paid` | `admin_payouts_mark_paid` | Mark item as paid — sets payout_sent=True, payout_sent_at=now, sends payout email |
 | `GET /admin/payouts/export` | `admin_payouts_export` | CSV export of all sold items with payout data |
-| `GET /admin/items/needs_info` | `admin_needs_info_queue` | Quick Capture admin queue — is_quick_capture=True AND status IN (pending_valuation, needs_info) |
+| `GET /admin/items/needs_info` | — | **Removed.** QC items now surface via AI autofill pipeline. Redirects to `/admin/ai/review`. |
 | `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price required. Sets status='available'. Returns JSON. |
 | `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation. |
 | `POST /admin/quick_capture/<id>/delete` | `admin_quick_capture_delete` | Hard delete any QC item (photo + DB). No captured_by guard. |
@@ -554,12 +563,30 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/storage/<id>/edit` | `admin_storage_edit` | Edit StorageLocation fields (name, address, capacity_note, is_active). Accepts `_next` form param for post-save redirect. Super admin only. |
 | `POST /admin/storage/<id>/delete` | `admin_storage_delete` | Delete StorageLocation. Returns 409 JSON error if any items are assigned to the unit. Super admin only. |
 | `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
-| `GET /admin/storage/audit` | `admin_storage_audit` | Storage audit page — search/filter all items by storage assignment status. Admin. |
-| `GET /admin/storage/audit/search` | `admin_storage_audit_search` | HTML partial (no layout) for audit results. Params: `q` (text search), `status` (all/placed/no_unit/no_zone), `unit_id`. Returns `storage_audit_results.html`. Admin. |
+| `GET /admin/storage/audit` | — | **Redirects 302 to `/admin/warehouse`.** |
+| `GET /admin/storage/audit/search` | — | **Redirects 302 to `/admin/warehouse/search`.** |
 | `POST /admin/item/<id>/set-location` | `admin_item_set_location` | Update `storage_location_id`, `storage_row`, `storage_note` on item from audit tool. Returns JSON `{success}`. Admin. |
-| `POST /admin/item/<id>/replace-photo` | `admin_item_replace_photo` | Replace item cover photo from audit tool (multipart). Deletes old file if local. Returns JSON `{success, photo_url}`. Admin. |
+| `POST /admin/item/<id>/replace-photo` | `admin_item_replace_photo` | Replace item cover photo. Also sets needs_photo_verification=True, needs_new_photo=False, deletes old cover from ItemPhoto records (prevents carousel duplication). Returns JSON {success, photo_url}. Admin. |
 | `GET /admin/storage/template` | `admin_storage_template` | Download xlsx template for bulk storage unit import. |
 | `POST /admin/storage/import` | `admin_storage_import` | Bulk import storage units from xlsx/csv. 2 MB file size gate. openpyxl `read_only=True, data_only=True` streaming to prevent OOM. Skips rows with empty name. Returns flash + redirect. Super admin only. |
+| `GET /admin/warehouse` | `admin_warehouse` | Warehouse Floor main page. Unit card grid with capacity battery bars, item counts, Full badges. Needs New Photo section (amber, collapsible). Photo Verification Queue (indigo, open by default). Global search. _has_ops_access(). |
+| `GET /admin/warehouse/unit/<id>` | `admin_warehouse_unit` | HTML partial for unit drawer (item list, battery bar, toggle-full button, Log Item Here button). _has_ops_access(). |
+| `POST /admin/warehouse/unit/<id>/toggle-full` | `admin_warehouse_toggle_full` | Toggle StorageLocation.is_full. On mark-full: snapshots current item volume into snapshot_capacity. Returns JSON {success, is_full, snapshot_capacity}. _has_ops_access(). |
+| `GET /admin/warehouse/search` | `admin_warehouse_search` | HTML partial. Params: q (text search), unit_id (scope to one unit). Returns item rows with inline "Select Unit" location picker and camera button for needs_new_photo items. _has_ops_access(). |
+| `GET /admin/warehouse/seller-search` | `admin_warehouse_seller_search` | JSON seller search for Log Item modal. Param: q. Returns [{id, name, email}]. _has_ops_access(). |
+| `POST /admin/warehouse/log-item` | `admin_warehouse_log_item` | Create QC item from warehouse floor. seller_mode: internal/existing/new. Returns JSON {success, item_id, unit_id}. _has_ops_access(). |
+| `POST /admin/warehouse/seller/create` | `admin_warehouse_create_seller` | Create proxy seller (name + email or phone). payout_rate=50, is_proxy_account=True. Returns JSON {success, seller_id, seller_name}. _has_ops_access(). |
+| `POST /admin/item/<id>/verify-photo` | `admin_item_verify_photo` | Clear needs_photo_verification flag. Returns JSON {success}. _has_ops_access(). |
+| `POST /admin/item/<id>/delete-gallery-photo` | `admin_item_delete_gallery_photo` | Delete one ItemPhoto record by id. Cannot delete cover photo. Returns JSON {success}. _has_ops_access(). |
+| `GET /admin/ai/generate` | `admin_ai_generate_page` | AI autofill generation page. Stats (eligible count, last run), model selector, run form, live progress bar, history. Super admin only. |
+| `POST /admin/ai/generate/run` | `admin_ai_generate_run` | Start background AI generation job (threading). Returns JSON {job_id}. Super admin only. |
+| `POST /admin/ai/generate/cancel` | `admin_ai_generate_cancel` | Cancel a stuck/running job by job_id. Returns JSON {success}. Super admin only. |
+| `GET /admin/ai/generate/status` | `admin_ai_generate_status` | Poll job progress. Returns JSON {done, total, completed, errors, results: [{item_id, title, price, retail_price, status}]}. Super admin only. |
+| `GET /admin/ai/review` | `admin_ai_review_queue` | AI review queue page. Card grid of items with ai_review_pending=True. Slide-in modal for detail/edit/approve/discard. Super admin only. |
+| `GET /admin/ai/item/<id>/detail` | `admin_ai_review_detail` | HTML partial (no layout) for AI review modal content. Gallery with set-as-cover and delete buttons, editable fields, retail/savings display, "Flag for new photo" checkbox. Super admin only. |
+| `POST /admin/ai/item/<id>/approve` | `admin_ai_approve` | Write staged AI fields (ai_description→description, ai_long_description→long_description, ai_price→price, ai_retail_price→retail_price) to live fields. Set ai_approved=True, ai_review_pending=False. Accepts needs_new_photo=1 to flag photo replacement. Returns JSON. Super admin only. |
+| `POST /admin/ai/item/<id>/discard` | `admin_ai_discard` | Clear all ai_* staged fields, set ai_review_pending=False. Returns JSON. Super admin only. |
+| `POST /admin/ai/item/<id>/set-cover-photo` | `admin_ai_set_cover_photo` | Swap a gallery photo (ItemPhoto) to become the cover: sets item.photo_url to the gallery photo's URL, moves old cover into an ItemPhoto record. Returns JSON {success, cover_url}. Super admin only. |
 | `GET /admin/diag` | `admin_diag` | Diagnostic page showing DB table row counts. Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |
 | `POST /admin/crew/shift/<shift_id>/toggle-reschedule-lock` | `admin_toggle_reschedule_lock` | Lock/unlock shift from appearing in seller reschedule grids |
@@ -692,7 +719,7 @@ seller/reschedule_confirm.html — Shared success/error page for reschedule flow
 admin/shift_intake_log.html    — Full read-only intake log per shift with flag indicators and organizer notes
 admin/intake_flagged.html      — Damaged/missing review queue; checkbox bulk selection + "Remove from Marketplace" bulk action
 admin/payouts.html             — Payout reconciliation: Unpaid tab (seller cards with copy handle + Mark Paid), Paid history tab, CSV export
-admin/needs_info.html          — Quick Capture admin queue: table of pending QC items with Edit, one-click Approve (green), Delete
+admin/needs_info.html          — **Removed.** QC items now surface via AI autofill pipeline (`/admin/ai/review`).
 admin/approval_detail_partial.html — HTML partial (no layout) for approval modal: gallery track, item meta, long description, suggested price. Root div carries data-item-id, data-seller-id, data-suggested-price.
 admin/crew_shift_board_partial.html — Shift board partial for Crew HQ week navigation
 admin/ops_reorder.html         — Route reorder page: drag-and-drop stop ordering per shift/truck; Save Order button gets tutorial-highlight at step 7
@@ -707,8 +734,17 @@ crew/shift_end_confirm.html    — End Shift confirmation page: stop summary, wa
 crew/shift_history.html        — Read-only completed shift item history for mover's truck; linked from crew dashboard
 crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew/dashboard.html and crew/shift.html): getUserMedia rear camera, file-input fallback, notes field, full state reset on open
 crew/shift_placement_partial.html — HTML partial (no layout): placement items list for driver's truck; modal with zone diagram for assigning unit + zone; "Not picked up" button; status chips (Placed / Not picked up / Needs location); loaded via fetch into crew/shift.html after #placement-section becomes visible
-admin/storage_audit.html       — Storage audit search page: filter bar (text, status, unit), results div injected via fetch; CSRF rendered inline as JS var
-admin/storage_audit_results.html — HTML partial (no layout): collapsible item cards with photo thumbnail, unit/zone chips, inline zone diagram + unit select, replace photo section; save/cancel/not-placed actions via fetch POST
+admin/storage_audit.html       — **Replaced by warehouse.html.** Route 302-redirects to `/admin/warehouse`.
+admin/storage_audit_results.html — **Replaced by warehouse_search_results.html.**
+admin/warehouse.html           — Warehouse Floor main page. Unit card grid (battery bars, item counts, Full badges). Needs New Photo section (amber, collapsible, collapsed by default). Photo Verification Queue section (indigo, open by default). Global debounced search (300ms). Extends admin_layout.html.
+admin/warehouse_unit_partial.html — Unit drawer partial (no layout). Item list with inline storage row autosave, toggle-full button, Log Item Here button. Battery bar macro included.
+admin/warehouse_log_modal.html — Log Item 4-step modal partial (photo → category → location → seller). Three seller modes: Campus Swap internal, existing seller (live search via seller-search endpoint), new proxy seller (name + email/phone).
+admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set-location.
+admin/ai_generate.html         — AI autofill generation page. Eligible item count, last run stats, model selector, batch size, Run button, live progress bar (polling /status), results table, error count. Extends admin_layout.html.
+admin/ai_review.html           — AI review queue. Card grid of items with ai_review_pending=True. Each card shows cover photo, AI-suggested title + price + retail. Click opens slide-in modal with detail partial.
+admin/ai_review_detail_partial.html — AI review modal content (no layout). Gallery carousel with "★ Set as cover" and "Delete" buttons on non-cover slides. Editable title, description, price, retail_price inputs. Savings callout display. "Flag for new photo" checkbox. Approve and Discard buttons.
+_battery_macro.html            — Reusable Jinja2 macro `battery_bar(pct, is_full)`. Renders capacity battery bar: green 75–100%, amber 40–74%, red <40%, striped dark-red >100%, grey if pct is None. Included in warehouse.html and warehouse_unit_partial.html.
+_qc_camera_block.html          — Reusable camera capture block (getUserMedia rear-camera + file-input fallback + thumbnail preview). Included in crew/quick_capture_modal.html and warehouse log/replace-photo modals.
 ```
 
 ---
@@ -794,11 +830,13 @@ Entry points:
 
 Flow: camera modal → photo + optional note → select seller → Save → `InventoryItem` created with `is_quick_capture=True`, `status='pending_valuation'`, `picked_up_at` set to now.
 
-Admin completion queue at `/admin/items/needs_info`: fill title/category/price → one-click Approve (no price required) or Edit via standard flow.
+QC items (`is_quick_capture=True`, `status=pending_valuation`) are eligible for AI autofill (`ai_generated_at IS NULL`). They surface in the AI review queue after the next generation run. There is no longer a dedicated admin queue for QC items — the AI autofill pipeline handles them.
 
-Delete: mover can hard-delete own captures (photo + DB) while status is `pending_valuation` or `needs_info`. Admin can hard-delete any QC item from the queue.
+Category is now collected at crew quick capture (required in UI, null-safe on backend): category_id is sent with the POST to `/crew/quick_capture`.
 
-QC items are excluded from: standard approval queue, approval digest email, pending-items counts in admin stats bar. They have their own `qc_pending_count` badge in the admin nav.
+Delete: mover can hard-delete own captures (photo + DB) while status is `pending_valuation` or `needs_info`. Admin can hard-delete any QC item via standard item delete.
+
+QC items are excluded from: standard approval queue, approval digest email, pending-items counts in admin stats bar.
 
 ### Worker / Crew Accounts
 - Users apply at `/crew/apply` — sets `worker_status='pending'`, creates `WorkerApplication`
@@ -823,6 +861,18 @@ QC items are excluded from: standard approval queue, approval digest email, pend
 - `shop_teaser_mode`: 'true' → `/inventory` shows blurred mosaic + email capture (pre-launch); 'false'/absent → normal shop
 - `warehouse_lat` / `warehouse_lng`: warehouse coordinates for delivery radius check (fail-open if absent)
 - `delivery_radius_miles`: max delivery distance, default '50'
+
+### Shop / Inventory Visibility
+The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies these filters:
+- `ai_approved == True` — only items that have been through AI review appear to buyers
+- `needs_new_photo == False` — items flagged for photo replacement are hidden until the photo is verified
+- `status != 'rejected'`, `price > 0`
+
+**Infinite scroll:** Replaced pagination with IntersectionObserver + `?ajax=1` endpoint. A sentinel `<div>` at the bottom of the item grid triggers the next page load 200px before it enters the viewport. Item count removed from the public shop header.
+
+**Retail price + savings callout:** When `item.retail_price` is set, inventory cards and the product detail page show a callout like "~$200 retail · 40% off". The retail price is set at AI approve time by copying `ai_retail_price` to `retail_price`. The AI floors retail price so savings always appear ≥40%.
+
+**Shop teaser mode:** When AppSetting `shop_teaser_mode == 'true'`, `/inventory` renders `inventory_teaser.html` (blurred mosaic + email capture) instead of the shop. The toggle is on the Admin Settings page.
 
 ### Stripe Integration
 - Item purchase: standard Checkout Session
@@ -876,6 +926,8 @@ QC items are excluded from: standard approval queue, approval digest email, pend
     This pattern is used in `crew/shift.html` after loading `shift_placement_partial.html`.
 
 18. **CSRF in inline `<script>` blocks** — `layout.html` does NOT include a `<meta name="csrf-token">` tag. Calling `document.querySelector('meta[name=csrf-token]').content` returns `null` and throws silently. Always render the token into a JS variable using Jinja2: `const _csrf = '{{ csrf_token() }}';` at the top of the template's `<script>` block.
+
+    **Nav badge context processor:** `inject_nav_counts` injects `ai_review_pending_count` (super admin only) — the count of items with `ai_review_pending=True`. The old `qc_pending_count` / `inject_qc_pending_count` has been removed; the QC nav badge is gone.
 
 19. **openpyxl bulk import** — xlsx files have 1,048,576 rows by default. Always open with `read_only=True, data_only=True` to stream rows rather than load the full sheet into RAM. Also gate on a 2 MB file size check before loading. See `admin_storage_import` in `app.py`.
 

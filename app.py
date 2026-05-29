@@ -325,22 +325,15 @@ def inject_admin_context():
 
 
 @app.context_processor
-def inject_qc_pending_count():
-    """Inject quick-capture pending count and AI review pending count for admin nav badges."""
-    try:
-        qc_count = InventoryItem.query.filter(
-            InventoryItem.is_quick_capture == True,
-            InventoryItem.status.in_(('pending_valuation', 'needs_info')),
-        ).count()
-    except Exception:
-        qc_count = 0
+def inject_nav_counts():
+    """Inject AI review pending count for admin nav badge."""
     try:
         ai_count = InventoryItem.query.filter(
             InventoryItem.ai_review_pending == True,
         ).count()
     except Exception:
         ai_count = 0
-    return {'qc_pending_count': qc_count, 'ai_review_pending_count': ai_count}
+    return {'ai_review_pending_count': ai_count}
 
 
 def get_user_dashboard():
@@ -1360,6 +1353,7 @@ def inventory():
         joinedload(InventoryItem.seller)
     ).filter(
         InventoryItem.ai_approved == True,
+        InventoryItem.needs_new_photo == False,
         InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
         InventoryItem.price > 0
@@ -2993,8 +2987,8 @@ def admin_request_info(item_id):
         return redirect(url_for('index'))
     item = InventoryItem.query.get_or_404(item_id)
     if item.is_quick_capture:
-        flash("Quick-capture items cannot receive info requests — complete them via the Quick Captures queue.", "error")
-        return redirect(url_for('admin_needs_info_queue'))
+        flash("Quick-capture items cannot receive info requests — they are processed via AI autofill.", "error")
+        return redirect(url_for('admin_approve'))
     if item.status != 'pending_valuation':
         flash("This item is not in the approval queue.", "error")
         return redirect(url_for('admin_approve'))
@@ -7826,6 +7820,7 @@ def crew_dashboard():
         .all()
     )
 
+    qc_categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     return render_template(
         'crew/dashboard.html',
         avail=avail_dict,
@@ -7841,6 +7836,7 @@ def crew_dashboard():
         flagged_shift_ids=flagged_shift_ids,
         internal_user=internal_user,
         recent_captures=recent_captures,
+        categories=qc_categories,
     )
 
 
@@ -8063,6 +8059,7 @@ def crew_shift_view(shift_id):
             qc_sellers.append({'id': p.seller.id, 'name': p.seller.full_name or p.seller.email})
             seen_seller_ids.add(p.seller_id)
 
+    shift_qc_categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     return render_template(
         'crew/shift.html',
         shift=shift,
@@ -8082,6 +8079,7 @@ def crew_shift_view(shift_id):
         internal_user=internal_user,
         qc_sellers=qc_sellers,
         qc_items_by_seller=qc_items_by_seller,
+        categories=shift_qc_categories,
     )
 
 
@@ -8782,12 +8780,16 @@ def crew_quick_capture():
         if not assigned:
             return jsonify({'success': False, 'error': 'Not assigned to this shift.'}), 403
 
-    fallback_category = InventoryCategory.query.filter(
-        InventoryCategory.name.ilike('%other%')
-    ).first()
-    if not fallback_category:
-        fallback_category = InventoryCategory.query.first()
-    fallback_category_id = fallback_category.id if fallback_category else None
+    cat_id_raw = request.form.get('category_id', type=int)
+    if cat_id_raw and InventoryCategory.query.get(cat_id_raw):
+        fallback_category_id = cat_id_raw
+    else:
+        fallback_category = InventoryCategory.query.filter(
+            InventoryCategory.name.ilike('%other%')
+        ).first()
+        if not fallback_category:
+            fallback_category = InventoryCategory.query.first()
+        fallback_category_id = fallback_category.id if fallback_category else None
 
     is_valid, error_msg = validate_file_upload(photo)
     if not is_valid:
@@ -9405,6 +9407,27 @@ def admin_storage_edit(loc_id):
     if not current_user.is_super_admin:
         abort(403)
     loc = StorageLocation.query.get_or_404(loc_id)
+
+    # Size + monthly cost (warehouse cost tracking). Only touch a field when it's
+    # present in the submission so partial/inline edits never wipe other data.
+    # Size parses via the same logic as the spreadsheet import. Monthly cost of
+    # 0 (or blank/malformed) becomes NULL — 0 cost/sqft would distort rankings.
+    if 'size_sqft' in request.form:
+        loc.size_sqft = _parse_size_sqft(request.form.get('size_sqft'))
+    if 'monthly_cost' in request.form:
+        loc.monthly_cost = _parse_monthly_cost(request.form.get('monthly_cost'))
+
+    # Inline autosave from the warehouse unit modal — no name required, JSON back.
+    if request.form.get('ajax') == '1':
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'size_sqft': loc.size_sqft,
+            'monthly_cost': float(loc.monthly_cost) if loc.monthly_cost is not None else None,
+            'cost_per_sqft': loc.cost_per_sqft,
+            'size_display': loc.size_display,
+        })
+
     name = request.form.get('name', '').strip()
     if not name:
         flash("Location name is required.", "error")
@@ -9435,10 +9458,10 @@ def admin_storage_template():
     import csv, io
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['Unit #', 'Location', 'Size'])
-    w.writerow(['214', '515 S Greensboro St', '10x30'])
-    w.writerow(['119', '515 S Greensboro St', '10x25'])
-    w.writerow(['360', '515 S Greensboro St', '10x20'])
+    w.writerow(['Unit #', 'Location', 'Size', 'Monthly Rate'])
+    w.writerow(['214', '515 S Greensboro St', '10x30', '180'])
+    w.writerow(['119', '515 S Greensboro St', '10x25', '150'])
+    w.writerow(['360', '515 S Greensboro St', '10x20', '120'])
     buf.seek(0)
     from flask import Response
     return Response(
@@ -9511,22 +9534,42 @@ def admin_storage_import():
 
     created = 0
     skipped = 0
+    updated = 0
     for row in rows:
         if not row or not row[0]:
             continue
         unit_num = row[0]
         address = row[1] if len(row) > 1 else ''
         size = row[2] if len(row) > 2 else ''
+        # Columns are positional. "Present" means the column exists in the row.
+        size_present = len(row) > 2
+        rate_present = len(row) > 3
+        size_sqft = _parse_size_sqft(size) if size_present else None
+        monthly_cost = _parse_monthly_cost(row[3]) if rate_present else None
         name = f'Unit {unit_num}' if not unit_num.lower().startswith('unit') else unit_num
         capacity_note = size or None
         existing = StorageLocation.query.filter_by(name=name).first()
         if existing:
-            skipped += 1
+            # Update cost/size only when the column is present AND parsed to a
+            # real value — never overwrite existing data with null.
+            changed = False
+            if size_present and size_sqft is not None:
+                existing.size_sqft = size_sqft
+                changed = True
+            if rate_present and monthly_cost is not None:
+                existing.monthly_cost = monthly_cost
+                changed = True
+            if changed:
+                updated += 1
+            else:
+                skipped += 1
             continue
         loc = StorageLocation(
             name=name,
             address=address or None,
             capacity_note=capacity_note,
+            size_sqft=size_sqft,
+            monthly_cost=monthly_cost,
             is_active=True,
             is_full=False,
         )
@@ -9537,9 +9580,11 @@ def admin_storage_import():
     parts = []
     if created:
         parts.append(f'{created} unit{"s" if created != 1 else ""} imported')
+    if updated:
+        parts.append(f'{updated} updated')
     if skipped:
         parts.append(f'{skipped} already existed (skipped)')
-    flash(', '.join(parts) + '.' if parts else 'Nothing to import.', 'success' if created else 'error')
+    flash(', '.join(parts) + '.' if parts else 'Nothing to import.', 'success' if (created or updated) else 'error')
     return redirect(url_for('admin_settings') + '#storage')
 
 
@@ -13348,8 +13393,13 @@ def admin_item_replace_photo(item_id):
         except Exception:
             pass
 
+    # Remove old cover from gallery if it was previously swapped there (prevents it showing in carousel)
+    if old_photo:
+        ItemPhoto.query.filter_by(item_id=item.id, photo_url=old_photo).delete()
     item.photo_url = filename
     item.needs_photo_refresh = True
+    item.needs_new_photo = False
+    item.needs_photo_verification = True
     db.session.commit()
     return jsonify({'success': True, 'photo_url': filename})
 
@@ -13437,34 +13487,6 @@ def admin_items():
     )
 
 
-@app.route('/admin/items/needs_info')
-@login_required
-def admin_needs_info_queue():
-    """Quick-capture items awaiting admin completion (is_quick_capture=True, status='needs_info')."""
-    if not current_user.is_admin:
-        abort(403)
-
-    items = (
-        InventoryItem.query
-        .filter(
-            InventoryItem.is_quick_capture == True,
-            InventoryItem.status.in_(('pending_valuation', 'needs_info')),
-        )
-        .order_by(InventoryItem.date_added.desc())
-        .all()
-    )
-
-    shift_ids = [i.quick_capture_shift_id for i in items if i.quick_capture_shift_id]
-    shifts_by_id = {}
-    if shift_ids:
-        for s in Shift.query.filter(Shift.id.in_(shift_ids)).all():
-            shifts_by_id[s.id] = s
-
-    return render_template(
-        'admin/needs_info.html',
-        items=items,
-        shifts_by_id=shifts_by_id,
-    )
 
 
 @app.route('/admin/sellers')
@@ -14660,6 +14682,27 @@ def admin_ai_review_detail(item_id):
     )
 
 
+@app.route('/admin/ai/item/<int:item_id>/set-cover-photo', methods=['POST'])
+@login_required
+def admin_ai_set_cover_photo(item_id):
+    """Swap a gallery photo to become the cover (item.photo_url)."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    new_cover = request.form.get('photo_url', '').strip()
+    if not new_cover or new_cover == item.photo_url:
+        return jsonify({'success': True})
+    gp = ItemPhoto.query.filter_by(item_id=item.id, photo_url=new_cover).first()
+    if not gp:
+        return jsonify({'success': False, 'error': 'Photo not found'}), 400
+    old_cover = item.photo_url
+    item.photo_url = new_cover
+    gp.photo_url = old_cover
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/admin/ai/item/<int:item_id>/approve', methods=['POST'])
 @login_required
 def admin_ai_approve(item_id):
@@ -14690,6 +14733,8 @@ def admin_ai_approve(item_id):
     item.price = final_price
     if item.ai_retail_price:
         item.retail_price = item.ai_retail_price
+    if request.form.get('needs_new_photo') == '1':
+        item.needs_new_photo = True
     item.ai_review_pending = False
     item.ai_approved = True
     db.session.commit()
@@ -14710,6 +14755,558 @@ def admin_ai_discard(item_id):
     item.ai_review_pending = False
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/admin/item/<int:item_id>/verify-photo', methods=['POST'])
+@login_required
+def admin_item_verify_photo(item_id):
+    """Clear needs_photo_verification — admin has reviewed and approved the replacement photo."""
+    if not _has_ops_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    item.needs_photo_verification = False
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/item/<int:item_id>/delete-gallery-photo', methods=['POST'])
+@login_required
+def admin_item_delete_gallery_photo(item_id):
+    """Delete one ItemPhoto gallery record. Cannot delete the cover photo."""
+    if not _has_ops_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    photo_url = request.form.get('photo_url', '').strip()
+    if not photo_url:
+        return jsonify({'success': False, 'error': 'No photo_url provided'}), 400
+    if photo_url == item.photo_url:
+        return jsonify({'success': False, 'error': 'Cannot delete the cover photo'}), 400
+    gp = ItemPhoto.query.filter_by(item_id=item.id, photo_url=photo_url).first()
+    if not gp:
+        return jsonify({'success': False, 'error': 'Photo not found'}), 404
+    db.session.delete(gp)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ─────────────────────────────────────────────
+# WAREHOUSE FLOOR
+# ─────────────────────────────────────────────
+
+@app.route('/admin/storage/audit')
+@login_required
+def admin_storage_audit_redirect():
+    return redirect(url_for('admin_warehouse'), 302)
+
+
+@app.route('/admin/storage/audit/search')
+@login_required
+def admin_storage_audit_search_redirect():
+    return redirect(url_for('admin_warehouse_search') + ('?' + request.query_string.decode() if request.query_string else ''), 302)
+
+
+def _parse_size_sqft(size_str):
+    """Parse a 'WxD' size string (e.g. '10x30') into square footage (300.0).
+
+    Splits on 'x' (case-insensitive), multiplies the two numbers. Returns None
+    if blank or unparseable (caller continues; never raises)."""
+    if not size_str:
+        return None
+    s = str(size_str).strip().lower().replace('×', 'x')
+    if not s:
+        return None
+    if 'x' in s:
+        parts = s.split('x')
+        if len(parts) != 2:
+            return None
+        try:
+            w = float(parts[0].strip())
+            d = float(parts[1].strip())
+        except (ValueError, TypeError):
+            return None
+        if w <= 0 or d <= 0:
+            return None
+        return w * d
+    # Bare number — treat as direct square footage (used when re-saving a stored
+    # area from the inline editor / settings field, which show sqft not WxD).
+    try:
+        val = float(s)
+    except (ValueError, TypeError):
+        return None
+    return val if val > 0 else None
+
+
+def _parse_monthly_cost(cost_str):
+    """Parse a dollar amount into a positive float. Returns None if blank,
+    unparseable, or <= 0 (0 cost would distort cost/sqft rankings)."""
+    if cost_str is None:
+        return None
+    s = str(cost_str).strip().lstrip('$').replace(',', '')
+    if not s:
+        return None
+    try:
+        val = float(s)
+    except (ValueError, TypeError):
+        return None
+    return val if val > 0 else None
+
+
+# Ordering of priority tiers for card / dropdown sorting (lower = shown first)
+_PRIORITY_ORDER = {'best': 0, 'standard': 1, 'expensive': 2, None: 3}
+
+
+def _compute_unit_priority(locations):
+    """Annotate each StorageLocation with a transient ._priority attribute
+    ('best' | 'standard' | 'expensive' | None) based on cost-per-sqft tiers.
+
+    Only units with both size_sqft > 0 and monthly_cost > 0 are rankable.
+    Not stored to the DB."""
+    rankable = [l for l in locations if l.size_sqft and l.monthly_cost]
+    if len(rankable) < 3:
+        # Too few units to divide into thirds — mark all rankable as Best Value
+        for l in rankable:
+            l._priority = 'best'
+        for l in locations:
+            if not (l.size_sqft and l.monthly_cost):
+                l._priority = None
+        return
+
+    ranked = sorted(rankable, key=lambda l: float(l.monthly_cost) / l.size_sqft)
+    third = len(ranked) // 3
+
+    for i, l in enumerate(ranked):
+        if i < third:
+            l._priority = 'best'       # lowest cost/sqft
+        elif i < third * 2:
+            l._priority = 'standard'
+        else:
+            l._priority = 'expensive'  # highest cost/sqft
+
+    for l in locations:
+        if not (l.size_sqft and l.monthly_cost):
+            l._priority = None
+
+
+def _compute_battery(location):
+    """Return (pct, is_over) for a storage location. pct=None if no snapshot."""
+    if not location.snapshot_capacity or location.snapshot_capacity <= 0:
+        return None, False
+    items = location.items.filter(
+        InventoryItem.status.notin_(['sold', 'rejected'])
+    ).options(joinedload(InventoryItem.category)).all()
+    current = sum(
+        (i.unit_size or (i.category.default_unit_size if i.category else None) or 1.0)
+        for i in items
+    )
+    pct = round((current / location.snapshot_capacity) * 100)
+    return pct, pct > 100
+
+
+@app.route('/admin/warehouse')
+@login_required
+def admin_warehouse():
+    if not _has_ops_access():
+        abort(403)
+    locations = StorageLocation.query.filter_by(is_active=True).all()
+    # Annotate each with a transient priority tier from cost-per-sqft
+    _compute_unit_priority(locations)
+    # Annotate each with battery and item count
+    unit_data = []
+    for loc in locations:
+        item_count = loc.items.filter(
+            InventoryItem.status.notin_(['rejected', 'sold'])
+        ).count()
+        pct, is_over = _compute_battery(loc)
+        unit_data.append({
+            'loc': loc,
+            'item_count': item_count,
+            'battery_pct': pct,
+            'is_over': is_over,
+        })
+    # Sort: by priority tier (best → standard → expensive → unranked), then by
+    # item count desc within each tier (empty units fall last).
+    unit_data.sort(key=lambda d: (
+        _PRIORITY_ORDER.get(getattr(d['loc'], '_priority', None), 3),
+        d['item_count'] == 0,
+        -d['item_count'],
+    ))
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    needs_photo_items = (
+        InventoryItem.query
+        .options(joinedload(InventoryItem.category), joinedload(InventoryItem.storage_location))
+        .filter(
+            InventoryItem.needs_new_photo == True,
+            InventoryItem.status.notin_(['rejected', 'sold']),
+        )
+        .order_by(InventoryItem.date_added.desc())
+        .all()
+    )
+    needs_verification_items = (
+        InventoryItem.query
+        .options(joinedload(InventoryItem.category), joinedload(InventoryItem.storage_location))
+        .filter(
+            InventoryItem.needs_photo_verification == True,
+            InventoryItem.status.notin_(['rejected', 'sold']),
+        )
+        .order_by(InventoryItem.date_added.desc())
+        .all()
+    )
+    return render_template('admin/warehouse.html', unit_data=unit_data,
+                           categories=categories, storage_locations=storage_locations,
+                           needs_photo_items=needs_photo_items,
+                           needs_verification_items=needs_verification_items)
+
+
+@app.route('/admin/warehouse/unit/<int:unit_id>')
+@login_required
+def admin_warehouse_unit(unit_id):
+    if not _has_ops_access():
+        abort(403)
+    loc = StorageLocation.query.get_or_404(unit_id)
+    items = (
+        loc.items
+        .filter(InventoryItem.status.notin_(['rejected']))
+        .options(joinedload(InventoryItem.category), joinedload(InventoryItem.seller))
+        .order_by(InventoryItem.storage_row.asc().nullslast(), InventoryItem.date_added.desc())
+        .all()
+    )
+    pct, is_over = _compute_battery(loc)
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    # Priority tiers are relative across all active units — compute over the full
+    # set so this unit (and the move-target dropdown) get correct labels.
+    _compute_unit_priority(storage_locations)
+    if loc not in storage_locations:
+        _compute_unit_priority([loc] + storage_locations)
+    # Destination dropdown for the consolidation tool: all active units except
+    # this one, sorted best-priority first then by name.
+    move_targets = sorted(
+        [l for l in storage_locations if l.id != loc.id],
+        key=lambda l: (_PRIORITY_ORDER.get(getattr(l, '_priority', None), 3), l.name or ''),
+    )
+    return render_template(
+        'admin/warehouse_unit_partial.html',
+        loc=loc,
+        items=items,
+        battery_pct=pct,
+        is_over=is_over,
+        storage_locations=storage_locations,
+        move_targets=move_targets,
+    )
+
+
+@app.route('/admin/warehouse/unit/<int:unit_id>/toggle-full', methods=['POST'])
+@login_required
+def admin_warehouse_toggle_full(unit_id):
+    if not _has_ops_access():
+        abort(403)
+    loc = StorageLocation.query.get_or_404(unit_id)
+    if not loc.is_full:
+        # Mark full: compute and snapshot current capacity
+        items = loc.items.filter(
+            InventoryItem.status.notin_(['sold', 'rejected'])
+        ).options(joinedload(InventoryItem.category)).all()
+        total = sum(
+            (i.unit_size or (i.category.default_unit_size if i.category else None) or 1.0)
+            for i in items
+        )
+        loc.snapshot_capacity = total if total > 0 else None
+        loc.is_full = True
+    else:
+        loc.is_full = False
+    db.session.commit()
+    pct, is_over = _compute_battery(loc)
+    return jsonify({
+        'success': True,
+        'is_full': loc.is_full,
+        'snapshot_capacity': loc.snapshot_capacity,
+        'battery_pct': pct,
+    })
+
+
+@app.route('/admin/warehouse/search')
+@login_required
+def admin_warehouse_search():
+    if not _has_ops_access():
+        abort(403)
+    q = request.args.get('q', '').strip()
+    unit_id = request.args.get('unit_id', type=int)
+    if len(q) < 2:
+        return ''
+    # ID search: #N or bare integer
+    if q.startswith('#') and q[1:].isdigit():
+        item_filter = [InventoryItem.id == int(q[1:])]
+    elif q.isdigit():
+        item_filter = [InventoryItem.id == int(q)]
+    else:
+        search_pat = f'%{q}%'
+        item_filter = [
+            db.or_(
+                InventoryItem.description.ilike(search_pat),
+                InventoryItem.long_description.ilike(search_pat),
+            )
+        ]
+    base_q = (
+        InventoryItem.query
+        .options(joinedload(InventoryItem.category), joinedload(InventoryItem.storage_location))
+        .filter(InventoryItem.status != 'rejected', *item_filter)
+    )
+    if unit_id:
+        base_q = base_q.filter(InventoryItem.storage_location_id == unit_id)
+    items = base_q.limit(30).all()
+    current_unit_id = unit_id
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    return render_template(
+        'admin/warehouse_search_results.html',
+        items=items,
+        current_unit_id=current_unit_id,
+        storage_locations=storage_locations,
+    )
+
+
+@app.route('/admin/warehouse/seller-search')
+@login_required
+def admin_warehouse_seller_search():
+    if not _has_ops_access():
+        abort(403)
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    pat = f'%{q}%'
+    users = (
+        User.query
+        .filter(
+            User.is_seller == True,
+            User.is_tutorial_user == False,
+            db.or_(User.full_name.ilike(pat), User.email.ilike(pat)),
+        )
+        .limit(10).all()
+    )
+    results = []
+    for u in users:
+        item_count = InventoryItem.query.filter_by(seller_id=u.id).filter(
+            InventoryItem.status.notin_(['rejected'])
+        ).count()
+        results.append({
+            'id': u.id,
+            'name': u.full_name or u.email,
+            'email': u.email,
+            'item_count': item_count,
+            'payout_rate': u.payout_rate,
+        })
+    return jsonify(results)
+
+
+@app.route('/admin/warehouse/log-item', methods=['POST'])
+@login_required
+def admin_warehouse_log_item():
+    if not _has_ops_access():
+        abort(403)
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return jsonify({'success': False, 'error': 'Photo required.'}), 400
+
+    seller_mode = request.form.get('seller_mode', 'internal')  # internal | existing | new
+    seller_id = None
+
+    if seller_mode == 'internal':
+        internal = User.query.filter_by(is_internal_account=True).first()
+        if not internal:
+            return jsonify({'success': False, 'error': 'No internal account found.'}), 500
+        seller_id = internal.id
+
+    elif seller_mode == 'existing':
+        sid = request.form.get('existing_seller_id', type=int)
+        if not sid:
+            return jsonify({'success': False, 'error': 'Seller ID required.'}), 400
+        seller = User.query.get(sid)
+        if not seller or not seller.is_seller:
+            return jsonify({'success': False, 'error': 'Seller not found.'}), 400
+        seller_id = sid
+
+    elif seller_mode == 'new':
+        name = (request.form.get('new_name') or '').strip()
+        email_raw = (request.form.get('new_email') or '').strip()
+        phone_raw = (request.form.get('new_phone') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'error': 'Name required for new seller.'}), 400
+        if not email_raw and not phone_raw:
+            return jsonify({'success': False, 'error': 'At least one of email or phone required.'}), 400
+        if email_raw:
+            if not validate_email(email_raw):
+                return jsonify({'success': False, 'error': 'Invalid email address.'}), 400
+            if User.query.filter_by(email=email_raw).first():
+                return jsonify({'success': False, 'error': 'An account with this email already exists. Search for them in "Existing Seller" instead.'}), 409
+            email = email_raw
+        else:
+            digits = ''.join(c for c in phone_raw if c.isdigit())
+            email = f'proxy+{digits}@usecampusswap.com'
+            if User.query.filter_by(email=email).first():
+                import secrets as _sec
+                email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
+        phone_result = None
+        if phone_raw:
+            phone_valid, phone_result = validate_phone(phone_raw)
+            if not phone_valid:
+                return jsonify({'success': False, 'error': phone_result}), 400
+        temp_pw = _gen_proxy_temp_password()
+        new_user = User(
+            email=email,
+            full_name=name,
+            phone=phone_result,
+            password_hash=generate_password_hash(temp_pw),
+            is_seller=True,
+            payout_rate=50,
+            is_proxy_account=True,
+            proxy_temp_password=temp_pw,
+            referral_code=_gen_referral_code(),
+        )
+        db.session.add(new_user)
+        db.session.flush()
+        seller_id = new_user.id
+    else:
+        return jsonify({'success': False, 'error': 'Invalid seller_mode.'}), 400
+
+    # Process photo (same pipeline as crew_quick_capture)
+    is_valid, error_msg = validate_file_upload(photo)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
+
+    filename = f"wh_{int(time.time())}_{uuid.uuid4().hex[:8]}.jpg"
+    try:
+        from io import BytesIO as _BytesIO
+        img = Image.open(photo)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        max_dimension = 2000
+        if bg.width > max_dimension or bg.height > max_dimension:
+            if bg.width > bg.height:
+                new_width = max_dimension
+                new_height = int(bg.height * (max_dimension / bg.width))
+            else:
+                new_height = max_dimension
+                new_width = int(bg.width * (max_dimension / bg.height))
+            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        buf = _BytesIO()
+        bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
+    except Exception as e:
+        logger.error(f"Warehouse log item image error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error processing image.'}), 500
+
+    cat_id = request.form.get('category_id', type=int)
+    if cat_id and not InventoryCategory.query.get(cat_id):
+        cat_id = None
+
+    loc_id = request.form.get('storage_location_id', type=int)
+    zone_raw = (request.form.get('storage_row') or '').strip()
+    storage_row = None
+    if zone_raw:
+        ok, _ = _validate_storage_zone(zone_raw)
+        storage_row = zone_raw if ok else None
+
+    now = _now_eastern()
+    item = InventoryItem(
+        description='',
+        price=0,
+        status='pending_valuation',
+        category_id=cat_id,
+        seller_id=seller_id,
+        photo_url=filename,
+        picked_up_at=now,
+        is_quick_capture=True,
+        storage_location_id=loc_id,
+        storage_row=storage_row,
+        collection_method='free',
+        date_added=now,
+        quality=1,
+    )
+    db.session.add(item)
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Warehouse log item commit error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Failed to save item.'}), 500
+
+    return jsonify({'success': True, 'item_id': item.id, 'unit_id': loc_id})
+
+
+@app.route('/admin/warehouse/seller/create', methods=['POST'])
+@login_required
+def admin_warehouse_create_seller():
+    if not _has_ops_access():
+        abort(403)
+    name = (request.form.get('full_name') or '').strip()
+    email_raw = (request.form.get('email') or '').strip()
+    phone_raw = (request.form.get('phone') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': 'Name required.'}), 400
+    if not email_raw and not phone_raw:
+        return jsonify({'success': False, 'message': 'At least one of email or phone required.'}), 400
+    if email_raw:
+        if not validate_email(email_raw):
+            return jsonify({'success': False, 'message': 'Invalid email.'}), 400
+        if User.query.filter_by(email=email_raw).first():
+            return jsonify({'success': False, 'message': 'An account with this email already exists. Search for them in "Existing Seller" instead.'}), 409
+        email = email_raw
+    else:
+        digits = ''.join(c for c in phone_raw if c.isdigit())
+        email = f'proxy+{digits}@usecampusswap.com'
+        if User.query.filter_by(email=email).first():
+            import secrets as _sec
+            email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
+    phone_result = None
+    if phone_raw:
+        phone_valid, phone_result = validate_phone(phone_raw)
+        if not phone_valid:
+            return jsonify({'success': False, 'message': phone_result}), 400
+    temp_pw = _gen_proxy_temp_password()
+    new_user = User(
+        email=email,
+        full_name=name,
+        phone=phone_result,
+        password_hash=generate_password_hash(temp_pw),
+        is_seller=True,
+        payout_rate=50,
+        is_proxy_account=True,
+        proxy_temp_password=temp_pw,
+        referral_code=_gen_referral_code(),
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({'success': True, 'user_id': new_user.id, 'name': name})
+
+
+@app.route('/admin/warehouse/bulk-move', methods=['POST'])
+@login_required
+def admin_warehouse_bulk_move():
+    """Consolidation tool: move multiple items to a destination unit. Clears
+    storage_row on moved items (they need re-rowing in the new unit). Does NOT
+    touch the source unit. Returns {success, moved_count}."""
+    if not _has_ops_access():
+        abort(403)
+    dest_id = request.form.get('destination_unit_id', type=int)
+    item_ids = request.form.getlist('item_ids[]', type=int) or request.form.getlist('item_ids', type=int)
+    if not dest_id:
+        return jsonify({'success': False, 'error': 'Destination unit required.'}), 400
+    if not item_ids:
+        return jsonify({'success': False, 'error': 'No items selected.'}), 400
+    dest = StorageLocation.query.get(dest_id)
+    if not dest:
+        return jsonify({'success': False, 'error': 'Destination unit not found.'}), 400
+    # Skip silently any id that doesn't resolve; report only the count moved.
+    items = InventoryItem.query.filter(InventoryItem.id.in_(item_ids)).all()
+    moved = 0
+    for it in items:
+        it.storage_location_id = dest_id
+        it.storage_row = None
+        moved += 1
+    db.session.commit()
+    return jsonify({'success': True, 'moved_count': moved})
 
 
 if __name__ == '__main__':

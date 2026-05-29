@@ -143,7 +143,7 @@
          onclick="openAIModal({{ item.id }})">
       <div class="approve-card-img">
         {% if item.photo_url %}
-        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="lightbox-trigger"
              alt="{{ item.ai_description or item.description }}"
              onerror="this.parentNode.innerHTML='<div class=no-photo><i class=fas fa-image></i></div>'">
         {% else %}
@@ -206,6 +206,7 @@ let _currentItemId = null;
 let _approveDebounce = null;
 
 function openAIModal(itemId) {
+  window._galleryIdx = 0;
   _currentItemId = itemId;
   document.getElementById('ai-modal-overlay').classList.add('open');
   document.getElementById('ai-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>';
@@ -253,6 +254,8 @@ function submitApprove() {
   if (titleEl) body.append('description', titleEl.value);
   if (descEl)  body.append('long_description', descEl.value);
   if (priceEl) body.append('price', priceEl.value);
+  const needsPhotoEl = document.getElementById('ai-modal-body').querySelector('#ai-needs-photo-checkbox');
+  if (needsPhotoEl && needsPhotoEl.checked) body.append('needs_new_photo', '1');
 
   fetch('/admin/ai/item/' + _currentItemId + '/approve', {
     method: 'POST',

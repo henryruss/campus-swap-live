@@ -1,0 +1,338 @@
+{# No layout — loaded into wh-drawer-content via fetch #}
+{% from '_battery_macro.html' import battery %}
+
+<style>
+  .whu-header { padding:20px; border-bottom:var(--card-border); background:var(--bg-cream); }
+  .whu-header-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .whu-title { font-family:'DM Serif Display',serif; font-size:1.3rem; color:var(--primary); margin:0 0 2px; }
+  .whu-addr { font-size:0.82rem; color:var(--text-muted); margin:0 0 10px; }
+  .whu-meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .whu-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .whu-body { padding:16px 20px; }
+  .whu-search-wrap { margin-bottom:16px; position:relative; }
+  .whu-search-wrap input { width:100%; padding:9px 36px 9px 12px; border:1.5px solid var(--rule); border-radius:9px; font-size:0.88rem; outline:none; box-sizing:border-box; }
+  .whu-search-wrap input:focus { border-color:var(--primary); }
+  .whu-search-wrap .whu-search-icon { position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:0.85rem; pointer-events:none; }
+  #whu-search-results { margin-bottom:12px; }
+
+  .whu-item-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f3f4f6; font-size:0.83rem; }
+  .whu-item-row:last-child { border-bottom:none; }
+  .whu-thumb { width:44px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0; background:var(--bg-cream); }
+  .whu-thumb-placeholder { width:44px; height:44px; border-radius:6px; flex-shrink:0; background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
+  .whu-item-id { font-size:0.7rem; font-weight:700; background:#f1f5f9; color:var(--text-muted); padding:2px 6px; border-radius:5px; white-space:nowrap; }
+  .whu-item-title { flex:1; min-width:0; font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .whu-item-cat { font-size:0.75rem; color:var(--text-muted); white-space:nowrap; }
+  .whu-status-pill { font-size:0.68rem; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .whu-status-available { background:#d1fae5; color:#065f46; }
+  .whu-status-pending { background:#fef3c7; color:#92400e; }
+  .whu-status-sold { background:#fee2e2; color:#991b1b; }
+  .whu-status-other { background:#f1f5f9; color:#6b7280; }
+  .whu-row-select { width:130px; padding:5px 8px; border:1.5px solid var(--rule); border-radius:7px; font-size:0.8rem; background:white; cursor:pointer; outline:none; }
+  .whu-saved-note { font-size:0.72rem; color:var(--sage); margin-left:4px; opacity:0; transition:opacity 0.3s; }
+  .whu-saved-note.show { opacity:1; }
+
+  /* Priority + cost (addendum) */
+  .whu-priority-badge { display:inline-block; font-size:0.62rem; font-weight:800; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.04em; }
+  .whu-priority-best { background:#d1fae5; color:#065f46; }
+  .whu-priority-expensive { background:#fef3c7; color:#92400e; }
+  .whu-cost-line { font-size:0.82rem; font-weight:600; color:var(--text-muted); margin:0 0 8px; }
+  .whu-cost-fields { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .whu-cost-fields label { font-size:0.72rem; color:var(--text-muted); display:flex; align-items:center; gap:5px; }
+  .whu-cost-fields input { width:90px; padding:4px 8px; border:1.5px solid var(--rule); border-radius:6px; font-size:0.8rem; outline:none; }
+  .whu-cost-fields input:focus { border-color:var(--primary); }
+
+  /* Bulk move (consolidation) */
+  .whu-move-cb { display:none; width:18px; height:18px; flex-shrink:0; cursor:pointer; accent-color:var(--primary); }
+  .whu-body.move-mode .whu-move-cb { display:inline-block; }
+  .whu-move-footer { position:sticky; bottom:0; background:white; border-top:var(--card-border); padding:12px 20px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:0.82rem; box-shadow:0 -2px 12px rgba(0,0,0,0.07); }
+  .whu-move-footer select { padding:5px 8px; border:1.5px solid var(--rule); border-radius:7px; font-size:0.8rem; background:white; outline:none; max-width:200px; }
+  .whu-move-footer .whu-move-count { font-weight:700; color:var(--text-main); }
+</style>
+
+<div class="whu-header">
+  <div class="whu-header-row">
+    <div style="flex:1;min-width:0;">
+      <div class="whu-title">{{ loc.name }}</div>
+      {% if loc.address %}<div class="whu-addr"><i class="fas fa-map-marker-alt" style="margin-right:4px;"></i>{{ loc.address }}</div>{% endif %}
+      {% if current_user.is_super_admin %}
+      <div class="whu-cost-line" id="whu-cost-summary-{{ loc.id }}">
+        {% if loc.cost_per_sqft %}${{ '%.2f'|format(loc.cost_per_sqft) }}/sqft · ${{ '%.0f'|format(loc.monthly_cost) }}/mo{% else %}<span style="font-weight:400;">No cost data set</span>{% endif %}
+      </div>
+      <div class="whu-cost-fields">
+        <label>Size <input type="text" id="whu-size-{{ loc.id }}" value="{{ (loc.size_sqft|round|int) if loc.size_sqft else '' }}" placeholder="10x30 or 300" onchange="saveUnitCost({{ loc.id }})"></label>
+        <label>$/mo <input type="number" id="whu-cost-{{ loc.id }}" value="{{ ('%.0f'|format(loc.monthly_cost)) if loc.monthly_cost else '' }}" placeholder="180" min="0" step="1" onchange="saveUnitCost({{ loc.id }})"></label>
+        <span class="whu-saved-note" id="whu-cost-saved-{{ loc.id }}">Saved ✓</span>
+      </div>
+      {% endif %}
+      <div class="whu-meta">
+        <span style="font-size:0.82rem;color:var(--text-muted);">{{ items|length }} item{{ 's' if items|length != 1 else '' }}</span>
+        {% if loc._priority == 'best' %}<span class="whu-priority-badge whu-priority-best">Best Value</span>
+        {% elif loc._priority == 'expensive' %}<span class="whu-priority-badge whu-priority-expensive">Expensive</span>{% endif %}
+        {% if loc.size_display %}<span style="font-size:0.78rem;color:var(--text-muted);">{{ loc.size_display }}</span>{% endif %}
+        <div style="width:140px;">{{ battery(battery_pct, loc.is_full, small=True) }}</div>
+        {% if loc.is_full %}<span style="background:#e5e7eb;color:#6b7280;font-size:0.68rem;font-weight:800;padding:2px 8px;border-radius:999px;text-transform:uppercase;">Full</span>{% endif %}
+      </div>
+    </div>
+    <button type="button" onclick="closeUnitDrawer()" style="background:none;border:none;color:var(--text-muted);font-size:1.3rem;cursor:pointer;padding:4px 8px;line-height:1;">&times;</button>
+  </div>
+  <div class="whu-actions">
+    <button type="button" class="btn-outline" style="padding:7px 14px;font-size:0.82rem;"
+            onclick="toggleUnitFull({{ loc.id }}, this)"
+            data-is-full="{{ 'true' if loc.is_full else 'false' }}">
+      <i class="fas {% if loc.is_full %}fa-lock-open{% else %}fa-lock{% endif %}"></i>
+      <span>{% if loc.is_full %}Mark Available{% else %}Mark as Full{% endif %}</span>
+    </button>
+    <button type="button" class="btn-primary" style="padding:7px 14px;font-size:0.82rem;"
+            onclick="openLogModal({{ loc.id }})">
+      <i class="fas fa-plus"></i> Log Item Here
+    </button>
+    {% if items and move_targets %}
+    <button type="button" class="btn-outline" id="whu-move-toggle-{{ loc.id }}" style="padding:7px 14px;font-size:0.82rem;"
+            onclick="toggleMoveMode({{ loc.id }})">
+      <i class="fas fa-dolly"></i> <span id="whu-move-toggle-label-{{ loc.id }}">Move Items</span>
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="whu-body" id="whu-body-{{ loc.id }}">
+  {# Scoped search #}
+  <div class="whu-search-wrap">
+    <input type="text" id="whu-search-{{ loc.id }}" placeholder="Search items in this unit…"
+           oninput="debounceUnitSearch({{ loc.id }}, this.value)" autocomplete="off">
+    <i class="fas fa-search whu-search-icon"></i>
+  </div>
+  <div id="whu-search-results"></div>
+
+  {% if not items %}
+  <div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+    <i class="fas fa-box-open" style="font-size:2rem;margin-bottom:10px;display:block;"></i>
+    No items in this unit yet.
+  </div>
+  {% else %}
+  <div>
+    {% for item in items %}
+    <div class="whu-item-row">
+      <input type="checkbox" class="whu-move-cb" value="{{ item.id }}" onchange="updateMoveCount({{ loc.id }})">
+      {% if item.photo_url %}
+      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="whu-thumb lightbox-trigger" loading="lazy" alt="">
+      {% else %}
+      <div class="whu-thumb-placeholder"><i class="fas fa-image"></i></div>
+      {% endif %}
+      <span class="whu-item-id">#{{ item.id }}</span>
+      <span class="whu-item-title">{{ item.description or 'Untitled' }}</span>
+      {% if item.category %}<span class="whu-item-cat">{{ item.category.name }}</span>{% endif %}
+      {% if item.quality %}<span class="whu-item-cat">· {{ item.quality|quality_label }}</span>{% endif %}
+      <span class="whu-status-pill {% if item.status == 'available' %}whu-status-available{% elif item.status in ('pending_valuation','needs_info') %}whu-status-pending{% elif item.status == 'sold' %}whu-status-sold{% else %}whu-status-other{% endif %}">
+        {{ item.status|replace('_',' ')|title }}
+      </span>
+      <select class="whu-row-select"
+              data-item-id="{{ item.id }}"
+              onchange="autosaveRow(this)">
+        <option value="">— row —</option>
+        {% for z in ['back_left','middle_left','front_left','back_right','middle_right','front_right'] %}
+        <option value="{{ z }}" {% if item.storage_row == z %}selected{% endif %}>{{ z|replace('_',' ')|title }}</option>
+        {% endfor %}
+      </select>
+      <span class="whu-saved-note" id="saved-note-{{ item.id }}">Saved ✓</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% if move_targets %}
+<div class="whu-move-footer" id="whu-move-footer-{{ loc.id }}" style="display:none;">
+  <span class="whu-move-count" id="whu-move-count-{{ loc.id }}">0 items selected</span>
+  <span>→ Move to:</span>
+  <select id="whu-move-dest-{{ loc.id }}" onchange="updateMoveBtn({{ loc.id }})">
+    <option value="">Select unit…</option>
+    {% for t in move_targets %}
+    <option value="{{ t.id }}" {% if t.is_full %}data-full="1"{% endif %}>{{ t.name }}{% if t.is_full %} (Full){% endif %}{% if t._priority == 'best' %} · Best Value{% endif %}</option>
+    {% endfor %}
+  </select>
+  <button type="button" class="btn-primary" id="whu-move-btn-{{ loc.id }}" style="padding:6px 16px;font-size:0.82rem;" disabled onclick="doBulkMove({{ loc.id }})">Move</button>
+</div>
+{% endif %}
+
+<script>
+var _whuSearchTimer = null;
+function debounceUnitSearch(unitId, q) {
+  clearTimeout(_whuSearchTimer);
+  var el = document.getElementById('whu-search-results');
+  if (q.trim().length < 2) { el.innerHTML = ''; return; }
+  _whuSearchTimer = setTimeout(function() {
+    fetch('/admin/warehouse/search?q=' + encodeURIComponent(q.trim()) + '&unit_id=' + unitId)
+      .then(function(r){ return r.text(); })
+      .then(function(html){ el.innerHTML = html; });
+  }, 300);
+}
+
+function autosaveRow(sel) {
+  var itemId = sel.dataset.itemId;
+  var zone = sel.value;
+  var noteEl = document.getElementById('saved-note-' + itemId);
+  var fd = new FormData();
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fd.append('storage_row', zone);
+  fetch('/admin/item/' + itemId + '/set_location', { method:'POST', body:fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        noteEl.textContent = 'Saved ✓';
+        noteEl.style.color = 'var(--sage)';
+        noteEl.classList.add('show');
+        setTimeout(function(){ noteEl.classList.remove('show'); }, 1500);
+      } else {
+        noteEl.textContent = 'Save failed';
+        noteEl.style.color = '#dc2626';
+        noteEl.classList.add('show');
+        setTimeout(function(){ noteEl.classList.remove('show'); sel.value = ''; }, 2000);
+      }
+    })
+    .catch(function() {
+      noteEl.textContent = 'Save failed';
+      noteEl.style.color = '#dc2626';
+      noteEl.classList.add('show');
+      setTimeout(function(){ noteEl.classList.remove('show'); }, 2000);
+    });
+}
+
+function toggleUnitFull(unitId, btn) {
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fetch('/admin/warehouse/unit/' + unitId + '/toggle-full', { method:'POST', body:fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        // Reload the drawer to reflect new state
+        loadUnitContent(unitId);
+      }
+    });
+}
+
+{% if current_user.is_super_admin %}
+// ── Inline cost/size edit (super admin only) — autosaves to /admin/storage/<id>/edit ──
+function saveUnitCost(locId) {
+  var sizeEl = document.getElementById('whu-size-' + locId);
+  var costEl = document.getElementById('whu-cost-' + locId);
+  var note = document.getElementById('whu-cost-saved-' + locId);
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fd.append('ajax', '1');
+  fd.append('size_sqft', sizeEl ? sizeEl.value : '');
+  fd.append('monthly_cost', costEl ? costEl.value : '');
+  fetch('/admin/storage/' + locId + '/edit', { method:'POST', body:fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data && data.success) {
+        var sum = document.getElementById('whu-cost-summary-' + locId);
+        if (sum) {
+          if (data.cost_per_sqft) {
+            sum.innerHTML = '$' + data.cost_per_sqft.toFixed(2) + '/sqft · $' + Math.round(data.monthly_cost) + '/mo';
+          } else {
+            sum.innerHTML = '<span style="font-weight:400;">No cost data set</span>';
+          }
+        }
+        if (note) {
+          note.textContent = 'Saved ✓'; note.style.color = 'var(--sage)';
+          note.classList.add('show');
+          setTimeout(function(){ note.classList.remove('show'); }, 1500);
+        }
+      } else if (note) {
+        note.textContent = 'Save failed'; note.style.color = '#dc2626';
+        note.classList.add('show');
+        setTimeout(function(){ note.classList.remove('show'); }, 2000);
+      }
+    })
+    .catch(function() {
+      if (note) {
+        note.textContent = 'Save failed'; note.style.color = '#dc2626';
+        note.classList.add('show');
+        setTimeout(function(){ note.classList.remove('show'); }, 2000);
+      }
+    });
+}
+{% endif %}
+
+// ── Bulk move (consolidation) ──
+function toggleMoveMode(locId) {
+  var body = document.getElementById('whu-body-' + locId);
+  var footer = document.getElementById('whu-move-footer-' + locId);
+  var label = document.getElementById('whu-move-toggle-label-' + locId);
+  if (!body) return;
+  var turningOn = !body.classList.contains('move-mode');
+  if (turningOn) {
+    body.classList.add('move-mode');
+    if (footer) footer.style.display = 'flex';
+    if (label) label.textContent = 'Cancel Move';
+  } else {
+    body.classList.remove('move-mode');
+    if (footer) footer.style.display = 'none';
+    if (label) label.textContent = 'Move Items';
+    body.querySelectorAll('.whu-move-cb').forEach(function(c){ c.checked = false; });
+    updateMoveCount(locId);
+  }
+}
+
+function updateMoveCount(locId) {
+  var n = document.querySelectorAll('#whu-body-' + locId + ' .whu-move-cb:checked').length;
+  var el = document.getElementById('whu-move-count-' + locId);
+  if (el) el.textContent = n + ' item' + (n !== 1 ? 's' : '') + ' selected';
+  updateMoveBtn(locId);
+}
+
+function updateMoveBtn(locId) {
+  var n = document.querySelectorAll('#whu-body-' + locId + ' .whu-move-cb:checked').length;
+  var destSel = document.getElementById('whu-move-dest-' + locId);
+  var btn = document.getElementById('whu-move-btn-' + locId);
+  if (btn) btn.disabled = !(n > 0 && destSel && destSel.value);
+}
+
+function doBulkMove(locId) {
+  var checked = document.querySelectorAll('#whu-body-' + locId + ' .whu-move-cb:checked');
+  var ids = Array.prototype.map.call(checked, function(c){ return c.value; });
+  var destSel = document.getElementById('whu-move-dest-' + locId);
+  if (!ids.length || !destSel || !destSel.value) return;
+  var opt = destSel.options[destSel.selectedIndex];
+  var destName = opt.textContent.replace(/ \(Full\).*$/, '').replace(/ · Best Value$/, '').trim();
+  if (opt.getAttribute('data-full') === '1') {
+    if (!confirm(destName + ' is marked full — move anyway?')) return;
+  }
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  ids.forEach(function(id){ fd.append('item_ids[]', id); });
+  fd.append('destination_unit_id', destSel.value);
+  var btn = document.getElementById('whu-move-btn-' + locId);
+  if (btn) btn.disabled = true;
+  fetch('/admin/warehouse/bulk-move', { method:'POST', body:fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data && data.success) {
+        if (window.whFlash) {
+          window.whFlash(data.moved_count + ' item' + (data.moved_count !== 1 ? 's' : '') + ' moved to ' + destName);
+        }
+        loadUnitContent(locId);  // refresh list; resets move mode + footer
+      } else {
+        alert((data && data.error) || 'Move failed.');
+        if (btn) btn.disabled = false;
+      }
+    })
+    .catch(function() {
+      alert('Move failed.');
+      if (btn) btn.disabled = false;
+    });
+}
+</script>

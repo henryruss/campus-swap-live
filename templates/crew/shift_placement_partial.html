@@ -100,7 +100,7 @@
   <span class="pl-id-badge">#{{ item.id }}</span>
   {% if item.photo_url %}
   <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-       alt="" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0;">
+       alt="" class="lightbox-trigger" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0;">
   {% else %}
   <div style="width:44px; height:44px; border-radius:8px; background:var(--bg-cream); border:1px solid var(--rule); flex-shrink:0;"></div>
   {% endif %}

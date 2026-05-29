@@ -14,42 +14,25 @@
 
     <div style="padding:20px;">
 
-      {# ── Live camera preview (getUserMedia path) ── #}
-      <div id="qc-camera-wrap" style="display:none; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; position:relative; margin-bottom:14px;">
-        <video id="qc-video" autoplay playsinline muted
-               style="width:100%; height:100%; object-fit:cover; display:block;"></video>
-        <button id="qc-snap-btn" type="button"
-                style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
-                       background:white; color:var(--primary); border:none; border-radius:999px;
-                       padding:10px 24px; font-weight:700; font-size:0.95rem; cursor:pointer;
-                       box-shadow:0 2px 8px rgba(0,0,0,0.25);">
-          <i class="fas fa-camera"></i> Take Photo
-        </button>
-      </div>
+      {% include '_qc_camera_block.html' %}
 
-      {# ── File-input fallback (HTTP / camera denied) ── #}
-      <div id="qc-fileinput-wrap" style="display:none; border-radius:12px; border:2px dashed var(--rule); background:var(--bg-cream); aspect-ratio:4/3; margin-bottom:14px; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; cursor:pointer;"
-           onclick="document.getElementById('qc-file-input').click()">
-        <i class="fas fa-camera" style="font-size:2.5rem; color:var(--primary);"></i>
-        <span style="font-weight:700; font-size:1rem; color:var(--primary);">Tap to Take Photo</span>
-        <span style="font-size:0.8rem; color:var(--text-muted);">Opens your camera</span>
+      {# ── Category picker (shown after photo captured) ── #}
+      <div id="qc-category-wrap" style="display:none; margin-bottom:14px;">
+        <label style="display:block; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px;">
+          Category <span style="color:#dc2626;">*</span>
+        </label>
+        <div id="qc-category-grid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px;">
+          {% for cat in categories %}
+          <button type="button" class="qc-cat-btn"
+                  data-cat-id="{{ cat.id }}"
+                  style="border:1.5px solid var(--rule); border-radius:10px; background:white; padding:10px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:0.75rem; font-weight:600; color:var(--text-muted); transition:all 0.12s;">
+            <i class="fas {{ cat.icon or cat.image_url or 'fa-box' }}" style="font-size:1.1rem;"></i>
+            {{ cat.name }}
+          </button>
+          {% endfor %}
+        </div>
+        <input type="hidden" id="qc-category-id" value="">
       </div>
-      <input id="qc-file-input" type="file" accept="image/*" capture="environment" style="display:none;">
-
-      {# ── Thumbnail (shown after capture on either path) ── #}
-      <div id="qc-thumb-wrap" style="display:none; margin-bottom:14px; border-radius:12px; overflow:hidden; position:relative; aspect-ratio:4/3;">
-        <img id="qc-thumb" src="" alt="Captured photo"
-             style="width:100%; height:100%; object-fit:cover; display:block;">
-        <button id="qc-retake-btn" type="button"
-                style="position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
-                       background:white; color:var(--primary); border:none; border-radius:999px;
-                       padding:8px 20px; font-weight:700; font-size:0.9rem; cursor:pointer;
-                       box-shadow:0 2px 8px rgba(0,0,0,0.2);">
-          <i class="fas fa-redo"></i> Retake
-        </button>
-      </div>
-
-      <canvas id="qc-canvas" style="display:none;"></canvas>
 
       <div style="margin-bottom:16px;">
         <label for="qc-seller-select"
@@ -110,9 +93,12 @@
   var notesWrap      = document.getElementById('qc-notes-wrap');
   var notesInput     = document.getElementById('qc-notes');
 
-  var stream       = null;
-  var capturedBlob = null;
-  var useFileInput = false;  // set true when getUserMedia unavailable or denied
+  var stream        = null;
+  var capturedBlob  = null;
+  var useFileInput  = false;
+  var categoryWrap  = document.getElementById('qc-category-wrap');
+  var categoryIdInput = document.getElementById('qc-category-id');
+  var selectedCatId = null;
 
   function showError(msg) {
     errorDiv.textContent = msg;
@@ -158,15 +144,20 @@
     saveBtn.disabled = true;
   }
 
+  function checkSaveReady() {
+    saveBtn.disabled = !(capturedBlob && selectedCatId);
+  }
+
   function showThumbnail(blob) {
     capturedBlob = blob;
     thumb.src = URL.createObjectURL(blob);
     cameraWrap.style.display    = 'none';
     fileInputWrap.style.display = 'none';
     thumbWrap.style.display     = 'block';
+    categoryWrap.style.display  = 'block';
     notesWrap.style.display     = 'block';
-    saveBtn.disabled = false;
     stopCamera();
+    checkSaveReady();
   }
 
   function startCamera() {
@@ -200,18 +191,43 @@
     });
   }
 
+  // Category selection
+  document.getElementById('qc-category-grid').addEventListener('click', function(e) {
+    var btn = e.target.closest('.qc-cat-btn');
+    if (!btn) return;
+    document.querySelectorAll('.qc-cat-btn').forEach(function(b) {
+      b.style.borderColor = 'var(--rule)';
+      b.style.background = 'white';
+      b.style.color = 'var(--text-muted)';
+    });
+    btn.style.borderColor = 'var(--primary)';
+    btn.style.background = '#f0f9f0';
+    btn.style.color = 'var(--primary)';
+    selectedCatId = btn.dataset.catId;
+    categoryIdInput.value = selectedCatId;
+    checkSaveReady();
+  });
+
   function openModal(triggerBtn) {
     // Full state reset before camera starts
     stopCamera();
     capturedBlob = null;
+    selectedCatId = null;
+    categoryIdInput.value = '';
     useFileInput = false;
     saveBtn.disabled = true;
     saveBtn.innerHTML = 'Save Item &rarr;';
     cameraWrap.style.display    = 'none';
     fileInputWrap.style.display = 'none';
     thumbWrap.style.display     = 'none';
+    categoryWrap.style.display  = 'none';
     notesWrap.style.display     = 'none';
     notesInput.value            = '';
+    document.querySelectorAll('.qc-cat-btn').forEach(function(b) {
+      b.style.borderColor = 'var(--rule)';
+      b.style.background = 'white';
+      b.style.color = 'var(--text-muted)';
+    });
     clearError();
 
     var sellers = JSON.parse(triggerBtn.dataset.sellers || '[]');
@@ -224,9 +240,10 @@
 
   function closeModal() {
     stopCamera();
-    modal.style.display  = 'none';
-    notesWrap.style.display = 'none';
-    notesInput.value     = '';
+    modal.style.display       = 'none';
+    categoryWrap.style.display = 'none';
+    notesWrap.style.display   = 'none';
+    notesInput.value          = '';
     clearError();
   }
 
@@ -281,6 +298,7 @@
     fd.append('photo', capturedBlob, 'capture.jpg');
     fd.append('seller_id', sellerSel.value);
     fd.append('notes', notesInput.value.trim());
+    if (selectedCatId) fd.append('category_id', selectedCatId);
 
     var triggerBtn = document.querySelector('[data-qc-trigger]');
     var shiftId = triggerBtn ? (triggerBtn.dataset.shiftId || '') : '';

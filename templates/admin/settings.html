@@ -288,6 +288,16 @@
               <label>Capacity note (optional)</label>
               <input type="text" name="capacity_note" value="{{ loc.capacity_note or '' }}" placeholder="Max ~80 items">
             </div>
+            <div class="settings-row">
+              <div class="settings-field">
+                <label>Size</label>
+                <input type="text" name="size_sqft" value="{{ (loc.size_sqft|round|int) if loc.size_sqft else '' }}" placeholder="10x30">
+              </div>
+              <div class="settings-field">
+                <label>Monthly rate ($)</label>
+                <input type="number" name="monthly_cost" value="{{ ('%.0f'|format(loc.monthly_cost)) if loc.monthly_cost else '' }}" placeholder="180" min="0" step="1">
+              </div>
+            </div>
             <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;">
               <button type="submit" class="btn-primary btn-save" style="margin:0;">Save</button>
               <button type="button" onclick="toggleStorageEdit({{ loc.id }})"
@@ -344,8 +354,8 @@
           </a>
         </div>
         <p style="font-size:0.8rem; color:var(--text-muted); margin:0 0 12px;">
-          Upload a <strong>.xlsx</strong> or <strong>.csv</strong> with columns <code>Unit #</code>, <code>Location</code>, <code>Size</code>.
-          Existing units (same name) are skipped. Units not in the file are <em>not</em> deleted.
+          Upload a <strong>.xlsx</strong> or <strong>.csv</strong> with columns <code>Unit #</code>, <code>Location</code>, <code>Size</code>, <code>Monthly Rate</code>.
+          Existing units (same name) keep their data — only Size / Monthly Rate are updated when present. Units not in the file are <em>not</em> deleted.
         </p>
         <form method="POST" action="{{ url_for('admin_storage_import') }}" enctype="multipart/form-data" id="storage-import-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

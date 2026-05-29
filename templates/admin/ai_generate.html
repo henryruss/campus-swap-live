@@ -274,7 +274,7 @@
           const card = document.createElement('div');
           card.className = 'ai-result-card';
           card.innerHTML =
-            '<img src="/uploads/' + encodeURIComponent(r.photo_url) + '" alt="" class="ai-result-thumb" onerror="this.style.display=\'none\'">' +
+            '<img src="/uploads/' + encodeURIComponent(r.photo_url) + '" alt="" class="ai-result-thumb lightbox-trigger" onerror="this.style.display=\'none\'">' +
             '<div class="ai-result-info">' +
               '<div class="ai-result-title">' + escapeHtml(r.ai_description) + '</div>' +
               '<div class="ai-result-price">$' + r.ai_price.toFixed(2) + '</div>' +

@@ -231,6 +231,10 @@ class InventoryItem(db.Model):
     # RETAIL REFERENCE — set at AI approve time, shown to buyers as savings reference
     retail_price        = db.Column(db.Numeric(10, 2), nullable=True)
 
+    # PHOTO FLAG — item approved but photo needs replacing before going live in shop
+    needs_new_photo     = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    needs_photo_verification = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
     # AI AUTOFILL — staged fields, reviewed before going live
     ai_description      = db.Column(db.Text, nullable=True)
     ai_long_description = db.Column(db.Text, nullable=True)
@@ -560,12 +564,29 @@ class StorageLocation(db.Model):
     capacity_note   = db.Column(db.Text, nullable=True)    # e.g. "fits ~40 large items"
     is_active       = db.Column(db.Boolean, default=True)
     is_full         = db.Column(db.Boolean, default=False)
+    snapshot_capacity = db.Column(db.Float, nullable=True)
+    size_sqft       = db.Column(db.Float, nullable=True)        # parsed from "WxD" Size string at import
+    monthly_cost    = db.Column(db.Numeric(8, 2), nullable=True)  # monthly rental cost (USD)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     lat = db.Column(db.Float, nullable=True)
     lng = db.Column(db.Float, nullable=True)
 
     created_by      = db.relationship('User', foreign_keys=[created_by_id])
+
+    @property
+    def cost_per_sqft(self):
+        """Derived at runtime — never stored. None if either field missing/zero."""
+        if self.monthly_cost and self.size_sqft and self.size_sqft > 0:
+            return float(self.monthly_cost) / self.size_sqft
+        return None
+
+    @property
+    def size_display(self):
+        """Human label for the unit's footprint, e.g. '300 sq ft'. None if unknown."""
+        if self.size_sqft and self.size_sqft > 0:
+            return f"{int(round(self.size_sqft))} sq ft"
+        return None
     items           = db.relationship('InventoryItem', backref='storage_location', lazy='dynamic',
                                       foreign_keys='InventoryItem.storage_location_id')
     shift_pickups   = db.relationship('ShiftPickup', backref='planned_storage_location', lazy='dynamic',

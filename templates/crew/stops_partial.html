@@ -46,7 +46,7 @@
       {% for qc_item in captures %}
       <div class="qc-photo-wrap" data-item-id="{{ qc_item.id }}" style="position:relative;">
         <img src="{{ url_for('uploaded_file', filename=qc_item.photo_url) }}"
-             alt="Capture #{{ qc_item.id }}"
+             alt="Capture #{{ qc_item.id }}" class="lightbox-trigger"
              style="width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--rule); display:block;">
         <span style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,0.55); color:white; font-size:0.6rem; font-weight:700; padding:1px 4px; border-radius:4px;">#{{ qc_item.id }}</span>
         <button class="qc-delete-btn"

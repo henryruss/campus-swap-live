@@ -9,9 +9,86 @@
 
 ## Current State
 
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-28 (end of session)
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign signed off and in production. Quick Capture + approval queue modal + Campus Director Tutorial + auth guard audit built 2026-05-20–21. Storage audit tool + driver placement + storage unit management overhaul built 2026-05-28.
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. This session: AI Autofill, Warehouse Floor, Shop Drop improvements (retail price, infinite scroll, ai_approved gate), Photo Verification Queue all built.
+
+---
+
+## Features Built This Session (2026-05-28, afternoon)
+
+### AI Autofill + AI Review Queue
+
+**Status:** Built. Needs deploy to production.
+
+Uses Claude vision API to generate title, description, price, and retail reference for items. Runs as a background thread. Items must have `ai_generated_at IS NULL` to be eligible.
+
+**New model fields on InventoryItem:**
+- `ai_description`, `ai_long_description` (Text, nullable) — staged
+- `ai_price`, `ai_retail_price` (Numeric, nullable) — staged
+- `ai_review_pending` (Boolean) — in review queue
+- `ai_generated_at` (DateTime, nullable) — NULL = eligible; set on success OR error (error sentinel)
+- `ai_approved` (Boolean) — set at review approval; gates shop visibility
+- `retail_price` (Numeric, nullable) — live retail reference copied from ai_retail_price at approval; shown to buyers
+- `needs_new_photo` (Boolean) — item approved but photo needs replacement; hides from shop
+- `needs_photo_verification` (Boolean) — item has had its photo replaced; enters verification queue pending admin review
+
+**Migrations:** `da3bed86df50`, `af636a52a985`, `df2ec76b3e37`, `3549247ca9e5`, `7978e1bce77b`, `7d66b13ebef5` — all applied locally. Need `flask db upgrade` on Render after deploy.
+
+**Env var needed on Render:** `ANTHROPIC_API_KEY`
+
+**Key behavior:**
+- Generation uses `claude-sonnet-4-6` by default (selectable per run)
+- Retail price floored to ensure ≥40% apparent savings (raises retail, never lowers our price)
+- Em-dashes stripped from all AI output
+- `ai_retail_price` copied to live `retail_price` at approval time — shown to buyers on inventory cards and product pages
+- "Flag for new photo" checkbox on approval: sets `needs_new_photo=True`, `ai_approved=True` — item approved but hidden from shop until photo replaced
+
+**New routes:** `/admin/ai/generate`, `/admin/ai/review`, plus detail/approve/discard/set-cover-photo/delete-gallery-photo per item.
+
+**Nav badge:** AI Review item in sidebar (super admin only), amber badge showing pending count.
+
+---
+
+### Shop Drop Improvements
+
+**Status:** Built. Needs deploy.
+
+- **Shop visibility gate:** Only `ai_approved=True AND needs_new_photo=False` items appear. All previously approved items hidden until processed through AI review.
+- **Retail + savings callout:** `item.retail_price` shown as "~$X retail · Y% off" on inventory cards and product pages.
+- **Infinite scroll:** Replaced 24-item pagination with IntersectionObserver + `?ajax=1` endpoint. Item count removed from public page header.
+- **Shop teaser toggle** added to Admin Settings page.
+
+---
+
+### Warehouse Floor
+
+**Status:** Built. Needs deploy.
+
+Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 302.
+
+**New model field:** `StorageLocation.snapshot_capacity` (Float, nullable). Migration: `9833fccaa78e`.
+
+**Capacity battery:** Visual bar on each unit card. Green 75–100%, amber 40–74%, red <40%, striped dark-red >100%, grey if no snapshot. Set by clicking "Mark as Full" (snapshots current item volume). "Mark as Available" does NOT clear snapshot.
+
+**Log Item flow:** 4-step modal: photo (getUserMedia + fallback) → category → storage location → seller. Three seller modes: Campus Swap internal, existing seller (live search), new proxy seller (payout_rate=50, is_proxy_account=True).
+
+**Needs New Photo section:** Amber collapsible (collapsed by default). Shows items with `needs_new_photo=True`. Camera button opens replace-photo modal.
+
+**Photo Verification Queue:** Indigo collapsible (open by default). Shows items with `needs_photo_verification=True`. After replacing a photo (from warehouse or AI review), item enters this queue. Admin can: Download photo → Photoshop it → Re-upload → Click "Looks Good". "Looks Good" POSTs to `POST /admin/item/<id>/verify-photo` which clears the flag.
+
+**replace_photo bug fix:** Old cover photo is now deleted from ItemPhoto records when a new cover is uploaded, preventing the old cover from appearing as a gallery carousel item.
+
+**Removed:** `GET /admin/items/needs_info` route and `admin/needs_info.html` template. QC nav badge removed. `qc_pending_count` context processor injection removed. QC items now surface via AI autofill pipeline.
+
+**Crew quick capture:** Category selector added (required in UI, null-safe on backend). Camera block extracted to `_qc_camera_block.html` reusable partial.
+
+**Search:** Global search (debounced 300ms) + unit-scoped search. "Select Unit" inline picker expands below search result row. Camera button on needs_new_photo items in search results. "Update" link (which went to full edit form) removed — replaced with inline location picker only.
+
+**Gallery management in AI review modal:**
+- "★ Set as cover" button appears on non-cover gallery slides
+- "Delete" button appears on non-cover gallery slides (red, top-right)
+- Both reload the modal detail partial on success
 
 ---
 

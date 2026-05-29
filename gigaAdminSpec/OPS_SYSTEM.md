@@ -35,7 +35,7 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 | **Planned unit** | The `ShiftPickup.storage_location_id` (or truck entry in `Shift.truck_unit_plan`) — the destination a truck is expected to deliver to, set by admin before the shift. |
 | **Actual unit** | The `InventoryItem.storage_location_id` — where an item physically ended up, set by the organizer during intake. |
 | **Overflow truck** | A flex truck slot held in reserve to absorb rescheduled pickups |
-| **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Admin completes the listing (title, price, category) afterward via the Quick Captures queue at `/admin/items/needs_info`. |
+| **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Category is collected at capture time. Items are eligible for AI autofill (`ai_generated_at IS NULL`) and surface in the AI review queue after the next generation run. The dedicated admin queue at `/admin/items/needs_info` has been removed — QC items now flow through the AI autofill pipeline. |
 | **Internal account** | The seeded "Campus Swap" user (`is_internal_account=True`) that owns donated or unclaimed items captured without an associated seller. `seller_id` on `InventoryItem` is never nullable — this account is the fallback. |
 | **Campus Director (CD)** | A privileged seller account (`is_campus_director=True`) that can access the admin ops panel via a role switcher in the nav. CDs are not `is_admin` or `is_super_admin`. They see a subset of admin functionality (ops, crew, schedule) intended for on-the-ground coordinators at a campus location. |
 | **CD view** | Session state (`session['cd_view']`) set to `'seller'` or `'admin'` by `/switch-role/<role>`. Controls which context a campus director sees. When set to `'seller'`, the CD sees the normal seller dashboard. |
@@ -118,8 +118,8 @@ Movers can photograph found, donated, or spot-consigned items in the field and a
 - `long_description` = mover's note (if provided)
 - Seller: selected seller or internal Campus Swap account
 
-**Admin completion queue (`/admin/items/needs_info`):**
-Quick-capture items land in a dedicated queue. Admin fills in title, category, price, quality, then either approves (one-click, no price required) or edits via the standard edit_item flow. Items are excluded from the standard approval queue and approval digest email.
+**AI autofill pipeline:**
+Quick-capture items are eligible for AI autofill (`ai_generated_at IS NULL`). After a generation run, items with AI-generated data appear in the AI review queue (`/admin/ai/review`) where admin can approve or discard. The old dedicated queue at `/admin/items/needs_info` has been removed. Items are excluded from the standard approval queue and approval digest email.
 
 **Crew delete:** The capturing worker can hard-delete their own captures (photo + DB record) via the `×` button on the stop card photo strip, as long as the item is still in `pending_valuation` or `needs_info`. Hard delete only — no soft-reject path.
 
@@ -246,6 +246,8 @@ The ops system connects back to the seller experience in three ways:
 | — | `feature_approval_queue_modal.md` | ✅ Done (built 2026-05-21) | Single-page modal flow for approval queue — fetch partial detail + fetch POST actions, no new tabs |
 | — | `feature_cd_tutorial.md` | ✅ Done (built 2026-05-21) | Campus Director onboarding tutorial — 10-step interactive walkthrough with sandbox data isolation, role switcher, auth guard fixes |
 | — | `feature_storage_audit_and_placement.md` | ✅ Done (built 2026-05-28) | Admin storage audit tool (`/admin/storage/audit`) to view/correct item locations; driver placement flow at End Shift (zone diagram modal, "Not picked up"); storage unit management overhaul (inline edit, delete, bulk xlsx import with OOM-safe streaming); Postgres startup fix (`db.create_all()` unconditional) |
+| — | `feature_ai_autofill.md` | ✅ Done (built 2026-05-28) | Claude vision API generates title/description/price/retail for items; staged review queue; ai_approved gates shop visibility; retail price shown to buyers as savings callout |
+| — | `feature_warehouse_floor.md` | ✅ Done (built 2026-05-28) | Replaces storage audit tool; unit card grid with capacity batteries; Log Item modal (photo→category→location→seller); Needs New Photo + Photo Verification queues; removes QC admin queue |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

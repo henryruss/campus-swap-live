@@ -421,6 +421,54 @@
             font-weight: 600;
             color: var(--primary) !important;
         }
+
+        /* Global image lightbox */
+        #img-lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 10000;          /* above share modal & seller panel toast (z 9999) */
+            background: rgba(0, 0, 0, 0.85);
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+        }
+        #img-lightbox.open {
+            display: flex;
+        }
+        #img-lightbox-img {
+            max-width: 90vw;
+            max-height: 90vh;
+            min-width: 80px;
+            min-height: 80px;
+            object-fit: contain;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);  /* gray placeholder if image fails to load */
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+            cursor: default;         /* clicks on the image itself don't bubble to close */
+        }
+        #img-lightbox-close {
+            position: absolute;
+            top: 1rem;
+            right: 1.25rem;
+            font-size: 2rem;
+            line-height: 1;
+            background: none;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            opacity: 0.8;
+        }
+        #img-lightbox-close:hover { opacity: 1; }
+
+        /* Hover affordance on any lightbox-enabled thumbnail */
+        img.lightbox-trigger {
+            cursor: zoom-in;
+            transition: opacity 0.15s;
+        }
+        img.lightbox-trigger:hover {
+            opacity: 0.8;
+        }
     </style>
 
     <script>
@@ -608,6 +656,55 @@
     if (location.pathname.indexOf('/admin') === 0 || location.pathname.indexOf('/crew') === 0) {
       sessionStorage.setItem(key, window.scrollY);
     }
+  });
+})();
+</script>
+
+<!-- Global image lightbox -->
+<div id="img-lightbox" aria-modal="true" role="dialog" aria-label="Image preview">
+  <button id="img-lightbox-close" aria-label="Close">&times;</button>
+  <img id="img-lightbox-img" src="" alt="Full size preview">
+</div>
+<script>
+(function () {
+  const lb  = document.getElementById('img-lightbox');
+  const img = document.getElementById('img-lightbox-img');
+  const btn = document.getElementById('img-lightbox-close');
+
+  function openLightbox(src) {
+    img.src = src;
+    lb.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    lb.classList.remove('open');
+    document.body.style.overflow = '';
+    img.src = '';
+  }
+
+  // Event delegation in the CAPTURE phase — fires before any parent card's
+  // onclick or link navigation, so clicking a photo opens the lightbox instead
+  // of triggering the surrounding row/card. Also handles thumbnails injected
+  // after load (approval modal, QC stop card 30s refresh, audit results, etc.).
+  document.addEventListener('click', function (e) {
+    const el = e.target.closest('img.lightbox-trigger');
+    if (el) {
+      e.preventDefault();
+      e.stopPropagation();
+      const src = el.dataset.lightboxSrc || el.src;
+      openLightbox(src);
+    }
+  }, true);
+
+  btn.addEventListener('click', closeLightbox);
+
+  lb.addEventListener('click', function (e) {
+    if (e.target === lb) closeLightbox();   // only close on backdrop click, not image
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && lb.classList.contains('open')) closeLightbox();
   });
 })();
 </script>

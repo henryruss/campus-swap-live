@@ -279,7 +279,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                 <div class="dashboard-item-square-inner dashboard-item-clickable" data-item-id="{{ item.id }}" onclick="openListingModal({{ item.id }})" style="text-decoration: none; color: inherit; cursor: pointer;">
                     <div class="dashboard-item-square-img" style="position: relative;">
                         {% if item.photo_url %}
-                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}">
+                        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" loading="lazy" alt="{{ item.description }}" class="lightbox-trigger">
                         {% else %}
                         <div class="dashboard-item-square-placeholder"><i class="fas fa-image"></i></div>
                         {% endif %}
@@ -323,7 +323,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                     <div class="photo-carousel" data-current="0" data-count="{{ _photos|length }}">
                         <div class="photo-carousel-track">
                             {% for photo in _photos %}
-                            <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}" alt="{{ item.description }}" class="photo-carousel-slide">
+                            <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}" alt="{{ item.description }}" class="photo-carousel-slide lightbox-trigger">
                             {% endfor %}
                         </div>
                         {% if _photos|length > 1 %}
@@ -333,7 +333,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                         {% endif %}
                     </div>
                     {% elif item.photo_url %}
-                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="listing-modal-main-img">
+                    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="listing-modal-main-img lightbox-trigger">
                     {% else %}
                     <div class="listing-modal-placeholder"><i class="fas fa-image"></i> No image</div>
                     {% endif %}

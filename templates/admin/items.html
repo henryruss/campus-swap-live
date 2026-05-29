@@ -335,7 +335,7 @@
        role="button" aria-label="Review {{ item.description }}">
     {% if item.photo_url %}
     <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-         alt="{{ item.description }}" class="approve-thumb"
+         alt="{{ item.description }}" class="approve-thumb lightbox-trigger"
          onclick="event.stopPropagation(); openApprovalModal({{ item.id }})">
     {% else %}
     <div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;flex-shrink:0;">

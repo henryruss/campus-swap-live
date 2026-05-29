@@ -1,0 +1,538 @@
+{% extends "admin/admin_layout.html" %}
+{% from '_battery_macro.html' import battery %}
+
+{% block admin_content %}
+<style>
+  .wh-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+  .wh-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+  .wh-top h1 { font-family:'DM Serif Display',serif; font-size:1.6rem; color:var(--primary); margin:0; }
+
+  /* Search */
+  .wh-search-wrap { position:relative; margin-bottom:24px; }
+  .wh-search-wrap input { width:100%; padding:10px 40px 10px 14px; border:1.5px solid var(--rule); border-radius:10px; font-size:0.92rem; outline:none; box-sizing:border-box; }
+  .wh-search-wrap input:focus { border-color:var(--primary); }
+  .wh-search-wrap .wh-search-icon { position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none; }
+  #wh-search-results { margin-bottom:24px; }
+
+  /* Unit grid */
+  .wh-unit-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  @media (max-width:900px) { .wh-unit-grid { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:580px) { .wh-unit-grid { grid-template-columns:1fr; } }
+
+  .wh-unit-card {
+    background:white; border:var(--card-border); border-radius:14px;
+    padding:18px; cursor:pointer; transition:box-shadow 0.15s, border-color 0.15s;
+    position:relative;
+  }
+  .wh-unit-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.08); border-color:var(--primary); }
+  .wh-unit-card.is-full { opacity:0.65; }
+  .wh-unit-card .wh-unit-name { font-weight:800; font-size:1rem; color:var(--primary); margin-bottom:4px; }
+  .wh-unit-card .wh-unit-count { font-size:0.82rem; color:var(--text-muted); margin-bottom:4px; }
+  .wh-unit-cost { font-size:0.74rem; color:var(--text-muted); margin-bottom:10px; }
+  .wh-priority-badge { display:inline-block; font-size:0.62rem; font-weight:800; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; }
+  .wh-priority-best { background:#d1fae5; color:#065f46; }
+  .wh-priority-expensive { background:#fef3c7; color:#92400e; }
+  .wh-unit-full-badge {
+    position:absolute; top:12px; right:12px;
+    background:#e5e7eb; color:#6b7280; font-size:0.68rem; font-weight:800;
+    padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em;
+  }
+
+  /* Drawer */
+  .wh-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:300; }
+  .wh-drawer {
+    position:fixed; top:0; right:-600px; width:600px; max-width:100vw;
+    height:100vh; background:white; z-index:1100; overflow-y:auto;
+    box-shadow:-4px 0 24px rgba(0,0,0,0.12);
+    transition:right 0.25s cubic-bezier(0.4,0,0.2,1);
+  }
+  .wh-drawer.open { right:0; }
+  #wh-drawer-content { padding:0; }
+
+  /* Log modal (overlay on top of drawer) */
+  .wh-log-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1200; align-items:center; justify-content:center; padding:16px; }
+  .wh-log-modal { background:white; border-radius:18px; width:100%; max-width:480px; max-height:90vh; overflow-y:auto; box-shadow:var(--glass-shadow,0 8px 40px rgba(0,0,0,0.18)); }
+</style>
+
+<div class="wh-wrap">
+  {# CSRF token for all warehouse fetch-POSTs (toggle-full, log-item, set-location, bulk-move, cost edit) #}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="wh-top">
+    <h1><i class="fas fa-warehouse" style="margin-right:10px;color:var(--sage);"></i>Warehouse Floor</h1>
+    <button class="btn-primary" onclick="openLogModal(null)"
+            style="padding:10px 20px; font-size:0.92rem;">
+      <i class="fas fa-plus"></i> Log Item
+    </button>
+  </div>
+
+  {# Global search #}
+  <div class="wh-search-wrap">
+    <input type="text" id="wh-global-search" placeholder="Search items by name, ID (#382), or description…" autocomplete="off">
+    <i class="fas fa-search wh-search-icon"></i>
+  </div>
+  <div id="wh-search-results"></div>
+
+  {# Needs New Photo section #}
+  {% if needs_photo_items %}
+  <div style="margin-bottom:24px;border:2px solid #fcd34d;border-radius:14px;overflow:hidden;">
+    <button type="button"
+            onclick="this.setAttribute('aria-expanded', this.getAttribute('aria-expanded')==='true'?'false':'true'); document.getElementById('needs-photo-body').style.display = this.getAttribute('aria-expanded')==='true' ? 'block' : 'none';"
+            aria-expanded="false"
+            style="width:100%;background:#fffbeb;padding:14px 18px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:inherit;">
+      <span style="display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-camera" style="color:#d97706;font-size:1rem;"></i>
+        <span style="font-weight:700;font-size:0.95rem;color:#92400e;">Needs New Photo</span>
+        <span style="background:#fcd34d;color:#92400e;font-size:0.72rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ needs_photo_items|length }}</span>
+      </span>
+      <i class="fas fa-chevron-down" style="color:#d97706;font-size:0.8rem;transition:transform 0.2s;" id="needs-photo-chevron"></i>
+    </button>
+    <div id="needs-photo-body" style="display:none;background:white;">
+      {% for item in needs_photo_items %}
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid #fef3c7;font-size:0.83rem;">
+        {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+             style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;" loading="lazy" alt="">
+        {% else %}
+        <div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:#fef3c7;display:flex;align-items:center;justify-content:center;color:#d97706;">
+          <i class="fas fa-image"></i>
+        </div>
+        {% endif %}
+        <span style="font-size:0.7rem;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
+        <span style="flex:1;min-width:0;font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</span>
+        {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">{{ item.category.name }}</span>{% endif %}
+        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">
+          {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
+          {% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
+        </span>
+        <button type="button"
+                onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
+                style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;">
+          <i class="fas fa-camera"></i> Replace Photo
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Photo Verification Queue #}
+  {% if needs_verification_items %}
+  <div style="margin-bottom:24px;border:2px solid #a5b4fc;border-radius:14px;overflow:hidden;" id="verification-section">
+    <button type="button"
+            onclick="this.setAttribute('aria-expanded', this.getAttribute('aria-expanded')==='true'?'false':'true'); document.getElementById('verification-body').style.display = this.getAttribute('aria-expanded')==='true' ? 'block' : 'none';"
+            aria-expanded="true"
+            style="width:100%;background:#eef2ff;padding:14px 18px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:inherit;">
+      <span style="display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-check-circle" style="color:#6366f1;font-size:1rem;"></i>
+        <span style="font-weight:700;font-size:0.95rem;color:#3730a3;">Photo Verification Queue</span>
+        <span style="background:#a5b4fc;color:#3730a3;font-size:0.72rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ needs_verification_items|length }}</span>
+      </span>
+      <i class="fas fa-chevron-up" style="color:#6366f1;font-size:0.8rem;"></i>
+    </button>
+    <div id="verification-body" style="display:block;background:white;">
+      <div style="padding:10px 18px 6px;font-size:0.78rem;color:var(--text-muted);border-bottom:1px solid #eef2ff;">
+        These items had their photo replaced. Download the photo, touch it up, then re-upload and click Verified.
+      </div>
+      {% for item in needs_verification_items %}
+      <div id="verif-row-{{ item.id }}" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid #eef2ff;font-size:0.83rem;flex-wrap:wrap;">
+        {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+             style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #a5b4fc;" loading="lazy" alt="">
+        {% else %}
+        <div style="width:56px;height:56px;border-radius:8px;flex-shrink:0;background:#eef2ff;display:flex;align-items:center;justify-content:center;color:#6366f1;">
+          <i class="fas fa-image"></i>
+        </div>
+        {% endif %}
+        <span style="font-size:0.7rem;font-weight:700;background:#eef2ff;color:#3730a3;padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
+        <span style="flex:1;min-width:120px;font-weight:600;color:var(--text-main);">{{ item.description or 'Untitled' }}</span>
+        {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">{{ item.category.name }}</span>{% endif %}
+        <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;align-items:center;">
+          {% if item.photo_url %}
+          <a href="{{ url_for('uploaded_file', filename=item.photo_url) }}" download
+             style="padding:5px 12px;font-size:0.78rem;background:#eef2ff;color:#3730a3;border:1.5px solid #a5b4fc;border-radius:7px;text-decoration:none;white-space:nowrap;font-weight:700;">
+            <i class="fas fa-download"></i> Download
+          </a>
+          {% endif %}
+          <button type="button"
+                  onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
+                  style="padding:5px 12px;font-size:0.78rem;background:white;color:var(--primary);border:1.5px solid var(--primary);border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;">
+            <i class="fas fa-camera"></i> Re-upload
+          </button>
+          <button type="button"
+                  onclick="verifyPhoto({{ item.id }})"
+                  style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;">
+            <i class="fas fa-check"></i> Looks Good
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Unit grid #}
+  {% if not unit_data %}
+  <div style="text-align:center;padding:60px 20px;background:#f8fafc;border-radius:14px;border:var(--card-border);color:var(--text-muted);">
+    <i class="fas fa-warehouse" style="font-size:3rem;margin-bottom:12px;display:block;"></i>
+    No active storage units — create one in <a href="/admin/settings#storage">Settings</a>.
+  </div>
+  {% else %}
+  <div class="wh-unit-grid">
+    {% for d in unit_data %}
+    <div class="wh-unit-card {% if d.loc.is_full %}is-full{% endif %}"
+         onclick="openUnitDrawer({{ d.loc.id }})">
+      {% if d.loc.is_full %}<span class="wh-unit-full-badge">Full</span>{% endif %}
+      <div class="wh-unit-name">{{ d.loc.name }}</div>
+      {% if d.loc._priority == 'best' %}<span class="wh-priority-badge wh-priority-best">Best Value</span>
+      {% elif d.loc._priority == 'expensive' %}<span class="wh-priority-badge wh-priority-expensive">Expensive</span>{% endif %}
+      <div class="wh-unit-count">{{ d.item_count }} item{{ 's' if d.item_count != 1 else '' }}{% if d.loc.size_display %} · {{ d.loc.size_display }}{% endif %}</div>
+      {% if current_user.is_super_admin and d.loc.cost_per_sqft %}
+      <div class="wh-unit-cost">${{ '%.2f'|format(d.loc.cost_per_sqft) }}/sqft · ${{ '%.0f'|format(d.loc.monthly_cost) }}/mo</div>
+      {% endif %}
+      {{ battery(d.battery_pct, d.loc.is_full) }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# Drawer #}
+<div class="wh-overlay" id="wh-overlay" onclick="closeUnitDrawer()"></div>
+<div class="wh-drawer" id="wh-drawer">
+  <div id="wh-drawer-content">
+    <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
+      <i class="fas fa-spinner fa-spin fa-2x"></i>
+    </div>
+  </div>
+</div>
+
+{# Log Item modal #}
+<div class="wh-log-overlay" id="wh-log-overlay" style="display:none;">
+  <div class="wh-log-modal" id="wh-log-modal-content"></div>
+</div>
+
+<script>
+var _whCurrentUnitId = null;
+
+function openUnitDrawer(unitId) {
+  _whCurrentUnitId = unitId;
+  document.getElementById('wh-overlay').style.display = 'block';
+  var drawer = document.getElementById('wh-drawer');
+  drawer.classList.add('open');
+  loadUnitContent(unitId);
+}
+
+function loadUnitContent(unitId) {
+  var container = document.getElementById('wh-drawer-content');
+  container.innerHTML =
+    '<div style="text-align:center;padding:60px 20px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+  fetch('/admin/warehouse/unit/' + unitId)
+    .then(function(r){ return r.text(); })
+    .then(function(html){
+      container.innerHTML = html;
+      // innerHTML drops <script> tags — re-create them so the partial's JS
+      // (autosave, toggle-full, move-items, cost edit) actually runs.
+      container.querySelectorAll('script').forEach(function(orig) {
+        var s = document.createElement('script');
+        s.textContent = orig.textContent;
+        orig.parentNode.replaceChild(s, orig);
+      });
+    });
+}
+
+// Transient toast for fetch actions that can't use server-side flash (bulk move).
+window.whFlash = function(msg) {
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;padding:12px 22px;border-radius:10px;font-size:0.9rem;font-weight:600;z-index:2000;box-shadow:0 6px 24px rgba(0,0,0,0.2);';
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 3000);
+};
+
+function openLocatePicker(itemId) {
+  document.querySelectorAll('[id^="locate-picker-"]').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  var el = document.getElementById('locate-picker-' + itemId);
+  if (el) el.style.display = 'block';
+}
+function closeLocatePicker(itemId) {
+  var el = document.getElementById('locate-picker-' + itemId);
+  if (el) el.style.display = 'none';
+}
+function saveLocate(itemId) {
+  var unitSel = document.getElementById('locate-unit-' + itemId);
+  var rowSel  = document.getElementById('locate-row-'  + itemId);
+  var savedEl = document.getElementById('locate-saved-' + itemId);
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  if (unitSel && unitSel.value) fd.append('storage_location_id', unitSel.value);
+  if (rowSel  && rowSel.value)  fd.append('storage_row', rowSel.value);
+  fetch('/admin/item/' + itemId + '/set_location', {
+    method: 'POST', body: fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        if (savedEl) { savedEl.style.display = 'inline'; }
+        setTimeout(function() {
+          if (savedEl) savedEl.style.display = 'none';
+          closeLocatePicker(itemId);
+        }, 1200);
+      }
+    });
+}
+
+function closeUnitDrawer() {
+  document.getElementById('wh-overlay').style.display = 'none';
+  document.getElementById('wh-drawer').classList.remove('open');
+  _whCurrentUnitId = null;
+}
+
+function openLogModal(preUnitId) {
+  var overlay = document.getElementById('wh-log-overlay');
+  overlay.style.display = 'flex';
+  document.getElementById('wh-log-modal-content').innerHTML =
+    '<div style="text-align:center;padding:40px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+  // Load modal HTML from server (or render inline if already loaded)
+  // We embed the log modal template inline below
+  initLogModal(preUnitId || _whCurrentUnitId);
+}
+
+function closeLogModal() {
+  document.getElementById('wh-log-overlay').style.display = 'none';
+  stopWHCamera();
+}
+
+document.getElementById('wh-log-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeLogModal();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { closeUnitDrawer(); closeLogModal(); }
+});
+
+// ── Global search ──
+var _whSearchTimer = null;
+document.getElementById('wh-global-search').addEventListener('input', function() {
+  var q = this.value.trim();
+  clearTimeout(_whSearchTimer);
+  if (q.length < 2) {
+    document.getElementById('wh-search-results').innerHTML = '';
+    return;
+  }
+  _whSearchTimer = setTimeout(function() {
+    fetch('/admin/warehouse/search?q=' + encodeURIComponent(q))
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        document.getElementById('wh-search-results').innerHTML = html;
+      });
+  }, 300);
+});
+</script>
+
+{% include 'admin/warehouse_log_modal.html' %}
+
+{# Replace Photo modal (for needs_new_photo items) #}
+<div id="rp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1300;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:white;border-radius:16px;width:100%;max-width:420px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.2);">
+    <div style="background:var(--primary);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="color:white;font-weight:700;font-size:0.95rem;"><i class="fas fa-camera"></i> Replace Photo</span>
+      <button onclick="closeReplacePhotoModal()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:1.2rem;cursor:pointer;padding:4px 8px;line-height:1;">&times;</button>
+    </div>
+    <div style="padding:18px;">
+      <div id="rp-current-wrap" style="margin-bottom:14px;border-radius:10px;overflow:hidden;aspect-ratio:4/3;background:#f1f5f9;display:flex;align-items:center;justify-content:center;">
+        <img id="rp-current-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+        <i id="rp-no-img-icon" class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+      </div>
+      {% include '_qc_camera_block.html' %}
+      <div id="rp-error" style="display:none;background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:0.875rem;color:#991b1b;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button type="button" class="btn-outline" style="padding:8px 18px;font-size:0.88rem;" onclick="closeReplacePhotoModal()">Cancel</button>
+        <button type="button" class="btn-primary" style="padding:8px 18px;font-size:0.88rem;" id="rp-save-btn" disabled onclick="submitReplacePhoto()">Save Photo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _rpItemId = null;
+var _rpBlob = null;
+var _rpStream = null;
+var _rpUseFile = false;
+
+function openReplacePhotoModal(itemId, currentPhotoUrl) {
+  _rpItemId = itemId;
+  _rpBlob = null;
+  _rpStream = null;
+  _rpUseFile = false;
+
+  // Show current photo
+  var img = document.getElementById('rp-current-img');
+  var icon = document.getElementById('rp-no-img-icon');
+  if (currentPhotoUrl) {
+    img.src = currentPhotoUrl;
+    img.style.display = 'block';
+    icon.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    icon.style.display = 'block';
+  }
+
+  // Reset camera block state (reuses #qc-* IDs from _qc_camera_block.html)
+  document.getElementById('rp-save-btn').disabled = true;
+  document.getElementById('rp-error').style.display = 'none';
+  document.getElementById('qc-camera-wrap').style.display = 'none';
+  document.getElementById('qc-fileinput-wrap').style.display = 'none';
+  document.getElementById('qc-thumb-wrap').style.display = 'none';
+
+  document.getElementById('rp-overlay').style.display = 'flex';
+  rpStartCamera();
+}
+
+function closeReplacePhotoModal() {
+  rpStopCamera();
+  document.getElementById('rp-overlay').style.display = 'none';
+  _rpItemId = null;
+  _rpBlob = null;
+}
+
+function rpStopCamera() {
+  if (_rpStream) { _rpStream.getTracks().forEach(function(t){ t.stop(); }); _rpStream = null; }
+  var v = document.getElementById('qc-video');
+  if (v) v.srcObject = null;
+}
+
+function rpStartCamera() {
+  var cameraWrap = document.getElementById('qc-camera-wrap');
+  var fileWrap = document.getElementById('qc-fileinput-wrap');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    _rpUseFile = true;
+    cameraWrap.style.display = 'none';
+    fileWrap.style.display = 'flex';
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(s) {
+      _rpStream = s;
+      document.getElementById('qc-video').srcObject = s;
+      cameraWrap.style.display = 'block';
+      fileWrap.style.display = 'none';
+    })
+    .catch(function() {
+      _rpUseFile = true;
+      cameraWrap.style.display = 'none';
+      fileWrap.style.display = 'flex';
+    });
+}
+
+// Override the qc-snap-btn for replace-photo context
+document.addEventListener('click', function(e) {
+  if (!document.getElementById('rp-overlay') || document.getElementById('rp-overlay').style.display === 'none') return;
+  var snapBtn = e.target.closest('#qc-snap-btn');
+  var retakeBtn = e.target.closest('#qc-retake-btn');
+  if (snapBtn) {
+    var v = document.getElementById('qc-video');
+    var c = document.getElementById('qc-canvas');
+    if (!_rpStream || !v.videoWidth) return;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(function(blob) { rpShowThumb(blob); }, 'image/jpeg', 0.92);
+  }
+  if (retakeBtn) {
+    _rpBlob = null;
+    document.getElementById('rp-save-btn').disabled = true;
+    document.getElementById('qc-thumb-wrap').style.display = 'none';
+    if (_rpUseFile) {
+      document.getElementById('qc-fileinput-wrap').style.display = 'flex';
+    } else {
+      rpStartCamera();
+    }
+  }
+});
+
+document.getElementById('qc-file-input').addEventListener('change', function() {
+  if (document.getElementById('rp-overlay').style.display === 'none') return;
+  var f = this.files && this.files[0];
+  if (f) rpShowThumb(f);
+  this.value = '';
+});
+
+function rpShowThumb(blob) {
+  _rpBlob = blob;
+  rpStopCamera();
+  document.getElementById('qc-thumb').src = URL.createObjectURL(blob);
+  document.getElementById('qc-camera-wrap').style.display = 'none';
+  document.getElementById('qc-fileinput-wrap').style.display = 'none';
+  document.getElementById('qc-thumb-wrap').style.display = 'block';
+  document.getElementById('rp-save-btn').disabled = false;
+}
+
+function submitReplacePhoto() {
+  if (!_rpBlob || !_rpItemId) return;
+  var btn = document.getElementById('rp-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fd.append('photo', _rpBlob, 'replace.jpg');
+  fetch('/admin/item/' + _rpItemId + '/replace_photo', {
+    method: 'POST', body: fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        closeReplacePhotoModal();
+        // Remove the row from the needs-new-photo section
+        var rows = document.querySelectorAll('#needs-photo-body [data-item-id="' + _rpItemId + '"]');
+        // Reload page to reflect removal
+        window.location.reload();
+      } else {
+        document.getElementById('rp-error').textContent = data.error || 'Save failed.';
+        document.getElementById('rp-error').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Save Photo';
+      }
+    })
+    .catch(function() {
+      document.getElementById('rp-error').textContent = 'Network error. Try again.';
+      document.getElementById('rp-error').style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Save Photo';
+    });
+}
+
+document.getElementById('rp-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeReplacePhotoModal();
+});
+
+function verifyPhoto(itemId) {
+  var csrf = document.querySelector('input[name="csrf_token"]');
+  var fd = new FormData();
+  if (csrf) fd.append('csrf_token', csrf.value);
+  fetch('/admin/item/' + itemId + '/verify-photo', {
+    method: 'POST', body: fd,
+    headers: csrf ? {'X-CSRFToken': csrf.value} : {}
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        var row = document.getElementById('verif-row-' + itemId);
+        if (row) row.style.display = 'none';
+        // If no rows left, hide the whole section
+        var remaining = document.querySelectorAll('[id^="verif-row-"]');
+        var anyVisible = Array.prototype.some.call(remaining, function(el) { return el.style.display !== 'none'; });
+        if (!anyVisible) {
+          var sec = document.getElementById('verification-section');
+          if (sec) sec.style.display = 'none';
+        }
+      }
+    });
+}
+</script>
+
+{% endblock %}
