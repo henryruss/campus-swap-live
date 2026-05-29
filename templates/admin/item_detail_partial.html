@@ -1,0 +1,151 @@
+{# No layout — rendered via fetch into item detail slide-in modal #}
+<div class="item-detail-wrap" data-item-id="{{ item.id }}">
+
+  {# Gallery #}
+  <div class="approval-modal-gallery">
+    {% set all_photos = [] %}
+    {% if item.photo_url %}{% set all_photos = [item.photo_url] + (item.gallery_photos | map(attribute='photo_url') | list) %}{% endif %}
+    {% if all_photos %}
+    <div class="approval-gallery-track-wrap" style="position:relative;">
+      <div class="approval-gallery-track" id="item-detail-gallery-track">
+        {% for photo in all_photos %}
+        <img src="{{ url_for('uploaded_file', filename=photo) if not photo.startswith('http') else photo }}"
+             alt="{{ item.description }}"
+             class="approval-gallery-slide">
+        {% endfor %}
+      </div>
+      {% if all_photos|length > 1 %}
+      <button class="approval-gallery-btn approval-gallery-prev" onclick="itemDetailGalleryMove(-1)" type="button">&#8249;</button>
+      <button class="approval-gallery-btn approval-gallery-next" onclick="itemDetailGalleryMove(1)" type="button">&#8250;</button>
+      <div class="approval-gallery-counter" id="item-detail-gallery-counter">1 / {{ all_photos|length }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="approval-gallery-track-wrap approval-gallery-placeholder" style="display:flex;align-items:center;justify-content:center;">
+      <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+    </div>
+    {% endif %}
+  </div>
+
+  {# Info body #}
+  <div class="approval-modal-info-body">
+
+    {# Status + badges #}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+      {% set status_class = {
+        'available': 'status-available',
+        'pending_valuation': 'status-pending',
+        'sold': 'status-sold',
+        'rejected': 'status-rejected',
+      }.get(item.status, 'status-other') %}
+      <span class="status-pill {{ status_class }}">{{ item.status | replace('_', ' ') }}</span>
+      {% if item.needs_new_photo %}<span style="background:#fef9c3;color:#854d0e;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.03em;">Needs Photo</span>{% endif %}
+      {% if item.needs_photo_verification %}<span style="background:#eef2ff;color:#3730a3;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.03em;">Photo Verify</span>{% endif %}
+      {% if item.ai_review_pending %}<span style="background:#fef9c3;color:#854d0e;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.03em;">AI Review</span>{% endif %}
+      {% if item.ai_approved %}<span style="background:#dcfce7;color:#166534;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.03em;">AI Approved</span>{% endif %}
+    </div>
+
+    <div class="approval-modal-title">{{ item.description or 'Untitled' }}</div>
+
+    {% if item.long_description %}
+    <div class="approval-modal-description">{{ item.long_description }}</div>
+    {% endif %}
+
+    {# Meta row #}
+    <div class="approval-modal-meta" style="margin-bottom:14px;">
+      {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
+      {% if item.subcategory %} / <span>{{ item.subcategory.name }}</span>{% endif %}
+      {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
+      {% if item.date_added %} &middot; Added {{ item.date_added.strftime('%b %-d, %Y') }}{% endif %}
+    </div>
+
+    {# Price row #}
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      {% if item.price %}
+      <span style="font-size:1.5rem;font-weight:800;color:var(--accent);">${{ '%.2f'|format(item.price) }}</span>
+      {% endif %}
+      {% if item.retail_price and item.price and item.retail_price > item.price %}
+      {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+      <span style="font-size:0.85rem;color:var(--text-muted);text-decoration:line-through;">~${{ '%.0f'|format(item.retail_price) }} retail</span>
+      <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+      {% endif %}
+    </div>
+
+    {# Storage + timestamps #}
+    <div style="font-size:0.83rem;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
+      {% if item.storage_location %}<span><i class="fas fa-warehouse" style="width:14px;"></i> {{ item.storage_location.name }}{% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}</span>{% endif %}
+      {% if item.picked_up_at %}<span><i class="fas fa-truck" style="width:14px;"></i> Picked up {{ item.picked_up_at.strftime('%b %-d, %Y') }}</span>{% endif %}
+      {% if item.arrived_at_store_at %}<span><i class="fas fa-store" style="width:14px;"></i> Arrived at store {{ item.arrived_at_store_at.strftime('%b %-d, %Y') }}</span>{% endif %}
+    </div>
+
+    {# Seller row #}
+    {% if item.seller %}
+    <div style="display:flex;align-items:center;gap:10px;background:var(--bg-cream);border:var(--card-border);border-radius:10px;padding:10px 14px;margin-bottom:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:0;">
+        <div>
+          <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller.id }}"
+             style="font-weight:700;color:var(--primary);text-decoration:none;font-size:0.92rem;">
+            {{ item.seller.full_name }}
+          </a>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);">{{ item.seller.email }}</div>
+      </div>
+      <span style="font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;">{{ (payout_pct * 100)|round|int }}% payout</span>
+    </div>
+    {% endif %}
+
+    {# Payout row #}
+    {% if payout_amount is not none %}
+    <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:14px;">
+      Payout: <strong style="color:var(--text-main);">${{ '%.2f'|format(payout_amount) }}</strong>
+      {% if item.payout_sent %}
+      <span style="color:#22c55e;font-weight:700;margin-left:6px;"><i class="fas fa-check-circle"></i> Sent</span>
+      {% elif item.status == 'sold' %}
+      <span style="color:#f59e0b;font-weight:600;margin-left:6px;"><i class="fas fa-clock"></i> Pending</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+
+  {# Footer actions #}
+  <div class="approval-modal-footer">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <a href="{{ url_for('edit_item', item_id=item.id) }}"
+         class="btn-outline" style="padding:9px 18px;font-size:0.9rem;font-weight:700;text-decoration:none;">
+        <i class="fas fa-edit"></i> Edit
+      </a>
+      {% if item.status != 'sold' %}
+      <button type="button" class="btn-approve mark-sold-btn" data-item-id="{{ item.id }}"
+              style="padding:9px 18px;">
+        <i class="fas fa-check"></i> Mark Sold
+      </button>
+      {% endif %}
+      {% if current_user.is_super_admin %}
+      <button type="button" class="btn-danger delete-item-btn" data-item-id="{{ item.id }}"
+              style="padding:9px 18px;margin-left:auto;">
+        <i class="fas fa-trash"></i> Delete
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var track = document.getElementById('item-detail-gallery-track');
+  var counter = document.getElementById('item-detail-gallery-counter');
+  var _idx = 0;
+
+  window.itemDetailGalleryMove = function(dir) {
+    if (!track) return;
+    var slides = track.querySelectorAll('.approval-gallery-slide');
+    var total = slides.length;
+    if (total < 2) return;
+    _idx = (_idx + dir + total) % total;
+    track.style.transform = 'translateX(-' + (_idx * 100) + '%)';
+    if (counter) counter.textContent = (_idx + 1) + ' / ' + total;
+  };
+})();
+</script>

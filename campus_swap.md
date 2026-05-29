@@ -2,7 +2,7 @@ Campus Swap: Production-Ready Roadmap
 
 Current State Summary
 
-You have a solid Flask app with: user auth (including guest-to-account conversion), Stripe payments for seller activation and item purchases, admin panel for inventory management, and a clear seller flow (address -> upload items -> payout info -> pay $15 -> items go live). The codebase is generally well-structured.
+You have a solid Flask app with: user auth (including guest-to-account conversion), Stripe payments for item purchases, admin panel for inventory management, and a clear seller flow (address -> upload items -> payout info -> items go live). The codebase is generally well-structured.
 
 Several issues need fixing before and after deployment, plus enhancements for robustness and UX.
 

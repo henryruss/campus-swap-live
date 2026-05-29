@@ -204,17 +204,112 @@
     display: flex; align-items: center; gap: 4px;
   }
 
+  /* AI Review card grid */
+  .air-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .air-card { background: white; border: var(--card-border); border-radius: 14px; overflow: hidden; cursor: pointer; transition: box-shadow 0.18s, transform 0.15s; display: flex; flex-direction: column; }
+  .air-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.13); transform: translateY(-1px); }
+  .air-card-img { aspect-ratio: 4/3; overflow: hidden; background: var(--bg-cream); }
+  .air-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .air-card-img .no-photo { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.8rem; }
+  .air-card-body { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+  .air-card-title { font-size: 0.88rem; font-weight: 700; color: var(--text-main); line-height: 1.35; }
+  .air-card-price { font-size: 1rem; font-weight: 800; color: var(--accent); }
+  .air-card-pill { font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg-cream); color: var(--text-muted); border: 1px solid var(--rule); white-space: nowrap; }
+  .air-card-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: auto; padding-top: 6px; font-style: italic; }
+  .air-empty { text-align: center; padding: 80px 20px; color: var(--text-muted); }
+  .air-empty i { font-size: 2.5rem; margin-bottom: 14px; display: block; color: var(--sage); }
+
+  /* AI Review modal styles */
+  .approval-modal-footer { padding: 16px 24px 24px; border-top: 1px solid var(--rule); flex-shrink: 0; }
+  .ai-modal-footer-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn-ai-approve { background: var(--primary); color: white; border: none; padding: 9px 22px; border-radius: 8px; font-size: 0.9rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .btn-ai-approve:hover { background: var(--primary-light); }
+  .btn-ai-approve:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ai-skip { background: white; color: var(--text-muted); border: 1.5px solid var(--rule); padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-ai-skip:hover { background: var(--bg-cream); }
+  .btn-ai-discard { background: white; color: #dc2626; border: 1.5px solid #fca5a5; padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-ai-discard:hover { background: #fef2f2; }
+  .ai-modal-error { color: #dc2626; font-size: 0.82rem; margin-top: 8px; display: none; }
+  .ai-modal-error.visible { display: block; }
+
+  /* AI Autofill modal */
+  .ai-gen-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 3000; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto; }
+  .ai-gen-modal-overlay.open { display: flex; }
+  .ai-gen-modal-panel { background: white; border-radius: 20px; width: 100%; max-width: 760px; box-shadow: var(--glass-shadow); margin: auto; }
+  .ai-gen-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 0; }
+  .ai-gen-modal-header h2 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: var(--primary); margin: 0; }
+  .ai-gen-modal-body { padding: 20px 24px 28px; }
+  .ai-stats-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .ai-stat-card { flex: 1; min-width: 140px; background: #f8fafc; border: var(--card-border); border-radius: 12px; padding: 14px 18px; }
+  .ai-stat-card .stat-val { font-size: 1.8rem; font-weight: 800; color: var(--primary); line-height: 1; }
+  .ai-stat-card .stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+  .ai-run-controls { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  .ai-run-field { display: flex; flex-direction: column; gap: 4px; }
+  .ai-run-field label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+  .ai-run-field input[type=number], .ai-run-field select { border: 1.5px solid var(--rule); border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; background: white; color: var(--text-main); outline: none; font-family: inherit; }
+  .btn-run-ai { background: var(--primary); color: white; border: none; border-radius: 8px; padding: 9px 22px; font-size: 0.92rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .btn-run-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+  .ai-progress-bar-wrap { background: #e5e7eb; border-radius: 999px; height: 8px; overflow: hidden; margin-bottom: 6px; }
+  .ai-progress-bar { background: var(--primary); height: 100%; border-radius: 999px; transition: width 0.3s; width: 0%; }
+  .ai-result-feed { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-top: 10px; }
+  .ai-result-card { display: flex; gap: 10px; align-items: center; border: var(--card-border); border-radius: 9px; padding: 8px 12px; background: white; animation: fadeInUp 0.3s ease forwards; opacity: 0; }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .ai-result-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .ai-result-title { font-size: 0.85rem; font-weight: 700; color: var(--text-main); }
+  .ai-result-price { font-size: 0.78rem; color: var(--accent); font-weight: 700; }
+  .ai-done-banner { display: none; background: #d1fae5; border: 1px solid #a7f3d0; border-radius: 9px; padding: 10px 16px; font-size: 0.88rem; color: #065f46; font-weight: 600; margin-top: 12px; }
+  .ai-done-banner.visible { display: block; }
+  .ai-error-item { font-size: 0.8rem; color: #dc2626; padding: 3px 0; border-top: 1px solid #fee2e2; }
+  .ai-history-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 12px; }
+  .ai-history-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--rule); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 700; }
+  .ai-history-table td { padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+  .ai-history-table tr:last-child td { border-bottom: none; }
+
+  /* Photo Verification */
+  .pv-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap; }
+  .pv-row:last-child { border-bottom: none; }
+  .pv-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; flex-shrink: 0; border: 1px solid #a5b4fc; }
+  .pv-thumb-placeholder { width: 64px; height: 64px; border-radius: 10px; flex-shrink: 0; background: #eef2ff; display: flex; align-items: center; justify-content: center; color: #6366f1; }
+
   @media (max-width: 640px) {
     .approval-modal-panel { max-height: 100vh; border-radius: 0; }
     .approval-modal-overlay { padding: 0; align-items: stretch; }
     .approval-gallery-track-wrap { max-height: 260px; }
     .approval-modal-actions { flex-direction: column; }
   }
+
+  /* Item detail panel */
+  #item-detail-drawer .approval-modal-footer { padding: 16px 24px 24px; border-top: 1px solid var(--rule); }
+
+  /* Collapsible sections */
+  .collapsible-section { margin-top: 0; }
+  .collapsible-header {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 12px 16px; background: var(--bg-cream); border: var(--card-border);
+    border-radius: 12px; font-weight: 700; font-size: 0.9rem; color: var(--primary);
+    user-select: none;
+  }
+  .collapsible-header.open { border-radius: 12px 12px 0 0; border-bottom: none; }
+  .collapsible-body {
+    background: white; border: var(--card-border); border-top: none;
+    border-radius: 0 0 12px 12px; padding: 16px; display: none;
+  }
+  .collapsible-body.open { display: block; }
+  .nudge-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .nudge-table th { padding: 8px 10px; background: #f8fafc; border-bottom: var(--card-border); text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .nudge-table td { padding: 8px 10px; border-bottom: 1px solid #f3f4f6; }
+  .nudge-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
 </style>
 
 <div class="items-wrap">
-  <div class="items-header">
+  <div class="items-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <h1>Items</h1>
+    {% if current_user.is_super_admin %}
+    <button type="button" onclick="openAIGenModal()"
+            style="background:var(--primary);color:white;border:none;border-radius:9px;padding:9px 18px;font-size:0.88rem;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;">
+      <i class="fas fa-robot"></i> AI Autofill ✦
+    </button>
+    {% endif %}
   </div>
 
   {# Stats bar #}
@@ -244,7 +339,7 @@
   </div>
 
   {# Sub-tab pills #}
-  <div class="subtab-pills">
+  <div class="subtab-pills" style="flex-wrap:wrap;">
     <a href="{{ url_for('admin_items', view='all') }}"
        class="subtab-pill {% if view == 'all' %}active{% endif %}">All Items</a>
     {% if current_user.is_super_admin %}
@@ -252,7 +347,21 @@
        class="subtab-pill {% if view == 'approve' %}active{% endif %}">
       Approval Queue
       {% if pending_approval > 0 %}
-      <span style="background: var(--accent); color: white; border-radius: 10px; padding: 0 6px; font-size: 0.68rem; margin-left: 4px;">{{ pending_approval }}</span>
+      <span style="background:var(--accent);color:white;border-radius:10px;padding:0 6px;font-size:0.68rem;margin-left:4px;">{{ pending_approval }}</span>
+      {% endif %}
+    </a>
+    <a href="{{ url_for('admin_items', view='ai_review') }}"
+       class="subtab-pill {% if view == 'ai_review' %}active{% endif %}">
+      AI Review
+      {% if ai_review_pending_count > 0 %}
+      <span style="background:var(--accent);color:white;border-radius:10px;padding:0 6px;font-size:0.68rem;margin-left:4px;" data-ai-badge>{{ ai_review_pending_count }}</span>
+      {% endif %}
+    </a>
+    <a href="{{ url_for('admin_items', view='photo_verification') }}"
+       class="subtab-pill {% if view == 'photo_verification' %}active{% endif %}">
+      Photo Verification
+      {% if pv_count > 0 %}
+      <span style="background:#6366f1;color:white;border-radius:10px;padding:0 6px;font-size:0.68rem;margin-left:4px;" id="pv-badge">{{ pv_count }}</span>
       {% endif %}
     </a>
     {% endif %}
@@ -447,25 +556,246 @@
   </div>
   {% endif %}
 
+  {# ── AI REVIEW sub-tab ── #}
+  {% if view == 'ai_review' and current_user.is_super_admin %}
+  {% if not ai_review_items %}
+  <div class="air-empty">
+    <i class="fas fa-check-circle"></i>
+    <p>All caught up — no items pending AI review.</p>
+  </div>
+  {% else %}
+  <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:20px;">
+    Review AI-generated titles, descriptions, and prices before they go live. Click a card to open.
+  </p>
+  <div class="air-card-grid" id="card-grid">
+    {% for item in ai_review_items %}
+    {% set ai_price = item.ai_price|float if item.ai_price else 0 %}
+    {% set seller_price = item.suggested_price|float if item.suggested_price else 0 %}
+    {% set final_price = [ai_price, seller_price]|max %}
+    {% set retail_price = item.ai_retail_price|float if item.ai_retail_price else 0 %}
+    {% set savings_pct = ((1 - final_price / retail_price) * 100)|round|int if retail_price > 0 and final_price > 0 else 0 %}
+    <div class="air-card approve-card" data-item-id="{{ item.id }}" onclick="openAIModal({{ item.id }})">
+      <div class="air-card-img">
+        {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+             alt="{{ item.ai_description or item.description }}"
+             onerror="this.parentNode.innerHTML='<div class=no-photo><i class=fas fa-image></i></div>'">
+        {% else %}
+        <div class="no-photo"><i class="fas fa-image"></i></div>
+        {% endif %}
+      </div>
+      <div class="air-card-body">
+        <div class="air-card-title">{{ item.ai_description or '(no title generated)' }}</div>
+        {% if final_price > 0 %}
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <div class="air-card-price">${{ '%.2f'|format(final_price) }}</div>
+          {% if retail_price > 0 %}<div style="font-size:0.78rem;color:var(--text-muted);text-decoration:line-through;">${{ '%.0f'|format(retail_price) }}</div>{% endif %}
+        </div>
+        {% if savings_pct > 0 %}
+        <div style="display:inline-block;background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;">{{ savings_pct }}% off retail</div>
+        {% endif %}
+        {% endif %}
+        {% if item.suggested_price %}<div style="font-size:0.78rem;color:var(--text-muted);">Seller: ${{ '%.2f'|format(item.suggested_price) }}</div>{% endif %}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+          {% if item.category %}<span class="air-card-pill">{{ item.category.name }}</span>{% endif %}
+          {% if item.quality %}<span class="air-card-pill">{{ item.quality|quality_label }}</span>{% endif %}
+        </div>
+        <div class="air-card-hint">Click to review</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# AI Review modal #}
+  <div class="approval-modal-overlay" id="ai-modal-overlay" onclick="if(event.target===this)closeAIModal()">
+    <div class="approval-modal-panel" id="ai-modal-panel">
+      <button class="approval-modal-close" onclick="closeAIModal()" type="button">&times;</button>
+      <div class="approval-modal-panel-inner" id="ai-modal-body">
+        <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>
+      </div>
+      <div class="approval-modal-footer">
+        <div class="ai-modal-footer-btns">
+          <button class="btn-ai-approve" id="btn-ai-approve" onclick="submitApproveAI()">Approve</button>
+          <button class="btn-ai-skip" onclick="closeAIModal()">Skip</button>
+          <button class="btn-ai-discard" onclick="submitDiscardAI()">Discard AI</button>
+        </div>
+        <div class="ai-modal-error" id="ai-modal-error"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── PHOTO VERIFICATION sub-tab ── #}
+  {% if view == 'photo_verification' and current_user.is_super_admin %}
+  {% if not photo_verification_items %}
+  <div class="air-empty">
+    <i class="fas fa-check-circle"></i>
+    <p>No items awaiting photo verification.</p>
+  </div>
+  {% else %}
+  <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:20px;">
+    These items had their photo replaced. Open each item to review, reorder photos, re-upload if needed, then click Looks Good.
+  </p>
+  <div class="air-card-grid" id="pv-card-grid">
+    {% for item in photo_verification_items %}
+    <div class="air-card" id="pv-card-{{ item.id }}" onclick="openPVModal({{ item.id }})">
+      <div class="air-card-img">
+        {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+             alt="{{ item.description }}"
+             onerror="this.parentNode.innerHTML='<div class=no-photo><i class=fas fa-image></i></div>'">
+        {% else %}
+        <div class="no-photo"><i class="fas fa-image"></i></div>
+        {% endif %}
+      </div>
+      <div class="air-card-body">
+        <div class="air-card-title">{{ item.description or 'Untitled' }}</div>
+        {% if item.price %}<div class="air-card-price">${{ '%.2f'|format(item.price) }}</div>{% endif %}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+          {% if item.category %}<span class="air-card-pill">{{ item.category.name }}</span>{% endif %}
+          {% if item.quality %}<span class="air-card-pill">{{ item.quality|quality_label }}</span>{% endif %}
+        </div>
+        <div class="air-card-hint">Click to review</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Photo Verification modal #}
+  <div class="approval-modal-overlay" id="pv-modal-overlay" onclick="if(event.target===this)closePVModal()">
+    <div class="approval-modal-panel" id="pv-modal-panel">
+      <button class="approval-modal-close" onclick="closePVModal()" type="button">&times;</button>
+      <div class="approval-modal-panel-inner" id="pv-modal-body">
+        <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>
+      </div>
+      <div class="approval-modal-footer">
+        <div class="ai-modal-footer-btns" style="flex-wrap:wrap;gap:10px;">
+          <a id="pv-download-btn" href="#" download
+             style="padding:9px 18px;font-size:0.9rem;font-weight:700;background:#eef2ff;color:#3730a3;border:1.5px solid #a5b4fc;border-radius:8px;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;">
+            <i class="fas fa-download"></i> Download
+          </a>
+          <button type="button" class="btn-ai-skip" onclick="pvOpenCamera()" id="pv-camera-btn">
+            <i class="fas fa-camera"></i> Replace Photo
+          </button>
+          <button type="button" class="btn-ai-approve" onclick="pvVerifyFromModal()" id="pv-looks-good-btn">
+            <i class="fas fa-check"></i> Looks Good
+          </button>
+        </div>
+        <div id="pv-modal-error" style="color:#dc2626;font-size:0.82rem;margin-top:8px;display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  {# Camera overlay for Replace Photo (z-index above the PV modal) #}
+  <div id="pv-camera-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:3000;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:white;border-radius:18px;width:100%;max-width:420px;overflow:hidden;box-shadow:var(--glass-shadow);">
+      <div style="background:var(--primary);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:white;font-weight:700;font-size:0.95rem;"><i class="fas fa-camera"></i> Replace Photo</span>
+        <button onclick="pvCloseCameraOverlay()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:1.2rem;cursor:pointer;padding:4px 8px;line-height:1;">&times;</button>
+      </div>
+      <div style="padding:18px;">
+        <div id="pvc-camera-wrap" style="display:none;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:4/3;position:relative;margin-bottom:14px;">
+          <video id="pvc-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+          <button type="button" onclick="pvcSnap()" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:white;color:var(--primary);border:none;border-radius:999px;padding:9px 22px;font-weight:700;font-size:0.9rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+            <i class="fas fa-camera"></i> Take Photo
+          </button>
+        </div>
+        <div id="pvc-fileinput-wrap" style="display:none;border-radius:10px;border:2px dashed var(--rule);background:var(--bg-cream);aspect-ratio:4/3;margin-bottom:14px;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;" onclick="document.getElementById('pvc-file-input').click()">
+          <i class="fas fa-camera" style="font-size:2.5rem;color:var(--primary);"></i>
+          <span style="font-weight:700;color:var(--primary);">Tap to Take Photo</span>
+        </div>
+        <input id="pvc-file-input" type="file" accept="image/*" capture="environment" style="display:none;">
+        <div id="pvc-thumb-wrap" style="display:none;border-radius:10px;overflow:hidden;aspect-ratio:4/3;position:relative;margin-bottom:14px;">
+          <img id="pvc-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">
+          <button onclick="pvcRetake()" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:white;color:var(--primary);border:none;border-radius:999px;padding:8px 18px;font-weight:700;font-size:0.88rem;cursor:pointer;">
+            <i class="fas fa-redo"></i> Retake
+          </button>
+        </div>
+        <canvas id="pvc-canvas" style="display:none;"></canvas>
+        <div id="pvc-error" style="display:none;background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:0.875rem;color:#991b1b;margin-bottom:12px;"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="pvCloseCameraOverlay()" style="padding:8px 18px;font-size:0.88rem;font-family:inherit;font-weight:600;border:1.5px solid var(--rule);border-radius:8px;background:white;color:var(--text-muted);cursor:pointer;">Cancel</button>
+          <button id="pvc-save-btn" onclick="pvcSave()" disabled style="padding:8px 18px;font-size:0.88rem;font-family:inherit;font-weight:700;border:none;border-radius:8px;background:var(--primary);color:white;cursor:pointer;opacity:0.4;">Save Photo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {# ── ALL ITEMS sub-tab ── #}
   {% if view == 'all' %}
+
+  {# Pickup nudge collapsible #}
+  <div class="collapsible-section" style="margin-bottom:16px;margin-top:0;">
+    <div class="collapsible-header" onclick="toggleNudgeSection(this)">
+      <i class="fas fa-bell" style="color: var(--accent);"></i>
+      Pickup Nudge
+      {% if nudge_sellers %}<span style="background: var(--accent); color: white; border-radius: 10px; padding: 0 8px; font-size: 0.72rem;">{{ nudge_sellers | length }}</span>{% endif %}
+      <i class="fas fa-chevron-down" id="nudgeChevron" style="margin-left: auto; transition: transform 0.2s;"></i>
+    </div>
+    <div class="collapsible-body" id="nudgeBody">
+      {% if not nudge_sellers %}
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">All eligible sellers have selected a pickup week.</p>
+      {% else %}
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 12px;">
+        These sellers have approved items but haven't selected a pickup week.
+      </p>
+      <form method="POST" action="{{ url_for('admin_send_pickup_nudge') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <table class="nudge-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="nudgeAll" onchange="document.querySelectorAll('.nudge-cb').forEach(function(c){c.checked=this.checked;},this)"></th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in nudge_sellers %}
+            <tr>
+              <td><input type="checkbox" name="user_ids" value="{{ s.id }}" class="nudge-cb"></td>
+              <td><a href="#" class="seller-panel-trigger" data-user-id="{{ s.id }}" style="color:var(--primary);font-weight:600;text-decoration:none;">{{ s.full_name }}</a></td>
+              <td>{{ s.email }}</td>
+              <td>{{ s._item_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="nudge-actions">
+          <button type="submit" name="send_selected" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">Remind Selected</button>
+          <button type="submit" name="send_all" class="btn-primary" style="padding: 7px 14px; font-size: 0.83rem;">Remind All ({{ nudge_sellers | length }})</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="items-filter-bar">
-    <form method="GET" action="{{ url_for('admin_items') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <form method="GET" action="{{ url_for('admin_items') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;" id="items-filter-form">
       <input type="hidden" name="view" value="all">
-      <select name="cat" style="min-width: 130px;">
+      <input type="text" name="q" id="items-q" value="{{ q }}" placeholder="Search by item, seller name, email, or ID…" style="min-width: 240px; flex: 1;">
+      <select name="category_id" id="items-cat-select" style="min-width: 130px;">
         <option value="">All categories</option>
         {% for cat in categories %}
         <option value="{{ cat.id }}" {% if filter_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
         {% endfor %}
       </select>
-      <input type="text" name="email" value="{{ filter_email }}" placeholder="Seller email..." style="min-width: 160px;">
-      <input type="text" name="title" value="{{ filter_title }}" placeholder="Item title..." style="min-width: 160px;">
-      <input type="text" name="item_id" value="{{ filter_item_id or '' }}" placeholder="Item ID..." style="min-width: 90px;">
+      <select name="subcategory_id" id="items-subcat-select" style="min-width: 130px; {% if not filter_cat %}display:none;{% endif %}">
+        <option value="">All subcategories</option>
+        {% if filter_cat %}
+          {% for sub in selected_cat_subcategories %}
+          <option value="{{ sub.id }}" {% if filter_subcategory_id == sub.id %}selected{% endif %}>{{ sub.name }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
       <label style="display:flex; align-items:center; gap:5px; font-size:0.83rem; color:var(--text-main); cursor:pointer; white-space:nowrap;">
         <input type="checkbox" name="needs_refresh" value="1" {% if filter_needs_refresh %}checked{% endif %}> Needs photo refresh
       </label>
       <button type="submit" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">Filter</button>
-      {% if filter_cat or filter_email or filter_title or filter_item_id or filter_needs_refresh %}
+      {% if q or filter_cat or filter_subcategory_id or filter_needs_refresh %}
       <a href="{{ url_for('admin_items', view='all') }}" style="font-size: 0.83rem; color: var(--text-muted);">Clear</a>
       {% endif %}
     </form>
@@ -490,9 +820,12 @@
         <tr><td colspan="8" style="text-align: center; padding: 32px; color: var(--text-muted);">No items found.</td></tr>
         {% endif %}
         {% for item in all_items %}
-        <tr>
+        <tr data-item-id="{{ item.id }}">
           <td class="item-desc">
-            {{ item.description[:60] }}{% if item.description|length > 60 %}…{% endif %}
+            <button type="button" class="item-title-trigger" data-item-id="{{ item.id }}"
+                    style="background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--primary);text-align:left;font-weight:600;">
+              {{ item.description[:60] }}{% if item.description|length > 60 %}…{% endif %}
+            </button>
             {% if item.collection_method == 'free' %}<small>Free tier</small>{% endif %}
           </td>
           <td>
@@ -548,6 +881,99 @@
   <div id="seller-panel-content" style="padding:20px;"></div>
 </div>
 
+{# Item detail slide-in panel #}
+<div id="item-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeItemDetail()"></div>
+<div id="item-detail-drawer" style="position:fixed;top:0;right:-500px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:1050;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
+  <button onclick="closeItemDetail()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.5rem;color:var(--text-muted);cursor:pointer;z-index:10;line-height:1;padding:4px 8px;border-radius:8px;">&times;</button>
+  <div id="item-detail-content" style="min-height:100%;"></div>
+</div>
+
+{# AI Autofill modal #}
+{% if current_user.is_super_admin %}
+<div class="ai-gen-modal-overlay" id="ai-gen-modal" onclick="if(event.target===this)closeAIGenModal()">
+  <div class="ai-gen-modal-panel">
+    <div class="ai-gen-modal-header">
+      <h2><i class="fas fa-robot" style="color:var(--accent);margin-right:8px;"></i>AI Autofill</h2>
+      <button onclick="closeAIGenModal()" style="background:none;border:none;font-size:1.4rem;color:var(--text-muted);cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1;">&times;</button>
+    </div>
+    <div class="ai-gen-modal-body">
+      {% if not api_key_present %}
+      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:9px;padding:12px 16px;margin-bottom:16px;font-size:0.88rem;color:#92400e;font-weight:600;">
+        <i class="fas fa-exclamation-triangle" style="margin-right:6px;"></i>
+        <strong>ANTHROPIC_API_KEY is not set.</strong> Add it to Render environment variables before running.
+      </div>
+      {% endif %}
+      <div class="ai-stats-row">
+        <div class="ai-stat-card">
+          <div class="stat-val">{{ eligible_count }}</div>
+          <div class="stat-label">Eligible for generation</div>
+        </div>
+        <div class="ai-stat-card">
+          <div class="stat-val">{{ pending_review_count }}</div>
+          <div class="stat-label">Pending review</div>
+        </div>
+      </div>
+      <div class="ai-run-controls">
+        <div class="ai-run-field">
+          <label for="ai-gen-limit">Limit (blank = all)</label>
+          <input type="number" id="ai-gen-limit" min="1" placeholder="e.g. 5" style="width:110px;">
+        </div>
+        <div class="ai-run-field">
+          <label for="ai-gen-model">Model</label>
+          <select id="ai-gen-model">
+            {% for model_id, model_label in ai_models %}
+            <option value="{{ model_id }}" {% if model_id == current_model %}selected{% endif %}>{{ model_label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn-run-ai" id="ai-gen-run-btn" {% if not api_key_present %}disabled{% endif %}>
+          Run Generation
+        </button>
+        <button class="btn-run-ai" id="ai-gen-cancel-btn"
+                style="display:none;background:#dc2626;"
+                onclick="aiGenCancel()">
+          Cancel Job
+        </button>
+      </div>
+      <div id="ai-gen-run-error" style="display:none;font-size:0.85rem;color:#dc2626;margin-bottom:10px;"></div>
+
+      <div id="ai-gen-progress-section" style="display:none;margin-top:4px;">
+        <div class="ai-progress-bar-wrap">
+          <div class="ai-progress-bar" id="ai-gen-progress-bar"></div>
+        </div>
+        <div id="ai-gen-progress-label" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">Starting…</div>
+        <div class="ai-result-feed" id="ai-gen-result-feed"></div>
+        <div id="ai-gen-error-list"></div>
+        <div class="ai-done-banner" id="ai-gen-done-banner">
+          Done — <span id="ai-gen-done-count">0</span> items ready for review.
+          <a href="{{ url_for('admin_items', view='ai_review') }}" style="color:inherit;font-weight:800;margin-left:8px;">Go to AI Review &rarr;</a>
+        </div>
+      </div>
+
+      {% if run_log %}
+      <div style="margin-top:20px;border-top:1px solid var(--rule);padding-top:16px;">
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:8px;">Run History</div>
+        <table class="ai-history-table">
+          <thead><tr><th>Started</th><th>Completed</th><th>Total</th><th>OK</th><th>Errors</th></tr></thead>
+          <tbody>
+            {% for entry in run_log | reverse %}
+            <tr>
+              <td>{{ entry.started_at }}</td>
+              <td>{{ entry.completed_at }}</td>
+              <td>{{ entry.total }}</td>
+              <td style="color:var(--primary);font-weight:700;">{{ entry.succeeded }}</td>
+              <td style="color:{% if entry.errors > 0 %}#dc2626{% else %}var(--text-muted){% endif %};font-weight:{% if entry.errors > 0 %}700{% else %}400{% endif %};">{{ entry.errors }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
   function toggleStoreControls() {
     var body = document.getElementById('storeControlsBody');
@@ -555,6 +981,141 @@
     var open = body.classList.toggle('open');
     chevron.style.transform = open ? 'rotate(180deg)' : '';
   }
+
+  // ── Item Detail Slide-in Panel ──
+  var _itemDetailCsrf = '{{ csrf_token() }}';
+
+  function loadItemDetail(itemId) {
+    var overlay = document.getElementById('item-detail-overlay');
+    var drawer = document.getElementById('item-detail-drawer');
+    var content = document.getElementById('item-detail-content');
+    content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    overlay.style.display = 'block';
+    drawer.style.right = '0';
+    document.body.style.overflow = 'hidden';
+    fetch('/admin/item/' + itemId + '/detail')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        content.innerHTML = html;
+        content.querySelectorAll('script').forEach(function(orig) {
+          var s = document.createElement('script'); s.textContent = orig.textContent;
+          orig.parentNode.replaceChild(s, orig);
+        });
+      })
+      .catch(function() {
+        content.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item details.</div>';
+      });
+  }
+
+  function closeItemDetail() {
+    document.getElementById('item-detail-overlay').style.display = 'none';
+    document.getElementById('item-detail-drawer').style.right = '-500px';
+    document.body.style.overflow = '';
+  }
+
+  // Event delegation for .item-title-trigger
+  document.addEventListener('click', function(e) {
+    var trigger = e.target.closest('.item-title-trigger');
+    if (trigger) {
+      loadItemDetail(trigger.dataset.itemId);
+    }
+  });
+
+  // Event delegation for mark-sold button in detail partial
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.mark-sold-btn');
+    if (!btn) return;
+    var itemId = btn.dataset.itemId;
+    if (!itemId) return;
+    if (!confirm('Mark this item as sold?')) return;
+    var fd = new FormData();
+    fd.append('csrf_token', _itemDetailCsrf);
+    fd.append('modal', '1');
+    fetch('/admin/item/' + itemId + '/mark-sold', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          var row = document.querySelector('tr[data-item-id="' + itemId + '"]');
+          if (row) {
+            var pill = row.querySelector('.status-pill');
+            if (pill) { pill.className = 'status-pill status-sold'; pill.textContent = 'sold'; }
+          }
+          closeItemDetail();
+        }
+      })
+      .catch(function() { alert('Failed to mark sold. Try again.'); });
+  });
+
+  // Event delegation for delete button in detail partial
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.delete-item-btn');
+    if (!btn) return;
+    var itemId = btn.dataset.itemId;
+    if (!itemId) return;
+    if (!confirm('Delete this item? This cannot be undone.')) return;
+    var fd = new FormData();
+    fd.append('csrf_token', _itemDetailCsrf);
+    fd.append('modal', '1');
+    fetch('/admin/item/' + itemId + '/delete', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          var row = document.querySelector('tr[data-item-id="' + itemId + '"]');
+          if (row) row.remove();
+          closeItemDetail();
+        }
+      })
+      .catch(function() { alert('Failed to delete. Try again.'); });
+  });
+
+  // Escape closes item detail panel
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var drawer = document.getElementById('item-detail-drawer');
+      if (drawer && drawer.style.right === '0px') { closeItemDetail(); return; }
+    }
+  });
+
+  // Pickup nudge collapsible
+  function toggleNudgeSection(header) {
+    var body = document.getElementById('nudgeBody');
+    var chevron = document.getElementById('nudgeChevron');
+    var open = body.classList.toggle('open');
+    header.classList.toggle('open', open);
+    chevron.style.transform = open ? 'rotate(180deg)' : '';
+  }
+
+  // Subcategory dropdown population
+  document.addEventListener('DOMContentLoaded', function() {
+    var catSelect = document.getElementById('items-cat-select');
+    var subSelect = document.getElementById('items-subcat-select');
+    if (!catSelect || !subSelect) return;
+
+    catSelect.addEventListener('change', function() {
+      var catId = this.value;
+      if (!catId) {
+        subSelect.style.display = 'none';
+        subSelect.innerHTML = '<option value="">All subcategories</option>';
+        return;
+      }
+      fetch('/admin/items/subcategories?category_id=' + encodeURIComponent(catId))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          subSelect.innerHTML = '<option value="">All subcategories</option>';
+          if (data.subcategories && data.subcategories.length > 0) {
+            data.subcategories.forEach(function(sub) {
+              var opt = document.createElement('option');
+              opt.value = sub.id;
+              opt.textContent = sub.name;
+              subSelect.appendChild(opt);
+            });
+            subSelect.style.display = '';
+          } else {
+            subSelect.style.display = 'none';
+          }
+        });
+    });
+  });
 
   // ── Approval Modal ──
   var _approvalCurrentItemId = null;
@@ -855,6 +1416,437 @@
         if (btn) { btn.disabled = false; btn.textContent = 'Mark as Contacted'; }
       });
   }
+
+  // ── AI Review tab ──
+  const _aiCsrf = '{{ csrf_token() }}';
+  let _aiCurrentItemId = null;
+  let _aiApproveDebounce = null;
+
+  function openAIModal(itemId) {
+    window._galleryIdx = 0;
+    _aiCurrentItemId = itemId;
+    document.getElementById('ai-modal-overlay').classList.add('open');
+    document.getElementById('ai-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>';
+    var errEl = document.getElementById('ai-modal-error');
+    if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
+    var approveBtn = document.getElementById('btn-ai-approve');
+    if (approveBtn) approveBtn.disabled = false;
+    fetch('/admin/ai/item/' + itemId + '/detail')
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        document.getElementById('ai-modal-body').innerHTML = html;
+        document.getElementById('ai-modal-body').querySelectorAll('script').forEach(function(orig){
+          var s = document.createElement('script'); s.textContent = orig.textContent;
+          orig.parentNode.replaceChild(s, orig);
+        });
+      })
+      .catch(function(){
+        document.getElementById('ai-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item.</div>';
+      });
+  }
+
+  function closeAIModal() {
+    _aiCurrentItemId = null;
+    var overlay = document.getElementById('ai-modal-overlay');
+    if (overlay) overlay.classList.remove('open');
+  }
+
+  function submitApproveAI() {
+    if (_aiApproveDebounce || !_aiCurrentItemId) return;
+    var btn = document.getElementById('btn-ai-approve');
+    btn.disabled = true;
+    _aiApproveDebounce = setTimeout(function(){ _aiApproveDebounce = null; }, 300);
+    var body = new URLSearchParams();
+    body.append('csrf_token', _aiCsrf);
+    var mb = document.getElementById('ai-modal-body');
+    var titleEl = mb.querySelector('[name=description]');
+    var descEl = mb.querySelector('[name=long_description]');
+    var priceEl = mb.querySelector('[name=price]');
+    var needsPhotoEl = mb.querySelector('#ai-needs-photo-checkbox');
+    if (titleEl) body.append('description', titleEl.value);
+    if (descEl) body.append('long_description', descEl.value);
+    if (priceEl) body.append('price', priceEl.value);
+    if (needsPhotoEl && needsPhotoEl.checked) body.append('needs_new_photo', '1');
+    fetch('/admin/ai/item/' + _aiCurrentItemId + '/approve', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': _aiCsrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.success) {
+        aiRemoveCard(_aiCurrentItemId);
+        closeAIModal();
+        aiDecrementBadge();
+      } else {
+        aiShowModalError(data.error || 'Could not approve. Try again.');
+        btn.disabled = false;
+      }
+    })
+    .catch(function(){ aiShowModalError('Network error. Try again.'); btn.disabled = false; });
+  }
+
+  function submitDiscardAI() {
+    if (!_aiCurrentItemId) return;
+    var body = new URLSearchParams({ csrf_token: _aiCsrf });
+    fetch('/admin/ai/item/' + _aiCurrentItemId + '/discard', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': _aiCsrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.success) { aiRemoveCard(_aiCurrentItemId); closeAIModal(); aiDecrementBadge(); }
+      else { aiShowModalError(data.error || 'Could not discard.'); }
+    })
+    .catch(function(){ aiShowModalError('Network error. Try again.'); });
+  }
+
+  function aiRemoveCard(itemId) {
+    var card = document.querySelector('.air-card[data-item-id="' + itemId + '"], .approve-card[data-item-id="' + itemId + '"]');
+    if (card) {
+      card.style.transition = 'opacity 0.25s,transform 0.25s';
+      card.style.opacity = '0'; card.style.transform = 'scale(0.95)';
+      setTimeout(function(){
+        card.remove();
+        var grid = document.getElementById('card-grid');
+        if (grid && !grid.querySelector('.air-card,.approve-card')) {
+          grid.outerHTML = '<div class="air-empty"><i class="fas fa-check-circle"></i><p>All caught up — no items pending AI review.</p></div>';
+        }
+      }, 260);
+    }
+  }
+
+  function aiDecrementBadge() {
+    document.querySelectorAll('[data-ai-badge]').forEach(function(b){
+      var n = parseInt(b.textContent, 10);
+      if (n > 1) b.textContent = n - 1; else b.remove();
+    });
+  }
+
+  function aiShowModalError(msg) {
+    var el = document.getElementById('ai-modal-error');
+    if (el) { el.textContent = msg; el.classList.add('visible'); }
+  }
+
+  document.addEventListener('keydown', function(e) {
+    var aiOverlay = document.getElementById('ai-modal-overlay');
+    if (!aiOverlay || !aiOverlay.classList.contains('open')) return;
+    if (e.key === 'Escape') { closeAIModal(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      var active = document.activeElement;
+      if (!active || active.tagName !== 'TEXTAREA') { e.preventDefault(); submitApproveAI(); }
+    }
+  });
+
+  // ── Photo Verification tab ──
+  var _pvCurrentItemId = null;
+  var _pvcBlob = null;
+  var _pvcStream = null;
+  var _pvcUseFile = false;
+
+  function openPVModal(itemId) {
+    _pvCurrentItemId = itemId;
+    _pvGalleryIdx = 0;
+    document.getElementById('pv-modal-overlay').classList.add('open');
+    document.getElementById('pv-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>';
+    var errEl = document.getElementById('pv-modal-error');
+    if (errEl) errEl.style.display = 'none';
+    fetch('/admin/item/' + itemId + '/pv-detail')
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        var bodyEl = document.getElementById('pv-modal-body');
+        bodyEl.innerHTML = html;
+        bodyEl.querySelectorAll('script').forEach(function(orig){
+          var s = document.createElement('script'); s.textContent = orig.textContent;
+          orig.parentNode.replaceChild(s, orig);
+        });
+        var wrap = bodyEl.querySelector('.pv-detail-wrap');
+        if (wrap) pvUpdateFooter(itemId, wrap.dataset.photoUrl || '');
+      })
+      .catch(function(){
+        document.getElementById('pv-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item.</div>';
+      });
+  }
+
+  function closePVModal() {
+    pvcStopCamera();
+    document.getElementById('pv-modal-overlay').classList.remove('open');
+    document.getElementById('pv-camera-overlay').style.display = 'none';
+    _pvCurrentItemId = null; _pvcBlob = null;
+  }
+
+  function pvUpdateFooter(itemId, photoUrl) {
+    var dl = document.getElementById('pv-download-btn');
+    if (dl) dl.href = photoUrl || '#';
+  }
+
+  // Called from pv_detail_partial.html after reload to update footer
+  window.pvUpdateFooter = pvUpdateFooter;
+
+  function pvVerifyFromModal() {
+    if (!_pvCurrentItemId) return;
+    var btn = document.getElementById('pv-looks-good-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    var csrf = '{{ csrf_token() }}';
+    var fd = new FormData(); fd.append('csrf_token', csrf);
+    fetch('/admin/item/' + _pvCurrentItemId + '/verify-photo', {
+      method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.success) {
+        var card = document.getElementById('pv-card-' + _pvCurrentItemId);
+        if (card) { card.style.transition = 'opacity 0.25s'; card.style.opacity = '0'; setTimeout(function(){ card.remove(); }, 260); }
+        var badge = document.getElementById('pv-badge');
+        if (badge) { var n = parseInt(badge.textContent) - 1; if (n <= 0) badge.remove(); else badge.textContent = n; }
+        closePVModal();
+      } else {
+        var errEl = document.getElementById('pv-modal-error');
+        if (errEl) { errEl.textContent = data.error || 'Failed.'; errEl.style.display = 'block'; }
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Looks Good';
+      }
+    });
+  }
+
+  // Replace Photo camera (separate from AI review camera)
+  function pvOpenCamera() {
+    if (!_pvCurrentItemId) return;
+    _pvcBlob = null; _pvcStream = null; _pvcUseFile = false;
+    document.getElementById('pvc-save-btn').disabled = true;
+    document.getElementById('pvc-save-btn').style.opacity = '0.4';
+    document.getElementById('pvc-save-btn').textContent = 'Save Photo';
+    document.getElementById('pvc-error').style.display = 'none';
+    ['pvc-camera-wrap','pvc-fileinput-wrap','pvc-thumb-wrap'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
+    document.getElementById('pv-camera-overlay').style.display = 'flex';
+    pvcStartCamera();
+  }
+
+  function pvCloseCameraOverlay() {
+    pvcStopCamera();
+    document.getElementById('pv-camera-overlay').style.display = 'none';
+    _pvcBlob = null;
+  }
+
+  function pvcStopCamera() {
+    if (_pvcStream) { _pvcStream.getTracks().forEach(function(t){ t.stop(); }); _pvcStream = null; }
+    var v = document.getElementById('pvc-video'); if (v) v.srcObject = null;
+  }
+
+  function pvcStartCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      _pvcUseFile = true; document.getElementById('pvc-fileinput-wrap').style.display = 'flex'; return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(function(s){ _pvcStream = s; document.getElementById('pvc-video').srcObject = s; document.getElementById('pvc-camera-wrap').style.display = 'block'; })
+      .catch(function(){ _pvcUseFile = true; document.getElementById('pvc-fileinput-wrap').style.display = 'flex'; });
+  }
+
+  function pvcSnap() {
+    var v = document.getElementById('pvc-video'); var c = document.getElementById('pvc-canvas');
+    if (!_pvcStream || !v.videoWidth) return;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(function(blob){ pvcShowThumb(blob); }, 'image/jpeg', 0.92);
+  }
+
+  function pvcShowThumb(blob) {
+    _pvcBlob = blob;
+    pvcStopCamera();
+    document.getElementById('pvc-thumb').src = URL.createObjectURL(blob);
+    document.getElementById('pvc-camera-wrap').style.display = 'none';
+    document.getElementById('pvc-fileinput-wrap').style.display = 'none';
+    document.getElementById('pvc-thumb-wrap').style.display = 'block';
+    document.getElementById('pvc-save-btn').disabled = false;
+    document.getElementById('pvc-save-btn').style.opacity = '1';
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    var fi = document.getElementById('pvc-file-input');
+    if (fi) fi.addEventListener('change', function(){
+      var f = this.files && this.files[0]; if (f) pvcShowThumb(f); this.value = '';
+    });
+  });
+
+  function pvcRetake() {
+    _pvcBlob = null;
+    document.getElementById('pvc-save-btn').disabled = true;
+    document.getElementById('pvc-save-btn').style.opacity = '0.4';
+    document.getElementById('pvc-thumb-wrap').style.display = 'none';
+    if (_pvcUseFile) document.getElementById('pvc-fileinput-wrap').style.display = 'flex';
+    else pvcStartCamera();
+  }
+
+  function pvcSave() {
+    if (!_pvcBlob || !_pvCurrentItemId) return;
+    var btn = document.getElementById('pvc-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    var csrf = '{{ csrf_token() }}';
+    var fd = new FormData(); fd.append('csrf_token', csrf); fd.append('photo', _pvcBlob, 'replace.jpg');
+    fetch('/admin/item/' + _pvCurrentItemId + '/replace_photo', {
+      method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.success) {
+        pvCloseCameraOverlay();
+        // Reload modal with new photo
+        var bodyEl = document.getElementById('pv-modal-body');
+        if (bodyEl) {
+          fetch('/admin/item/' + _pvCurrentItemId + '/pv-detail')
+            .then(function(r){ return r.text(); })
+            .then(function(html){
+              bodyEl.innerHTML = html;
+              bodyEl.querySelectorAll('script').forEach(function(orig){
+                var s = document.createElement('script'); s.textContent = orig.textContent;
+                orig.parentNode.replaceChild(s, orig);
+              });
+              var wrap = bodyEl.querySelector('.pv-detail-wrap');
+              if (wrap) pvUpdateFooter(_pvCurrentItemId, wrap.dataset.photoUrl || '');
+              // Update card thumbnail
+              var card = document.getElementById('pv-card-' + _pvCurrentItemId);
+              if (card && wrap) {
+                var img = card.querySelector('.air-card-img img');
+                if (img) img.src = wrap.dataset.photoUrl || '';
+              }
+            });
+        }
+      } else {
+        document.getElementById('pvc-error').textContent = data.error || 'Save failed.';
+        document.getElementById('pvc-error').style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Save Photo';
+      }
+    })
+    .catch(function(){
+      document.getElementById('pvc-error').textContent = 'Network error.';
+      document.getElementById('pvc-error').style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Save Photo';
+    });
+  }
+
+  // Escape closes PV modal
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape') return;
+    var pvOverlay = document.getElementById('pv-modal-overlay');
+    if (pvOverlay && pvOverlay.classList.contains('open')) { closePVModal(); }
+  });
+
+  // ── AI Autofill modal ──
+  function openAIGenModal() {
+    document.getElementById('ai-gen-modal').classList.add('open');
+  }
+
+  function closeAIGenModal() {
+    if (_aiGenPollInterval) {
+      if (!confirm('AI generation is still running. Close the modal? The job will continue in the background.')) return;
+    }
+    document.getElementById('ai-gen-modal').classList.remove('open');
+  }
+
+  (function(){
+    const csrf = '{{ csrf_token() }}';
+    let pollInterval = null;
+    let currentJobId = null;
+
+    window._aiGenPollInterval = null;
+
+    document.getElementById('ai-gen-run-btn') && document.getElementById('ai-gen-run-btn').addEventListener('click', function(){
+      var btn = this;
+      var limit = document.getElementById('ai-gen-limit').value.trim();
+      var model = document.getElementById('ai-gen-model').value;
+      btn.disabled = true; btn.textContent = 'Starting…';
+      var body = new URLSearchParams();
+      body.append('csrf_token', csrf);
+      if (limit) body.append('limit', limit);
+      body.append('model', model);
+      fetch('/admin/ai/generate/run', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      })
+      .then(function(r){ if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data){
+        if (data.error) {
+          var errEl = document.getElementById('ai-gen-run-error');
+          errEl.textContent = data.error; errEl.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'Run Generation';
+          if (data.error.indexOf('already running') !== -1) document.getElementById('ai-gen-cancel-btn').style.display = 'inline-block';
+          return;
+        }
+        document.getElementById('ai-gen-run-error').style.display = 'none';
+        currentJobId = data.job_id;
+        document.getElementById('ai-gen-progress-section').style.display = 'block';
+        document.getElementById('ai-gen-progress-label').textContent = '0 of ' + data.total + ' complete';
+        pollInterval = setInterval(aiGenPoll, 2000);
+        window._aiGenPollInterval = pollInterval;
+      })
+      .catch(function(err){
+        var errEl = document.getElementById('ai-gen-run-error');
+        errEl.textContent = 'Request failed: ' + (err.message || ''); errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Run Generation';
+      });
+    });
+
+    function aiGenPoll() {
+      if (!currentJobId) return;
+      fetch('/admin/ai/generate/status?job_id=' + encodeURIComponent(currentJobId))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var pct = data.total > 0 ? Math.round(data.completed / data.total * 100) : 0;
+        document.getElementById('ai-gen-progress-bar').style.width = pct + '%';
+        document.getElementById('ai-gen-progress-label').textContent = data.completed + ' of ' + data.total + ' complete';
+        var feed = document.getElementById('ai-gen-result-feed');
+        var rendered = feed.querySelectorAll('.ai-result-card').length;
+        for (var i = rendered; i < data.results.length; i++) {
+          var r = data.results[i];
+          var card = document.createElement('div'); card.className = 'ai-result-card';
+          card.innerHTML = '<img src="/uploads/' + encodeURIComponent(r.photo_url) + '" class="ai-result-thumb" onerror="this.style.display=\'none\'">' +
+            '<div><div class="ai-result-title">' + escHtml(r.ai_description) + '</div><div class="ai-result-price">$' + r.ai_price.toFixed(2) + '</div></div>';
+          feed.appendChild(card);
+        }
+        feed.scrollTop = feed.scrollHeight;
+        var errList = document.getElementById('ai-gen-error-list');
+        var rendErr = errList.querySelectorAll('.ai-error-item').length;
+        for (var j = rendErr; j < data.errors.length; j++) {
+          var div = document.createElement('div'); div.className = 'ai-error-item';
+          div.textContent = 'Item #' + data.errors[j].item_id + ' — ' + data.errors[j].reason;
+          errList.appendChild(div);
+        }
+        if (data.done) {
+          clearInterval(pollInterval); window._aiGenPollInterval = null;
+          document.getElementById('ai-gen-done-count').textContent = data.results.length;
+          document.getElementById('ai-gen-done-banner').classList.add('visible');
+          document.getElementById('ai-gen-run-btn').disabled = false;
+          document.getElementById('ai-gen-run-btn').textContent = 'Run Generation';
+          document.getElementById('ai-gen-cancel-btn').style.display = 'none';
+        }
+      })
+      .catch(function(){});
+    }
+
+    window.aiGenCancel = function(){
+      fetch('/admin/ai/generate/cancel', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'csrf_token=' + encodeURIComponent(csrf),
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (data.success) {
+          clearInterval(pollInterval); window._aiGenPollInterval = null;
+          document.getElementById('ai-gen-cancel-btn').style.display = 'none';
+          document.getElementById('ai-gen-run-error').style.display = 'none';
+          document.getElementById('ai-gen-run-btn').disabled = false;
+          document.getElementById('ai-gen-run-btn').textContent = 'Run Generation';
+        }
+      })
+      .catch(function(){ alert('Could not cancel. Try refreshing the page.'); });
+    };
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  })();
 
   function maybeBoxAlert(e, form) {
     var cb = form.querySelector('input[name="send_box_alert"]');

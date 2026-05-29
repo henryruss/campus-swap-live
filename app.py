@@ -326,14 +326,28 @@ def inject_admin_context():
 
 @app.context_processor
 def inject_nav_counts():
-    """Inject AI review pending count for admin nav badge."""
+    """Inject pending counts for admin nav badges."""
     try:
-        ai_count = InventoryItem.query.filter(
-            InventoryItem.ai_review_pending == True,
-        ).count()
+        ai_count = InventoryItem.query.filter(InventoryItem.ai_review_pending == True).count()
     except Exception:
         ai_count = 0
-    return {'ai_review_pending_count': ai_count}
+    try:
+        pv_count = InventoryItem.query.filter(InventoryItem.needs_photo_verification == True,
+                                              InventoryItem.status.notin_(['rejected', 'sold'])).count()
+    except Exception:
+        pv_count = 0
+    try:
+        approval_count = InventoryItem.query.filter(
+            InventoryItem.status == 'pending_valuation',
+            InventoryItem.is_quick_capture == False,
+        ).count()
+    except Exception:
+        approval_count = 0
+    return {
+        'ai_review_pending_count': ai_count,
+        'photo_verification_count': pv_count,
+        'items_pending_total': approval_count + ai_count + pv_count,
+    }
 
 
 def get_user_dashboard():
@@ -6969,6 +6983,8 @@ def admin_delete_item_direct(item_id):
                 db.session.delete(photo)
             db.session.delete(item)
             db.session.commit()
+            if request.form.get('modal') == '1':
+                return jsonify({'success': True})
             flash(f"Item '{item_desc}' deleted.", "success")
             ref = request.referrer or ''
             if 'admin/items' in ref:
@@ -6977,6 +6993,8 @@ def admin_delete_item_direct(item_id):
         except Exception as e:
             db.session.rollback()
             logger.error(f"Error deleting item {item_id}: {e}", exc_info=True)
+            if request.form.get('modal') == '1':
+                return jsonify({'success': False, 'error': str(e)}), 500
             flash(f"Could not delete item: {str(e)}", "error")
     return render_template_string("""
 <!DOCTYPE html><html><head><title>Delete Item</title>
@@ -13407,11 +13425,15 @@ def admin_item_replace_photo(item_id):
 @app.route('/admin/items')
 @login_required
 def admin_items():
-    """Items tab — approval queue + lifecycle table."""
+    """Items tab — approval queue, AI review, photo verification, and lifecycle table."""
     if not current_user.is_admin:
         abort(403)
 
-    view = request.args.get('view', 'all')  # 'all' or 'approve'
+    view = request.args.get('view', 'all')
+
+    # Gate super-admin-only views
+    if view in ('ai_review', 'photo_verification') and not current_user.is_super_admin:
+        abort(403)
 
     # Stats bar
     total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
@@ -13422,7 +13444,7 @@ def admin_items():
     available_count = InventoryItem.query.filter_by(status='available').count()
     sold_count = InventoryItem.query.filter_by(status='sold').count()
 
-    # Approval queue items (pending_valuation, for super admins; excludes quick captures)
+    # Approval queue
     approval_items = []
     if current_user.is_super_admin:
         approval_items = (
@@ -13435,31 +13457,117 @@ def admin_items():
             .all()
         )
 
-    # All items for lifecycle table
-    filter_cat = request.args.get('cat', type=int)
-    filter_email = request.args.get('email', '').strip()
-    filter_title = request.args.get('title', '').strip()
-    filter_item_id_raw = request.args.get('item_id', '').strip()
-    filter_item_id = int(filter_item_id_raw) if filter_item_id_raw.isdigit() else None
+    # AI Review queue
+    ai_review_items = []
+    if current_user.is_super_admin:
+        ai_review_items = (
+            InventoryItem.query
+            .filter(InventoryItem.ai_review_pending == True)
+            .order_by(InventoryItem.ai_generated_at.asc())
+            .all()
+        )
+
+    # Photo Verification queue
+    photo_verification_items = []
+    pv_count = 0
+    if current_user.is_super_admin:
+        photo_verification_items = (
+            InventoryItem.query
+            .options(joinedload(InventoryItem.category))
+            .filter(
+                InventoryItem.needs_photo_verification == True,
+                InventoryItem.status.notin_(['rejected', 'sold']),
+            )
+            .order_by(InventoryItem.date_added.desc())
+            .all()
+        )
+        pv_count = len(photo_verification_items)
+
+    # AI Autofill modal data (super admin only)
+    api_key_present = False
+    eligible_count = 0
+    pending_review_count = 0
+    run_log = []
+    current_model = 'claude-sonnet-4-6'
+    ai_models = [
+        ('claude-haiku-4-5-20251001', 'Haiku 4.5 — Fast & Cheap'),
+        ('claude-sonnet-4-6', 'Sonnet 4.6 — Balanced (Recommended)'),
+        ('claude-opus-4-7', 'Opus 4.7 — Most Capable'),
+    ]
+    if current_user.is_super_admin:
+        api_key_present = bool(os.environ.get('ANTHROPIC_API_KEY'))
+        eligible_count = InventoryItem.query.filter(
+            InventoryItem.status.notin_(['rejected', 'sold']),
+            InventoryItem.ai_generated_at.is_(None),
+            InventoryItem.photo_url.isnot(None),
+        ).count()
+        pending_review_count = len(ai_review_items)
+        run_log_raw = AppSetting.get('ai_autofill_run_log', '[]')
+        try:
+            run_log = json.loads(run_log_raw)
+        except Exception:
+            run_log = []
+        current_model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
+
+    # All items for lifecycle table — unified search
+    filter_cat = request.args.get('category_id', type=int)
+    filter_subcategory_id = request.args.get('subcategory_id', type=int)
+    q = request.args.get('q', '').strip()
     filter_needs_refresh = request.args.get('needs_refresh') == '1'
 
-    items_q = InventoryItem.query
+    items_q = InventoryItem.query.join(InventoryItem.seller)
+    if q:
+        if q.isdigit():
+            items_q = items_q.filter(InventoryItem.id == int(q))
+        else:
+            like = f'%{q}%'
+            items_q = items_q.filter(
+                db.or_(
+                    InventoryItem.description.ilike(like),
+                    User.full_name.ilike(like),
+                    User.email.ilike(like),
+                )
+            )
     if filter_cat:
-        items_q = items_q.filter_by(category_id=filter_cat)
-    if filter_email:
-        seller_ids = [u.id for u in User.query.filter(User.email.ilike(f'%{filter_email}%')).all()]
-        items_q = items_q.filter(InventoryItem.seller_id.in_(seller_ids))
-    if filter_title:
-        items_q = items_q.filter(InventoryItem.description.ilike(f'%{filter_title}%'))
-    if filter_item_id:
-        items_q = items_q.filter(InventoryItem.id == filter_item_id)
+        items_q = items_q.filter(InventoryItem.category_id == filter_cat)
+    if filter_subcategory_id:
+        items_q = items_q.filter(InventoryItem.subcategory_id == filter_subcategory_id)
     if filter_needs_refresh:
         items_q = items_q.filter(InventoryItem.needs_photo_refresh == True)
 
     all_items = items_q.order_by(InventoryItem.date_added.desc()).all()
-    categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.name).all()
 
-    # Store controls
+    # Subcategories for the selected category (for pre-filling the dropdown on page load)
+    selected_cat_subcategories = []
+    if filter_cat:
+        selected_cat_subcategories = (
+            InventoryCategory.query
+            .filter_by(parent_id=filter_cat)
+            .order_by(InventoryCategory.name)
+            .all()
+        )
+
+    # Pickup nudge data for collapsible section in All Items view
+    nudge_sellers = []
+    if current_user.is_admin:
+        all_sellers = (
+            User.query
+            .filter_by(is_seller=True)
+            .filter(User.is_internal_account == False)
+            .all()
+        )
+        for s in all_sellers:
+            s._item_count = InventoryItem.query.filter_by(seller_id=s.id).filter(
+                InventoryItem.status.in_(['available', 'pending_valuation', 'pending_logistics', 'approved'])
+            ).count()
+        nudge_sellers = [
+            s for s in all_sellers
+            if s.pickup_week is None and InventoryItem.query.filter_by(
+                seller_id=s.id, status='available'
+            ).count() > 0
+        ]
+
     pickup_period_active = get_pickup_period_active()
     reserve_only = AppSetting.get('reserve_only_mode', 'false') == 'true'
     store_open_date = AppSetting.get('store_open_date', '')
@@ -13473,6 +13581,9 @@ def admin_items():
         available_count=available_count,
         sold_count=sold_count,
         approval_items=approval_items,
+        ai_review_items=ai_review_items,
+        photo_verification_items=photo_verification_items,
+        pv_count=pv_count,
         all_items=all_items,
         categories=categories,
         pickup_period_active=pickup_period_active,
@@ -13480,10 +13591,19 @@ def admin_items():
         store_open_date=store_open_date,
         shop_teaser_mode=shop_teaser_mode,
         filter_cat=filter_cat,
-        filter_email=filter_email,
-        filter_title=filter_title,
-        filter_item_id=filter_item_id,
+        filter_subcategory_id=filter_subcategory_id,
+        q=q,
         filter_needs_refresh=filter_needs_refresh,
+        nudge_sellers=nudge_sellers,
+        pickup_weeks=PICKUP_WEEKS,
+        selected_cat_subcategories=selected_cat_subcategories,
+        # AI Autofill modal
+        api_key_present=api_key_present,
+        eligible_count=eligible_count,
+        pending_review_count=pending_review_count,
+        run_log=run_log,
+        current_model=current_model,
+        ai_models=ai_models,
     )
 
 
@@ -13492,52 +13612,66 @@ def admin_items():
 @app.route('/admin/sellers')
 @login_required
 def admin_sellers():
-    """Sellers tab — list, pickup nudge, free-tier management."""
+    """Sellers tab — redirects to Items tab (consolidated)."""
+    return redirect(url_for('admin_items'), 302)
+
+
+@app.route('/admin/items/subcategories')
+@login_required
+def admin_items_subcategories():
+    """Return distinct subcategories for a given category_id as JSON."""
     if not current_user.is_admin:
         abort(403)
-
-    sellers = (
-        User.query
-        .filter_by(is_seller=True)
-        .filter(User.is_internal_account == False)
-        .order_by(User.date_joined.desc())
+    category_id = request.args.get('category_id', type=int)
+    if not category_id:
+        return jsonify({'subcategories': []})
+    subs = (
+        InventoryCategory.query
+        .filter_by(parent_id=category_id)
+        .order_by(InventoryCategory.name)
         .all()
     )
+    return jsonify({'subcategories': [{'id': s.id, 'name': s.name} for s in subs]})
 
-    # Seller item counts and pickup info
-    for s in sellers:
-        s._item_count = InventoryItem.query.filter_by(seller_id=s.id).filter(
-            InventoryItem.status.in_(['available', 'pending_valuation', 'pending_logistics', 'approved'])
-        ).count()
-        s._days_since_joined = (datetime.utcnow().date() - s.date_joined.date()).days if s.date_joined else None
 
-    # Pickup nudge queue: has approved items but no pickup week
-    nudge_sellers = [
-        s for s in sellers
-        if s.pickup_week is None and InventoryItem.query.filter_by(
-            seller_id=s.id, status='available'
-        ).count() > 0
-    ]
-
-    # Free-tier sellers with pending items (awaiting free-tier approval)
-    free_tier_sellers = (
-        User.query
-        .join(InventoryItem, InventoryItem.seller_id == User.id)
-        .filter(
-            InventoryItem.collection_method == 'free',
-            InventoryItem.status == 'pending_valuation',
+@app.route('/admin/item/<int:item_id>/detail')
+@login_required
+def admin_item_detail(item_id):
+    """HTML partial for item detail slide-in modal."""
+    if not current_user.is_admin:
+        abort(403)
+    item = (
+        InventoryItem.query
+        .options(
+            joinedload(InventoryItem.category),
+            joinedload(InventoryItem.seller),
+            joinedload(InventoryItem.gallery_photos),
         )
-        .group_by(User.id)
-        .all()
+        .get_or_404(item_id)
+    )
+    payout_pct = _get_payout_percentage(item)
+    payout_amount = float(item.price or 0) * payout_pct if item.price else None
+    return render_template(
+        'admin/item_detail_partial.html',
+        item=item,
+        payout_pct=payout_pct,
+        payout_amount=payout_amount,
     )
 
-    return render_template(
-        'admin/sellers.html',
-        sellers=sellers,
-        nudge_sellers=nudge_sellers,
-        free_tier_sellers=free_tier_sellers,
-        pickup_weeks=PICKUP_WEEKS,
-    )
+
+@app.route('/admin/item/<int:item_id>/mark-sold', methods=['POST'])
+@login_required
+def admin_item_mark_sold(item_id):
+    """Mark an item as sold."""
+    if not current_user.is_admin:
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status != 'sold':
+        item.status = 'sold'
+        db.session.commit()
+    if request.form.get('modal') == '1':
+        return jsonify({'success': True})
+    return redirect(url_for('admin_items', view='all'))
 
 
 @app.route('/admin/crew')
@@ -14362,39 +14496,8 @@ _AI_JOBS = {}
 @app.route('/admin/ai/generate')
 @login_required
 def admin_ai_generate_page():
-    """AI Autofill control page — counts, run button, run history."""
-    guard = require_super_admin()
-    if guard:
-        return guard
-    api_key_present = bool(os.environ.get('ANTHROPIC_API_KEY'))
-    eligible_count = InventoryItem.query.filter(
-        InventoryItem.status.notin_(['rejected', 'sold']),
-        InventoryItem.ai_generated_at.is_(None),
-        InventoryItem.photo_url.isnot(None),
-    ).count()
-    pending_review_count = InventoryItem.query.filter(
-        InventoryItem.ai_review_pending == True,
-    ).count()
-    run_log_raw = AppSetting.get('ai_autofill_run_log', '[]')
-    try:
-        run_log = json.loads(run_log_raw)
-    except Exception:
-        run_log = []
-    current_model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
-    ai_models = [
-        ('claude-haiku-4-5-20251001', 'Haiku 4.5 — Fast & Cheap'),
-        ('claude-sonnet-4-6', 'Sonnet 4.6 — Balanced (Recommended)'),
-        ('claude-opus-4-7', 'Opus 4.7 — Most Capable'),
-    ]
-    return render_template(
-        'admin/ai_generate.html',
-        api_key_present=api_key_present,
-        eligible_count=eligible_count,
-        pending_review_count=pending_review_count,
-        run_log=run_log,
-        current_model=current_model,
-        ai_models=ai_models,
-    )
+    """Redirects to Items tab — AI Autofill is now a modal on /admin/items."""
+    return redirect(url_for('admin_items', view='ai_review'), 302)
 
 
 @app.route('/admin/ai/generate/run', methods=['POST'])
@@ -14641,14 +14744,8 @@ def admin_ai_generate_status():
 @app.route('/admin/ai/review')
 @login_required
 def admin_ai_review_queue():
-    """AI Review queue — card grid of items pending AI review."""
-    guard = require_super_admin()
-    if guard:
-        return guard
-    items = InventoryItem.query.filter(
-        InventoryItem.ai_review_pending == True,
-    ).order_by(InventoryItem.ai_generated_at.asc()).all()
-    return render_template('admin/ai_review.html', items=items)
+    """Redirects to Items tab — AI Review is now a sub-tab on /admin/items."""
+    return redirect(url_for('admin_items', view='ai_review'), 302)
 
 
 @app.route('/admin/ai/item/<int:item_id>/detail')
@@ -14755,6 +14852,23 @@ def admin_ai_discard(item_id):
     item.ai_review_pending = False
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/admin/item/<int:item_id>/pv-detail')
+@login_required
+def admin_item_pv_detail(item_id):
+    """HTML partial for photo verification modal content."""
+    guard = require_super_admin()
+    if guard:
+        return guard
+    item = InventoryItem.query.get_or_404(item_id)
+    all_photos = []
+    if item.photo_url:
+        all_photos.append(item.photo_url)
+    for gp in item.gallery_photos:
+        if gp.photo_url not in all_photos:
+            all_photos.append(gp.photo_url)
+    return render_template('admin/pv_detail_partial.html', item=item, all_photos=all_photos)
 
 
 @app.route('/admin/item/<int:item_id>/verify-photo', methods=['POST'])

@@ -1,0 +1,169 @@
+{# No layout — rendered via fetch into the photo verification modal panel #}
+<div class="pv-detail-wrap"
+     data-item-id="{{ item.id }}"
+     data-photo-url="{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}">
+
+  {# Photo gallery — same pattern as ai_review_detail_partial.html #}
+  <div class="approval-modal-gallery">
+    {% if all_photos %}
+    <div class="approval-gallery-track-wrap" style="position:relative;">
+      <div class="approval-gallery-track" id="approval-gallery-track">
+        {% for photo in all_photos %}
+        <img src="{{ url_for('uploaded_file', filename=photo) }}"
+             alt="{{ item.description }}"
+             class="approval-gallery-slide"
+             data-photo="{{ photo }}">
+        {% endfor %}
+      </div>
+      {% if all_photos|length > 1 %}
+      <button class="approval-gallery-btn approval-gallery-prev" onclick="pvGalleryMove(-1)" type="button">&#8249;</button>
+      <button class="approval-gallery-btn approval-gallery-next" onclick="pvGalleryMove(1)" type="button">&#8250;</button>
+      <div class="approval-gallery-counter" id="pv-gallery-counter">1 / {{ all_photos|length }}</div>
+      <button id="pv-set-cover-btn" type="button"
+              style="display:none; position:absolute; bottom:44px; left:50%; transform:translateX(-50%);
+                     background:rgba(0,0,0,0.65); color:white; border:none; border-radius:999px;
+                     padding:6px 16px; font-size:0.78rem; font-weight:700; cursor:pointer;
+                     white-space:nowrap; backdrop-filter:blur(2px);"
+              onclick="pvSetCover()">
+        ★ Set as cover
+      </button>
+      <button id="pv-delete-photo-btn" type="button"
+              style="display:none; position:absolute; top:10px; right:10px;
+                     background:rgba(220,38,38,0.85); color:white; border:none; border-radius:999px;
+                     padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer;
+                     white-space:nowrap; backdrop-filter:blur(2px);"
+              onclick="pvDeletePhoto()">
+        <i class="fas fa-trash"></i> Delete
+      </button>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="approval-gallery-track-wrap approval-gallery-placeholder">
+      <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+    </div>
+    {% endif %}
+  </div>
+
+  {# Item info — read-only #}
+  <div class="approval-modal-info-body">
+    <div class="approval-modal-meta">
+      {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
+      {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
+      {% if item.storage_location %} &middot; <i class="fas fa-warehouse" style="font-size:0.75rem;"></i> <span>{{ item.storage_location.name }}{% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}</span>{% endif %}
+      {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
+    </div>
+
+    <div style="font-size:1.05rem;font-weight:700;color:var(--text-main);margin-bottom:6px;">{{ item.description or 'Untitled' }}</div>
+
+    {% if item.long_description %}
+    <div style="font-size:0.88rem;color:var(--text-muted);line-height:1.55;margin-bottom:12px;">{{ item.long_description }}</div>
+    {% endif %}
+
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+      {% if item.price %}
+      <span style="font-size:1.4rem;font-weight:800;color:var(--accent);">${{ '%.2f'|format(item.price) }}</span>
+      {% endif %}
+      {% if item.retail_price and item.price and item.retail_price > item.price %}
+      {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+      <span style="font-size:0.85rem;color:var(--text-muted);text-decoration:line-through;">~${{ '%.0f'|format(item.retail_price) }} retail</span>
+      <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+var _pvGalleryIdx = 0;
+
+function pvGalleryMove(dir) {
+  var track = document.getElementById('approval-gallery-track');
+  var counter = document.getElementById('pv-gallery-counter');
+  var coverBtn = document.getElementById('pv-set-cover-btn');
+  var deleteBtn = document.getElementById('pv-delete-photo-btn');
+  if (!track) return;
+  var slides = track.querySelectorAll('.approval-gallery-slide');
+  var total = slides.length;
+  if (total < 2) return;
+  _pvGalleryIdx = (_pvGalleryIdx + dir + total) % total;
+  track.style.transform = 'translateX(-' + (_pvGalleryIdx * 100) + '%)';
+  if (counter) counter.textContent = (_pvGalleryIdx + 1) + ' / ' + total;
+  var onCover = _pvGalleryIdx === 0;
+  if (coverBtn) coverBtn.style.display = onCover ? 'none' : 'block';
+  if (deleteBtn) deleteBtn.style.display = onCover ? 'none' : 'block';
+}
+
+function pvSetCover() {
+  var track = document.getElementById('approval-gallery-track');
+  if (!track) return;
+  var slides = track.querySelectorAll('.approval-gallery-slide');
+  var slide = slides[_pvGalleryIdx];
+  if (!slide) return;
+  var photoUrl = slide.dataset.photo;
+  var wrap = document.querySelector('.pv-detail-wrap');
+  var itemId = wrap ? wrap.dataset.itemId : null;
+  if (!itemId || !photoUrl || _pvGalleryIdx === 0) return;
+  var btn = document.getElementById('pv-set-cover-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  var body = new URLSearchParams({ photo_url: photoUrl });
+  if (typeof _aiCsrf !== 'undefined') body.append('csrf_token', _aiCsrf);
+  fetch('/admin/ai/item/' + itemId + '/set-cover-photo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': typeof _aiCsrf !== 'undefined' ? _aiCsrf : '' },
+    body: body.toString(),
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (data.success) {
+      _pvGalleryIdx = 0;
+      pvReloadModal(itemId);
+    } else { btn.textContent = '★ Set as cover'; btn.disabled = false; }
+  })
+  .catch(function(){ btn.textContent = '★ Set as cover'; btn.disabled = false; });
+}
+
+function pvDeletePhoto() {
+  var track = document.getElementById('approval-gallery-track');
+  if (!track) return;
+  var slides = track.querySelectorAll('.approval-gallery-slide');
+  var slide = slides[_pvGalleryIdx];
+  if (!slide || _pvGalleryIdx === 0) return;
+  var photoUrl = slide.dataset.photo;
+  var wrap = document.querySelector('.pv-detail-wrap');
+  var itemId = wrap ? wrap.dataset.itemId : null;
+  if (!itemId || !photoUrl) return;
+  if (!confirm('Delete this photo? This cannot be undone.')) return;
+  var btn = document.getElementById('pv-delete-photo-btn');
+  btn.disabled = true;
+  var body = new URLSearchParams({ photo_url: photoUrl });
+  if (typeof _aiCsrf !== 'undefined') body.append('csrf_token', _aiCsrf);
+  fetch('/admin/item/' + itemId + '/delete-gallery-photo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': typeof _aiCsrf !== 'undefined' ? _aiCsrf : '' },
+    body: body.toString(),
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (data.success) { _pvGalleryIdx = 0; pvReloadModal(itemId); }
+    else { btn.disabled = false; }
+  })
+  .catch(function(){ btn.disabled = false; });
+}
+
+function pvReloadModal(itemId) {
+  var bodyEl = document.getElementById('pv-modal-body');
+  if (!bodyEl) return;
+  bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>';
+  fetch('/admin/item/' + itemId + '/pv-detail')
+    .then(function(r){ return r.text(); })
+    .then(function(html){
+      bodyEl.innerHTML = html;
+      bodyEl.querySelectorAll('script').forEach(function(orig){
+        var s = document.createElement('script'); s.textContent = orig.textContent;
+        orig.parentNode.replaceChild(s, orig);
+      });
+      // Update footer download link and replace-photo button with new cover URL
+      var wrap = bodyEl.querySelector('.pv-detail-wrap');
+      if (wrap) pvUpdateFooter(itemId, wrap.dataset.photoUrl || '');
+    });
+}
+</script>

@@ -148,12 +148,10 @@
 {% if active_tab is not defined or active_tab is none %}
   {% if _path.startswith('/admin/ops') %}
     {% set active_tab = 'ops' %}
-  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') %}
+  {% elif _path.startswith('/admin/items') or _path.startswith('/admin/approve') or _path.startswith('/admin/intake') or _path.startswith('/admin/ai') %}
     {% set active_tab = 'items' %}
   {% elif _path.startswith('/admin/payouts') %}
     {% set active_tab = 'payouts' %}
-  {% elif _path.startswith('/admin/sellers') %}
-    {% set active_tab = 'sellers' %}
   {% elif _path.startswith('/admin/crew') %}
     {% set active_tab = 'crew' %}
   {% elif _path.startswith('/admin/warehouse') %}
@@ -164,8 +162,6 @@
     {% set active_tab = 'cd-settings' %}
   {% elif _path.startswith('/admin/schedule') %}
     {% set active_tab = 'schedule' %}
-  {% elif _path.startswith('/admin/ai') %}
-    {% set active_tab = 'ai-review' %}
   {% else %}
     {% set active_tab = '' %}
   {% endif %}
@@ -185,9 +181,13 @@
       {% if current_user.is_admin or current_user.is_super_admin %}
       <a href="/admin/items"
          class="admin-nav-item {% if active_tab == 'items' %}active{% endif %}"
-         title="Items">
+         title="Items"
+         style="position:relative;">
         <i class="fas fa-check-square"></i>
-        <span class="nav-tooltip">Items</span>
+        {% if items_pending_total > 0 %}
+        <span style="position:absolute; top:2px; right:2px; background:var(--accent); color:white; font-size:0.6rem; font-weight:800; min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1;">{{ items_pending_total }}</span>
+        {% endif %}
+        <span class="nav-tooltip">Items{% if items_pending_total > 0 %} ({{ items_pending_total }}){% endif %}</span>
       </a>
 
       <a href="/admin/payouts"
@@ -197,12 +197,6 @@
         <span class="nav-tooltip">Payouts</span>
       </a>
 
-      <a href="/admin/sellers"
-         class="admin-nav-item {% if active_tab == 'sellers' %}active{% endif %}"
-         title="Sellers">
-        <i class="fas fa-user"></i>
-        <span class="nav-tooltip">Sellers</span>
-      </a>
       {% endif %}
 
       {# Crew: admin, super_admin, campus_director #}
@@ -231,20 +225,9 @@
         <span class="nav-tooltip">Warehouse</span>
       </a>
 
-      {# AI Review + Settings: super_admin only #}
+      {# Settings: super_admin only #}
       {% if current_user.is_super_admin %}
       <div class="admin-nav-divider"></div>
-
-      <a href="/admin/ai/review"
-         class="admin-nav-item {% if active_tab == 'ai-review' %}active{% endif %}"
-         title="AI Review"
-         style="position:relative;">
-        <i class="fas fa-robot"></i>
-        {% if ai_review_pending_count > 0 %}
-        <span style="position:absolute; top:2px; right:2px; background:var(--accent); color:white; font-size:0.6rem; font-weight:800; min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 3px; line-height:1;">{{ ai_review_pending_count }}</span>
-        {% endif %}
-        <span class="nav-tooltip">AI Review{% if ai_review_pending_count > 0 %} ({{ ai_review_pending_count }}){% endif %}</span>
-      </a>
 
       <a href="/admin/settings"
          class="admin-nav-item {% if active_tab == 'settings' %}active{% endif %}"
