@@ -1907,7 +1907,7 @@
             '<div><div class="ai-result-title">' + escHtml(r.ai_description) + '</div><div class="ai-result-price">$' + r.ai_price.toFixed(2) + '</div></div>';
           feed.appendChild(card);
         }
-        feed.scrollTop = feed.scrollHeight;
+        requestAnimationFrame(function() { feed.scrollTop = feed.scrollHeight; });
         var errList = document.getElementById('ai-gen-error-list');
         var rendErr = errList.querySelectorAll('.ai-error-item').length;
         for (var j = rendErr; j < data.errors.length; j++) {
