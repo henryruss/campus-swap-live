@@ -14917,6 +14917,8 @@ def admin_ai_approve(item_id):
         item.retail_price = item.ai_retail_price
     if request.form.get('needs_new_photo') == '1':
         item.needs_new_photo = True
+        photo_note = request.form.get('photo_note', '').strip()
+        item.needs_photo_note = photo_note or None
     item.ai_review_pending = False
     item.ai_approved = True
     db.session.commit()

@@ -131,15 +131,32 @@
     </div>
       {# Needs new photo flag #}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid #f3f4f6;">
+        {% if item.needs_new_photo and item.needs_photo_note %}
+        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;">
+          <i class="fas fa-robot" style="color:#d97706;margin-top:2px;flex-shrink:0;"></i>
+          <div>
+            <div style="font-size:0.75rem;font-weight:700;color:#92400e;margin-bottom:3px;">AI flagged — multi-item detected</div>
+            <div style="font-size:0.85rem;color:#92400e;">{{ item.needs_photo_note }}</div>
+          </div>
+        </div>
+        {% endif %}
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
           <input type="checkbox" id="ai-needs-photo-checkbox" name="needs_new_photo" value="1"
+                 {% if item.needs_new_photo %}checked{% endif %}
+                 onchange="document.getElementById('ai-photo-note-wrap').style.display=this.checked?'block':'none'"
                  style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);">
           <span style="font-size:0.85rem;font-weight:600;color:var(--text-main);">
             Flag for new photo
           </span>
         </label>
         <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;margin-left:26px;">
-          Item is approved but hidden from the shop until a replacement photo is uploaded in the Warehouse.
+          Item is approved but held from the shop until a replacement photo is uploaded in the Warehouse.
+        </div>
+        <div id="ai-photo-note-wrap" style="margin-top:10px;margin-left:26px;{% if not item.needs_new_photo %}display:none;{% endif %}">
+          <label style="font-size:0.78rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">Instructions for the warehouse (optional)</label>
+          <textarea id="ai-photo-note-input" rows="2"
+                    placeholder="e.g. 'Just photograph one chair' or 'Table and chairs — split into two listings'"
+                    style="width:100%;box-sizing:border-box;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 10px;font-size:0.85rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;background:#fffbeb;color:var(--text-main);">{{ item.needs_photo_note or '' }}</textarea>
         </div>
       </div>
     </div>

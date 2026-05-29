@@ -88,52 +88,78 @@
     </button>
     <div id="needs-photo-body" style="display:none;background:white;">
       {% for item in needs_photo_items %}
-      <div id="np-row-{{ item.id }}" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid #fef3c7;font-size:0.83rem;">
-        {% if item.photo_url %}
-        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
-             style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;" loading="lazy" alt="">
-        {% else %}
-        <div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:#fef3c7;display:flex;align-items:center;justify-content:center;color:#d97706;">
-          <i class="fas fa-image"></i>
-        </div>
-        {% endif %}
-        <span style="font-size:0.7rem;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-            <input type="text"
-                   id="photo-note-{{ item.id }}"
-                   value="{{ item.needs_photo_note or '' }}"
-                   placeholder="Add photo instructions…"
-                   data-item-id="{{ item.id }}"
-                   oninput="debouncePhotoNote(this)"
-                   style="flex:1;min-width:0;padding:4px 8px;font-size:0.75rem;border:1px solid var(--rule);border-radius:6px;font-family:inherit;outline:none;color:var(--text-main);">
-            <span id="photo-note-saved-{{ item.id }}" style="font-size:0.72rem;color:var(--sage);white-space:nowrap;opacity:0;transition:opacity 0.3s;"></span>
+      <div id="np-row-{{ item.id }}" style="border-top:1px solid #fef3c7;">
+        {# Main item row #}
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;font-size:0.83rem;flex-wrap:wrap;">
+          {% if item.photo_url %}
+          <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+               style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;" loading="lazy" alt="">
+          {% else %}
+          <div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:#fef3c7;display:flex;align-items:center;justify-content:center;color:#d97706;">
+            <i class="fas fa-image"></i>
           </div>
+          {% endif %}
+          <span style="font-size:0.7rem;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
+          <span style="font-weight:600;color:var(--text-main);flex:1;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</span>
+          {% if item.seller %}
+          <button type="button" onclick="loadSellerPanel({{ item.seller_id }})"
+                  style="padding:3px 10px;font-size:0.75rem;background:none;color:var(--primary);border:1px solid var(--rule);border-radius:6px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:600;flex-shrink:0;">
+            {{ item.seller.full_name }}
+          </button>
+          {% endif %}
+          {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">{{ item.category.name }}</span>{% endif %}
+          <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
+            {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
+            {% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
+          </span>
+          <button type="button"
+                  onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
+                  style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;flex-shrink:0;">
+            <i class="fas fa-camera"></i> Replace Photo
+          </button>
+          <button type="button" onclick="resetAIItem({{ item.id }}, this)"
+                  style="padding:5px 10px;font-size:0.75rem;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
+            Reset AI
+          </button>
         </div>
-        {% if item.seller %}
-        <button type="button"
-                onclick="loadSellerPanel({{ item.seller_id }})"
-                style="padding:3px 10px;font-size:0.75rem;background:none;color:var(--primary);border:1px solid var(--rule);border-radius:6px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:600;flex-shrink:0;">
-          {{ item.seller.full_name }}
-        </button>
-        {% endif %}
-        {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">{{ item.category.name }}</span>{% endif %}
-        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
-          {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
-          {% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
-        </span>
-        <button type="button"
-                onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
-                style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;flex-shrink:0;">
-          <i class="fas fa-camera"></i> Replace Photo
-        </button>
-        <button type="button"
-                onclick="resetAIItem({{ item.id }}, this)"
-                title="Reset AI analysis for this item"
-                style="padding:5px 10px;font-size:0.75rem;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
-          Reset AI
-        </button>
+        {# Photo instructions note #}
+        <div style="padding:0 18px 12px 78px;">
+          {% if item.needs_photo_note %}
+          <div id="np-note-display-{{ item.id }}"
+               style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:0.85rem;color:#92400e;line-height:1.5;cursor:pointer;"
+               onclick="npEditNote({{ item.id }})"
+               title="Click to edit">
+            <span style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:3px;opacity:0.7;">Instructions</span>
+            {{ item.needs_photo_note }}
+            <span style="font-size:0.72rem;opacity:0.6;margin-left:8px;">✎ edit</span>
+          </div>
+          <div id="np-note-edit-{{ item.id }}" style="display:none;">
+            <textarea id="photo-note-{{ item.id }}"
+                      data-item-id="{{ item.id }}"
+                      rows="2"
+                      oninput="debouncePhotoNote(this)"
+                      onblur="npBlurNote({{ item.id }})"
+                      style="width:100%;box-sizing:border-box;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 10px;font-size:0.85rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;background:#fffbeb;color:#92400e;">{{ item.needs_photo_note }}</textarea>
+            <span id="photo-note-saved-{{ item.id }}" style="font-size:0.72rem;color:var(--sage);opacity:0;transition:opacity 0.3s;"></span>
+          </div>
+          {% else %}
+          <button type="button" onclick="npEditNote({{ item.id }})"
+                  style="background:none;border:none;color:var(--text-muted);font-size:0.78rem;cursor:pointer;padding:0;font-family:inherit;">
+            <i class="fas fa-plus" style="font-size:0.65rem;"></i> Add instructions for warehouse
+          </button>
+          <div id="np-note-display-{{ item.id }}" style="display:none;"></div>
+          <div id="np-note-edit-{{ item.id }}" style="display:none;">
+            <textarea id="photo-note-{{ item.id }}"
+                      data-item-id="{{ item.id }}"
+                      rows="2"
+                      oninput="debouncePhotoNote(this)"
+                      onblur="npBlurNote({{ item.id }})"
+                      placeholder="e.g. 'Just photograph one chair' or 'Table and chairs — split into two listings'"
+                      style="width:100%;box-sizing:border-box;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 10px;font-size:0.85rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;background:#fffbeb;color:#92400e;"></textarea>
+            <span id="photo-note-saved-{{ item.id }}" style="font-size:0.72rem;color:var(--sage);opacity:0;transition:opacity 0.3s;"></span>
+          </div>
+          {% endif %}
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -504,6 +530,36 @@ document.getElementById('rp-overlay').addEventListener('click', function(e) {
           }
         });
     }, 600);
+  }
+
+  function npEditNote(itemId) {
+    var display = document.getElementById('np-note-display-' + itemId);
+    var edit = document.getElementById('np-note-edit-' + itemId);
+    if (display) display.style.display = 'none';
+    if (edit) {
+      edit.style.display = 'block';
+      var ta = document.getElementById('photo-note-' + itemId);
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }
+  }
+
+  function npBlurNote(itemId) {
+    var edit = document.getElementById('np-note-edit-' + itemId);
+    var display = document.getElementById('np-note-display-' + itemId);
+    var ta = document.getElementById('photo-note-' + itemId);
+    var val = ta ? ta.value.trim() : '';
+    if (val) {
+      if (display) {
+        display.style.display = 'block';
+        // Update display text (keep structure)
+        var textNode = display.querySelector('span:last-child') ? display : display;
+        display.innerHTML = '<span style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:3px;opacity:0.7;">Instructions</span>'
+          + val.replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          + '<span style="font-size:0.72rem;opacity:0.6;margin-left:8px;">✎ edit</span>';
+        display.onclick = function(){ npEditNote(itemId); };
+      }
+    }
+    if (edit) edit.style.display = 'none';
   }
 
   // ── Reset AI for single item (from Needs New Photo section) ──

@@ -1513,7 +1513,11 @@
     if (titleEl) body.append('description', titleEl.value);
     if (descEl) body.append('long_description', descEl.value);
     if (priceEl) body.append('price', priceEl.value);
-    if (needsPhotoEl && needsPhotoEl.checked) body.append('needs_new_photo', '1');
+    if (needsPhotoEl && needsPhotoEl.checked) {
+      body.append('needs_new_photo', '1');
+      var photoNoteEl = mb.querySelector('#ai-photo-note-input');
+      if (photoNoteEl) body.append('photo_note', photoNoteEl.value.trim());
+    }
     fetch('/admin/ai/item/' + _aiCurrentItemId + '/approve', {
       method: 'POST',
       headers: { 'X-CSRFToken': _aiCsrf, 'Content-Type': 'application/x-www-form-urlencoded' },
