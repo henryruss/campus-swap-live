@@ -443,7 +443,10 @@ function whlSetMode(mode) {
   });
   document.getElementById('whl-existing-seller-wrap').style.display = mode === 'existing' ? 'block' : 'none';
   document.getElementById('whl-new-seller-wrap').style.display = mode === 'new' ? 'block' : 'none';
-  _whlSelectedSellerId = null;
+  // Only clear the selected seller when switching away from existing mode.
+  // Clicks inside whl-opt-existing (search input, result rows) bubble up and
+  // re-call whlSetMode('existing') — we must not wipe the selection in that case.
+  if (mode !== 'existing') _whlSelectedSellerId = null;
 }
 
 // Need a categories list for the log modal template — pass via page context
