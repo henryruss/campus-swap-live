@@ -1553,6 +1553,89 @@
 
 ---
 
+## Feature: Required Unit Assignment with Visual Picker
+
+**Sign-off status:** ⬜ Not yet signed off
+**Built:** 2026-05-29
+**Spec file:** `feature_required_unit_assignment.md`
+
+### Ops Page — Unit Chip Buttons
+- [ ] Open `/admin/ops` on a shift with an assigned unit — truck card shows green chip with edit icon instead of dropdown
+- [ ] Truck card with no unit assigned shows amber "+ Assign unit" chip
+- [ ] Clicking the chip opens the unit picker modal (not a dropdown)
+
+### Unit Picker Modal
+- [ ] Modal loads with card grid of active StorageLocations
+- [ ] Each card shows name, item count, capacity battery bar
+- [ ] Full units are visually distinguished
+- [ ] Selecting a card closes the modal and saves the unit (green chip appears)
+- [ ] Modal can be dismissed without selecting (chip state unchanged)
+
+### Unit Required Gate
+- [ ] Try adding a seller stop to a truck with 0 stops and no unit assigned — unit picker modal opens instead of adding stop
+- [ ] After assigning a unit via the picker, the stop add retries and succeeds
+- [ ] Adding a stop to a truck that already has stops does NOT trigger the unit gate (even if unit later unassigned)
+
+### Driver Shift View
+- [ ] Open `/crew/shift/<id>` as an assigned driver — destination banner shows assigned unit (or nothing if unassigned)
+- [ ] Driver shift view loads without errors when `truck_unit_plan` has no entry for this truck
+
+### Placement Flow Prefill
+- [ ] Open placement section after all stops complete — Select Unit dropdown is prefilled from truck_unit_plan
+- [ ] Dropdown still manually changeable (prefill is a default, not a lock)
+
+### Add Truck Button
+- [ ] "Add Truck" button visible in ops topbar (was previously hidden)
+- [ ] Clicking it adds a new truck card with no unit assigned (amber chip)
+
+### Regression
+- [ ] Existing stops on trucks with units still display correctly
+- [ ] `POST /admin/crew/shift/<id>/truck/<n>/assign_unit` still saves correctly when called directly
+- [ ] Ops page loads without errors on shifts with no stops
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
+
+## Feature: Warehouse Route Browse
+
+**Sign-off status:** ⬜ Not yet signed off
+**Built:** 2026-05-29
+**Spec file:** `feature_warehouse_route_browse.md`
+
+### Tab Pills
+- [ ] Open `/admin/warehouse` — "Search Items" and "Browse by Route" tab pills visible above search area
+- [ ] "Search Items" is active by default; existing search input and results area work unchanged
+- [ ] Clicking "Browse by Route" shows the route container and hides the search input
+
+### Route Chip List
+- [ ] Clicking "Browse by Route" triggers a fetch to `/admin/warehouse/routes`
+- [ ] Shift chips appear sorted most-recent-first
+- [ ] Each chip shows shift label and item count
+- [ ] Shifts with zero seller items are omitted from the list
+- [ ] Empty state shown when no shifts have items
+
+### Route Results
+- [ ] Clicking a shift chip loads item results in the #warehouse-search-results container
+- [ ] All items from sellers on that shift appear (no status filter — approved, pending, sold all included)
+- [ ] Items already assigned a storage location show a green unit chip instead of the "Select Unit" picker
+- [ ] Items without a storage location show the normal inline "Select Unit" picker (functional as usual)
+
+### Search Tab Regression
+- [ ] Switching back to "Search Items" tab restores the search input and clears route results
+- [ ] Text search still works after browsing routes
+- [ ] Unit-scoped search (from unit drawer) still works
+
+---
+
+**Sign-off date:**
+**Signed off by:**
+
+---
+
 ## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)

@@ -483,6 +483,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 |---|---|---|
 | `GET /admin/ops` | `admin_ops` | Main ops view — shift panel, truck cards, unassigned panel. Default entry point. |
 | `GET /admin/ops/truck-detail` | `admin_ops_truck_detail` | HTML partial for truck detail drawer. Params: shift_id, truck. |
+| `GET /admin/ops/unit-picker-partial` | `admin_ops_unit_picker_partial` | HTML partial — card grid of active StorageLocations with capacity data for unit picker modal. `_has_ops_access()`. |
 | `GET /admin/items` | `admin_items` | Items tab — approval queue + lifecycle table. view=approve|all. |
 | `GET /admin/sellers` | `admin_sellers` | Sellers tab — list, nudge, free-tier. |
 | `GET /admin/crew` | `admin_crew_panel` | Crew tab — pending applications + approved workers. |
@@ -531,7 +532,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/cron/no-show-emails` | `cron_no_show_emails` | End-of-day no-show recovery email cron. Auth: same. Idempotent via no_show_email_sent_at. |
 | `GET /crew/shift/<shift_id>/stops_partial` | `crew_shift_stops_partial` | HTML partial of stops for current mover's truck. Used by 30s auto-refresh |
 | `GET+POST /admin/settings/route` | `admin_route_settings` | GET → 302 to `/admin/settings#route`. POST saves capacity settings (unchanged). Super admin only. |
-| `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan |
+| `POST /admin/crew/shift/<shift_id>/assign` | `admin_shift_assign_seller` | Add seller stop to shift (globally unique per seller); pre-populates storage_location_id from truck_unit_plan; returns 422 `{error: 'unit_required'}` when truck has 0 stops and no unit assigned in truck_unit_plan |
 | `POST /admin/crew/shift/<shift_id>/quick-add` | `admin_crew_quick_add` | Add worker to shift from Crew HQ. Driver defaults to truck_number=1. Auth: _has_ops_access() |
 | `POST /admin/crew/shift/<shift_id>/quick-remove` | `admin_crew_quick_remove` | Remove ShiftAssignment from Crew HQ. No email sent. Auth: _has_ops_access() |
 | `POST /admin/crew/worker/<user_id>/availability` | `admin_crew_override_availability` | Admin upserts WorkerAvailability for current week. Auth: _has_ops_access() |
@@ -572,7 +573,8 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/warehouse` | `admin_warehouse` | Warehouse Floor main page. Unit card grid with capacity battery bars, item counts, Full badges. Needs New Photo section (amber, collapsible). Photo Verification Queue (indigo, open by default). Global search. _has_ops_access(). |
 | `GET /admin/warehouse/unit/<id>` | `admin_warehouse_unit` | HTML partial for unit drawer (item list, battery bar, toggle-full button, Log Item Here button). _has_ops_access(). |
 | `POST /admin/warehouse/unit/<id>/toggle-full` | `admin_warehouse_toggle_full` | Toggle StorageLocation.is_full. On mark-full: snapshots current item volume into snapshot_capacity. Returns JSON {success, is_full, snapshot_capacity}. _has_ops_access(). |
-| `GET /admin/warehouse/search` | `admin_warehouse_search` | HTML partial. Params: q (text search), unit_id (scope to one unit). Returns item rows with inline "Select Unit" location picker and camera button for needs_new_photo items. _has_ops_access(). |
+| `GET /admin/warehouse/search` | `admin_warehouse_search` | HTML partial. Params: q (text search), unit_id (scope to one unit). Returns item rows with inline "Select Unit" location picker and camera button for needs_new_photo items. `shift_id` param: when present, returns all items from sellers on that shift (no status filter); uses `warehouse_route_results.html` partial instead of `warehouse_search_results.html`. _has_ops_access(). |
+| `GET /admin/warehouse/routes` | `admin_warehouse_routes` | HTML partial — shift chip list sorted most-recent-first, omitting shifts with zero seller items. `_has_ops_access()`. |
 | `GET /admin/warehouse/seller-search` | `admin_warehouse_seller_search` | JSON seller search for Log Item modal. Param: q. Returns [{id, name, email}]. _has_ops_access(). |
 | `POST /admin/warehouse/log-item` | `admin_warehouse_log_item` | Create QC item from warehouse floor. seller_mode: internal/existing/new. Returns JSON {success, item_id, unit_id}. _has_ops_access(). |
 | `POST /admin/warehouse/seller/create` | `admin_warehouse_create_seller` | Create proxy seller (name + email or phone). payout_rate=50, is_proxy_account=True. Returns JSON {success, seller_id, seller_name}. _has_ops_access(). |
@@ -604,7 +606,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET/POST /crew/availability` | `crew_availability` | Weekly availability + partner preferences section |
 | `POST /crew/preferences` | `crew_save_preferences` | Save WorkerPreference records (replaces all existing) |
 | `GET /crew/schedule/<week_id>` | `crew_schedule_week` | Full week calendar HTML partial (approved workers, published weeks only) |
-| `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops with item photo strip |
+| `GET /crew/shift/<shift_id>` | `crew_shift_view` | Phone-optimized mover shift view; blocks future shifts; shows truck-filtered stops with item photo strip; passes `destination_unit` (StorageLocation or None from truck_unit_plan) to template |
 | `POST /crew/shift/<shift_id>/start` | `crew_shift_start` | Create ShiftRun; blocked for future shifts. SMSes all pending sellers on mover's truck after ShiftRun creation (Spec #9) |
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/update` | `crew_shift_stop_update` | Mark stop completed/issue; writes picked_up_at on completion. On completion: revokes open RescheduleTokens, SMSes next seller. On issue: saves issue_type ('no_show'\|'other', defaults 'other'); no_show extends token TTL |
 | `POST /crew/shift/<shift_id>/stop/<pickup_id>/revert` | `crew_shift_stop_revert` | Revert resolved stop to pending. Clears issue_type; preserves no_show_email_sent_at |
@@ -702,7 +704,7 @@ crew/dashboard.html            — Worker portal: today's shift banner (time+in-
 crew/availability.html         — Weekly availability update + partner preferences (custom dropdown picker)
 crew/_availability_grid.html   — Availability grid partial
 crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O abbreviations; Mover/Organizer legend
-crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete; seller phone as tel: link per stop card; two-option issue-type picker (Seller wasn't home / Item or access problem) with hidden issue_type input
+crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete; seller phone as tel: link per stop card; two-option issue-type picker (Seller wasn't home / Item or access problem) with hidden issue_type input; destination unit banner (📦 Drop off at: Unit X) from truck_unit_plan
 crew/stops_partial.html        — HTML partial (no layout): stop list for current mover's truck; used by 30s setInterval auto-refresh fetch
 crew/intake.html               — Organizer intake page: truck sections with received/total counters, item search, bottom-sheet modal for submission; responsive (960px+ two-column, 760px+ trucks grid)
 crew/_intake_modal.html        — Bottom-sheet modal partial embedded in crew/intake.html
@@ -710,6 +712,7 @@ crew/intake_search_results.html — Partial rendered via fetch into #search-resu
 admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form; Delete Week button (draft-only); Storage Units link
 admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
 admin/shift_ops.html           — Ops page: issue alert banner, green mover panel, ordered stop lists + badges (stop#, access type, cap warning), Order Route + Notify Sellers buttons, Intake Summary
+admin/ops.html                 — Main ops view (Admin UI Redesign). 3-zone layout: shift list, truck cards, unassigned panel. Storage chip buttons on truck cards: assigned = green chip with edit icon, unassigned = amber "+ Assign unit" chip. Unit picker modal (lazy-loaded via fetch into ops modal). Add Truck button visible in topbar. "Assign unit" footer button in truck card when no unit assigned (opens unit picker modal via data-action="open-unit-picker"). Stop assign forms catch 422 unit_required and open unit picker before retrying.
 admin/routes.html              — Route builder: unassigned sellers by cluster, shift capacity board, auto-assign, move/assign inline panels
 admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes; SMS Notifications section (kill switches + cron hour settings)
 admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
@@ -733,13 +736,16 @@ checkout_delivery.html         — Buyer delivery address form with geocoding + 
 crew/shift_end_confirm.html    — End Shift confirmation page: stop summary, warning, confirmed POST
 crew/shift_history.html        — Read-only completed shift item history for mover's truck; linked from crew dashboard
 crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew/dashboard.html and crew/shift.html): getUserMedia rear camera, file-input fallback, notes field, full state reset on open
-crew/shift_placement_partial.html — HTML partial (no layout): placement items list for driver's truck; modal with zone diagram for assigning unit + zone; "Not picked up" button; status chips (Placed / Not picked up / Needs location); loaded via fetch into crew/shift.html after #placement-section becomes visible
+crew/shift_placement_partial.html — HTML partial (no layout): placement items list for driver's truck; modal with zone diagram for assigning unit + zone; "Not picked up" button; status chips (Placed / Not picked up / Needs location); Select Unit dropdown prefilled from truck_unit_plan; loaded via fetch into crew/shift.html after #placement-section becomes visible
 admin/storage_audit.html       — **Replaced by warehouse.html.** Route 302-redirects to `/admin/warehouse`.
 admin/storage_audit_results.html — **Replaced by warehouse_search_results.html.**
-admin/warehouse.html           — Warehouse Floor main page. Unit card grid (battery bars, item counts, Full badges). Needs New Photo section (amber, collapsible, collapsed by default). Photo Verification Queue section (indigo, open by default). Global debounced search (300ms). Extends admin_layout.html.
+admin/warehouse.html           — Warehouse Floor main page. Unit card grid (battery bars, item counts, Full badges). Needs New Photo section (amber, collapsible, collapsed by default). Photo Verification Queue section (indigo, open by default). Global debounced search (300ms). "Search Items / Browse by Route" tab pills; #search-mode and #route-mode containers; lazy route fetch on tab switch. Extends admin_layout.html.
 admin/warehouse_unit_partial.html — Unit drawer partial (no layout). Item list with inline storage row autosave, toggle-full button, Log Item Here button. Battery bar macro included.
+admin/ops_unit_picker_partial.html  — Unit picker card grid (no layout). Active StorageLocations with item counts, battery bars, full badges. Loaded lazily via fetch into ops unit picker modal.
+admin/warehouse_routes_partial.html — Warehouse route browse shift chip list (no layout). Each chip: shift label, item count, data-shift-id.
+admin/warehouse_route_results.html  — Warehouse route browse item results (no layout). Same structure as warehouse_search_results.html but shows all items from shift sellers (no status filter); green unit chip if already placed.
 admin/warehouse_log_modal.html — Log Item 4-step modal partial (photo → category → location → seller). Three seller modes: Campus Swap internal, existing seller (live search via seller-search endpoint), new proxy seller (name + email/phone).
-admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set-location.
+admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set-location. Green unit chip shown when item already has storage_location_id set (instead of showing nothing).
 admin/ai_generate.html         — AI autofill generation page. Eligible item count, last run stats, model selector, batch size, Run button, live progress bar (polling /status), results table, error count. Extends admin_layout.html.
 admin/ai_review.html           — AI review queue. Card grid of items with ai_review_pending=True. Each card shows cover photo, AI-suggested title + price + retail. Click opens slide-in modal with detail partial.
 admin/ai_review_detail_partial.html — AI review modal content (no layout). Gallery carousel with "★ Set as cover" and "Delete" buttons on non-cover slides. Editable title, description, price, retail_price inputs. Savings callout display. "Flag for new photo" checkbox. Approve and Discard buttons.
@@ -938,6 +944,8 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
     - `apply_referral_code(new_user, code)` — looks up referrer, sets `referred_by_id`, bumps `payout_rate` by signup bonus. No-op if program inactive or code invalid.
     - `maybe_confirm_referral_for_seller(seller)` — call in `crew_shift_stop_update` when stop becomes `'completed'`. Confirms the referral (once per seller, idempotent), recalculates referrer's rate, sends email. No-op if program inactive, no `referred_by_id`, or already confirmed.
     - `calculate_payout_rate(user)` — `base + (signup_bonus if referred_by_id) + (confirmed × bonus_per)`, capped at max. All values from AppSettings. **Includes signup bonus in the recalculation** so a referred seller who also refers others doesn't lose their signup bonus when their rate is recalculated.
+
+21. **422 gate for prerequisite actions** — `admin_shift_assign_seller` returns 422 `{error: 'unit_required', truck_number: N}` when the first stop is being added to a truck that has no unit assigned in `truck_unit_plan`. The frontend JS catches the 422 status code to distinguish "you need to do something first, then retry" from a 400 bad-request. After the unit picker modal completes and a unit is assigned, the form is retried automatically.
 
 16. **Bulk SQL DELETE for cascade deletes** — when deleting a parent record that has deep FK chains (ShiftWeek → Shifts → Assignments + Pickups → IntakeRecords → IntakeFlags), use `db.session.execute(delete(Model).where(...))` in FK dependency order rather than ORM cascade. ORM cascade on deeply nested relations causes StaleDataError when the session's identity map is invalidated mid-delete.
 

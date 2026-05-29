@@ -7,6 +7,22 @@
 
 ---
 
+## Required Unit Assignment + Warehouse Route Browse (2026-05-29)
+
+### Decision: 422 response (not 400) for unit_required gate in admin_shift_assign_seller
+**Reasoning:** 422 Unprocessable Entity is semantically correct — the request is valid syntactically but can't be processed because a prerequisite (unit assignment) is missing. The frontend uses the status code to distinguish between "this request was wrong" (400) and "you need to do something first, then retry" (422). 400 would suggest the form data was bad; 422 is the signal to open the unit picker and retry.
+
+### Decision: Unit picker partial is lazy-loaded once and cached in DOM (not re-fetched on every open)
+**Reasoning:** The unit list changes infrequently within a single session (units are marked full at the warehouse, not on the ops page). Fetching on every modal open would create unnecessary DB reads. Caching in DOM after the first fetch keeps opens instant. If a unit was marked full mid-session, the stale state is acceptable — the backend correctly allows assigning full units with a confirmation step, so no hard error occurs.
+
+### Decision: Warehouse route browse shares the existing #warehouse-search-results container
+**Reasoning:** The route results render identically to search results (same item row HTML structure, same inline unit picker). Reusing the container means zero new CSS for the results area and zero new JS for the inline unit assignment interaction (the existing delegated listeners on the container already handle it). The only distinction is which partial renders the rows.
+
+### Decision: warehouse_route_results.html is a separate partial from warehouse_search_results.html
+**Reasoning:** Route browse has one behavioral difference from text search: items with storage_location_id already set show a non-interactive green unit chip instead of the "Select Unit" picker. Rather than adding conditionals to warehouse_search_results.html (which would need to know whether it's in "route mode"), a separate partial encodes the difference explicitly. Both partials are small and the duplication is minimal.
+
+---
+
 ## Campus Director Tutorial & Role Switcher (2026-05-21)
 
 ### Decision: Tutorial gate uses a DB record (`TutorialSession`), not session state

@@ -9,9 +9,53 @@
 
 ## Current State
 
-**Last updated:** 2026-05-28 (end of session)
+**Last updated:** 2026-05-29
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. This session: AI Autofill, Warehouse Floor, Shop Drop improvements (retail price, infinite scroll, ai_approved gate), Photo Verification Queue all built.
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Session 2026-05-28: AI Autofill, Warehouse Floor, Shop Drop improvements (retail price, infinite scroll, ai_approved gate), Photo Verification Queue. Session 2026-05-29: Required Unit Assignment with Visual Picker + Warehouse Route Browse built. In uncommitted changes — need commit + deploy.
+
+---
+
+## Features Built This Session (2026-05-29)
+
+### Required Unit Assignment with Visual Picker
+
+**Status:** Built. In uncommitted changes.
+**Spec file:** `feature_required_unit_assignment.md`
+
+Replaces the destination unit dropdown on the ops page truck cards with a visual unit picker modal. Makes unit assignment a first-class step before adding seller stops.
+
+**New route:** `GET /admin/ops/unit-picker-partial` → `admin_ops_unit_picker_partial` — card grid of active StorageLocations with capacity data.
+
+**Modified route:** `POST /admin/crew/shift/<id>/assign` (`admin_shift_assign_seller`) — 422 gate added: returns `{error: 'unit_required', truck_number: N}` when truck has 0 existing stops and no unit in truck_unit_plan. Frontend JS catches this and opens unit picker before retrying.
+
+**Template changes:**
+- `admin/ops.html` — storage chip buttons replace dropdown; unit picker modal (lazy-loaded via fetch); Add Truck button unhidden; "Assign unit" footer button restored using new modal
+- New: `admin/ops_unit_picker_partial.html` — card grid partial
+- `crew/shift.html` — destination unit banner (📦 Drop off at: Unit X) from truck_unit_plan
+- `crew/shift_placement_partial.html` — Select Unit dropdown prefilled from truck_unit_plan
+
+**No model changes. No migration.**
+
+---
+
+### Warehouse Route Browse
+
+**Status:** Built. In uncommitted changes.
+**Spec file:** `feature_warehouse_route_browse.md`
+
+Adds a "Browse by Route" tab to the warehouse floor search, letting directors find items by which shift brought them in.
+
+**New route:** `GET /admin/warehouse/routes` → `admin_warehouse_routes` — shift chip list partial, most-recent-first, omitting shifts with zero seller items.
+
+**Modified route:** `GET /admin/warehouse/search` (`admin_warehouse_search`) — new `shift_id` param returns all items from sellers on that shift (no status filter); uses `warehouse_route_results.html` instead of `warehouse_search_results.html`.
+
+**Template changes:**
+- `admin/warehouse.html` — Search Items / Browse by Route tab pills; #search-mode and #route-mode containers; lazy route fetch on tab switch
+- New: `admin/warehouse_routes_partial.html` — shift chip list
+- New: `admin/warehouse_route_results.html` — item results for route browse
+- `admin/warehouse_search_results.html` — green unit chip added when item already has storage_location_id set
+
+**No model changes. No migration.**
 
 ---
 
@@ -89,6 +133,13 @@ Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 
 - "★ Set as cover" button appears on non-cover gallery slides
 - "Delete" button appears on non-cover gallery slides (red, top-right)
 - Both reload the modal detail partial on success
+
+---
+
+## What's Next
+
+- Commit + deploy the 2026-05-29 changes (Required Unit Assignment + Warehouse Route Browse)
+- Google Maps Static API key → provision and add to Render env vars for stop map images
 
 ---
 

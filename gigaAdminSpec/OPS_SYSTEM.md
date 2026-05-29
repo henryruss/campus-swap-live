@@ -248,6 +248,8 @@ The ops system connects back to the seller experience in three ways:
 | — | `feature_storage_audit_and_placement.md` | ✅ Done (built 2026-05-28) | Admin storage audit tool (`/admin/storage/audit`) to view/correct item locations; driver placement flow at End Shift (zone diagram modal, "Not picked up"); storage unit management overhaul (inline edit, delete, bulk xlsx import with OOM-safe streaming); Postgres startup fix (`db.create_all()` unconditional) |
 | — | `feature_ai_autofill.md` | ✅ Done (built 2026-05-28) | Claude vision API generates title/description/price/retail for items; staged review queue; ai_approved gates shop visibility; retail price shown to buyers as savings callout |
 | — | `feature_warehouse_floor.md` | ✅ Done (built 2026-05-28) | Replaces storage audit tool; unit card grid with capacity batteries; Log Item modal (photo→category→location→seller); Needs New Photo + Photo Verification queues; removes QC admin queue |
+| — | `feature_required_unit_assignment.md` | ✅ Done (built 2026-05-29) | Visual unit picker modal on ops page; required unit assignment gate before first stop; destination banner on driver shift view; placement prefill |
+| — | `feature_warehouse_route_browse.md` | ✅ Done (built 2026-05-29) | Browse by Route tab on warehouse floor; shift chip list; route item results |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.

@@ -460,15 +460,72 @@
   @media (max-width: 1024px) {
     .ops-page { grid-template-columns: 200px 1fr 180px; }
   }
+
+  /* ── Mobile shift selector (hidden on desktop) ── */
+  .mobile-shift-selector { display: none; }
+
   @media (max-width: 768px) {
-    /* On mobile, restore body scrolling — ops-page stacks vertically */
+    /* Restore normal document flow */
     .admin-shell { height: auto; min-height: unset; overflow: visible; }
-    .admin-content { height: auto; overflow: visible; }
-    .ops-page { height: auto; overflow: visible; grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; }
-    .ops-shift-panel { grid-column: 1; grid-row: 2; max-height: 280px; border-right: none; border-bottom: var(--card-border); }
-    .ops-main { grid-column: 1; grid-row: 3; }
-    .ops-unassigned-panel { grid-column: 1; grid-row: 4; border-left: none; border-top: var(--card-border); max-height: 360px; }
-    .ops-drawer { width: 100vw; }
+    .admin-content { height: auto; overflow: visible; padding-left: 0; }
+
+    /* Drop the 3-zone grid; show only the main column */
+    .ops-page { display: block; height: auto; overflow: visible; }
+    .ops-shift-panel { display: none; }
+    .ops-unassigned-panel { display: none; }
+    .ops-main { display: block; overflow: visible; padding: 0; }
+
+    /* Mobile shift selector */
+    .mobile-shift-selector {
+      display: block;
+      padding: 10px 14px;
+      background: var(--bg-cream);
+      border-bottom: var(--card-border);
+    }
+    .mobile-shift-selector select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 1rem;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      background: white;
+      color: var(--text-main);
+      font-family: inherit;
+    }
+
+    /* Topbar */
+    .ops-topbar { padding: 10px 14px; flex-wrap: wrap; }
+    .ops-topbar h2 { font-size: 1rem; width: 100%; }
+    .ops-topbar-actions { width: 100%; }
+
+    /* Touch-friendly buttons: 44px minimum */
+    .btn-sm {
+      min-height: 44px;
+      padding: 8px 14px;
+      font-size: 0.9rem;
+    }
+    .btn-remove-truck { min-height: 36px; }
+    .storage-chip { min-height: 36px; padding: 6px 12px; }
+
+    /* Truck cards */
+    .ops-cards-area { padding: 10px 12px; }
+    .truck-card-header-row { padding: 10px 12px; gap: 8px; }
+    .cap-bar-wrap { margin-left: 0; }
+    .truck-card-footer { padding: 10px 12px; }
+    .truck-card-footer .btn-sm { flex: 1; justify-content: center; }
+
+    /* Stop list rows: readable on small screens */
+    .stop-row { padding: 10px 12px; font-size: 0.95rem; }
+    .stop-seller-name { font-size: 1rem; }
+    .stop-address { font-size: 0.85rem; white-space: normal; }
+    .stop-units { font-size: 0.85rem; }
+
+    /* Alert bar */
+    .ops-alert-bar { padding: 10px 14px; font-size: 0.85rem; flex-wrap: wrap; }
+
+    /* Drawer: full viewport width, not fixed 480px */
+    .ops-drawer { width: 100vw; right: -100vw; }
+    .ops-drawer.open { right: 0; }
   }
 
   /* ── Photo preview button ── */
@@ -634,6 +691,28 @@
 
   {# ── Zone 2: Main content ── #}
   <section class="ops-main">
+
+    {# Mobile-only shift selector (hidden via CSS on desktop) #}
+    {% if shift_list %}
+    <div class="mobile-shift-selector">
+      <select id="mobile-shift-select">
+        {% if not shift %}<option value="">— Select a shift —</option>{% endif %}
+        {% set ns = namespace(prev_week_id=none) %}
+        {% for item in shift_list %}
+          {% if item.week.id != ns.prev_week_id %}
+            {% if ns.prev_week_id is not none %}</optgroup>{% endif %}
+            <optgroup label="Week of {{ item.week.week_start.strftime('%b %-d') }}">
+            {% set ns.prev_week_id = item.week.id %}
+          {% endif %}
+          <option value="{{ item.shift.id }}"{% if shift and shift.id == item.shift.id %} selected{% endif %}>
+            {{ item.day_label }} {{ item.date.strftime('%-d') }} — {% if item.shift.slot == 'daily' %}10am–3pm{% elif item.shift.slot == 'am' %}AM{% else %}PM{% endif %}
+          </option>
+          {% if loop.last %}</optgroup>{% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
     {% if not shift %}
     <div class="ops-empty-state">
       <i class="fas fa-route"></i>
@@ -1323,6 +1402,14 @@
         var sid = shiftTruck[0];
         location.href = location.pathname + (sid ? '?shift_id=' + sid : '');
       }
+    });
+  }
+
+  // ── Mobile shift selector ──
+  var _mobileShiftSelect = document.getElementById('mobile-shift-select');
+  if (_mobileShiftSelect) {
+    _mobileShiftSelect.addEventListener('change', function() {
+      if (this.value) location.href = '?shift_id=' + this.value;
     });
   }
 
