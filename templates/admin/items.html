@@ -259,7 +259,7 @@
   .ai-result-price { font-size: 0.78rem; color: var(--accent); font-weight: 700; }
   .ai-done-banner { display: none; background: #d1fae5; border: 1px solid #a7f3d0; border-radius: 9px; padding: 10px 16px; font-size: 0.88rem; color: #065f46; font-weight: 600; margin-top: 12px; }
   .ai-done-banner.visible { display: block; }
-  .ai-error-item { font-size: 0.8rem; color: #dc2626; padding: 3px 0; border-top: 1px solid #fee2e2; }
+  .ai-error-item { font-size: 0.8rem; color: #dc2626; padding: 5px 0; border-top: 1px solid #fee2e2; }
   .ai-history-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 12px; }
   .ai-history-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--rule); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 700; }
   .ai-history-table td { padding: 8px 10px; border-bottom: 1px solid var(--rule); }
@@ -1808,8 +1808,33 @@
         var errList = document.getElementById('ai-gen-error-list');
         var rendErr = errList.querySelectorAll('.ai-error-item').length;
         for (var j = rendErr; j < data.errors.length; j++) {
+          var err = data.errors[j];
           var div = document.createElement('div'); div.className = 'ai-error-item';
-          div.textContent = 'Item #' + data.errors[j].item_id + ' — ' + data.errors[j].reason;
+          div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+          var label = document.createElement('span');
+          label.textContent = 'Item #' + err.item_id + ' — ' + err.reason;
+          div.appendChild(label);
+          if (err.reason === 'No photo files found') {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Mark Needs Photo';
+            btn.dataset.itemId = err.item_id;
+            btn.style.cssText = 'font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid #fca5a5;background:white;color:#dc2626;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;';
+            btn.addEventListener('click', function() {
+              var iid = this.dataset.itemId;
+              var self = this;
+              self.disabled = true; self.textContent = 'Saving…';
+              var fd = new FormData(); fd.append('csrf_token', csrf);
+              fetch('/admin/item/' + iid + '/mark-needs-photo', { method: 'POST', body: fd })
+                .then(function(r){ return r.json(); })
+                .then(function(d){
+                  if (d.success) { self.textContent = 'Done'; self.style.color = '#166534'; self.style.borderColor = '#a7f3d0'; self.style.background = '#d1fae5'; }
+                  else { self.disabled = false; self.textContent = 'Mark Needs Photo'; }
+                })
+                .catch(function(){ self.disabled = false; self.textContent = 'Mark Needs Photo'; });
+            });
+            div.appendChild(btn);
+          }
           errList.appendChild(div);
         }
         if (data.done) {

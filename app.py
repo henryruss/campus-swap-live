@@ -14838,6 +14838,18 @@ def admin_ai_approve(item_id):
     return jsonify({'success': True})
 
 
+@app.route('/admin/item/<int:item_id>/mark-needs-photo', methods=['POST'])
+@login_required
+def admin_item_mark_needs_photo(item_id):
+    """Flag an item as needing a new photo."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    item.needs_new_photo = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/admin/ai/item/<int:item_id>/discard', methods=['POST'])
 @login_required
 def admin_ai_discard(item_id):
