@@ -424,6 +424,11 @@ def tutorial_gate():
         )
         if needs_tutorial:
             return redirect(url_for('admin_tutorial_welcome'))
+        # Tutorial is complete — clear any stale session vars so tutorial_mode
+        # evaluates to False in all routes (e.g. after an admin bypass).
+        if ts and ts.completed_at and not ts.is_retaking:
+            session.pop('tutorial_active', None)
+            session.pop('tutorial_step', None)
 
 
 # --- EMAIL HELPERS ---
