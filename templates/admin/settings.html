@@ -645,20 +645,22 @@
 
 <script>
 (function () {
-  const STORE_KEY = 'settings_collapsed';
+  // Storage key — stores IDs of sections the user has explicitly *opened*.
+  // Absence from the map = collapsed (the default).
+  const STORE_KEY = 'settings_open';
 
-  function getCollapsed() {
+  function getOpen() {
     try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { return {}; }
   }
-  function saveCollapsed(map) {
+  function saveOpen(map) {
     localStorage.setItem(STORE_KEY, JSON.stringify(map));
   }
 
-  function collapse(section, body, chevron, animate) {
+  function collapse(section, body) {
     body.style.display = 'none';
     section.classList.add('is-collapsed');
   }
-  function expand(section, body, chevron) {
+  function expand(section, body) {
     body.style.display = '';
     section.classList.remove('is-collapsed');
   }
@@ -676,20 +678,24 @@
     var id = section.id || ('section-' + Math.random().toString(36).slice(2));
     if (!section.id) section.id = id;
 
-    // Restore saved state
-    var collapsed = getCollapsed();
-    if (collapsed[id]) collapse(section, body, chev, false);
+    // Default: collapsed. Expand only if user previously opened this section.
+    var open = getOpen();
+    if (open[id]) {
+      expand(section, body);
+    } else {
+      collapse(section, body);
+    }
 
     header.addEventListener('click', function () {
-      var map = getCollapsed();
+      var map = getOpen();
       if (section.classList.contains('is-collapsed')) {
-        expand(section, body, chev);
-        delete map[id];
-      } else {
-        collapse(section, body, chev, true);
+        expand(section, body);
         map[id] = true;
+      } else {
+        collapse(section, body);
+        delete map[id];
       }
-      saveCollapsed(map);
+      saveOpen(map);
     });
   });
 
@@ -701,10 +707,10 @@
     if (!target || !target.classList.contains('settings-section')) return;
     var body = target.querySelector('.settings-section-body');
     if (target.classList.contains('is-collapsed') && body) {
-      expand(target, body, target.querySelector('.collapsible-chevron'));
-      var map = getCollapsed();
-      delete map[hash];
-      saveCollapsed(map);
+      expand(target, body);
+      var map = getOpen();
+      map[hash] = true;
+      saveOpen(map);
     }
   }
   window.addEventListener('hashchange', expandHash);
