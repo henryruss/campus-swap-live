@@ -23,26 +23,6 @@
   .subtab-pill.active { background: var(--primary); color: white; border-color: var(--primary); }
   .subtab-pill:hover:not(.active) { background: #f1f5f9; color: var(--text-main); }
 
-  .store-controls-toggle {
-    display: flex; align-items: center; gap: 8px; cursor: pointer;
-    font-size: 0.82rem; font-weight: 600; color: var(--text-muted);
-    margin-bottom: 12px;
-  }
-  .store-controls-body {
-    background: white; border: var(--card-border); border-radius: 12px;
-    padding: 16px 20px; margin-bottom: 20px; display: none;
-  }
-  .store-controls-body.open { display: block; }
-  .store-controls-grid { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
-  .store-control-item { display: flex; flex-direction: column; gap: 4px; }
-  .store-control-item label { font-size: 0.8rem; color: var(--text-muted); }
-  .toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; }
-  .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
-  .toggle-switch input { opacity: 0; width: 0; height: 0; }
-  .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: #d1d5db; border-radius: 20px; transition: 0.2s; }
-  .toggle-slider:before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
-  input:checked + .toggle-slider { background: var(--sage); }
-  input:checked + .toggle-slider:before { transform: translateX(16px); }
 
   .items-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
   .items-filter-bar input, .items-filter-bar select {
@@ -304,12 +284,25 @@
 <div class="items-wrap">
   <div class="items-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <h1>Items</h1>
-    {% if current_user.is_super_admin %}
-    <button type="button" onclick="openAIGenModal()"
-            style="background:var(--primary);color:white;border:none;border-radius:9px;padding:9px 18px;font-size:0.88rem;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;">
-      <i class="fas fa-robot"></i> AI Autofill ✦
-    </button>
-    {% endif %}
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <a href="{{ url_for('admin_export_items') }}"
+         class="btn-outline"
+         style="padding:8px 14px;font-size:0.83rem;font-weight:600;text-decoration:none;white-space:nowrap;"
+         title="Download all items as CSV">
+        <i class="fas fa-download"></i> Export CSV
+      </a>
+      {% if current_user.is_super_admin %}
+      <button type="button" onclick="openAIGenModal()"
+              style="background:var(--primary);color:white;border:none;border-radius:9px;padding:9px 18px;font-size:0.88rem;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;">
+        <i class="fas fa-robot"></i> AI Autofill ✦
+      </button>
+      {% endif %}
+      <button type="button" onclick="openNewSellerModal()"
+              class="btn-outline"
+              style="padding:8px 14px;font-size:0.83rem;font-weight:600;white-space:nowrap;">
+        + New Seller
+      </button>
+    </div>
   </div>
 
   {# Stats bar #}
@@ -319,23 +312,17 @@
       <div class="stat-label">Total items</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">{{ pending_approval }}</div>
-      <div class="stat-label">Pending approval</div>
+      <div class="stat-num">{{ in_storage_count }}</div>
+      <div class="stat-label">In storage</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">{{ available_count }}</div>
-      <div class="stat-label">Available</div>
+      <div class="stat-num">{{ total_sellers }}</div>
+      <div class="stat-label">Total sellers</div>
     </div>
     <div class="stat-card">
       <div class="stat-num">{{ sold_count }}</div>
-      <div class="stat-label">Sold</div>
+      <div class="stat-label">Items sold</div>
     </div>
-    <a href="{{ url_for('admin_export_items') }}"
-       class="btn-outline"
-       style="margin-left: auto; align-self: center; padding: 8px 14px; font-size: 0.83rem; font-weight: 600; text-decoration: none; white-space: nowrap;"
-       title="Download all items as CSV">
-      <i class="fas fa-download"></i> Export CSV
-    </a>
   </div>
 
   {# Sub-tab pills #}
@@ -365,69 +352,6 @@
       {% endif %}
     </a>
     {% endif %}
-  </div>
-
-  {# Store controls (collapsible) #}
-  <div class="store-controls-toggle" onclick="toggleStoreControls()">
-    <i class="fas fa-store" style="color: var(--sage);"></i>
-    Store controls
-    <i class="fas fa-chevron-down" id="storeChevron" style="transition: transform 0.2s;"></i>
-  </div>
-  <div class="store-controls-body" id="storeControlsBody">
-    <div class="store-controls-grid">
-      <form method="POST" action="/admin" style="display: contents;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <div class="store-control-item">
-          <span class="toggle-label">
-            <label class="toggle-switch">
-              <input type="checkbox" name="active" {% if pickup_period_active %}checked{% endif %}
-                     onchange="this.form.submit()">
-              <span class="toggle-slider"></span>
-            </label>
-            Pickup period active
-          </span>
-          <input type="hidden" name="toggle_pickup_period" value="1">
-        </div>
-      </form>
-      <form method="POST" action="/admin" style="display: contents;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <div class="store-control-item">
-          <span class="toggle-label">
-            <label class="toggle-switch">
-              <input type="checkbox" {% if reserve_only %}checked{% endif %}
-                     onchange="this.form.submit()">
-              <span class="toggle-slider"></span>
-            </label>
-            Reserve-only mode
-          </span>
-          <input type="hidden" name="toggle_reserve_only" value="1">
-        </div>
-      </form>
-      <form method="POST" action="/admin" style="display: contents;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <div class="store-control-item">
-          <span class="toggle-label">
-            <label class="toggle-switch">
-              <input type="checkbox" {% if shop_teaser_mode == 'true' %}checked{% endif %}
-                     onchange="this.form.submit()">
-              <span class="toggle-slider"></span>
-            </label>
-            Shop teaser mode
-          </span>
-          <input type="hidden" name="toggle_shop_teaser" value="1">
-        </div>
-      </form>
-      <div class="store-control-item">
-        <label>Store open date</label>
-        <form method="POST" action="/admin" style="display: flex; gap: 6px;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-          <input type="date" name="store_open_date_value" value="{{ store_open_date }}"
-                 style="padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.83rem;">
-          <input type="hidden" name="update_store_open_date" value="1">
-          <button type="submit" class="btn-outline" style="padding: 6px 12px; font-size: 0.8rem;">Save</button>
-        </form>
-      </div>
-    </div>
   </div>
 
   {# ── APPROVAL QUEUE sub-tab ── #}
@@ -826,7 +750,6 @@
                     style="background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--primary);text-align:left;font-weight:600;">
               {{ item.description[:60] }}{% if item.description|length > 60 %}…{% endif %}
             </button>
-            {% if item.collection_method == 'free' %}<small>Free tier</small>{% endif %}
           </td>
           <td>
             {% if item.seller %}
@@ -957,13 +880,38 @@
           <thead><tr><th>Started</th><th>Completed</th><th>Total</th><th>OK</th><th>Errors</th></tr></thead>
           <tbody>
             {% for entry in run_log | reverse %}
+            {% set loop_idx = loop.index %}
             <tr>
               <td>{{ entry.started_at }}</td>
               <td>{{ entry.completed_at }}</td>
               <td>{{ entry.total }}</td>
               <td style="color:var(--primary);font-weight:700;">{{ entry.succeeded }}</td>
-              <td style="color:{% if entry.errors > 0 %}#dc2626{% else %}var(--text-muted){% endif %};font-weight:{% if entry.errors > 0 %}700{% else %}400{% endif %};">{{ entry.errors }}</td>
+              <td>
+                {% if entry.errors > 0 %}
+                <button type="button"
+                        onclick="toggleRunErrors('run-errors-{{ loop_idx }}')"
+                        style="background:none;border:none;padding:0;cursor:pointer;font:inherit;font-size:0.8rem;color:#dc2626;font-weight:700;text-decoration:underline;">
+                  {{ entry.errors }}
+                </button>
+                {% else %}
+                <span style="color:var(--text-muted);">0</span>
+                {% endif %}
+              </td>
             </tr>
+            {% if entry.errors > 0 and entry.error_items is defined and entry.error_items %}
+            <tr id="run-errors-{{ loop_idx }}" style="display:none;">
+              <td colspan="5" style="padding:0 10px 10px;">
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;">
+                  <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#dc2626;margin-bottom:6px;">Failed items</div>
+                  {% for err in entry.error_items %}
+                  <div style="font-size:0.8rem;color:#7f1d1d;padding:3px 0;border-bottom:1px solid #fecaca;">
+                    <strong>Item #{{ err.item_id }}</strong> — {{ err.reason }}
+                  </div>
+                  {% endfor %}
+                </div>
+              </td>
+            </tr>
+            {% endif %}
             {% endfor %}
           </tbody>
         </table>
@@ -974,12 +922,98 @@
 </div>
 {% endif %}
 
+{# New Seller (proxy) modal — visible to all admins #}
+<div id="new-seller-modal-overlay"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:4000;align-items:center;justify-content:center;padding:24px 16px;"
+     onclick="if(event.target===this)closeNewSellerModal()">
+  <div style="background:white;border-radius:20px;width:100%;max-width:440px;box-shadow:var(--glass-shadow);padding:28px 28px 24px;position:relative;">
+    <button onclick="closeNewSellerModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.4rem;color:var(--text-muted);cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1;">&times;</button>
+    <h3 style="font-family:'DM Serif Display',serif;font-size:1.25rem;color:var(--primary);margin:0 0 20px;">+ New Seller</h3>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px;">Full name <span style="color:#dc2626;">*</span></label>
+        <input id="ns-name" type="text" placeholder="Jane Smith"
+               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:9px 12px;font-size:0.9rem;font-family:inherit;outline:none;">
+      </div>
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px;">Email</label>
+        <input id="ns-email" type="email" placeholder="jane@example.com"
+               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:9px 12px;font-size:0.9rem;font-family:inherit;outline:none;">
+      </div>
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px;">Phone</label>
+        <input id="ns-phone" type="tel" placeholder="(919) 555-0100"
+               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:9px 12px;font-size:0.9rem;font-family:inherit;outline:none;">
+      </div>
+      <div id="ns-error" style="display:none;font-size:0.83rem;color:#dc2626;font-weight:600;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;"></div>
+      <div id="ns-success" style="display:none;font-size:0.85rem;color:#166534;font-weight:600;background:#dcfce7;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
+      <button type="button" onclick="closeNewSellerModal()" class="btn-outline" style="padding:9px 18px;font-size:0.88rem;">Cancel</button>
+      <button type="button" id="ns-submit-btn" onclick="submitNewSeller()"
+              style="background:var(--primary);color:white;border:none;border-radius:9px;padding:9px 22px;font-size:0.88rem;font-weight:700;cursor:pointer;font-family:inherit;">
+        Create Seller
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
-  function toggleStoreControls() {
-    var body = document.getElementById('storeControlsBody');
-    var chevron = document.getElementById('storeChevron');
-    var open = body.classList.toggle('open');
-    chevron.style.transform = open ? 'rotate(180deg)' : '';
+  function toggleRunErrors(id) {
+    var row = document.getElementById(id);
+    if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  }
+
+  function openNewSellerModal() {
+    var overlay = document.getElementById('new-seller-modal-overlay');
+    overlay.style.display = 'flex';
+    document.getElementById('ns-name').value = '';
+    document.getElementById('ns-email').value = '';
+    document.getElementById('ns-phone').value = '';
+    document.getElementById('ns-error').style.display = 'none';
+    document.getElementById('ns-success').style.display = 'none';
+    document.getElementById('ns-submit-btn').disabled = false;
+    document.getElementById('ns-name').focus();
+  }
+  function closeNewSellerModal() {
+    document.getElementById('new-seller-modal-overlay').style.display = 'none';
+  }
+  function submitNewSeller() {
+    var name = document.getElementById('ns-name').value.trim();
+    var email = document.getElementById('ns-email').value.trim();
+    var phone = document.getElementById('ns-phone').value.trim();
+    var errEl = document.getElementById('ns-error');
+    errEl.style.display = 'none';
+    if (!name) { errEl.textContent = 'Full name is required.'; errEl.style.display = 'block'; return; }
+    if (!email && !phone) { errEl.textContent = 'At least one of email or phone is required.'; errEl.style.display = 'block'; return; }
+    var btn = document.getElementById('ns-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ csrf_token() }}');
+    fd.append('full_name', name);
+    fd.append('email', email);
+    fd.append('phone', phone);
+    fetch('/admin/warehouse/seller/create', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          document.getElementById('ns-success').textContent = 'Seller ' + name + ' created. Add their items from the Warehouse tab.';
+          document.getElementById('ns-success').style.display = 'block';
+          btn.style.display = 'none';
+        } else {
+          errEl.textContent = d.message || 'Something went wrong.';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Create Seller';
+        }
+      })
+      .catch(function() {
+        errEl.textContent = 'Network error. Please try again.';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Create Seller';
+      });
   }
 
   // ── Item Detail Slide-in Panel ──

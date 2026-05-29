@@ -13501,12 +13501,19 @@ def admin_items():
 
     # Stats bar
     total_items = InventoryItem.query.filter(InventoryItem.status != 'rejected').count()
+    in_storage_count = InventoryItem.query.filter(
+        InventoryItem.storage_location_id.isnot(None),
+        InventoryItem.status.notin_(['sold', 'rejected']),
+    ).count()
+    total_sellers = db.session.query(db.func.count(db.func.distinct(InventoryItem.seller_id))).filter(
+        InventoryItem.status != 'rejected'
+    ).scalar() or 0
+    sold_count = InventoryItem.query.filter_by(status='sold').count()
+    # Keep pending_approval for approval queue badge
     pending_approval = InventoryItem.query.filter(
         InventoryItem.status == 'pending_valuation',
         InventoryItem.is_quick_capture == False,
     ).count()
-    available_count = InventoryItem.query.filter_by(status='available').count()
-    sold_count = InventoryItem.query.filter_by(status='sold').count()
 
     # Approval queue
     approval_items = []
@@ -13641,9 +13648,10 @@ def admin_items():
         'admin/items.html',
         view=view,
         total_items=total_items,
-        pending_approval=pending_approval,
-        available_count=available_count,
+        in_storage_count=in_storage_count,
+        total_sellers=total_sellers,
         sold_count=sold_count,
+        pending_approval=pending_approval,
         approval_items=approval_items,
         ai_review_items=ai_review_items,
         photo_verification_items=photo_verification_items,
@@ -14649,6 +14657,7 @@ def _run_ai_generation_job(app, job_id, item_ids, model):
                         photo_data.append((photo_bytes, ext))
                 if not photo_data:
                     item.ai_generated_at = datetime.utcnow()
+                    item.needs_new_photo = True
                     db.session.commit()
                     _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': 'No photo files found'})
                     error_count += 1
@@ -14745,14 +14754,17 @@ Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markd
             except Exception as e:
                 error_count += 1
                 app.logger.error(f'AI generation error for item {item_id}: {e}')
+                err_str = str(e)
                 try:
                     item = InventoryItem.query.get(item_id)
                     if item and item.ai_generated_at is None:
                         item.ai_generated_at = datetime.utcnow()
+                        if 'photo' in err_str.lower() or 'file' in err_str.lower():
+                            item.needs_new_photo = True
                         db.session.commit()
                 except Exception:
                     db.session.rollback()
-                _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': str(e)})
+                _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': err_str})
             finally:
                 _AI_JOBS[job_id]['completed'] += 1
         _AI_JOBS[job_id]['done'] = True
@@ -14768,6 +14780,7 @@ Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markd
             'total': len(item_ids),
             'succeeded': succeeded,
             'errors': error_count,
+            'error_items': _AI_JOBS[job_id]['errors'],
         })
         run_log = run_log[-10:]
         AppSetting.set('ai_autofill_run_log', json.dumps(run_log))
