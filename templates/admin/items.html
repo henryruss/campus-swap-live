@@ -1509,10 +1509,12 @@
     var titleEl = mb.querySelector('[name=description]');
     var descEl = mb.querySelector('[name=long_description]');
     var priceEl = mb.querySelector('[name=price]');
+    var retailPriceEl = mb.querySelector('[name=retail_price]');
     var needsPhotoEl = mb.querySelector('#ai-needs-photo-checkbox');
     if (titleEl) body.append('description', titleEl.value);
     if (descEl) body.append('long_description', descEl.value);
     if (priceEl) body.append('price', priceEl.value);
+    if (retailPriceEl) body.append('retail_price', retailPriceEl.value);
     if (needsPhotoEl && needsPhotoEl.checked) {
       body.append('needs_new_photo', '1');
       var photoNoteEl = mb.querySelector('#ai-photo-note-input');

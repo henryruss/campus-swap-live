@@ -14851,7 +14851,7 @@ def admin_ai_review_detail(item_id):
         if gp.photo_url not in all_photos:
             all_photos.append(gp.photo_url)
     retail_price = float(item.ai_retail_price) if item.ai_retail_price else None
-    savings_pct = round((1 - ai_price / retail_price) * 100) if retail_price and retail_price > 0 and ai_price > 0 else None
+    savings_pct = round((1 - final_price / retail_price) * 100) if retail_price and retail_price > 0 and final_price > 0 else None
     return render_template(
         'admin/ai_review_detail_partial.html',
         item=item,
@@ -14913,7 +14913,13 @@ def admin_ai_approve(item_id):
     item.description = title
     item.long_description = body
     item.price = final_price
-    if item.ai_retail_price:
+    retail_override = request.form.get('retail_price', '').strip()
+    if retail_override:
+        try:
+            item.retail_price = round(float(retail_override), 2) or None
+        except ValueError:
+            pass
+    elif item.ai_retail_price:
         item.retail_price = item.ai_retail_price
     if request.form.get('needs_new_photo') == '1':
         item.needs_new_photo = True

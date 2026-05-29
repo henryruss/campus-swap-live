@@ -265,7 +265,7 @@ function whlSave() {
     if (ph) fd.append('new_phone', ph);
   }
 
-  fetch('/admin/warehouse/log-item', { method:'POST', body:fd, headers: csrf ? {'X-CSRFToken': csrf.value} : {} })
+  fetch('/admin/warehouse/log-item', { method:'POST', body:fd })
     .then(function(r){ return r.json(); })
     .then(function(data) {
       if (data.success) {

@@ -111,17 +111,21 @@
                    onblur="document.getElementById('price-input-wrap').style.borderColor='var(--rule)'">
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
-          {% if retail_price %}
-          <span style="font-size:0.82rem;color:var(--text-muted);">
-            Retail ~<strong>${{ '%.0f'|format(retail_price) }}</strong>
-          </span>
-          {% if savings_pct %}
-          <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;border:1.5px solid var(--rule);border-radius:8px;padding:0 10px;background:white;max-width:140px;"
+               id="retail-price-input-wrap">
+            <span style="color:var(--text-muted);font-size:0.78rem;font-weight:600;white-space:nowrap;">Retail $</span>
+            <input type="number" name="retail_price" step="1" min="0"
+                   value="{{ '%.0f'|format(retail_price) if retail_price else '' }}"
+                   id="ai-retail-price-input"
+                   placeholder="0"
+                   style="width:70px;border:none;outline:none;padding:6px 4px;font-size:0.88rem;background:transparent;font-family:inherit;"
+                   onfocus="document.getElementById('retail-price-input-wrap').style.borderColor='var(--primary)'"
+                   onblur="document.getElementById('retail-price-input-wrap').style.borderColor='var(--rule)'">
+          </div>
+          <span id="ai-savings-badge" style="{% if not savings_pct %}display:none;{% endif %}background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">
             {{ savings_pct }}% off retail
           </span>
-          {% endif %}
-          {% endif %}
         </div>
         <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">
           AI suggested: <strong>${{ '%.2f'|format(ai_price) }}</strong>
@@ -197,13 +201,13 @@ function setCoverPhoto() {
   btn.disabled = true;
 
   var body = new URLSearchParams({ photo_url: photoUrl });
-  if (typeof _csrf !== 'undefined') body.append('csrf_token', _csrf);
+  body.append('csrf_token', _aiCsrf);
 
   fetch('/admin/ai/item/' + itemId + '/set-cover-photo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': typeof _csrf !== 'undefined' ? _csrf : ''
+      'X-CSRFToken': _aiCsrf
     },
     body: body.toString(),
   })
@@ -245,13 +249,13 @@ function deleteGalleryPhoto() {
   deleteBtn.disabled = true;
 
   var body = new URLSearchParams({ photo_url: photoUrl });
-  if (typeof _csrf !== 'undefined') body.append('csrf_token', _csrf);
+  body.append('csrf_token', _aiCsrf);
 
   fetch('/admin/item/' + itemId + '/delete-gallery-photo', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': typeof _csrf !== 'undefined' ? _csrf : ''
+      'X-CSRFToken': _aiCsrf
     },
     body: body.toString(),
   })
