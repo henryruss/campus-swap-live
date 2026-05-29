@@ -44,7 +44,7 @@
     {% endif %}
   </div>
 
-  {# Item info — read-only #}
+  {# Item info — editable #}
   <div class="approval-modal-info-body">
     <div class="approval-modal-meta">
       {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
@@ -53,21 +53,47 @@
       {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
     </div>
 
-    <div style="font-size:1.05rem;font-weight:700;color:var(--text-main);margin-bottom:6px;">{{ item.description or 'Untitled' }}</div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
+          Title <span style="font-weight:400;">(max 200 chars)</span>
+        </label>
+        <input type="text" id="pv-title-input" maxlength="200"
+               value="{{ item.description or '' }}"
+               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.92rem;font-family:inherit;outline:none;"
+               onfocus="this.style.borderColor='var(--primary)'"
+               onblur="this.style.borderColor='var(--rule)'">
+      </div>
 
-    {% if item.long_description %}
-    <div style="font-size:0.88rem;color:var(--text-muted);line-height:1.55;margin-bottom:12px;">{{ item.long_description }}</div>
-    {% endif %}
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
+          Description <span style="font-weight:400;">(max 2000 chars)</span>
+        </label>
+        <textarea id="pv-desc-input" maxlength="2000" rows="4"
+                  style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.88rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;"
+                  onfocus="this.style.borderColor='var(--primary)'"
+                  onblur="this.style.borderColor='var(--rule)'">{{ item.long_description or '' }}</textarea>
+      </div>
 
-    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
-      {% if item.price %}
-      <span style="font-size:1.4rem;font-weight:800;color:var(--accent);">${{ '%.2f'|format(item.price) }}</span>
-      {% endif %}
-      {% if item.retail_price and item.price and item.retail_price > item.price %}
-      {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
-      <span style="font-size:0.85rem;color:var(--text-muted);text-decoration:line-through;">~${{ '%.0f'|format(item.retail_price) }} retail</span>
-      <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
-      {% endif %}
+      <div>
+        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">Price ($)</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;border:1.5px solid var(--rule);border-radius:8px;padding:0 10px;background:white;max-width:140px;"
+               id="pv-price-wrap">
+            <span style="color:var(--text-muted);font-weight:700;font-size:1rem;">$</span>
+            <input type="number" id="pv-price-input" step="0.01" min="0.01"
+                   value="{{ '%.2f'|format(item.price) if item.price else '' }}"
+                   style="width:90px;border:none;outline:none;padding:8px 4px;font-size:0.92rem;background:transparent;font-family:inherit;"
+                   onfocus="document.getElementById('pv-price-wrap').style.borderColor='var(--primary)'"
+                   onblur="document.getElementById('pv-price-wrap').style.borderColor='var(--rule)'">
+          </div>
+          {% if item.retail_price and item.price and item.retail_price > item.price %}
+          {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+          <span style="font-size:0.82rem;color:var(--text-muted);">Retail ~<strong>${{ '%.0f'|format(item.retail_price) }}</strong></span>
+          <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+          {% endif %}
+        </div>
+      </div>
     </div>
   </div>
 </div>

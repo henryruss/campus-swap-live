@@ -1666,6 +1666,13 @@
     btn.disabled = true; btn.textContent = 'Saving…';
     var csrf = '{{ csrf_token() }}';
     var fd = new FormData(); fd.append('csrf_token', csrf);
+    var mb = document.getElementById('pv-modal-body');
+    var titleEl = mb ? mb.querySelector('#pv-title-input') : null;
+    var descEl  = mb ? mb.querySelector('#pv-desc-input')  : null;
+    var priceEl = mb ? mb.querySelector('#pv-price-input') : null;
+    if (titleEl) fd.append('description', titleEl.value.trim());
+    if (descEl)  fd.append('long_description', descEl.value.trim());
+    if (priceEl && priceEl.value) fd.append('price', priceEl.value);
     fetch('/admin/item/' + _pvCurrentItemId + '/verify-photo', {
       method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }
     })

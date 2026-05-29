@@ -15033,6 +15033,20 @@ def admin_item_verify_photo(item_id):
     if not _has_ops_access():
         abort(403)
     item = InventoryItem.query.get_or_404(item_id)
+    title = request.form.get('description', '').strip()
+    body = request.form.get('long_description', '').strip()
+    price_raw = request.form.get('price', '').strip()
+    if title:
+        item.description = title[:200]
+    if body is not None and request.form.get('long_description') is not None:
+        item.long_description = body[:2000] or None
+    if price_raw:
+        try:
+            p = round(float(price_raw), 2)
+            if p > 0:
+                item.price = p
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid price'}), 400
     item.needs_photo_verification = False
     db.session.commit()
     return jsonify({'success': True})
