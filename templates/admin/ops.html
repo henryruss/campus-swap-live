@@ -677,6 +677,9 @@
         {% else %}
         <span class="ops-slot-badge {{ item.shift.slot }}">{{ item.shift.slot | upper }}</span>
         {% endif %}
+        {% if item.shift.has_delivery_trucks %}
+          <span style="display:inline-block; padding:1px 6px; border-radius:8px; font-size:0.62rem; font-weight:700; background:#ccfbf1; color:#0d9488; flex-shrink:0; text-transform:uppercase; letter-spacing:0.03em; margin-left:2px;">Delivery</span>
+        {% endif %}
         {% if item.notified %}
           <span class="ops-shift-status status-notified"><i class="fas fa-check"></i></span>
         {% elif item.unnotified_count > 0 %}
@@ -783,6 +786,95 @@
 
       {% for card in cards %}
       <div class="truck-card-new" id="truck-card-{{ card.truck_number }}">
+
+        {% if card.is_delivery %}
+        {# ── Delivery truck card ── #}
+        <div class="truck-card-header-row">
+          <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
+          <span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.68rem; font-weight:700; background:#ccfbf1; color:#0d9488; text-transform:uppercase; letter-spacing:0.04em; flex-shrink:0;">Delivery</span>
+
+          {% if card.delivery_live %}
+            {% if card.delivery_live.status == 'in_progress' %}
+            <span class="truck-run-pill pill-in-progress">In progress</span>
+            {% elif card.delivery_live.status == 'completed' %}
+            <span class="truck-run-pill pill-complete">Complete</span>
+            {% endif %}
+          {% endif %}
+
+          <div class="cap-bar-wrap">
+            <div class="cap-bar-outer">
+              <div class="cap-bar-inner {{ 'green' if card.cap_pct <= 75 else ('amber' if card.cap_pct <= 100 else 'red') }}"
+                   style="width: {{ [card.cap_pct, 100] | min }}%;"></div>
+            </div>
+            <span class="cap-label">{{ card.load | round(1) }}/{{ card.effective_cap }}u</span>
+          </div>
+
+          <button class="btn-sm"
+                  style="margin-left: auto;"
+                  onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
+            <i class="fas fa-list"></i> View stops
+          </button>
+        </div>
+
+        {# Delivery live state row #}
+        {% if card.delivery_live %}
+        <div class="live-summary-row">
+          <span class="live-stat">
+            <span class="live-stat-num">{{ card.delivery_live.stops_done }}</span>
+            <span class="live-stat-label">/ {{ card.delivery_live.stops_total }} delivered</span>
+          </span>
+          {% if card.delivery_live.current_stop %}
+          <span class="live-stat">
+            <span class="live-stat-label">Next: #{{ card.delivery_live.current_stop.buyer_order.item.id }}</span>
+          </span>
+          {% else %}
+          <span class="live-stat" style="color:#166534; font-weight:600;">All stops resolved</span>
+          {% endif %}
+          {% if card.delivery_live.stops_issue > 0 %}
+          <span class="live-stat" style="color:#dc2626; font-weight:600;">
+            <i class="fas fa-exclamation-triangle"></i> {{ card.delivery_live.stops_issue }} issue{{ 's' if card.delivery_live.stops_issue != 1 }}
+          </span>
+          {% endif %}
+        </div>
+        {% if card.delivery_live.has_issue %}
+        <div class="issue-alert-strip" onclick="openTruckDrawer({{ shift.id }}, {{ card.truck_number }})">
+          <i class="fas fa-exclamation-triangle"></i> Issue flagged — tap to view
+        </div>
+        {% endif %}
+        {% else %}
+        {# Pre-run delivery stop list #}
+        <div class="stop-list">
+          {% if not card.delivery_stops %}
+          <div style="padding:16px; font-size:0.83rem; color:var(--text-muted); text-align:center;">
+            No delivery stops assigned — assign from the delivery queue.
+          </div>
+          {% endif %}
+          {% for stop in card.delivery_stops %}
+          {% set item = stop.buyer_order.item %}
+          <div class="stop-row">
+            <div class="stop-num-circle pending">
+              {{ stop.stop_order if stop.stop_order is not none else '–' }}
+            </div>
+            <div class="stop-info">
+              <div class="stop-seller-name">
+                <span style="font-size:0.68rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
+                {{ item.description }}
+              </div>
+              <div class="stop-address">{{ stop.buyer_order.delivery_address.split(',')[:2] | join(', ') }}</div>
+              <div class="stop-badges">
+                {% if stop.notified_at %}<span style="background:#ccfbf1;color:#0d9488;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">notified</span>{% endif %}
+              </div>
+            </div>
+            <div class="stop-units">{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="truck-card-footer"></div>
+
+        {% else %}
+        {# ── Pickup truck card (existing) ── #}
         <div class="truck-card-header-row">
           <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
 
@@ -928,6 +1020,8 @@
           </button>
           {% endif %}
         </div>
+        {% endif %}{# end is_delivery / else #}
+
       </div>
       {% endfor %}
     </div>
@@ -1058,6 +1152,24 @@
     </div>
     {% endif %}
     {% endif %}
+
+    {# ── Unassigned Deliveries ── #}
+    <div style="border-top: var(--card-border); padding: 14px 12px 10px; position:sticky; top:0; background:white; z-index:9;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
+        <h3 style="font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin:0;">
+          Unassigned Deliveries
+        </h3>
+        {% if delivery_queue %}
+        <span style="background:#0d9488; color:white; border-radius:20px; padding:1px 8px; font-size:0.72rem; font-weight:700;">
+          {{ delivery_queue | length }}
+        </span>
+        {% endif %}
+      </div>
+      <div style="font-size:0.75rem; color:var(--text-muted);">Sold items awaiting delivery assignment</div>
+    </div>
+    <div id="delivery-queue-list">
+      {% include 'admin/ops_delivery_queue_partial.html' with context %}
+    </div>
   </aside>
 
 </div>

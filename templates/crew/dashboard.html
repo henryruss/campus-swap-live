@@ -179,6 +179,12 @@
           <i class="fas fa-clipboard-check"></i> Open Intake
           <i class="fas fa-arrow-right"></i>
         </a>
+      {% elif today_shift.id in (delivery_shift_ids or []) %}
+        {# Delivery shift #}
+        <a href="{{ url_for('crew_delivery_view', shift_id=today_shift.id) }}" class="btn-go-shift">
+          <i class="fas fa-truck"></i> Go to Delivery
+          <i class="fas fa-arrow-right"></i>
+        </a>
       {% else %}
         {# Movers go to shift view #}
         <a href="{{ url_for('crew_shift_view', shift_id=today_shift.id) }}" class="btn-go-shift">
@@ -260,22 +266,26 @@
               {% if day_shifts | length == 1 %}
                 {% set shift = day_shifts[0][0] %}
                 {% set role = day_shifts[0][1] %}
-                {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else url_for('crew_shift_view', shift_id=shift.id) %}
+                {% set is_del = shift.id in (delivery_shift_ids or []) %}
+                {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else (url_for('crew_delivery_view', shift_id=shift.id) if is_del else url_for('crew_shift_view', shift_id=shift.id)) %}
                 <a href="{{ shift_url }}" style="text-decoration: none; display: block;">
                 <div class="my-shift-row" style="cursor: pointer;">
                   <span class="my-shift-day">{{ shift._DAY_LABELS[day][:3] }}</span>
                   <span class="slot-pill slot-pill-{{ shift.slot }}">{{ shift.slot|upper }}</span>
                   <span class="role-pill">{{ 'Mover' if role == 'driver' else 'Organizer' }}</span>
+                  {% if is_del %}<span style="font-size:0.65rem; background:#ccfbf1; color:#0d9488; border-radius:6px; padding:1px 5px; font-weight:700;">DEL</span>{% endif %}
                 </div>
                 </a>
               {% else %}
                 {% for shift, role in day_shifts %}
-                  {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else url_for('crew_shift_view', shift_id=shift.id) %}
+                  {% set is_del = shift.id in (delivery_shift_ids or []) %}
+                  {% set shift_url = url_for('crew_intake_shift', shift_id=shift.id) if role == 'organizer' else (url_for('crew_delivery_view', shift_id=shift.id) if is_del else url_for('crew_shift_view', shift_id=shift.id)) %}
                   <a href="{{ shift_url }}" style="text-decoration: none; display: block;">
                   <div class="my-shift-row" style="cursor: pointer;">
                     <span class="my-shift-day">{{ shift._DAY_LABELS[day][:3] }}</span>
                     <span class="slot-pill slot-pill-{{ shift.slot }}">{{ shift.slot|upper }}</span>
                     <span class="role-pill">{{ 'Mover' if role == 'driver' else 'Organizer' }}</span>
+                    {% if is_del %}<span style="font-size:0.65rem; background:#ccfbf1; color:#0d9488; border-radius:6px; padding:1px 5px; font-weight:700;">DEL</span>{% endif %}
                   </div>
                   </a>
                 {% endfor %}

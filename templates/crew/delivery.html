@@ -1,0 +1,366 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .shift-view-wrap {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+  }
+  .shift-view-header {
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--rule);
+    padding: 24px 16px 20px;
+  }
+  .shift-view-header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    color: var(--primary);
+    margin: 0 0 4px;
+  }
+  .shift-view-header p { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+
+  .delivery-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: #ccfbf1;
+    color: #0d9488;
+    margin-left: 8px;
+  }
+
+  .not-today-banner {
+    background: #fef9c3; border: 1px solid #fde047; border-radius: 10px;
+    padding: 12px 16px; font-size: 0.875rem; color: #854d0e;
+    margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+  }
+
+  .prestart-card {
+    background: white; border: var(--card-border); border-radius: 14px;
+    padding: 28px 24px; text-align: center; margin-bottom: 20px;
+  }
+  .prestart-card h2 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: var(--primary); margin: 0 0 8px; }
+  .prestart-meta { color: var(--text-muted); font-size: 0.875rem; margin: 0 0 24px; }
+  .btn-start-shift {
+    display: block; width: 100%; padding: 16px; font-size: 1.1rem; font-weight: 700;
+    background: var(--accent); color: white; border: none; border-radius: 12px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .btn-start-shift:hover { background: var(--accent-hover); }
+
+  .progress-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    padding: 14px 16px; background: white; border: var(--card-border); border-radius: 12px;
+  }
+  .progress-label { font-weight: 700; font-size: 0.9rem; color: var(--primary); white-space: nowrap; }
+  .progress-bar-wrap { flex: 1; background: var(--bg-cream); border-radius: 999px; height: 8px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: #0d9488; border-radius: 999px; transition: width 0.3s ease; }
+
+  /* Stop cards */
+  .stop-card {
+    background: white; border: var(--card-border); border-radius: 14px;
+    padding: 20px 20px 16px; margin-bottom: 14px;
+  }
+  .stop-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .stop-item-title { font-size: 1.1rem; font-weight: 700; color: var(--primary); line-height: 1.2; }
+  .stop-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.75rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; margin-left: 10px;
+  }
+  .badge-pending  { background: #f1f5f9; color: var(--text-muted); }
+  .badge-completed { background: #dcfce7; color: #166534; }
+  .badge-issue    { background: #fef3c7; color: #92400e; }
+
+  .stop-id-badge {
+    font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+    font-family: monospace; margin-right: 6px;
+  }
+  .stop-address { color: var(--text-muted); font-size: 0.875rem; margin: 4px 0 8px; }
+  .stop-thumb {
+    width: 80px; height: 80px; border-radius: 10px; object-fit: cover;
+    border: 1px solid var(--rule); display: block; margin-bottom: 10px;
+  }
+  .stop-unit-badge {
+    display: inline-block; background: #f1f5f9; color: var(--text-muted);
+    border-radius: 6px; padding: 2px 8px; font-size: 0.78rem; font-weight: 600; margin-right: 6px;
+  }
+
+  .stop-actions { display: flex; gap: 10px; margin-top: 12px; }
+  .btn-stop-action {
+    flex: 1; min-height: 48px; padding: 10px 12px; border-radius: 10px;
+    font-size: 0.9rem; font-weight: 700; border: none; cursor: pointer; transition: background 0.15s;
+  }
+  .btn-complete { background: #0d9488; color: white; }
+  .btn-complete:hover { background: #0f766e; }
+  .btn-issue { background: var(--bg-cream); color: var(--accent); border: 1.5px solid var(--accent); }
+  .btn-issue:hover { background: #fef3c7; }
+
+  .inline-notes-form {
+    display: none; margin-top: 14px; padding: 14px;
+    background: var(--bg-cream); border-radius: 10px; border: 1px solid var(--rule);
+  }
+  .inline-notes-form.open { display: block; }
+  .inline-notes-form textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 0.9rem; font-family: inherit; resize: vertical; min-height: 72px;
+    box-sizing: border-box; color: var(--text-main);
+  }
+  .inline-notes-form textarea:focus { outline: none; border-color: var(--primary); }
+  .confirm-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-confirm {
+    flex: 1; min-height: 48px; padding: 10px; background: #0d9488; color: white;
+    border: none; border-radius: 10px; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+  }
+  .btn-confirm:hover { background: #0f766e; }
+  .btn-confirm.issue-confirm { background: var(--accent); }
+  .btn-confirm.issue-confirm:hover { background: var(--accent-hover); }
+  .btn-cancel-inline {
+    padding: 10px 16px; background: none; border: 1.5px solid var(--rule);
+    border-radius: 10px; font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer;
+  }
+
+  .stop-notes-resolved {
+    background: var(--bg-cream); border-radius: 8px; padding: 10px 14px;
+    font-size: 0.875rem; color: var(--text-muted); margin-top: 8px; font-style: italic;
+  }
+
+  .end-run-wrap {
+    margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--rule); text-align: center;
+  }
+  .btn-end-shift {
+    display: inline-block; padding: 14px 40px; background: var(--primary); color: white;
+    border: none; border-radius: 12px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: background 0.15s; min-height: 48px;
+  }
+  .btn-end-shift:hover { background: var(--primary-light); }
+
+  .back-link { display: block; text-align: center; margin-top: 20px; color: var(--text-muted); font-size: 0.875rem; text-decoration: none; }
+</style>
+
+<div class="shift-view-header">
+  <div style="max-width: 520px; margin: 0 auto;">
+    <h1>{{ shift.label }} <span class="delivery-badge">Delivery</span></h1>
+    <p>{{ shift_date.strftime('%A, %B %-d') }} &nbsp;·&nbsp; {{ total_stops }} stop{{ 's' if total_stops != 1 else '' }}</p>
+  </div>
+</div>
+
+<div class="shift-view-wrap">
+
+  {% if not is_today %}
+  <div class="not-today-banner">
+    <i class="fas fa-exclamation-triangle"></i>
+    This delivery is not scheduled for today.
+  </div>
+  {% endif %}
+
+  {% if not delivery_run %}
+  {# ── Pre-run state ── #}
+  <div class="prestart-card">
+    {% if is_past %}
+      <h2>Past delivery</h2>
+      <p class="prestart-meta">{{ shift_date.strftime('%A, %B %-d') }}</p>
+    {% else %}
+      <h2>Ready to deliver?</h2>
+      <p class="prestart-meta">{{ total_stops }} stop{{ 's' if total_stops != 1 else '' }} assigned</p>
+      {% if total_stops > 0 %}
+      <form method="POST" action="{{ url_for('crew_delivery_start', shift_id=shift.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn-start-shift">
+          <i class="fas fa-play-circle"></i> Start Run
+        </button>
+      </form>
+      {% else %}
+      <p style="color:var(--text-muted); font-size:0.875rem; margin-top:12px;">No stops assigned yet — check back soon.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# Pre-run stop preview #}
+  {% for stop in stops %}
+  {% set order = stop.buyer_order %}
+  {% set item = order.item %}
+  <div class="stop-card">
+    <div class="stop-card-header">
+      <span>
+        <span class="stop-id-badge">#{{ item.id }}</span>
+        <span class="stop-item-title">{{ item.description }}</span>
+      </span>
+    </div>
+    {% if item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
+    {% endif %}
+    <div class="stop-address">
+      <i class="fas fa-map-marker-alt"></i>
+      {{ order.delivery_address }}
+    </div>
+    <span class="stop-unit-badge">
+      {{ (item.unit_size or item.category.default_unit_size if item.category else 1.0) | round(1) }}u
+    </span>
+  </div>
+  {% endfor %}
+
+  {% else %}
+  {# ── In-progress state ── #}
+  {% set pct = ((done_stops / total_stops) * 100)|int if total_stops > 0 else 0 %}
+  <div class="progress-row">
+    <span class="progress-label">{{ done_stops }} / {{ total_stops }} delivered</span>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" style="width: {{ pct }}%;"></div>
+    </div>
+    {% if delivery_run.status == 'in_progress' %}
+    <button id="sync-stops-btn" type="button"
+            style="flex-shrink:0; padding:6px 14px; background:none; border:1.5px solid var(--rule); border-radius:8px; font-size:0.82rem; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap;">
+      &#x21bb; Sync
+    </button>
+    {% endif %}
+  </div>
+
+  <div id="stop-list">
+  {% for stop in stops %}
+  {% set order = stop.buyer_order %}
+  {% set item = order.item %}
+  <div class="stop-card" data-stop-id="{{ stop.id }}">
+    <div class="stop-card-header">
+      <span>
+        <span class="stop-id-badge">#{{ item.id }}</span>
+        <span class="stop-item-title">{{ item.description }}</span>
+      </span>
+      <span class="stop-badge badge-{{ stop.status }}">{{ stop.status }}</span>
+    </div>
+    {% if item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
+    {% endif %}
+    <div class="stop-address">
+      <i class="fas fa-map-marker-alt"></i>
+      {{ order.delivery_address }}
+    </div>
+    <div style="margin: 6px 0 10px;">
+      <a href="https://maps.google.com/?q={{ order.delivery_address | urlencode }}"
+         target="_blank"
+         style="display:inline-block; padding:7px 14px; border:1.5px solid #0d9488; border-radius:8px; font-size:0.82rem; font-weight:700; color:#0d9488; text-decoration:none;">
+        Navigate &rarr;
+      </a>
+    </div>
+    <span class="stop-unit-badge">
+      {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
+    </span>
+
+    {% if stop.status == 'pending' and delivery_run.status == 'in_progress' %}
+    <div class="stop-actions">
+      <button class="btn-stop-action btn-complete" onclick="openNotes('complete-{{ stop.id }}')">
+        <i class="fas fa-check"></i> Mark Delivered
+      </button>
+      <button class="btn-stop-action btn-issue" onclick="openNotes('issue-{{ stop.id }}')">
+        <i class="fas fa-exclamation"></i> Flag Issue
+      </button>
+    </div>
+
+    <div class="inline-notes-form" id="complete-{{ stop.id }}">
+      <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="status" value="completed"/>
+        <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Notes (optional)</label>
+        <textarea name="notes" placeholder="Any delivery notes…"></textarea>
+        <div class="confirm-row">
+          <button type="submit" class="btn-confirm">Confirm Delivered</button>
+          <button type="button" class="btn-cancel-inline" onclick="closeNotes('complete-{{ stop.id }}')">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="inline-notes-form" id="issue-{{ stop.id }}">
+      <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="status" value="issue"/>
+        <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Describe the issue</label>
+        <textarea name="notes" placeholder="What happened?"></textarea>
+        <div class="confirm-row">
+          <button type="submit" class="btn-confirm issue-confirm">Confirm Issue</button>
+          <button type="button" class="btn-cancel-inline" onclick="closeNotes('issue-{{ stop.id }}')">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    {% elif stop.status != 'pending' %}
+    {% if stop.notes %}
+    <div class="stop-notes-resolved">
+      <i class="fas fa-sticky-note"></i> {{ stop.notes }}
+    </div>
+    {% endif %}
+    {% if stop.completed_at %}
+    <div style="font-size:0.8rem; color:#166534; margin-top:6px;">
+      <i class="fas fa-check-circle"></i> {{ stop.completed_at.strftime('%-I:%M %p') }}
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  </div>{# end #stop-list #}
+
+  {% if delivery_run.status == 'in_progress' and (total_stops == 0 or done_stops >= total_stops) %}
+  <div class="end-run-wrap">
+    <p style="font-size:0.8rem; color:var(--text-muted); margin:0 0 12px;">
+      {% if total_stops == 0 %}All stops complete.
+      {% else %}{{ done_stops }} / {{ total_stops }} resolved.
+      {% endif %}
+      Tap End Run to finish.
+    </p>
+    <form method="POST" action="{{ url_for('crew_delivery_end', shift_id=shift.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" class="btn-end-shift">
+        <i class="fas fa-flag-checkered"></i> End Run
+      </button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% endif %}{# end delivery_run check #}
+
+  <a href="{{ url_for('crew_dashboard') }}" class="back-link">
+    <i class="fas fa-arrow-left"></i> Back to Crew Portal
+  </a>
+</div>
+
+<script>
+function openNotes(id) {
+  document.querySelectorAll('.inline-notes-form.open').forEach(function(el) {
+    if (el.id !== id) el.classList.remove('open');
+  });
+  var el = document.getElementById(id);
+  if (el) el.classList.add('open');
+}
+function closeNotes(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.remove('open');
+}
+
+(function() {
+  var syncBtn = document.getElementById('sync-stops-btn');
+  if (!syncBtn) return;
+  syncBtn.addEventListener('click', function() {
+    syncBtn.disabled = true;
+    syncBtn.textContent = 'Syncing…';
+    fetch('/crew/delivery/{{ shift.id }}/stops-partial')
+      .then(function(r) { return r.ok ? r.text() : Promise.reject(); })
+      .then(function(html) {
+        if (html && html.indexOf('data-delivery-stops-partial') !== -1) {
+          var el = document.getElementById('stop-list');
+          if (el) el.outerHTML = html;
+        }
+      })
+      .catch(function() {})
+      .finally(function() {
+        syncBtn.disabled = false;
+        syncBtn.textContent = '↻ Sync';
+      });
+  });
+
+  // Auto-refresh every 30s
+  setInterval(function() { if (syncBtn) syncBtn.click(); }, 30000);
+})();
+</script>
+{% endblock %}

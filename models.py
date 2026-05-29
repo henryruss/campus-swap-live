@@ -466,6 +466,11 @@ class Shift(db.Model):
                 len(self.organizer_assignments) >= self.organizers_needed)
 
     @property
+    def has_delivery_trucks(self):
+        """True if any DeliveryStop exists for this shift (computed, not stored)."""
+        return DeliveryStop.query.filter_by(shift_id=self.id).count() > 0
+
+    @property
     def status_label(self):
         if not self.assignments:
             return 'Unassigned'
@@ -663,6 +668,7 @@ class BuyerOrder(db.Model):
     delivery_lng = db.Column(db.Float, nullable=True)
     stripe_session_id = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    delivered_at = db.Column(db.DateTime, nullable=True)  # set when DeliveryStop completed; informational only
 
     item = db.relationship('InventoryItem', backref=db.backref('buyer_order', uselist=False))
 
@@ -720,3 +726,44 @@ class TutorialSession(db.Model):
 
     user          = db.relationship('User', backref=db.backref('tutorial_session', uselist=False))
     tutorial_week = db.relationship('ShiftWeek', foreign_keys=[tutorial_week_id])
+
+
+# =========================================================
+# SPEC #D1 — DELIVERY ROUTES
+# =========================================================
+
+class DeliveryStop(db.Model):
+    """One buyer delivery stop per shift. Analogous to ShiftPickup."""
+    id               = db.Column(db.Integer, primary_key=True)
+    shift_id         = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    buyer_order_id   = db.Column(db.Integer, db.ForeignKey('buyer_order.id'), nullable=False)
+    truck_number     = db.Column(db.Integer, default=1, nullable=False)
+    stop_order       = db.Column(db.Integer, nullable=True)
+    status           = db.Column(db.String(20), nullable=False, default='pending')  # pending|completed|issue
+    notes            = db.Column(db.Text, nullable=True)
+    completed_at     = db.Column(db.DateTime, nullable=True)
+    notified_at      = db.Column(db.DateTime, nullable=True)
+    capacity_warning = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    shift        = db.relationship('Shift', backref='delivery_stops', foreign_keys=[shift_id])
+    buyer_order  = db.relationship('BuyerOrder', backref=db.backref('delivery_stop', uselist=False))
+    created_by   = db.relationship('User', foreign_keys=[created_by_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('shift_id', 'buyer_order_id', name='uq_delivery_stop_shift_order'),
+    )
+
+
+class DeliveryRun(db.Model):
+    """Run-level execution state for a delivery shift. Analogous to ShiftRun."""
+    id             = db.Column(db.Integer, primary_key=True)
+    shift_id       = db.Column(db.Integer, db.ForeignKey('shift.id'), unique=True, nullable=False)
+    started_at     = db.Column(db.DateTime, nullable=False)
+    started_by_id  = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    ended_at       = db.Column(db.DateTime, nullable=True)
+    status         = db.Column(db.String(20), nullable=False, default='in_progress')  # in_progress|completed
+
+    shift      = db.relationship('Shift', backref=db.backref('delivery_run', uselist=False))
+    started_by = db.relationship('User', foreign_keys=[started_by_id])

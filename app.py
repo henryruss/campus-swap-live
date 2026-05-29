@@ -47,7 +47,7 @@ from sqlalchemy.exc import IntegrityError
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun
 
 # Import Constants
 from constants import (
@@ -7837,6 +7837,11 @@ def crew_dashboard():
         .all()
     )
 
+    # Build set of shift IDs that have at least one delivery stop (delivery trucks)
+    _delivery_shift_ids = {
+        row[0] for row in db.session.query(DeliveryStop.shift_id).distinct().all()
+    }
+
     return render_template(
         'crew/dashboard.html',
         avail=avail_dict,
@@ -7852,6 +7857,7 @@ def crew_dashboard():
         flagged_shift_ids=flagged_shift_ids,
         internal_user=internal_user,
         recent_captures=recent_captures,
+        delivery_shift_ids=_delivery_shift_ids,
     )
 
 
@@ -9245,6 +9251,13 @@ def admin_shift_assign_seller(shift_id):
     seller = User.query.get_or_404(seller_id)
     if not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
         flash(f"{seller.full_name} hasn't set their pickup week and address yet.", "error")
+        return redirect(url_for('admin_shift_ops', shift_id=shift_id))
+    # Mixed-truck guard: a truck that has delivery stops cannot receive pickup stops
+    existing_deliveries = DeliveryStop.query.filter_by(
+        shift_id=shift_id, truck_number=truck_number
+    ).count()
+    if existing_deliveries > 0:
+        flash("This truck already has delivery stops. A truck can only be used for pickup or delivery, not both.", "error")
         return redirect(url_for('admin_shift_ops', shift_id=shift_id))
     # Check for duplicate — a seller should only appear on one shift total
     existing = ShiftPickup.query.filter_by(seller_id=seller_id).first()
@@ -12878,16 +12891,57 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
         # Capacity bar pct
         cap_pct = min(round((load / effective_cap) * 100), 150) if effective_cap > 0 else 0
 
-        cards.append({
-            'truck_number': truck_num,
-            'storage_loc': storage_loc,
-            'load': load,
-            'effective_cap': effective_cap,
-            'cap_pct': cap_pct,
-            'stop_rows': stop_rows,
-            'live': live,
-            'map_url': build_static_map_url(truck_stops, storage_loc) if storage_loc else None,
-        })
+        # Delivery stops for this truck (if any)
+        delivery_stops_for_truck = DeliveryStop.query.filter_by(
+            shift_id=shift.id, truck_number=truck_num
+        ).order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc()).all()
+        is_delivery_truck = len(delivery_stops_for_truck) > 0
+
+        if is_delivery_truck:
+            # For delivery trucks, override load with delivery unit sizes
+            load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in delivery_stops_for_truck)
+            cap_pct = min(round((load / effective_cap) * 100), 150) if effective_cap > 0 else 0
+            delivery_run = DeliveryRun.query.filter_by(shift_id=shift.id).first()
+            dlive = None
+            if delivery_run:
+                stops_done = sum(1 for s in delivery_stops_for_truck if s.status == 'completed')
+                stops_issue = sum(1 for s in delivery_stops_for_truck if s.status == 'issue')
+                current_stop = next((s for s in delivery_stops_for_truck if s.status == 'pending'), None)
+                dlive = {
+                    'status': delivery_run.status,
+                    'stops_total': len(delivery_stops_for_truck),
+                    'stops_done': stops_done,
+                    'stops_issue': stops_issue,
+                    'current_stop': current_stop,
+                    'has_issue': stops_issue > 0,
+                }
+            cards.append({
+                'truck_number': truck_num,
+                'storage_loc': None,
+                'load': load,
+                'effective_cap': effective_cap,
+                'cap_pct': cap_pct,
+                'stop_rows': [],
+                'live': None,
+                'map_url': None,
+                'is_delivery': True,
+                'delivery_stops': delivery_stops_for_truck,
+                'delivery_live': dlive,
+            })
+        else:
+            cards.append({
+                'truck_number': truck_num,
+                'storage_loc': storage_loc,
+                'load': load,
+                'effective_cap': effective_cap,
+                'cap_pct': cap_pct,
+                'stop_rows': stop_rows,
+                'live': live,
+                'map_url': build_static_map_url(truck_stops, storage_loc) if storage_loc else None,
+                'is_delivery': False,
+                'delivery_stops': [],
+                'delivery_live': None,
+            })
     return cards, shift_run
 
 
@@ -13147,6 +13201,15 @@ def admin_ops():
                 'label': f"{sd.strftime('%a %b %-d')} {'AM' if s.slot=='am' else 'PM'} — Truck {t}",
             })
 
+    delivery_queue = _build_delivery_queue()
+    # Upcoming delivery-eligible shifts for the assign form in the delivery queue panel
+    _today_val = _today_eastern()
+    _upcoming_del_shifts = sorted(
+        [s for w in all_weeks for s in w.shifts
+         if s.is_active and _ops_shift_date(s) >= _today_val],
+        key=lambda s: (_ops_shift_date(s), s.sort_key),
+    )
+
     return render_template(
         'admin/ops.html',
         shift=shift,
@@ -13163,6 +13226,8 @@ def admin_ops():
         truck_unit_map=truck_unit_map,
         tutorial_mode=tutorial_mode,
         tutorial_step=tutorial_step,
+        delivery_queue=delivery_queue,
+        upcoming_delivery_shifts=_upcoming_del_shifts,
     )
 
 
@@ -13242,6 +13307,30 @@ def admin_ops_truck_detail():
                 'truck_number': t,
                 'label': f"{sd.strftime('%a %b %-d')} {'AM' if s.slot=='am' else 'PM'} — Truck {t}",
             })
+
+    # Check if this is a delivery truck
+    delivery_stops = (
+        DeliveryStop.query
+        .filter_by(shift_id=shift_id, truck_number=truck_num)
+        .order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc())
+        .all()
+    )
+    is_delivery_truck = len(delivery_stops) > 0
+
+    if is_delivery_truck:
+        delivery_run = DeliveryRun.query.filter_by(shift_id=shift_id).first()
+        del_load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in delivery_stops)
+        return render_template(
+            'admin/ops_delivery_truck_detail.html',
+            shift=shift,
+            shift_date=shift_date,
+            truck_number=truck_num,
+            stops=delivery_stops,
+            delivery_run=delivery_run,
+            movers=movers,
+            effective_cap=effective_cap,
+            load=del_load,
+        )
 
     return render_template(
         'admin/ops_truck_detail.html',
@@ -15177,6 +15266,394 @@ def admin_ai_discard(item_id):
     item.ai_review_pending = False
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/admin/ai/item/<int:item_id>/set-cover-photo', methods=['POST'])
+@login_required
+def admin_ai_set_cover_photo(item_id):
+    """Promote a gallery photo to cover (photo_url) for an item in AI review."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    photo_url = request.form.get('photo_url', '').strip()
+    if not photo_url:
+        return jsonify({'success': False, 'error': 'No photo_url provided'}), 400
+    all_urls = [item.photo_url] + [p.photo_url for p in item.gallery_photos]
+    if photo_url not in all_urls:
+        return jsonify({'success': False, 'error': 'Photo not found on this item'}), 400
+    old_cover = item.photo_url
+    item.photo_url = photo_url
+    # Swap old cover into gallery if it isn't already there
+    gallery_urls = [p.photo_url for p in item.gallery_photos]
+    if old_cover and old_cover not in gallery_urls:
+        db.session.add(ItemPhoto(item_id=item.id, photo_url=old_cover))
+    # Remove the promoted photo from gallery if present
+    for gp in list(item.gallery_photos):
+        if gp.photo_url == photo_url:
+            db.session.delete(gp)
+            break
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# =============================================================
+# SPEC #D1 — DELIVERY ROUTES
+# =============================================================
+
+def _get_delivery_item_unit_size(item):
+    """Unit size for a delivered item: item override → category default → 1.0."""
+    if item.unit_size is not None:
+        return item.unit_size
+    if item.category and item.category.default_unit_size is not None:
+        return item.category.default_unit_size
+    return 1.0
+
+
+def _build_delivery_queue():
+    """All BuyerOrders that are sold, have no DeliveryStop, and not yet delivered."""
+    orders = (
+        BuyerOrder.query
+        .join(InventoryItem, BuyerOrder.item_id == InventoryItem.id)
+        .filter(
+            InventoryItem.status == 'sold',
+            ~BuyerOrder.delivery_stop.has(),
+            BuyerOrder.delivered_at.is_(None),
+        )
+        .options(joinedload(BuyerOrder.item))
+        .order_by(BuyerOrder.created_at.asc())
+        .all()
+    )
+    return orders
+
+
+@app.route('/admin/ops/delivery-queue')
+@login_required
+def admin_ops_delivery_queue():
+    """HTML partial: unassigned buyer orders for the right-sidebar delivery queue."""
+    if not _has_ops_access():
+        abort(403)
+    orders = _build_delivery_queue()
+    today = _today_eastern()
+    all_shifts = (
+        Shift.query
+        .join(ShiftWeek, Shift.week_id == ShiftWeek.id)
+        .filter(ShiftWeek.is_tutorial == False, Shift.is_active == True)
+        .all()
+    )
+    upcoming_shifts = sorted(
+        [s for s in all_shifts if _ops_shift_date(s) >= today],
+        key=lambda s: (_ops_shift_date(s), s.sort_key),
+    )
+    return render_template(
+        'admin/ops_delivery_queue_partial.html',
+        orders=orders,
+        upcoming_shifts=upcoming_shifts,
+    )
+
+
+@app.route('/admin/delivery/shift/<int:shift_id>/add-stop', methods=['POST'])
+@login_required
+def admin_delivery_add_stop(shift_id):
+    """Add a DeliveryStop to a shift truck."""
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    shift = Shift.query.get_or_404(shift_id)
+    buyer_order_id = request.form.get('buyer_order_id', type=int)
+    truck_number = request.form.get('truck_number', type=int)
+    if not buyer_order_id or not truck_number:
+        return jsonify(error='buyer_order_id and truck_number are required'), 400
+
+    order = BuyerOrder.query.get_or_404(buyer_order_id)
+
+    # Guard: no existing DeliveryStop for this order (globally unique)
+    if order.delivery_stop:
+        return jsonify(error='This order already has a delivery stop assigned.'), 409
+
+    # Mixed-truck guard: truck must not have ShiftPickups
+    existing_pickups = ShiftPickup.query.filter_by(
+        shift_id=shift_id, truck_number=truck_number
+    ).count()
+    if existing_pickups > 0:
+        return jsonify(error='This truck already has pickup stops. A truck can only be used for pickup or delivery, not both.'), 409
+
+    # stop_order: max + 1 for this shift
+    max_order = db.session.query(db.func.max(DeliveryStop.stop_order)).filter_by(shift_id=shift_id).scalar() or 0
+    unit_size = _get_delivery_item_unit_size(order.item)
+    effective_cap = get_effective_capacity()
+    existing_stops = DeliveryStop.query.filter_by(shift_id=shift_id, truck_number=truck_number).all()
+    truck_load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in existing_stops)
+    cap_warn = (truck_load + unit_size) > effective_cap
+
+    stop = DeliveryStop(
+        shift_id=shift_id,
+        buyer_order_id=buyer_order_id,
+        truck_number=truck_number,
+        stop_order=max_order + 1,
+        capacity_warning=cap_warn,
+        created_by_id=current_user.id,
+    )
+    db.session.add(stop)
+    db.session.commit()
+    return jsonify(stop_id=stop.id, unit_total=round(truck_load + unit_size, 2))
+
+
+@app.route('/admin/delivery/shift/<int:shift_id>/remove-stop/<int:stop_id>', methods=['POST'])
+@login_required
+def admin_delivery_remove_stop(shift_id, stop_id):
+    """Remove a pending DeliveryStop. Pre-run only."""
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    stop = DeliveryStop.query.get_or_404(stop_id)
+    if stop.shift_id != shift_id:
+        abort(404)
+    run = DeliveryRun.query.filter_by(shift_id=shift_id).first()
+    if run:
+        return jsonify(error='Cannot remove a stop after the delivery run has started.'), 409
+    db.session.delete(stop)
+    db.session.commit()
+    return jsonify(success=True)
+
+
+@app.route('/admin/delivery/stop/<int:stop_id>/notify', methods=['POST'])
+@login_required
+def admin_delivery_notify_buyer(stop_id):
+    """Send delivery scheduled email to buyer. Sets notified_at. Idempotent."""
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    stop = DeliveryStop.query.get_or_404(stop_id)
+    order = stop.buyer_order
+    item = order.item
+    shift = stop.shift
+    shift_date = _ops_shift_date(shift)
+
+    photo_html = ''
+    if item.photo_url:
+        photo_url = url_for('uploaded_file', filename=item.photo_url, _external=True)
+        photo_html = f'<img src="{photo_url}" alt="{item.description}" style="max-width:200px;border-radius:8px;margin:12px 0;">'
+
+    html = f"""
+<h2 style="font-family:serif;color:#1a3d1a;">Your Campus Swap Delivery is Scheduled</h2>
+<p>Great news! Your item is scheduled for delivery.</p>
+{photo_html}
+<p><strong>Item:</strong> {item.description}</p>
+<p><strong>Delivery address:</strong> {order.delivery_address}</p>
+<p><strong>Delivery date:</strong> {shift_date.strftime('%A, %B %-d, %Y')}</p>
+<p>We'll send you a heads-up on the day of delivery.</p>
+<p>Questions? Reply to this email.</p>
+"""
+    send_email(order.buyer_email, 'Your Campus Swap delivery is scheduled', html)
+    stop.notified_at = _now_eastern().replace(tzinfo=None)
+    db.session.commit()
+    return jsonify(notified_at=stop.notified_at.strftime('%-I:%M %p'))
+
+
+# ── Delivery truck detail drawer (admin ops) ──────────────────
+
+@app.route('/admin/ops/delivery-truck-detail')
+@login_required
+def admin_ops_delivery_truck_detail():
+    """HTML partial for the delivery truck detail drawer."""
+    if not _has_ops_access():
+        abort(403)
+    shift_id = request.args.get('shift_id', type=int)
+    truck_num = request.args.get('truck', type=int)
+    if not shift_id or not truck_num:
+        abort(400)
+    shift = Shift.query.get_or_404(shift_id)
+    shift_date = _ops_shift_date(shift)
+    stops = (
+        DeliveryStop.query
+        .filter_by(shift_id=shift_id, truck_number=truck_num)
+        .order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc())
+        .all()
+    )
+    delivery_run = DeliveryRun.query.filter_by(shift_id=shift_id).first()
+    movers = [a for a in shift.assignments if a.role_on_shift == 'driver' and a.truck_number == truck_num]
+    effective_cap = get_effective_capacity()
+    load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in stops)
+    return render_template(
+        'admin/ops_delivery_truck_detail.html',
+        shift=shift,
+        shift_date=shift_date,
+        truck_number=truck_num,
+        stops=stops,
+        delivery_run=delivery_run,
+        movers=movers,
+        effective_cap=effective_cap,
+        load=load,
+    )
+
+
+# ── Crew delivery routes ──────────────────────────────────────
+
+def _require_delivery_worker(shift_id):
+    """Guard for crew delivery routes: must be logged-in worker or admin."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('login'))
+    if not (current_user.is_worker or current_user.is_admin):
+        abort(403)
+    return None
+
+
+@app.route('/crew/delivery/<int:shift_id>')
+@login_required
+def crew_delivery_view(shift_id):
+    """Phone-optimized delivery run view."""
+    if (r := _require_delivery_worker(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    if not shift.has_delivery_trucks:
+        abort(404)
+
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment and not current_user.is_admin:
+        abort(403)
+
+    _DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    shift_date = shift.week.week_start + timedelta(days=_DAY_ORDER.index(shift.day_of_week))
+    today = _today_eastern()
+    is_today = (shift_date == today)
+    is_past = (shift_date < today)
+
+    my_truck_number = assignment.truck_number if assignment else None
+
+    stops_query = DeliveryStop.query.filter_by(shift_id=shift.id)
+    if my_truck_number is not None:
+        stops_query = stops_query.filter_by(truck_number=my_truck_number)
+    stops = stops_query.order_by(
+        DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc()
+    ).all()
+
+    delivery_run = DeliveryRun.query.filter_by(shift_id=shift.id).first()
+    total_stops = len(stops)
+    done_stops = sum(1 for s in stops if s.status in ('completed', 'issue'))
+
+    return render_template(
+        'crew/delivery.html',
+        shift=shift,
+        shift_date=shift_date,
+        stops=stops,
+        delivery_run=delivery_run,
+        is_today=is_today,
+        is_past=is_past,
+        total_stops=total_stops,
+        done_stops=done_stops,
+    )
+
+
+@app.route('/crew/delivery/<int:shift_id>/stops-partial')
+@login_required
+def crew_delivery_stops_partial(shift_id):
+    """HTML partial for 30s auto-refresh of delivery stop list."""
+    if not (current_user.is_worker or current_user.is_admin):
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    my_truck_number = assignment.truck_number if assignment else None
+    stops_query = DeliveryStop.query.filter_by(shift_id=shift.id)
+    if my_truck_number is not None:
+        stops_query = stops_query.filter_by(truck_number=my_truck_number)
+    stops = stops_query.order_by(
+        DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc()
+    ).all()
+    delivery_run = DeliveryRun.query.filter_by(shift_id=shift.id).first()
+    return render_template(
+        'crew/delivery_stops_partial.html',
+        shift=shift,
+        stops=stops,
+        delivery_run=delivery_run,
+    )
+
+
+@app.route('/crew/delivery/<int:shift_id>/start', methods=['POST'])
+@login_required
+def crew_delivery_start(shift_id):
+    """Create DeliveryRun."""
+    if (r := _require_delivery_worker(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    if not shift.has_delivery_trucks:
+        abort(404)
+    # Worker must be assigned (admins bypass)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment and not current_user.is_admin:
+        abort(403)
+    if DeliveryRun.query.filter_by(shift_id=shift_id).first():
+        flash('Delivery run already started.', 'error')
+        return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+    run = DeliveryRun(
+        shift_id=shift_id,
+        started_at=_now_eastern().replace(tzinfo=None),
+        started_by_id=current_user.id,
+    )
+    db.session.add(run)
+    db.session.commit()
+    return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+
+
+@app.route('/crew/delivery/stop/<int:stop_id>/update', methods=['POST'])
+@login_required
+def crew_delivery_stop_update(stop_id):
+    """Mark delivery stop completed or issue."""
+    if not (current_user.is_worker or current_user.is_admin):
+        abort(403)
+    stop = DeliveryStop.query.get_or_404(stop_id)
+    shift_id = stop.shift_id
+    # Worker must be assigned to this shift (admins bypass)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, worker_id=current_user.id
+    ).first()
+    if not assignment and not current_user.is_admin:
+        abort(403)
+    status = request.form.get('status')
+    notes = request.form.get('notes', '').strip()
+    if status not in ('completed', 'issue'):
+        abort(400)
+    now = _now_eastern().replace(tzinfo=None)
+    stop.status = status
+    stop.notes = notes or None
+    if status == 'completed':
+        stop.completed_at = now
+        order = stop.buyer_order
+        order.delivered_at = now
+    db.session.commit()
+    return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+
+
+@app.route('/crew/delivery/<int:shift_id>/end', methods=['POST'])
+@login_required
+def crew_delivery_end(shift_id):
+    """End the delivery run."""
+    if (r := _require_delivery_worker(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    if not assignment and not current_user.is_admin:
+        abort(403)
+    run = DeliveryRun.query.filter_by(shift_id=shift_id).first()
+    if not run:
+        flash('No active delivery run found.', 'error')
+        return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+    force = request.form.get('force') == '1'
+    if not force and not current_user.is_admin:
+        stops = DeliveryStop.query.filter_by(shift_id=shift_id).all()
+        pending = [s for s in stops if s.status == 'pending']
+        if pending:
+            flash(f'{len(pending)} stop(s) still pending. Complete or flag all stops first.', 'error')
+            return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+    run.ended_at = _now_eastern().replace(tzinfo=None)
+    run.status = 'completed'
+    db.session.commit()
+    return redirect(url_for('crew_dashboard'))
 
 
 if __name__ == '__main__':
