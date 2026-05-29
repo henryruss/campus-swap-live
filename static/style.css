@@ -2009,3 +2009,221 @@ body.teaser-page footer { display: none; }
   color: var(--text-muted);
   margin: 0 0 16px;
 }
+
+/* Warehouse Route Browse */
+.warehouse-search-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.warehouse-tab {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.warehouse-tab.active {
+  background: var(--primary);
+  color: var(--text-light);
+  border-color: var(--primary);
+}
+
+.route-chip {
+  margin-bottom: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--card-bg, white);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.route-chip:has(.route-chip__header[aria-expanded="true"]) {
+  border-color: var(--primary);
+}
+
+.route-chip__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.route-chip__header:hover {
+  background: var(--bg-cream);
+}
+
+.route-chip__header[aria-expanded="true"] {
+  background: var(--bg-cream);
+}
+
+.route-chip__chevron {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.route-chip__header[aria-expanded="true"] .route-chip__chevron {
+  transform: rotate(180deg);
+}
+
+.route-chip__panel {
+  border-top: 1px solid var(--rule);
+  background: white;
+}
+
+.route-chip__label {
+  font-weight: 500;
+  color: var(--text-main);
+  font-size: 0.88rem;
+}
+
+.route-chip__count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.unit-chip--placed {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Unit Picker Modal ── */
+
+.btn-assign-unit {
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1.5px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-assign-unit:hover {
+  background: var(--accent);
+  color: var(--text-light);
+}
+
+.unit-assigned-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #d4edda;
+  color: #1A5C2A;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.unit-assigned-chip:hover .unit-chip-edit { opacity: 1; }
+.unit-chip-edit { opacity: 0.4; font-size: 0.72rem; transition: opacity 0.15s; }
+
+.unit-picker-panel {
+  width: 620px;
+  max-width: 95vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.unit-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.unit-picker-card {
+  border: 1.5px solid var(--rule);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  background: var(--card-bg);
+}
+.unit-picker-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.unit-picker-card--selected {
+  border-color: #22c55e;
+  background: #f0fdf4;
+  box-shadow: 0 0 0 2px #22c55e;
+}
+.unit-picker-card--selected .unit-picker-card__name {
+  color: #166534;
+}
+.unit-picker-card--full { opacity: 0.65; }
+.unit-picker-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.unit-picker-card__name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--text-main);
+}
+.unit-picker-card__size {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  margin: 2px 0 4px;
+}
+.unit-picker-card__count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.unit-picker-card__full-warning {
+  font-size: 0.73rem;
+  color: var(--accent);
+  margin-top: 6px;
+}
+.unit-picker-confirm-box {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 12px;
+  background: #fff8ee;
+}
+.unit-picker-confirm-box p { margin: 0 0 10px; font-size: 0.88rem; }
+
+/* Driver destination banner (crew shift view) */
+.driver-destination-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-cream);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.95rem;
+}
+.destination-label { color: var(--text-muted); }
+.destination-unit { color: var(--primary); font-size: 1rem; }

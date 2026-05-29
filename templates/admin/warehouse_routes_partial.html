@@ -1,0 +1,19 @@
+{# No layout — loaded into #route-mode via fetch #}
+{% if not shift_rows %}
+<p style="color:var(--text-muted);font-size:0.88rem;padding:8px 0;">No routes found.</p>
+{% else %}
+<div id="route-chip-list">
+  {% for row in shift_rows %}
+  <div class="route-chip" data-shift-id="{{ row.shift.id }}">
+    <button class="route-chip__header" type="button" data-shift-id="{{ row.shift.id }}" aria-expanded="false">
+      <span class="route-chip__label">{{ row.shift.label }} &middot; {{ row.date_str }}</span>
+      <span style="display:flex;align-items:center;gap:10px;">
+        <span class="route-chip__count">{{ row.item_count }} item{{ 's' if row.item_count != 1 else '' }}</span>
+        <i class="fas fa-chevron-down route-chip__chevron"></i>
+      </span>
+    </button>
+    <div class="route-chip__panel" hidden></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

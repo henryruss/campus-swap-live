@@ -121,15 +121,11 @@
       <span class="whu-status-pill {% if item.status == 'available' %}whu-status-available{% elif item.status in ('pending_valuation','needs_info') %}whu-status-pending{% elif item.status == 'sold' %}whu-status-sold{% else %}whu-status-other{% endif %}">
         {{ item.status|replace('_',' ')|title }}
       </span>
-      <select class="whu-row-select"
-              data-item-id="{{ item.id }}"
-              onchange="autosaveRow(this)">
-        <option value="">— row —</option>
-        {% for z in ['back_left','middle_left','front_left','back_right','middle_right','front_right'] %}
-        <option value="{{ z }}" {% if item.storage_row == z %}selected{% endif %}>{{ z|replace('_',' ')|title }}</option>
-        {% endfor %}
-      </select>
-      <span class="whu-saved-note" id="saved-note-{{ item.id }}">Saved ✓</span>
+      <button type="button"
+              onclick="openLocatePicker({{ item.id }}, '{{ (item.description or 'Item #'~item.id)|e }}', {{ loc.id }}, '{{ item.storage_row or '' }}')"
+              style="padding:4px 10px;font-size:0.75rem;border:1.5px solid var(--sage);color:var(--sage);background:white;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
+        {% if item.storage_row %}{{ item.storage_row|replace('_',' ')|title }}{% else %}Set Zone{% endif %}
+      </button>
     </div>
     {% endfor %}
   </div>

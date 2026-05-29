@@ -125,7 +125,7 @@
       <select id="modal-unit-select">
         <option value="">Select unit…</option>
         {% for loc in storage_locations %}
-        <option value="{{ loc.id }}">{{ loc.name }}</option>
+        <option value="{{ loc.id }}" {% if default_unit_id and loc.id == default_unit_id %}selected{% endif %}>{{ loc.name }}</option>
         {% endfor %}
       </select>
     </div>

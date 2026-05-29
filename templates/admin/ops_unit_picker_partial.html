@@ -1,0 +1,25 @@
+{# No layout — loaded into #unit-picker-grid via fetch #}
+{% from '_battery_macro.html' import battery %}
+{% for loc in locations %}
+<div class="unit-picker-card {% if loc.is_full %}unit-picker-card--full{% endif %}"
+     data-unit-id="{{ loc.id }}"
+     data-unit-name="{{ loc.name }}"
+     data-is-full="{{ 'true' if loc.is_full else 'false' }}">
+  <div class="unit-picker-card__header">
+    <span class="unit-picker-card__name">{{ loc.name }}</span>
+    {% if loc.is_full %}
+      <span class="badge badge--red" style="font-size:0.65rem;padding:2px 6px;background:#fee2e2;color:#991b1b;border-radius:999px;font-weight:700;">Full</span>
+    {% endif %}
+  </div>
+  {% if loc.capacity_note %}
+    <div class="unit-picker-card__size">{{ loc.capacity_note }}</div>
+  {% endif %}
+  <div class="unit-picker-card__count">{{ loc_item_count[loc.id] }} items</div>
+  {{ battery(loc_pct[loc.id], loc.is_full) }}
+  {% if loc.is_full %}
+    <div class="unit-picker-card__full-warning">⚠ Full — assign anyway?</div>
+  {% endif %}
+</div>
+{% else %}
+<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:0.85rem;">No active storage units found.</div>
+{% endfor %}

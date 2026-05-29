@@ -65,12 +65,28 @@
     </button>
   </div>
 
-  {# Global search #}
-  <div class="wh-search-wrap">
-    <input type="text" id="wh-global-search" placeholder="Search items by name, ID (#382), or description…" autocomplete="off">
-    <i class="fas fa-search wh-search-icon"></i>
+  {# Search / Route Browse tabs #}
+  <div class="warehouse-search-tabs">
+    <button class="warehouse-tab active" data-tab="search" type="button">&#128269; Search Items</button>
+    <button class="warehouse-tab" data-tab="routes" type="button">&#128667; Browse by Route</button>
   </div>
-  <div id="wh-search-results"></div>
+
+  {# Search mode #}
+  <div id="search-mode">
+    <div class="wh-search-wrap">
+      <input type="text" id="wh-global-search" placeholder="Search items by name, ID (#382), or description…" autocomplete="off">
+      <i class="fas fa-search wh-search-icon"></i>
+    </div>
+  </div>
+
+  {# Route browse mode (hidden by default) #}
+  <div id="route-mode" hidden>
+    <div id="route-chips-container" style="margin-bottom:12px;">
+      <div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;"><i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Loading routes…</div>
+    </div>
+  </div>
+
+  <div id="wh-search-results" style="margin-bottom:24px;"></div>
 
   {# Needs New Photo section #}
   {% if needs_photo_items %}
@@ -93,7 +109,8 @@
         <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;font-size:0.83rem;flex-wrap:wrap;">
           {% if item.photo_url %}
           <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
-               style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;" loading="lazy" alt="">
+               style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;cursor:zoom-in;" loading="lazy" alt=""
+               onclick="openPhotoPreview('{{ url_for('uploaded_file', filename=item.photo_url) }}')">
           {% else %}
           <div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:#fef3c7;display:flex;align-items:center;justify-content:center;color:#d97706;">
             <i class="fas fa-image"></i>
@@ -116,6 +133,10 @@
                   onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
                   style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;flex-shrink:0;">
             <i class="fas fa-camera"></i> Replace Photo
+          </button>
+          <button type="button" onclick="confirmWarehousePhoto({{ item.id }}, this)"
+                  style="padding:5px 12px;font-size:0.78rem;background:var(--sage);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;flex-shrink:0;">
+            <i class="fas fa-check"></i> Confirmed
           </button>
           <button type="button" onclick="resetAIItem({{ item.id }}, this)"
                   style="padding:5px 10px;font-size:0.75rem;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
@@ -245,39 +266,109 @@ window.whFlash = function(msg) {
   setTimeout(function(){ t.remove(); }, 3000);
 };
 
-function openLocatePicker(itemId) {
-  document.querySelectorAll('[id^="locate-picker-"]').forEach(function(el) {
-    el.style.display = 'none';
+// ── Assign Location modal ──
+var _alItemId = null;
+var _alSelectedUnit = null;
+var _alSelectedRow = null;
+
+function openLocatePicker(itemId, itemTitle, currentUnitId, currentRow) {
+  _alItemId = itemId;
+  _alSelectedUnit = currentUnitId || null;
+  _alSelectedRow = currentRow || null;
+
+  document.getElementById('al-item-name').textContent = itemTitle || ('Item #' + itemId);
+  document.getElementById('al-unit-sel').value = _alSelectedUnit || '';
+
+  // Highlight current zone button
+  document.querySelectorAll('.al-zone-btn').forEach(function(b) {
+    b.classList.toggle('al-zone-btn--active', b.dataset.zone === _alSelectedRow);
   });
-  var el = document.getElementById('locate-picker-' + itemId);
-  if (el) el.style.display = 'block';
+
+  document.getElementById('al-overlay').style.display = 'flex';
 }
-function closeLocatePicker(itemId) {
-  var el = document.getElementById('locate-picker-' + itemId);
-  if (el) el.style.display = 'none';
+
+function closeLocatePicker() {
+  document.getElementById('al-overlay').style.display = 'none';
+  _alItemId = null;
 }
-function saveLocate(itemId) {
-  var unitSel = document.getElementById('locate-unit-' + itemId);
-  var rowSel  = document.getElementById('locate-row-'  + itemId);
-  var savedEl = document.getElementById('locate-saved-' + itemId);
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Zone button clicks
+  document.querySelectorAll('.al-zone-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      _alSelectedRow = this.dataset.zone;
+      document.querySelectorAll('.al-zone-btn').forEach(function(b) { b.classList.remove('al-zone-btn--active'); });
+      this.classList.add('al-zone-btn--active');
+    });
+  });
+
+  // Not picked up
+  document.getElementById('al-not-picked-up').addEventListener('click', function() {
+    _alSelectedUnit = null;
+    _alSelectedRow = null;
+    document.getElementById('al-unit-sel').value = '';
+    document.querySelectorAll('.al-zone-btn').forEach(function(b) { b.classList.remove('al-zone-btn--active'); });
+    saveLocate();
+  });
+
+  // Save button
+  document.getElementById('al-save-btn').addEventListener('click', saveLocate);
+
+  // Close on overlay click
+  document.getElementById('al-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeLocatePicker();
+  });
+});
+
+function saveLocate() {
+  if (!_alItemId) return;
+  var unitVal = document.getElementById('al-unit-sel').value;
   var csrf = document.querySelector('input[name="csrf_token"]');
   var fd = new FormData();
   if (csrf) fd.append('csrf_token', csrf.value);
-  if (unitSel && unitSel.value) fd.append('storage_location_id', unitSel.value);
-  if (rowSel  && rowSel.value)  fd.append('storage_row', rowSel.value);
-  fetch('/admin/item/' + itemId + '/set_location', {
+  if (unitVal) fd.append('storage_location_id', unitVal);
+  if (_alSelectedRow) fd.append('storage_row', _alSelectedRow);
+  var btn = document.getElementById('al-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  fetch('/admin/item/' + _alItemId + '/set_location', {
     method: 'POST', body: fd,
     headers: csrf ? {'X-CSRFToken': csrf.value} : {}
   })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        if (savedEl) { savedEl.style.display = 'inline'; }
-        setTimeout(function() {
-          if (savedEl) savedEl.style.display = 'none';
-          closeLocatePicker(itemId);
-        }, 1200);
+        var itemId = _alItemId;
+        closeLocatePicker();
+        // Update placed-chip in search/route results
+        var chip = document.querySelector('[data-locate-item="' + itemId + '"]');
+        if (chip) {
+          if (data.location_name) {
+            var label = data.location_name;
+            if (data.zone) label += ' / ' + data.zone.replace(/_/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+            chip.textContent = label;
+            chip.className = 'unit-chip unit-chip--placed';
+          } else {
+            chip.innerHTML = '<em style="color:var(--text-muted);">No unit</em>';
+            chip.className = '';
+          }
+        }
+        // Update zone button label in unit drawer
+        var zoneBtn = document.querySelector('.whu-item-row button[onclick*="openLocatePicker(' + itemId + ',"]');
+        if (zoneBtn) {
+          if (data.zone) {
+            zoneBtn.textContent = data.zone.replace(/_/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+          } else {
+            zoneBtn.textContent = 'Set Zone';
+          }
+        }
       }
+      btn.disabled = false;
+      btn.textContent = 'Save Location';
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = 'Save Location';
     });
 }
 
@@ -327,9 +418,132 @@ document.getElementById('wh-global-search').addEventListener('input', function()
       });
   }, 300);
 });
+
+// ── Search / Route Browse tabs ──
+var _routesLoaded = false;
+
+document.querySelectorAll('.warehouse-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    var mode = this.dataset.tab;
+    document.querySelectorAll('.warehouse-tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    document.getElementById('search-mode').hidden = (mode !== 'search');
+    document.getElementById('route-mode').hidden = (mode !== 'routes');
+    if (mode === 'routes' && !_routesLoaded) {
+      loadRoutes();
+    }
+  });
+});
+
+function loadRoutes() {
+  fetch('/admin/warehouse/routes')
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      document.getElementById('route-chips-container').innerHTML = html;
+      _routesLoaded = true;
+    });
+}
+
+// Route chip clicks — toggle inline panel per chip
+document.getElementById('route-chips-container').addEventListener('click', function(e) {
+  var btn = e.target.closest('.route-chip__header');
+  if (!btn) return;
+  var chip = btn.closest('.route-chip');
+  var panel = chip.querySelector('.route-chip__panel');
+  var isOpen = btn.getAttribute('aria-expanded') === 'true';
+
+  if (isOpen) {
+    btn.setAttribute('aria-expanded', 'false');
+    panel.hidden = true;
+    return;
+  }
+
+  btn.setAttribute('aria-expanded', 'true');
+  panel.hidden = false;
+
+  // Only fetch if not already loaded
+  if (panel.dataset.loaded) return;
+  panel.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin"></i></div>';
+  var shiftId = btn.dataset.shiftId;
+  fetch('/admin/warehouse/search?shift_id=' + shiftId)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      panel.innerHTML = html;
+      panel.dataset.loaded = '1';
+    });
+});
 </script>
 
 {% include 'admin/warehouse_log_modal.html' %}
+
+{# Assign Location modal #}
+<div id="al-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1350;align-items:flex-end;justify-content:center;padding:0;">
+  <div style="background:white;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 36px;box-shadow:0 -8px 40px rgba(0,0,0,0.18);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <span style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:var(--primary);">Assign Location</span>
+      <button onclick="closeLocatePicker()" style="background:none;border:none;font-size:1.4rem;color:var(--text-muted);cursor:pointer;line-height:1;padding:4px 8px;">&times;</button>
+    </div>
+    <div id="al-item-name" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:20px;"></div>
+
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:6px;">Storage Unit</div>
+      <select id="al-unit-sel" style="width:100%;padding:10px 12px;border:1.5px solid var(--rule);border-radius:10px;font-size:0.92rem;font-family:inherit;background:white;outline:none;appearance:auto;">
+        <option value="">Select unit…</option>
+        {% for loc in storage_locations_all %}
+        <option value="{{ loc.id }}">{{ loc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:8px;">Zone</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
+        <button class="al-zone-btn" data-zone="back_left" type="button">Back Left</button>
+        <button class="al-zone-btn" data-zone="back_right" type="button">Back Right</button>
+        <button class="al-zone-btn" data-zone="middle_left" type="button">Mid Left</button>
+        <button class="al-zone-btn" data-zone="middle_right" type="button">Mid Right</button>
+        <button class="al-zone-btn" data-zone="front_left" type="button">Front Left</button>
+        <button class="al-zone-btn" data-zone="front_right" type="button">Front Right</button>
+      </div>
+      <div style="text-align:center;font-size:0.75rem;color:var(--text-muted);margin-top:4px;">&#8592; walkway &#8594;</div>
+    </div>
+
+    <button id="al-not-picked-up" type="button"
+            style="width:100%;padding:12px;margin-bottom:10px;border:1.5px solid var(--rule);border-radius:10px;background:white;font-size:0.92rem;font-family:inherit;color:var(--text-muted);cursor:pointer;">
+      Not picked up
+    </button>
+    <button id="al-save-btn" type="button"
+            style="width:100%;padding:13px;border:none;border-radius:10px;background:var(--primary);color:white;font-size:0.95rem;font-weight:700;font-family:inherit;cursor:pointer;">
+      Save Location
+    </button>
+  </div>
+</div>
+
+<style>
+.al-zone-btn {
+  padding: 12px 8px;
+  border: 1.5px solid var(--rule);
+  border-radius: 10px;
+  background: white;
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.al-zone-btn:hover { border-color: var(--primary); }
+.al-zone-btn--active {
+  border-color: var(--primary);
+  background: var(--bg-cream);
+  color: var(--primary);
+  font-weight: 700;
+}
+</style>
+
+{# Photo preview lightbox #}
+<div id="photo-preview-overlay" onclick="closePhotoPreview()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:1400;align-items:center;justify-content:center;padding:16px;cursor:zoom-out;">
+  <img id="photo-preview-img" src="" alt="" style="max-width:90vw;max-height:88vh;border-radius:10px;box-shadow:0 8px 48px rgba(0,0,0,0.5);object-fit:contain;">
+</div>
 
 {# Replace Photo modal (for needs_new_photo items) #}
 <div id="rp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1300;align-items:center;justify-content:center;padding:16px;">
@@ -354,6 +568,18 @@ document.getElementById('wh-global-search').addEventListener('input', function()
 </div>
 
 <script>
+function openPhotoPreview(url) {
+  var overlay = document.getElementById('photo-preview-overlay');
+  document.getElementById('photo-preview-img').src = url;
+  overlay.style.display = 'flex';
+}
+function closePhotoPreview() {
+  document.getElementById('photo-preview-overlay').style.display = 'none';
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closePhotoPreview();
+});
+
 var _rpItemId = null;
 var _rpBlob = null;
 var _rpStream = null;
@@ -560,6 +786,27 @@ document.getElementById('rp-overlay').addEventListener('click', function(e) {
       }
     }
     if (edit) edit.style.display = 'none';
+  }
+
+  // ── Confirm warehouse photo → send to PV queue ──
+  function confirmWarehousePhoto(itemId, btn) {
+    btn.disabled = true;
+    var fd = new FormData();
+    var csrf = document.querySelector('input[name="csrf_token"]');
+    if (csrf) fd.append('csrf_token', csrf.value);
+    fetch('/admin/item/' + itemId + '/confirm-photo', { method: 'POST', body: fd,
+      headers: csrf ? { 'X-CSRFToken': csrf.value } : {}
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          var row = document.getElementById('np-row-' + itemId);
+          if (row) row.remove();
+        } else {
+          btn.disabled = false;
+        }
+      })
+      .catch(function() { btn.disabled = false; });
   }
 
   // ── Reset AI for single item (from Needs New Photo section) ──

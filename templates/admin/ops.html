@@ -12,7 +12,8 @@
   }
   .admin-content {
     height: 100%;
-    overflow: hidden;
+    overflow-x: auto;  /* horizontal scroll when viewport too narrow */
+    overflow-y: hidden;
   }
 
   /* ── Ops page layout ── */
@@ -21,6 +22,7 @@
     grid-template-columns: 220px 1fr 210px;
     grid-template-rows: auto 1fr;
     height: 100%; /* fill admin-content; each column scrolls independently */
+    min-width: 700px; /* prevent collapse below 3-column minimum */
     overflow: hidden;
     background: var(--bg-body);
   }
@@ -113,6 +115,7 @@
   .ops-main {
     grid-column: 2;
     grid-row: 1 / 3;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 0;
   }
@@ -176,14 +179,21 @@
     color: var(--primary);
   }
   .storage-chip {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 5px;
     font-size: 0.78rem;
     padding: 2px 8px;
     border-radius: 10px;
     border: 1px solid #d1d5db;
+    font-family: inherit;
+    cursor: default;
   }
+  .storage-chip--btn {
+    cursor: pointer;
+    transition: filter 0.12s;
+  }
+  .storage-chip--btn:hover { filter: brightness(0.93); }
   .storage-chip.assigned { color: #166534; border-color: #86efac; background: #f0fdf4; }
   .storage-chip.unassigned { color: #92400e; border-color: #fde68a; background: #fef3c7; }
   .cap-bar-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -637,7 +647,7 @@
         <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-sm" title="Refresh">
           <i class="fas fa-sync-alt"></i>
         </a>
-        <form method="POST" action="{{ url_for('admin_shift_add_truck', shift_id=shift.id) }}" style="display:none;" id="addTruckForm">
+        <form method="POST" action="{{ url_for('admin_shift_add_truck', shift_id=shift.id) }}" id="addTruckForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <button type="submit" class="btn-sm">
             <i class="fas fa-plus"></i> Add Truck
@@ -688,12 +698,22 @@
           <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
 
           {% if card.storage_loc %}
-          <span class="storage-chip assigned">
-            <span style="width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex-shrink: 0; display: inline-block;"></span>
+          <button class="storage-chip assigned storage-chip--btn"
+                  data-action="open-unit-picker"
+                  data-shift-id="{{ shift.id }}"
+                  data-truck="{{ card.truck_number }}"
+                  data-current-unit-id="{{ card.storage_loc.id }}">
+            <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;display:inline-block;"></span>
             {{ card.storage_loc.name }}
-          </span>
+            <span style="opacity:0.5;font-size:0.7rem;margin-left:2px;">✎</span>
+          </button>
           {% else %}
-          <span class="storage-chip unassigned">No unit assigned</span>
+          <button class="storage-chip unassigned storage-chip--btn"
+                  data-action="open-unit-picker"
+                  data-shift-id="{{ shift.id }}"
+                  data-truck="{{ card.truck_number }}">
+            + Assign unit
+          </button>
           {% endif %}
 
           {% if card.live %}
@@ -811,22 +831,12 @@
           </a>
           {% endif %}
           {% if not card.storage_loc %}
-          <div style="position: relative; display: inline-block;">
-            <button class="btn-sm" onclick="toggleUnitDropdown(this, {{ shift.id }}, {{ card.truck_number }})">
-              <i class="fas fa-warehouse"></i> Assign unit
-            </button>
-            <div class="unit-dropdown" style="display: none; position: absolute; top: 100%; left: 0; z-index: 100; background: white; border: var(--card-border); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); min-width: 200px; padding: 6px 0; margin-top: 4px;">
-              {% for loc in storage_locations %}
-              <form method="POST" action="{{ url_for('admin_shift_assign_unit', shift_id=shift.id, truck_number=card.truck_number) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                <input type="hidden" name="storage_location_id" value="{{ loc.id }}">
-                <button type="submit" style="width: 100%; text-align: left; padding: 8px 16px; background: none; border: none; cursor: pointer; font-size: 0.83rem; color: var(--text-main);" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='none'">
-                  {{ loc.name }}
-                </button>
-              </form>
-              {% endfor %}
-            </div>
-          </div>
+          <button class="btn-sm"
+                  data-action="open-unit-picker"
+                  data-shift-id="{{ shift.id }}"
+                  data-truck="{{ card.truck_number }}">
+            <i class="fas fa-warehouse"></i> Assign unit
+          </button>
           {% endif %}
         </div>
       </div>
@@ -961,6 +971,19 @@
     {% endif %}
   </aside>
 
+</div>
+
+{# ── Unit picker modal ── #}
+<div id="unit-picker-modal" class="ops-modal-backdrop" hidden>
+  <div class="ops-modal-card unit-picker-panel">
+    <button class="ops-modal-close" data-action="close-unit-picker" aria-label="Close">×</button>
+    <h3 id="unit-picker-title">Assign Destination Unit</h3>
+    <p id="unit-picker-subtext" class="text-muted" style="font-size:0.85rem; margin:4px 0 0;"></p>
+    <div id="unit-picker-grid" class="unit-picker-grid">
+      <div style="padding:24px; text-align:center; color:var(--text-muted); font-size:0.85rem;">Loading…</div>
+    </div>
+    <div id="unit-picker-confirm" hidden></div>
+  </div>
 </div>
 
 {# ── Photo preview modal ── #}
@@ -1124,21 +1147,184 @@
     if (sec) sec.style.display = show ? 'block' : 'none';
   }
 
-  // ── Unit assignment dropdown ──
-  function toggleUnitDropdown(btn, shiftId, truckNum) {
-    var dropdown = btn.nextElementSibling;
-    var isOpen = dropdown.style.display !== 'none';
-    // Close all other dropdowns
-    document.querySelectorAll('.unit-dropdown').forEach(function(d) { d.style.display = 'none'; });
-    dropdown.style.display = isOpen ? 'none' : 'block';
+  // ── Unit picker modal ──
+  var _pickerLoaded = false;
+  var _pickerShiftId = null;
+  var _pickerTruckNumber = null;
+  var _pickerPendingForm = null;   // {form, sellerId} to retry after unit assigned
+  var _pickerCurrentUnitId = null; // currently assigned unit id (for highlighting)
+  var _pickerCsrf = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : (document.querySelector('input[name="csrf_token"]') ? document.querySelector('input[name="csrf_token"]').value : '');
+
+  function openUnitPicker(shiftId, truckNumber, opts) {
+    opts = opts || {};
+    _pickerShiftId = shiftId;
+    _pickerTruckNumber = truckNumber;
+    _pickerPendingForm = opts.pendingForm || null;
+    _pickerCurrentUnitId = opts.currentUnitId || null;
+
+    var title = 'Assign Unit — Truck ' + truckNumber;
+    document.getElementById('unit-picker-title').textContent = title;
+    document.getElementById('unit-picker-subtext').textContent = opts.subtext || '';
+    document.getElementById('unit-picker-confirm').hidden = true;
+    document.getElementById('unit-picker-modal').removeAttribute('hidden');
+
+    if (!_pickerLoaded) {
+      fetch('/admin/ops/unit-picker-partial')
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          document.getElementById('unit-picker-grid').innerHTML = html;
+          _pickerLoaded = true;
+          _highlightCurrentUnit();
+        });
+    } else {
+      _highlightCurrentUnit();
+    }
   }
 
-  // Close unit dropdowns on outside click
+  function _highlightCurrentUnit() {
+    document.querySelectorAll('.unit-picker-card').forEach(function(c) {
+      c.classList.remove('unit-picker-card--selected');
+    });
+    if (_pickerCurrentUnitId) {
+      var sel = document.querySelector('.unit-picker-card[data-unit-id="' + _pickerCurrentUnitId + '"]');
+      if (sel) sel.classList.add('unit-picker-card--selected');
+    }
+  }
+
+  function closeUnitPicker() {
+    document.getElementById('unit-picker-modal').setAttribute('hidden', '');
+    document.getElementById('unit-picker-confirm').hidden = true;
+  }
+
+  // Open picker via chip/button clicks
   document.addEventListener('click', function(e) {
-    if (!e.target.closest('.unit-dropdown') && !e.target.closest('button[onclick*="toggleUnitDropdown"]')) {
-      document.querySelectorAll('.unit-dropdown').forEach(function(d) { d.style.display = 'none'; });
+    var btn = e.target.closest('[data-action="open-unit-picker"]');
+    if (!btn) return;
+    var shiftId = btn.dataset.shiftId;
+    var truck = btn.dataset.truck;
+    var currentUnitId = btn.dataset.currentUnitId || null;
+    openUnitPicker(shiftId, truck, { currentUnitId: currentUnitId });
+  });
+
+  // Close picker
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('[data-action="close-unit-picker"]')) closeUnitPicker();
+    if (e.target === document.getElementById('unit-picker-modal')) closeUnitPicker();
+  });
+
+  // Unit card click
+  document.addEventListener('click', function(e) {
+    var card = e.target.closest('.unit-picker-card');
+    if (!card || !card.closest('#unit-picker-grid')) return;
+    var isFull = card.dataset.isFull === 'true';
+    if (isFull) {
+      var confirmEl = document.getElementById('unit-picker-confirm');
+      confirmEl.hidden = false;
+      confirmEl.innerHTML =
+        '<div class="unit-picker-confirm-box">' +
+        '<p><strong>' + card.dataset.unitName + '</strong> is marked full. Assign anyway?</p>' +
+        '<button class="btn-sm primary" data-action="confirm-full-unit" ' +
+          'data-unit-id="' + card.dataset.unitId + '" ' +
+          'data-unit-name="' + card.dataset.unitName + '">Assign anyway</button> ' +
+        '<button class="btn-sm" data-action="cancel-full-confirm">Cancel</button>' +
+        '</div>';
+    } else {
+      _doAssignUnit(card.dataset.unitId, card.dataset.unitName);
     }
   });
+
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('[data-action="confirm-full-unit"]')) {
+      var btn = e.target.closest('[data-action="confirm-full-unit"]');
+      _doAssignUnit(btn.dataset.unitId, btn.dataset.unitName);
+    }
+    if (e.target.closest('[data-action="cancel-full-confirm"]')) {
+      document.getElementById('unit-picker-confirm').hidden = true;
+    }
+  });
+
+  function _doAssignUnit(unitId, unitName) {
+    var csrf = (document.querySelector('input[name="csrf_token"]') || {}).value || '';
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('storage_location_id', unitId);
+    fd.append('_ajax', '1');
+    fetch('/admin/crew/shift/' + _pickerShiftId + '/truck/' + _pickerTruckNumber + '/assign_unit', {
+      method: 'POST',
+      body: fd,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.success) return;
+      closeUnitPicker();
+      _updateStorageChip(_pickerTruckNumber, _pickerShiftId, parseInt(unitId), unitName);
+      if (_pickerPendingForm) {
+        var pf = _pickerPendingForm;
+        _pickerPendingForm = null;
+        _submitAssignForm(pf.form, pf.sellerId);
+      }
+    })
+    .catch(function(err) { console.error('assign_unit error', err); });
+  }
+
+  function _updateStorageChip(truckNumber, shiftId, unitId, unitName) {
+    var cardEl = document.getElementById('truck-card-' + truckNumber);
+    if (!cardEl) return;
+    var chip = cardEl.querySelector('.storage-chip');
+    if (!chip) return;
+    // Swap to a <button> if it's still a <span>
+    var newChip = document.createElement('button');
+    newChip.className = 'storage-chip assigned storage-chip--btn';
+    newChip.setAttribute('data-action', 'open-unit-picker');
+    newChip.setAttribute('data-shift-id', shiftId);
+    newChip.setAttribute('data-truck', truckNumber);
+    newChip.setAttribute('data-current-unit-id', unitId);
+    newChip.innerHTML =
+      '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;display:inline-block;"></span>' +
+      unitName +
+      '<span style="opacity:0.5;font-size:0.7rem;margin-left:2px;">✎</span>';
+    chip.replaceWith(newChip);
+    _pickerCurrentUnitId = unitId;
+  }
+
+  // ── Intercept unassigned panel assign forms to use fetch (enables 422 unit_required gate) ──
+  document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!form.closest('.seller-assign-form')) return;
+    e.preventDefault();
+    var sellerCard = form.closest('[onclick*="toggleAssignForm"]') || form.closest('.unassigned-seller-card');
+    var sellerId = sellerCard ? sellerCard.getAttribute('onclick') : null;
+    // Get seller id from the form's parent data attribute
+    var assignForm = form.closest('.seller-assign-form');
+    var sellerIdVal = assignForm ? assignForm.dataset.sellerId : null;
+    _submitAssignForm(form, sellerIdVal);
+  });
+
+  function _submitAssignForm(form, sellerId) {
+    var fd = new FormData(form);
+    fetch(form.action, { method: 'POST', body: fd })
+    .then(function(r) {
+      if (r.status === 422) {
+        return r.json().then(function(data) {
+          if (data.error === 'unit_required') {
+            var shiftTruck = (fd.get('shift_truck') || '').split('_');
+            var sid = shiftTruck[0];
+            var tnum = shiftTruck[1];
+            openUnitPicker(sid, tnum, {
+              subtext: 'Assign a destination unit before adding stops to Truck ' + tnum + '.',
+              pendingForm: { form: form, sellerId: sellerId }
+            });
+          }
+        });
+      }
+      if (r.ok) {
+        // Success — reload to reflect new stop assignment
+        var shiftTruck = (fd.get('shift_truck') || '').split('_');
+        var sid = shiftTruck[0];
+        location.href = location.pathname + (sid ? '?shift_id=' + sid : '');
+      }
+    });
+  }
 
   // ── Auto-assign via fetch ──
   function runAutoAssign(btn) {

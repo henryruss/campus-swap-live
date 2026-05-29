@@ -1,0 +1,45 @@
+{# No layout — rendered into route chip panels. Mimics unit drawer item row style. #}
+{% if not items %}
+<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:0.88rem;">No items found for this route.</div>
+{% else %}
+<div>
+  {% for item in items %}
+  <div class="whu-item-row" style="padding:10px 14px;border-bottom:1px solid #f3f4f6;">
+    {% if item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+         class="whu-thumb" loading="lazy" alt=""
+         style="cursor:zoom-in;" onclick="openPhotoPreview('{{ url_for('uploaded_file', filename=item.photo_url) }}')">
+    {% else %}
+    <div class="whu-thumb-placeholder"><i class="fas fa-image"></i></div>
+    {% endif %}
+    <span class="whu-item-id">#{{ item.id }}</span>
+    <span class="whu-item-title">{{ item.description or 'Untitled' }}</span>
+    {% if item.seller %}
+    <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller.id }}"
+       style="font-size:0.75rem;color:var(--primary);font-weight:600;text-decoration:none;white-space:nowrap;flex-shrink:0;">
+      {{ item.seller.full_name or item.seller.email }}
+    </a>
+    {% endif %}
+    {% if item.category %}<span class="whu-item-cat">{{ item.category.name }}</span>{% endif %}
+    <span class="whu-status-pill {% if item.status == 'available' %}whu-status-available{% elif item.status in ('pending_valuation','needs_info') %}whu-status-pending{% elif item.status == 'sold' %}whu-status-sold{% else %}whu-status-other{% endif %}" style="flex-shrink:0;">
+      {{ item.status|replace('_',' ')|title }}
+    </span>
+    <span data-locate-item="{{ item.id }}"
+          class="{% if item.storage_location %}unit-chip unit-chip--placed{% else %}whu-item-cat{% endif %}"
+          style="flex-shrink:0;white-space:nowrap;">
+      {% if item.storage_location %}
+        {{ item.storage_location.name }}{% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
+      {% else %}
+        <em style="color:var(--text-muted);">No unit</em>
+      {% endif %}
+    </span>
+    <button type="button"
+            onclick="openLocatePicker({{ item.id }}, '{{ (item.description or 'Item #'~item.id)|e }}', {{ item.storage_location_id or 'null' }}, '{{ item.storage_row or '' }}')"
+            style="padding:4px 10px;font-size:0.75rem;border:1.5px solid var(--sage);color:var(--sage);background:white;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
+      {% if item.storage_location %}Edit{% else %}Select Unit{% endif %}
+    </button>
+    <span class="whu-saved-note" id="saved-note-{{ item.id }}">Saved ✓</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -386,6 +386,14 @@
 
 <div class="shift-view-wrap">
 
+  {% if destination_unit %}
+  <div class="driver-destination-banner">
+    <span class="destination-icon">&#128230;</span>
+    <span class="destination-label">Drop off at:</span>
+    <strong class="destination-unit">{{ destination_unit.name }}</strong>
+  </div>
+  {% endif %}
+
   {% if is_preview %}
   {# ── Preview state (future shift, no ShiftRun) ── #}
   <div class="preview-banner">
