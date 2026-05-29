@@ -233,6 +233,7 @@ class InventoryItem(db.Model):
 
     # PHOTO FLAG — item approved but photo needs replacing before going live in shop
     needs_new_photo     = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    needs_photo_note    = db.Column(db.Text, nullable=True)
     needs_photo_verification = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
     # AI AUTOFILL — staged fields, reviewed before going live

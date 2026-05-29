@@ -543,6 +543,7 @@
           <button class="btn-ai-approve" id="btn-ai-approve" onclick="submitApproveAI()">Approve</button>
           <button class="btn-ai-skip" onclick="closeAIModal()">Skip</button>
           <button class="btn-ai-discard" onclick="submitDiscardAI()">Discard AI</button>
+          <button class="btn-ai-discard" id="btn-ai-reset" onclick="submitResetAI()" style="margin-left:auto;">Reset AI</button>
         </div>
         <div class="ai-modal-error" id="ai-modal-error"></div>
       </div>
@@ -857,6 +858,11 @@
                 onclick="aiGenCancel()">
           Cancel Job
         </button>
+        <button type="button"
+                onclick="aiResetAll(this)"
+                style="margin-left:auto;padding:9px 16px;font-size:0.85rem;font-weight:700;font-family:inherit;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;cursor:pointer;">
+          Reset All
+        </button>
       </div>
       <div id="ai-gen-run-error" style="display:none;font-size:0.85rem;color:#dc2626;margin-bottom:10px;"></div>
 
@@ -1004,8 +1010,9 @@
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.success) {
-          document.getElementById('ns-success').textContent = 'Seller ' + name + ' created. Add their items from the Warehouse tab.';
-          document.getElementById('ns-success').style.display = 'block';
+          var succ = document.getElementById('ns-success');
+          succ.innerHTML = 'Seller <strong>' + name + '</strong> created. <a href="#" onclick="closeNewSellerModal();loadSellerPanel(' + d.user_id + ');return false;" style="color:#166534;font-weight:700;">View Profile &rarr;</a>';
+          succ.style.display = 'block';
           btn.style.display = 'none';
         } else {
           errEl.textContent = d.message || 'Something went wrong.';
@@ -1542,6 +1549,31 @@
     .catch(function(){ aiShowModalError('Network error. Try again.'); });
   }
 
+  function submitResetAI() {
+    if (!_aiCurrentItemId) return;
+    if (!confirm('Reset AI analysis for this item? This clears all AI fields and removes it from the review queue.')) return;
+    var resetBtn = document.getElementById('btn-ai-reset');
+    if (resetBtn) { resetBtn.disabled = true; resetBtn.textContent = 'Resetting…'; }
+    var body = new URLSearchParams({ csrf_token: _aiCsrf });
+    fetch('/admin/ai/item/' + _aiCurrentItemId + '/reset', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': _aiCsrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.success) { aiRemoveCard(_aiCurrentItemId); closeAIModal(); aiDecrementBadge(); }
+      else {
+        aiShowModalError(data.error || 'Could not reset.');
+        if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = 'Reset AI'; }
+      }
+    })
+    .catch(function(){
+      aiShowModalError('Network error. Try again.');
+      if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = 'Reset AI'; }
+    });
+  }
+
   function aiRemoveCard(itemId) {
     var card = document.querySelector('.air-card[data-item-id="' + itemId + '"], .approve-card[data-item-id="' + itemId + '"]');
     if (card) {
@@ -1781,6 +1813,26 @@
       if (!confirm('AI generation is still running. Close the modal? The job will continue in the background.')) return;
     }
     document.getElementById('ai-gen-modal').classList.remove('open');
+  }
+
+  function aiResetAll(btn) {
+    if (!confirm('This will reset AI analysis on all items and cannot be undone. Continue?')) return;
+    btn.disabled = true;
+    btn.textContent = 'Resetting…';
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ csrf_token() }}');
+    fetch('/admin/ai/reset-all', { method: 'POST', body: fd,
+      headers: { 'X-CSRFToken': '{{ csrf_token() }}' },
+      redirect: 'manual'
+    })
+    .then(function() {
+      window.location.href = '{{ url_for("admin_items", view="ai_review") }}';
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = 'Reset All';
+      alert('Network error. Try again.');
+    });
   }
 
   (function(){

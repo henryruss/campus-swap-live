@@ -88,7 +88,7 @@
     </button>
     <div id="needs-photo-body" style="display:none;background:white;">
       {% for item in needs_photo_items %}
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid #fef3c7;font-size:0.83rem;">
+      <div id="np-row-{{ item.id }}" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid #fef3c7;font-size:0.83rem;">
         {% if item.photo_url %}
         <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
              style="width:48px;height:48px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #fcd34d;" loading="lazy" alt="">
@@ -98,16 +98,41 @@
         </div>
         {% endif %}
         <span style="font-size:0.7rem;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
-        <span style="flex:1;min-width:0;font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</span>
-        {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">{{ item.category.name }}</span>{% endif %}
-        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+            <input type="text"
+                   id="photo-note-{{ item.id }}"
+                   value="{{ item.needs_photo_note or '' }}"
+                   placeholder="Add photo instructions…"
+                   data-item-id="{{ item.id }}"
+                   oninput="debouncePhotoNote(this)"
+                   style="flex:1;min-width:0;padding:4px 8px;font-size:0.75rem;border:1px solid var(--rule);border-radius:6px;font-family:inherit;outline:none;color:var(--text-main);">
+            <span id="photo-note-saved-{{ item.id }}" style="font-size:0.72rem;color:var(--sage);white-space:nowrap;opacity:0;transition:opacity 0.3s;"></span>
+          </div>
+        </div>
+        {% if item.seller %}
+        <button type="button"
+                onclick="loadSellerPanel({{ item.seller_id }})"
+                style="padding:3px 10px;font-size:0.75rem;background:none;color:var(--primary);border:1px solid var(--rule);border-radius:6px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:600;flex-shrink:0;">
+          {{ item.seller.full_name }}
+        </button>
+        {% endif %}
+        {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">{{ item.category.name }}</span>{% endif %}
+        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
           {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
           {% if item.storage_row %} / {{ item.storage_row|replace('_',' ')|title }}{% endif %}
         </span>
         <button type="button"
                 onclick="openReplacePhotoModal({{ item.id }}, '{{ url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '' }}')"
-                style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;">
+                style="padding:5px 12px;font-size:0.78rem;background:var(--primary);color:white;border:none;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;font-weight:700;flex-shrink:0;">
           <i class="fas fa-camera"></i> Replace Photo
+        </button>
+        <button type="button"
+                onclick="resetAIItem({{ item.id }}, this)"
+                title="Reset AI analysis for this item"
+                style="padding:5px 10px;font-size:0.75rem;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;">
+          Reset AI
         </button>
       </div>
       {% endfor %}
@@ -455,6 +480,83 @@ document.getElementById('rp-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeReplacePhotoModal();
 });
 
+
+  // ── Photo note autosave ──
+  var _photoNoteTimers = {};
+  function debouncePhotoNote(inp) {
+    var itemId = inp.dataset.itemId;
+    clearTimeout(_photoNoteTimers[itemId]);
+    _photoNoteTimers[itemId] = setTimeout(function() {
+      var noteEl = document.getElementById('photo-note-saved-' + itemId);
+      var fd = new FormData();
+      var csrf = document.querySelector('input[name="csrf_token"]');
+      if (csrf) fd.append('csrf_token', csrf.value);
+      fd.append('note', inp.value);
+      fetch('/admin/item/' + itemId + '/set_photo_note', { method: 'POST', body: fd,
+        headers: csrf ? { 'X-CSRFToken': csrf.value } : {}
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (noteEl) {
+            noteEl.textContent = d.success ? 'Saved ✓' : 'Failed';
+            noteEl.style.opacity = '1';
+            setTimeout(function() { noteEl.style.opacity = '0'; }, 1500);
+          }
+        });
+    }, 600);
+  }
+
+  // ── Reset AI for single item (from Needs New Photo section) ──
+  function resetAIItem(itemId, btn) {
+    if (!confirm('Reset AI analysis for item #' + itemId + '? This clears AI fields and removes it from the Needs New Photo list.')) return;
+    btn.disabled = true;
+    var fd = new FormData();
+    var csrf = document.querySelector('input[name="csrf_token"]');
+    if (csrf) fd.append('csrf_token', csrf.value);
+    fetch('/admin/ai/item/' + itemId + '/reset', { method: 'POST', body: fd,
+      headers: csrf ? { 'X-CSRFToken': csrf.value } : {}
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          var row = btn.closest('[data-item-id]') || btn.parentElement;
+          // Remove the row from the needs-new-photo section
+          var photoRow = document.getElementById('np-row-' + itemId);
+          if (photoRow) photoRow.remove();
+        } else {
+          btn.disabled = false;
+        }
+      })
+      .catch(function() { btn.disabled = false; });
+  }
+
+  // ── Seller profile panel ──
+  var _whSellerCsrf = '{{ csrf_token() }}';
+  function loadSellerPanel(sellerId) {
+    var overlay = document.getElementById('wh-seller-overlay');
+    var drawer = document.getElementById('wh-seller-drawer');
+    var content = document.getElementById('wh-seller-content');
+    content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    overlay.style.display = 'block';
+    drawer.style.right = '0';
+    document.body.style.overflow = 'hidden';
+    fetch('/admin/seller/' + sellerId + '/panel')
+      .then(function(r) { return r.text(); })
+      .then(function(html) { content.innerHTML = html; })
+      .catch(function() { content.innerHTML = '<div style="padding:20px;color:#dc2626;">Failed to load seller.</div>'; });
+  }
+  function closeSellerPanel() {
+    document.getElementById('wh-seller-overlay').style.display = 'none';
+    document.getElementById('wh-seller-drawer').style.right = '-480px';
+    document.body.style.overflow = '';
+  }
 </script>
+
+{# Seller profile drawer #}
+<div id="wh-seller-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeSellerPanel()"></div>
+<div id="wh-seller-drawer" style="position:fixed;top:0;right:-480px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:1100;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
+  <button onclick="closeSellerPanel()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.5rem;color:var(--text-muted);cursor:pointer;z-index:10;line-height:1;padding:4px 8px;border-radius:8px;">&times;</button>
+  <div id="wh-seller-content" style="padding:20px;"></div>
+</div>
 
 {% endblock %}

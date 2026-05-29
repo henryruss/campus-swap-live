@@ -134,6 +134,8 @@ function whlStartCamera() {
       cameraWrap.style.display = 'block';
       fileWrap.style.display = 'none';
       thumbWrap.style.display = 'none';
+      var alt = document.getElementById('whl-camera-upload-alt');
+      if (alt) alt.style.display = 'block';
     })
     .catch(function() {
       _whUseFile = true;
@@ -159,6 +161,8 @@ function whlShowThumb(blob) {
   document.getElementById('whl-camera-wrap').style.display = 'none';
   document.getElementById('whl-fileinput-wrap').style.display = 'none';
   document.getElementById('whl-thumb-wrap').style.display = 'block';
+  var alt = document.getElementById('whl-camera-upload-alt');
+  if (alt) alt.style.display = 'none';
   whlUpdateNextEnabled();
 }
 
@@ -311,20 +315,26 @@ function whlSave() {
     {# Step 1: Photo #}
     <div class="whl-step active" id="whl-step-1">
       <label class="whl-label">Step 1 — Photo</label>
-      <div id="whl-camera-wrap" style="display:none;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;position:relative;margin-bottom:14px;">
+      <div id="whl-camera-wrap" style="display:none;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;position:relative;margin-bottom:8px;">
         <video id="whl-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block;"></video>
         <button type="button" onclick="whlSnap()"
                 style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:white;color:var(--primary);border:none;border-radius:999px;padding:10px 24px;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.25);">
           <i class="fas fa-camera"></i> Take Photo
         </button>
       </div>
+      <div id="whl-camera-upload-alt" style="display:none;text-align:center;margin-bottom:14px;">
+        <button type="button" onclick="document.getElementById('whl-file-input').click()"
+                style="background:none;border:none;color:var(--primary);font-size:0.82rem;font-weight:600;cursor:pointer;text-decoration:underline;font-family:inherit;">
+          <i class="fas fa-upload"></i> Upload file instead
+        </button>
+      </div>
       <div id="whl-fileinput-wrap" style="display:none;border-radius:12px;border:2px dashed var(--rule);background:var(--bg-cream);aspect-ratio:4/3;margin-bottom:14px;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:pointer;"
            onclick="document.getElementById('whl-file-input').click()">
-        <i class="fas fa-camera" style="font-size:2.5rem;color:var(--primary);"></i>
-        <span style="font-weight:700;font-size:1rem;color:var(--primary);">Tap to Take Photo</span>
-        <span style="font-size:0.8rem;color:var(--text-muted);">Opens your camera</span>
+        <i class="fas fa-image" style="font-size:2.5rem;color:var(--primary);"></i>
+        <span style="font-weight:700;font-size:1rem;color:var(--primary);">Take Photo or Upload File</span>
+        <span style="font-size:0.8rem;color:var(--text-muted);">Camera or photo library</span>
       </div>
-      <input id="whl-file-input" type="file" accept="image/*" capture="environment" style="display:none;"
+      <input id="whl-file-input" type="file" accept="image/*" style="display:none;"
              onchange="(function(inp){ var f=inp.files&&inp.files[0]; if(f){whlShowThumb(f);} inp.value=''; })(this)">
       <div id="whl-thumb-wrap" style="display:none;margin-bottom:14px;border-radius:12px;overflow:hidden;position:relative;aspect-ratio:4/3;">
         <img id="whl-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">

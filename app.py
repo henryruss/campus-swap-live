@@ -43,7 +43,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import or_, and_, func, nulls_last, delete
+from sqlalchemy import or_, and_, func, nulls_last, delete, update
 from sqlalchemy.exc import IntegrityError
 
 # PostHog analytics
@@ -14688,7 +14688,9 @@ Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markd
   "title": "Short, specific, buyer-facing title. Max 80 characters. Lead with the item type and one key detail. Examples: 'Black Mini Fridge, Perfect for Dorms', 'Grey IKEA Couch in Great Condition'. Do not start with 'I' or 'This'. No dashes as separators.",
   "description": "2-3 sentences. Highlight the best visual features, condition, and why a student would want it. Mention any notable details from the seller if provided. Do not mention price. No em-dashes.",
   "price": A number (no dollar sign, no quotes). Used resale price in USD for this item in this condition. Must be at least 40 percent below the retail price. Students are price-sensitive. Return only the number.,
-  "retail_price": A number (no dollar sign, no quotes). Estimated new retail price in USD for this item. Research what this item typically sells for new. Return only the number.
+  "retail_price": A number (no dollar sign, no quotes). Estimated new retail price in USD for this item. Research what this item typically sells for new. Return only the number.,
+  "multi_item": true or false. Set true ONLY if the photo clearly contains multiple DISTINCT sellable items that could reasonably be listed and sold separately — for example a dining table with chairs, a desk with a detached hutch, or a couch with a separate ottoman. A couch with cushions, a bed with a headboard, or a lamp with a shade do NOT count. When in doubt, set false.,
+  "multi_item_note": "If multi_item is true, briefly describe what is in the photo and why it should be split, e.g. 'Dining table with 4 chairs — consider splitting into separate listings'. Otherwise empty string."
 }}"""
                 # Build content blocks
                 media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
@@ -14742,6 +14744,12 @@ Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markd
                 item.ai_retail_price = raw_retail
                 item.ai_generated_at = datetime.utcnow()
                 item.ai_review_pending = True
+                # Multi-item detection: flag for new photo with note
+                if parsed.get('multi_item'):
+                    item.needs_new_photo = True
+                    note = (parsed.get('multi_item_note') or '').strip()
+                    if note:
+                        item.needs_photo_note = note
                 db.session.commit()
                 succeeded += 1
                 _AI_JOBS[job_id]['results'].append({
@@ -14941,6 +14949,62 @@ def admin_ai_discard(item_id):
     item.ai_review_pending = False
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/admin/item/<int:item_id>/set_photo_note', methods=['POST'])
+@login_required
+def admin_item_set_photo_note(item_id):
+    """Autosave needs_photo_note on a needs_new_photo item."""
+    if not _has_ops_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    note = (request.form.get('note') or '').strip() or None
+    item.needs_photo_note = note
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/ai/item/<int:item_id>/reset', methods=['POST'])
+@login_required
+def admin_ai_item_reset(item_id):
+    """Clear all AI staging fields on a single item."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    item.ai_description = None
+    item.ai_long_description = None
+    item.ai_price = None
+    item.ai_retail_price = None
+    item.ai_generated_at = None
+    item.ai_review_pending = False
+    item.needs_new_photo = False
+    item.needs_photo_note = None
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/ai/reset-all', methods=['POST'])
+@login_required
+def admin_ai_reset_all():
+    """Reset AI analysis on all items and clear the run log."""
+    guard = require_super_admin()
+    if guard:
+        abort(403)
+    db.session.execute(
+        update(InventoryItem).values(
+            ai_description=None,
+            ai_long_description=None,
+            ai_price=None,
+            ai_retail_price=None,
+            ai_generated_at=None,
+            ai_review_pending=False,
+        )
+    )
+    db.session.commit()
+    AppSetting.set('ai_autofill_run_log', '[]')
+    flash('AI analysis reset for all items.', 'success')
+    return redirect(url_for('admin_items', view='ai_review'))
 
 
 @app.route('/admin/item/<int:item_id>/pv-detail')
