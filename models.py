@@ -411,7 +411,7 @@ class Shift(db.Model):
     id           = db.Column(db.Integer, primary_key=True)
     week_id      = db.Column(db.Integer, db.ForeignKey('shift_week.id'), nullable=False)
     day_of_week  = db.Column(db.String(3), nullable=False)  # 'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun'
-    slot         = db.Column(db.String(2), nullable=False)   # 'am'|'pm'
+    slot         = db.Column(db.String(6), nullable=False)   # 'am'|'pm'|'daily'
     trucks       = db.Column(db.Integer, default=2)
     is_active    = db.Column(db.Boolean, default=True)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
@@ -430,7 +430,11 @@ class Shift(db.Model):
 
     @property
     def label(self):
-        return f"{self._DAY_LABELS.get(self.day_of_week, self.day_of_week)} {'AM' if self.slot == 'am' else 'PM'}"
+        day_str = self._DAY_LABELS.get(self.day_of_week, self.day_of_week)
+        if self.slot == 'daily':
+            return day_str
+        slot_str = 'AM' if self.slot == 'am' else 'PM'
+        return f"{day_str} {slot_str}"
 
     @property
     def sort_key(self):

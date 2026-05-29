@@ -160,8 +160,6 @@
     {% set active_tab = 'settings' %}
   {% elif _path.startswith('/admin/cd-settings') %}
     {% set active_tab = 'cd-settings' %}
-  {% elif _path.startswith('/admin/schedule') %}
-    {% set active_tab = 'schedule' %}
   {% else %}
     {% set active_tab = '' %}
   {% endif %}
@@ -171,7 +169,7 @@
     <nav class="admin-sidebar-nav">
       {# Ops: admin, super_admin, campus_director #}
       <a href="/admin/ops"
-         class="admin-nav-item {% if active_tab == 'ops' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 4 and request.path.startswith('/admin/crew') %}tutorial-highlight{% endif %}"
+         class="admin-nav-item {% if active_tab == 'ops' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 3 and request.path.startswith('/admin/crew') %}tutorial-highlight{% endif %}"
          title="Ops">
         <i class="fas fa-route"></i>
         <span class="nav-tooltip">Ops</span>
@@ -201,21 +199,11 @@
 
       {# Crew: admin, super_admin, campus_director #}
       <a href="/admin/crew"
-         class="admin-nav-item {% if active_tab == 'crew' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 2 and request.path.startswith('/admin/schedule') %}tutorial-highlight{% endif %}"
+         class="admin-nav-item {% if active_tab == 'crew' %}active{% endif %} {% if tutorial_mode is defined and tutorial_mode and tutorial_step is defined and tutorial_step == 1 and request.path.startswith('/admin/crew') %}tutorial-highlight{% endif %}"
          title="Crew">
         <i class="fas fa-users"></i>
         <span class="nav-tooltip">Crew</span>
       </a>
-
-      {# Schedule: super_admin and campus_director #}
-      {% if current_user.is_super_admin or current_user.is_campus_director %}
-      <a href="/admin/schedule"
-         class="admin-nav-item {% if active_tab == 'schedule' %}active{% endif %}"
-         title="Schedule">
-        <i class="fas fa-calendar-alt"></i>
-        <span class="nav-tooltip">Schedule</span>
-      </a>
-      {% endif %}
 
       {# Warehouse Floor: admin, super_admin, campus_director #}
       <a href="/admin/warehouse"

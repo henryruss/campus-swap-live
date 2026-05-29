@@ -129,7 +129,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
         <div class="dashboard-stat" title="Your pickup has been scheduled">
             <div class="dashboard-stat-label">Pickup Window</div>
             <div class="dashboard-stat-value" style="font-size: 0.85rem;" id="pickup-stat-value">
-              {{ assigned_shift_date_str }} · {{ shift_pickup.shift.slot | upper }}
+              {{ assigned_shift_date_str }}{% if shift_pickup.shift.slot != 'daily' %} · {{ shift_pickup.shift.slot | upper }}{% endif %}
             </div>
             {% if shift_pickup.notified_at %}
             <div style="font-size: 0.75rem; color: #15803d; margin-top: 4px;"><i class="fas fa-truck"></i> Confirmed</div>
@@ -477,6 +477,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                 </button>
                 {% endfor %}
             </div>
+            {% if not all_slots_daily %}
             <div id="pickup-time-section" style="margin-top: 16px; {% if not current_user.pickup_week %}display:none;{% endif %}">
                 <p style="font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin: 0 0 8px;">Time preference</p>
                 <div style="display: flex; gap: 8px;">
@@ -490,6 +491,7 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                     </button>
                 </div>
             </div>
+            {% endif %}
             {% endif %}
         </div>
 

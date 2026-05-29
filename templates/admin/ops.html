@@ -580,7 +580,7 @@
 
     {% if not shift_list %}
     <div style="padding: 20px 14px; font-size: 0.83rem; color: var(--text-muted);">
-      No shifts. <a href="/admin/settings#pickup-window" style="color: var(--accent);">Generate shifts →</a>
+      No shifts yet. Use the button below to create one.
     </div>
     {% endif %}
 
@@ -595,7 +595,11 @@
       <a href="{{ url_for('admin_ops', shift_id=item.shift.id) }}"
          class="ops-shift-row {% if shift and shift.id == item.shift.id %}active{% endif %}">
         <span>{{ item.day_label }} {{ item.date.strftime('%-d') }}</span>
+        {% if item.shift.slot == 'daily' %}
+        <span class="ops-slot-badge" style="background:#e0f2fe;color:#075985;">10–3</span>
+        {% else %}
         <span class="ops-slot-badge {{ item.shift.slot }}">{{ item.shift.slot | upper }}</span>
+        {% endif %}
         {% if item.notified %}
           <span class="ops-shift-status status-notified"><i class="fas fa-check"></i></span>
         {% elif item.unnotified_count > 0 %}
@@ -607,11 +611,26 @@
     {% endfor %}
 
     <div class="ops-panel-footer">
-      {% if shift and shift.week %}
-      <a href="{{ url_for('admin_schedule_week', week_id=shift.week.id) }}" style="font-size: 0.8rem; color: var(--primary); text-decoration: none;">
-        <i class="fas fa-calendar-alt"></i> Week overview →
-      </a>
-      {% endif %}
+      <div id="new-shift-toggle-row">
+        <button type="button" class="btn-sm" style="width: 100%; justify-content: center;"
+                onclick="document.getElementById('new-shift-form').style.display='block'; this.parentElement.style.display='none';">
+          <i class="fas fa-plus"></i> New Shift
+        </button>
+      </div>
+      <div id="new-shift-form" style="display: none;">
+        <form method="POST" action="{{ url_for('admin_shift_create') }}" style="display: flex; flex-direction: column; gap: 6px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="date" name="shift_date" required
+                 style="width: 100%; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 0.82rem; font-family: inherit;">
+          <div style="display: flex; gap: 6px;">
+            <button type="submit" class="btn-sm primary" style="flex: 1; justify-content: center;">Create</button>
+            <button type="button" class="btn-sm" style="flex-shrink: 0;"
+                    onclick="document.getElementById('new-shift-form').style.display='none'; document.getElementById('new-shift-toggle-row').style.display='block';">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </aside>
 
@@ -621,11 +640,11 @@
     <div class="ops-empty-state">
       <i class="fas fa-route"></i>
       <h3>No pickup shifts yet</h3>
-      <p>Generate shifts in <a href="/admin/settings#pickup-window">Settings →</a></p>
+      <p>Use <strong>+ New Shift</strong> in the left panel to create your first shift.</p>
     </div>
     {% else %}
     <div class="ops-topbar">
-      <h2>{{ shift_date.strftime('%a %b %-d') }} — {{ 'AM shift' if shift.slot == 'am' else 'PM shift' }}</h2>
+      <h2>{{ shift_date.strftime('%a %b %-d') }}{% if shift.slot == 'daily' %} — 10am–3pm{% elif shift.slot == 'am' %} — AM shift{% else %} — PM shift{% endif %}</h2>
       <div class="ops-topbar-actions">
         <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="btn-sm" title="Refresh">
           <i class="fas fa-sync-alt"></i>
@@ -636,13 +655,13 @@
             <i class="fas fa-plus"></i> Add Truck
           </button>
         </form>
-        {% if tutorial_mode and tutorial_step < 8 %}
+        {% if tutorial_mode and tutorial_step < 7 %}
         <button class="btn-sm" disabled title="Reorder your stops first"
                 style="opacity: 0.45; cursor: not-allowed;">
           <i class="fas fa-bell"></i> Notify Sellers
         </button>
         {% else %}
-        <button class="btn-sm primary {% if tutorial_mode and tutorial_step == 8 %}tutorial-highlight{% endif %}" id="notifyBtn"
+        <button class="btn-sm primary {% if tutorial_mode and tutorial_step == 7 %}tutorial-highlight{% endif %}" id="notifyBtn"
                 data-shift-id="{{ shift.id }}"
                 data-unnotified="{{ unnotified_count }}">
           <i class="fas fa-bell"></i> Notify Sellers
@@ -713,7 +732,7 @@
 
           {% if card.stop_rows | length >= 2 %}
           <a href="{{ url_for('admin_ops_reorder_page', shift_id=shift.id, truck_number=card.truck_number) }}"
-             class="btn-sm {% if tutorial_mode and tutorial_step == 6 and card.truck_number == 1 %}tutorial-highlight{% endif %}">
+             class="btn-sm {% if tutorial_mode and tutorial_step == 5 and card.truck_number == 1 %}tutorial-highlight{% endif %}">
             <i class="fas fa-sort"></i> Reorder Stops
           </a>
           {% endif %}
@@ -829,7 +848,7 @@
   </section>
 
   {# ── Zone 3: Unassigned sellers panel ── #}
-  <aside class="ops-unassigned-panel {% if tutorial_mode and tutorial_step == 4 %}tutorial-highlight{% endif %}">
+  <aside class="ops-unassigned-panel {% if tutorial_mode and tutorial_step == 3 %}tutorial-highlight{% endif %}">
     <div class="unassigned-header">
       <div class="unassigned-header-row">
         <h3>Unassigned</h3>
@@ -892,7 +911,7 @@
           <select name="shift_truck" style="flex: 1; font-size: 0.75rem; padding: 4px; border: 1px solid var(--rule); border-radius: 6px;">
             {% if shift %}
             {% for t in range(1, shift.trucks + 1) %}
-            <option value="{{ shift.id }}_{{ t }}" selected>{{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot=='am' else 'PM' }} — Truck {{ t }}</option>
+            <option value="{{ shift.id }}_{{ t }}" selected>{{ shift_date.strftime('%a %b %-d') }} {% if shift.slot == 'daily' %}10am–3pm{% elif shift.slot == 'am' %}AM{% else %}PM{% endif %} — Truck {{ t }}</option>
             {% endfor %}
             {% endif %}
             {% for opt in shift_truck_options %}
@@ -937,7 +956,7 @@
             <select name="shift_truck" style="flex: 1; font-size: 0.75rem; padding: 4px; border: 1px solid var(--rule); border-radius: 6px;">
               {% if shift %}
               {% for t in range(1, shift.trucks + 1) %}
-              <option value="{{ shift.id }}_{{ t }}">{{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot=='am' else 'PM' }} — Truck {{ t }}</option>
+              <option value="{{ shift.id }}_{{ t }}">{{ shift_date.strftime('%a %b %-d') }} {% if shift.slot == 'daily' %}10am–3pm{% elif shift.slot == 'am' %}AM{% else %}PM{% endif %} — Truck {{ t }}</option>
               {% endfor %}
               {% endif %}
               {% for opt in shift_truck_options %}

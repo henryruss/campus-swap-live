@@ -98,7 +98,7 @@
     <a href="{{ url_for('admin_ops', shift_id=shift.id) }}" class="back-link">
       ← Back to Ops
     </a>
-    <h1>Reorder Stops — Truck {{ truck_number }} · {{ shift_date.strftime('%a %b %-d') }} {{ 'AM' if shift.slot == 'am' else 'PM' }}</h1>
+    <h1>Reorder Stops — Truck {{ truck_number }} · {{ shift_date.strftime('%a %b %-d') }}{% if shift.slot == 'daily' %} 10am–3pm{% elif shift.slot == 'am' %} AM{% else %} PM{% endif %}</h1>
     <p style="color: var(--text-muted); margin: 0; font-size: 0.9rem;">Drag to reorder, then save.</p>
   </div>
 </div>

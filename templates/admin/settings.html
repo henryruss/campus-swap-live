@@ -84,7 +84,6 @@
 
   <div class="nav-links">
     <a href="#shop" class="nav-link">Shop</a>
-    <a href="#pickup-window" class="nav-link">Pickup window</a>
     <a href="#pickup-week-override" class="nav-link">Week override</a>
     <a href="#route" class="nav-link">Route & capacity</a>
     <a href="#storage" class="nav-link">Storage locations</a>
@@ -122,45 +121,6 @@
           </label>
         </form>
       </div>
-    </div>
-  </div>
-
-  {# ── 1. Pickup window ── #}
-  <div class="settings-section" id="pickup-window">
-    <div class="settings-section-header">
-      <i class="fas fa-calendar-week" style="color: var(--sage);"></i>
-      <h2>Pickup window</h2>
-    </div>
-    <div class="settings-section-body">
-      <p style="font-size: 0.83rem; color: var(--text-muted); margin: 0 0 14px;">
-        Set the date range for pickup shifts. Then generate AM + PM shift skeletons for each day.
-        Idempotent — re-running never duplicates.
-      </p>
-      <form method="POST" action="{{ url_for('admin_settings') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-        <input type="hidden" name="_action" value="save_pickup_window">
-        <div class="settings-row">
-          <div class="settings-field">
-            <label>Start date</label>
-            <input type="date" name="pickup_week_start" value="{{ pickup_week_start }}"
-                   id="pwStart">
-          </div>
-          <div class="settings-field">
-            <label>End date</label>
-            <input type="date" name="pickup_week_end" value="{{ pickup_week_end }}"
-                   id="pwEnd">
-          </div>
-        </div>
-        <div class="save-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="submit" class="btn-primary btn-save">Save dates</button>
-          <button type="button" class="btn-outline btn-save"
-                  onclick="generateShifts()"
-                  {% if not pickup_week_start or not pickup_week_end %}disabled title="Set pickup dates first."{% endif %}
-                  id="generateBtn">
-            <i class="fas fa-magic"></i> Generate shifts
-          </button>
-        </div>
-      </form>
     </div>
   </div>
 
@@ -655,19 +615,4 @@
   </div>
 </div>
 
-<script>
-  function generateShifts() {
-    if (!confirm('Generate AM + PM shifts for the configured date range? (Idempotent — safe to re-run)')) return;
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '{{ url_for("admin_generate_shifts") }}';
-    var csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = 'csrf_token';
-    csrf.value = document.querySelector('input[name="csrf_token"]').value;
-    form.appendChild(csrf);
-    document.body.appendChild(form);
-    form.submit();
-  }
-</script>
 {% endblock %}

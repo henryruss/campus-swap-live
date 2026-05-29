@@ -783,7 +783,7 @@
        style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: var(--bg-cream); border: 1.5px solid var(--primary); border-radius: 10px; font-size: 0.9rem; font-weight: 700; color: var(--primary); text-decoration: none; transition: background 0.15s;"
        onmouseover="this.style.background='var(--primary)';this.style.color='white'"
        onmouseout="this.style.background='var(--bg-cream)';this.style.color='var(--primary)'">
-      Preview {{ shift_date.strftime('%A') }} PM shift &rarr;
+      Preview {{ next_shift.label }} &rarr;
     </a>
   </div>
   {% endif %}

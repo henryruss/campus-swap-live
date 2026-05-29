@@ -357,7 +357,7 @@
   {# ══════════════════════════════════════════════════════
      Section 2: Pending Applications (collapsible)
   ══════════════════════════════════════════════════════ #}
-  <details class="crew-hq-applications {% if tutorial_mode and tutorial_step == 2 %}tutorial-highlight{% endif %}" {% if pending_apps or tutorial_mode %}open{% endif %}>
+  <details class="crew-hq-applications {% if tutorial_mode and tutorial_step == 1 %}tutorial-highlight{% endif %}" {% if pending_apps or tutorial_mode %}open{% endif %}>
     <summary>
       Pending Applications
       {% if pending_apps %}
@@ -435,7 +435,7 @@
   {# ══════════════════════════════════════════════════════
      Section 3: Shift Board (fetch-swappable)
   ══════════════════════════════════════════════════════ #}
-  <div class="shift-board {% if tutorial_mode and tutorial_step == 3 %}tutorial-highlight{% endif %}" id="shift-board">
+  <div class="shift-board {% if tutorial_mode and tutorial_step == 2 %}tutorial-highlight{% endif %}" id="shift-board">
     {% include 'admin/crew_shift_board_partial.html' %}
   </div>
 

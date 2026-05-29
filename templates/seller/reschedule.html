@@ -232,7 +232,36 @@
           </div>
           {% endfor %}
 
-          {# AM row #}
+          {# Determine if this week has any daily slots, am slots, or pm slots #}
+          {% set has_am = week.rows.am | selectattr('eligible') | list | length > 0 or week.rows.am | selectattr('is_current') | list | length > 0 %}
+          {% set has_pm = week.rows.pm | selectattr('eligible') | list | length > 0 or week.rows.pm | selectattr('is_current') | list | length > 0 %}
+          {% set has_daily = week.rows.daily is defined and (week.rows.daily | selectattr('eligible') | list | length > 0 or week.rows.daily | selectattr('is_current') | list | length > 0) %}
+
+          {# Daily row (shown when daily slots exist) #}
+          {% if has_daily and week.rows.daily is defined %}
+          <div class="rs-row-label" style="font-size:0.62rem;">10am–3pm</div>
+          {% for cell in week.rows.daily %}
+          {% set slot_key = cell.date.isoformat() ~ ':' ~ cell.slot %}
+          <div>
+            {% if cell.is_current %}
+              <label class="rs-card is-current available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                <span>Daily<span class="rs-current-label">current</span></span>
+              </label>
+            {% elif cell.eligible %}
+              <label class="rs-card available">
+                <input type="radio" name="new_slot_key" value="{{ slot_key }}">
+                10am–3pm
+              </label>
+            {% else %}
+              <div class="rs-card disabled">—</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          {# AM row (shown when AM slots exist or in mixed window) #}
+          {% if has_am or (not has_daily and week.rows.am is defined) %}
           <div class="rs-row-label">AM</div>
           {% for cell in week.rows.am %}
           {% set slot_key = cell.date.isoformat() ~ ':' ~ cell.slot %}
@@ -252,8 +281,10 @@
             {% endif %}
           </div>
           {% endfor %}
+          {% endif %}
 
-          {# PM row #}
+          {# PM row (shown when PM slots exist or in mixed window) #}
+          {% if has_pm or (not has_daily and week.rows.pm is defined) %}
           <div class="rs-row-label">PM</div>
           {% for cell in week.rows.pm %}
           {% set slot_key = cell.date.isoformat() ~ ':' ~ cell.slot %}
@@ -273,6 +304,7 @@
             {% endif %}
           </div>
           {% endfor %}
+          {% endif %}
 
         </div>
       </div>

@@ -19,10 +19,13 @@ load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 from PIL import Image, ImageOps
 import stripe
 import resend
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as _date
 from zoneinfo import ZoneInfo
 
 _EASTERN = ZoneInfo('America/New_York')
+
+# From June 1, 2026 onwards, new shifts use slot='daily' (10am–3pm) instead of 'am'/'pm'
+DAILY_SHIFT_CUTOVER = _date(2026, 6, 1)
 
 def _now_eastern():
     """Current datetime in US Eastern time (handles EST/EDT automatically)."""
@@ -4831,13 +4834,18 @@ def dashboard():
     # Pickup method for header card — uses User.pickup_week (seller's stated preference)
     pickup_method_type = None
     pickup_method_label = None
-    time_labels = {'am': 'AM', 'pm': 'PM'}
+    time_labels = {'morning': 'AM', 'afternoon': 'PM'}
+    # Determine if all available pickup slots in the window are daily (10am–3pm)
+    # True when today >= DAILY_SHIFT_CUTOVER, meaning all new shifts are daily
+    all_slots_daily = _today_eastern() >= DAILY_SHIFT_CUTOVER
     if current_user.pickup_week:
         pickup_method_type = 'week'
         week_label = dict(PICKUP_WEEKS).get(current_user.pickup_week, current_user.pickup_week)
         week_short_map = {'week1': 'Wk 1', 'week2': 'Wk 2', 'week3': 'Wk 3', 'week4': 'Wk 4', 'week5': 'Wk 5'}
         week_short = week_short_map.get(current_user.pickup_week, current_user.pickup_week)
-        if current_user.pickup_time_preference:
+        if all_slots_daily:
+            pickup_method_label = week_short
+        elif current_user.pickup_time_preference:
             pickup_method_label = f"{week_short} · {time_labels.get(current_user.pickup_time_preference, '')}"
         else:
             pickup_method_label = f"{week_short} — time TBD"
@@ -4928,6 +4936,7 @@ def dashboard():
                           has_payout_info=bool(current_user.payout_handle),
                           pickup_method_type=pickup_method_type,
                           pickup_method_label=pickup_method_label,
+                          all_slots_daily=all_slots_daily,
                           warehouse_spots=get_warehouse_spots_remaining(),
                           is_free_confirmed=is_free_confirmed,
                           is_free_rejected=is_free_rejected,
@@ -10112,9 +10121,9 @@ def admin_crew_approve(user_id):
     )
     if tutorial_mode and worker.is_tutorial_user:
         ts = current_user.tutorial_session
-        if ts and ts.step == 2:
-            ts.step = 3
-            session['tutorial_step'] = 3
+        if ts and ts.step == 1:
+            ts.step = 2
+            session['tutorial_step'] = 2
 
     db.session.commit()
 
@@ -10527,34 +10536,68 @@ def _get_current_published_week():
 @app.route('/admin/schedule')
 @login_required
 def admin_schedule_index():
-    """List all ShiftWeeks and form to create a new week. Super admin only."""
+    """Retired — redirect to Ops tab."""
     if not _has_ops_access():
         abort(403)
-    if not (current_user.is_super_admin or current_user.is_campus_director):
-        if (r := require_super_admin()):
-            return r
+    return redirect(url_for('admin_ops'), 302)
 
-    tutorial_mode = (
-        current_user.is_campus_director
-        and not current_user.is_admin
-        and not current_user.is_super_admin
-        and session.get('tutorial_active', False)
-    )
-    ts = current_user.tutorial_session if tutorial_mode else None
-    tutorial_step = ts.step if ts else 0
 
-    if tutorial_mode:
-        tutorial_week_id = ts.tutorial_week_id if ts else None
-        weeks = (
-            [ShiftWeek.query.get(tutorial_week_id)]
-            if tutorial_week_id
-            else []
+def _get_or_create_shift_week(target_date):
+    """Look up or create a non-tutorial ShiftWeek for the ISO week containing target_date."""
+    week_start = target_date - timedelta(days=target_date.weekday())  # Monday
+    week = ShiftWeek.query.filter_by(week_start=week_start, is_tutorial=False).first()
+    if not week:
+        week = ShiftWeek(
+            week_start=week_start,
+            status='published',
+            created_by_id=current_user.id,
         )
-        weeks = [w for w in weeks if w]  # strip None if week was deleted
-    else:
-        weeks = ShiftWeek.query.filter_by(is_tutorial=False).order_by(ShiftWeek.week_start.asc()).all()
-    return render_template('admin/schedule_index.html', weeks=weeks,
-                           tutorial_mode=tutorial_mode, tutorial_step=tutorial_step)
+        db.session.add(week)
+        db.session.flush()
+    return week
+
+
+@app.route('/admin/schedule/shift/create', methods=['POST'])
+@login_required
+def admin_shift_create():
+    """Create a single Shift for a given date. Auto-creates the containing ShiftWeek if needed."""
+    if not _has_ops_access():
+        abort(403)
+    shift_date_str = request.form.get('shift_date', '').strip()
+    if not shift_date_str:
+        flash("Please provide a date for the shift.", "error")
+        return redirect(url_for('admin_ops'))
+    try:
+        shift_date = datetime.strptime(shift_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        flash("Invalid date format.", "error")
+        return redirect(url_for('admin_ops'))
+
+    # Duplicate guard: check for existing non-tutorial shift on this date
+    _DAY_IDX = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    day_of_week = _DAY_IDX[shift_date.weekday()]
+    week_start = shift_date - timedelta(days=shift_date.weekday())
+    existing_week = ShiftWeek.query.filter_by(week_start=week_start, is_tutorial=False).first()
+    if existing_week:
+        existing_shift = Shift.query.filter_by(
+            week_id=existing_week.id, day_of_week=day_of_week
+        ).first()
+        if existing_shift:
+            flash("A shift already exists for that date.", "error")
+            return redirect(url_for('admin_ops', shift_id=existing_shift.id))
+
+    slot = 'daily' if shift_date >= DAILY_SHIFT_CUTOVER else 'am'
+    week = _get_or_create_shift_week(shift_date)
+    shift = Shift(
+        week_id=week.id,
+        day_of_week=day_of_week,
+        slot=slot,
+        trucks=2,
+        is_active=True,
+    )
+    db.session.add(shift)
+    db.session.commit()
+    return redirect(url_for('admin_ops', shift_id=shift.id))
 
 
 @app.route('/admin/schedule/create', methods=['POST'])
@@ -10647,8 +10690,7 @@ def admin_schedule_create():
             ts = current_user.tutorial_session
             if ts:
                 ts.tutorial_week_id = week.id
-                ts.step = 2
-                session['tutorial_step'] = 2
+                # Tutorial step no longer advances here (schedule page removed from tutorial flow)
 
         db.session.commit()
 
@@ -11635,7 +11677,7 @@ def admin_shift_notify_sellers(shift_id):
     )
     if tutorial_mode:
         ts = current_user.tutorial_session
-        if ts and ts.step < 8:
+        if ts and ts.step < 7:
             flash("Complete the stop reorder before notifying sellers.", "error")
             return redirect(url_for('admin_ops', shift_id=shift_id))
 
@@ -11674,12 +11716,19 @@ def admin_shift_notify_sellers(shift_id):
             # Spec #9: also send SMS alongside email
             shift_date_obj = _shift_date(shift)
             day_label = shift_date_obj.strftime('%A, %b %-d')
-            slot_label = 'AM' if shift.slot == 'am' else 'PM'
-            _send_sms(
-                seller,
-                f"Your Campus Swap pickup is scheduled for {day_label} {slot_label}. "
-                f"We'll text you the day before as a reminder. Reply STOP to opt out."
-            )
+            if shift.slot == 'daily':
+                _send_sms(
+                    seller,
+                    f"Your Campus Swap pickup is scheduled for {day_label}. "
+                    f"We'll text you the day before as a reminder. Reply STOP to opt out."
+                )
+            else:
+                slot_label = 'AM' if shift.slot == 'am' else 'PM'
+                _send_sms(
+                    seller,
+                    f"Your Campus Swap pickup is scheduled for {day_label} {slot_label}. "
+                    f"We'll text you the day before as a reminder. Reply STOP to opt out."
+                )
             pickup.notified_at = _now_eastern()
             sent_count += 1
         except Exception as e:
@@ -11689,12 +11738,12 @@ def admin_shift_notify_sellers(shift_id):
         shift.sellers_notified = True
         shift.last_notified_at = _now_eastern()
 
-    # Tutorial: advance to step 7 and redirect to completion page
+    # Tutorial: advance to step 8 and redirect to completion page
     if tutorial_mode:
         ts = current_user.tutorial_session
-        if ts and ts.step == 8:
-            ts.step = 9
-            session['tutorial_step'] = 9
+        if ts and ts.step == 7:
+            ts.step = 8
+            session['tutorial_step'] = 8
 
     db.session.commit()
 
@@ -11750,16 +11799,25 @@ def cron_sms_reminders():
 
     for shift in shifts_tomorrow:
         day_label = tomorrow.strftime('%A, %b %-d')
-        slot_label = 'AM' if shift.slot == 'am' else 'PM'
         for pickup in shift.pickups:
             # Only remind sellers who were notified and aren't in an issue state
             if not pickup.notified_at or pickup.status == 'issue':
                 skipped += 1
                 continue
+            if shift.slot == 'daily':
+                sms_text = (
+                    f"Reminder: Campus Swap is picking up your stuff tomorrow, "
+                    f"{day_label}. See you then! Reply STOP to opt out."
+                )
+            else:
+                slot_label = 'AM' if shift.slot == 'am' else 'PM'
+                sms_text = (
+                    f"Reminder: Campus Swap is picking up your stuff tomorrow, "
+                    f"{day_label} {slot_label}. See you then! Reply STOP to opt out."
+                )
             ok = _send_sms(
                 pickup.seller,
-                f"Reminder: Campus Swap is picking up your stuff tomorrow, "
-                f"{day_label} {slot_label}. See you then! Reply STOP to opt out."
+                sms_text
             )
             if ok:
                 sent += 1
@@ -12140,7 +12198,7 @@ def admin_routes_assign_seller(user_id):
     tutorial_redirect = None
     if tutorial_mode and seller.is_tutorial_user:
         ts = current_user.tutorial_session
-        if ts and ts.step == 4:
+        if ts and ts.step == 3:
             db.session.flush()
             assigned_tutorial_count = (
                 ShiftPickup.query
@@ -12149,9 +12207,9 @@ def admin_routes_assign_seller(user_id):
                 .count()
             )
             if assigned_tutorial_count >= 3:
-                ts.step = 6
-                session['tutorial_step'] = 6
-                # Stay on ops — overlay at step 6 tells the CD to click Reorder Stops
+                ts.step = 5
+                session['tutorial_step'] = 5
+                # Stay on ops — overlay at step 5 tells the CD to click Reorder Stops
 
     db.session.commit()
     if tutorial_redirect:
@@ -12319,13 +12377,17 @@ def _get_eligible_reschedule_slots(pickup):
     current_date = _shift_date(current_shift)
 
     # Full set of date/slot combos across all defined pickup weeks
+    # Dates >= DAILY_SHIFT_CUTOVER use 'daily' slot; earlier dates use 'am' and 'pm'
     all_slots = set()
     for _wk, (start_str, end_str) in PICKUP_WEEK_DATE_RANGES.items():
         d = _date_type.fromisoformat(start_str)
         end = _date_type.fromisoformat(end_str)
         while d <= end:
-            all_slots.add((d, 'am'))
-            all_slots.add((d, 'pm'))
+            if d >= DAILY_SHIFT_CUTOVER:
+                all_slots.add((d, 'daily'))
+            else:
+                all_slots.add((d, 'am'))
+                all_slots.add((d, 'pm'))
             d += timedelta(days=1)
 
     # Existing Shift lookup for locked / in-progress checks (exclude tutorial weeks)
@@ -12344,6 +12406,8 @@ def _get_eligible_reschedule_slots(pickup):
         if d < today:
             continue
         if d == today:
+            # Allow same-day reschedule only if currently on AM and switching to PM
+            # (not applicable for daily slots — daily is the only slot so skip)
             if not (current_date == today and current_shift.slot == 'am' and slot == 'pm'):
                 continue
         if seller.moveout_date and d >= seller.moveout_date:
@@ -12408,9 +12472,9 @@ def _build_reschedule_grid(eligible_slots, current_shift):
     initial_week_idx = 0
     for ws in sorted(week_mondays):
         dates = [ws + timedelta(days=i) for i in range(7)]
-        rows = {'am': [], 'pm': []}
+        rows = {'am': [], 'pm': [], 'daily': []}
         for d in dates:
-            for slot in ('am', 'pm'):
+            for slot in ('am', 'pm', 'daily'):
                 key = (d, slot)
                 rows[slot].append({
                     'date': d,
@@ -12547,7 +12611,7 @@ def _parse_and_validate_slot(pickup, redirect_fn):
     try:
         date_str, slot = slot_key.rsplit(':', 1)
         new_date = _date_type.fromisoformat(date_str)
-        assert slot in ('am', 'pm')
+        assert slot in ('am', 'pm', 'daily')
     except Exception:
         flash("Please select a new time slot.", "error")
         return None, None, redirect_fn()
@@ -13224,10 +13288,10 @@ def admin_ops_reorder_page(shift_id, truck_number):
         and session.get('tutorial_active', False)
     )
     ts = current_user.tutorial_session if tutorial_mode else None
-    # Bump step 6→7 on arrival so the reorder page renders with the "drag to reorder" card
-    if ts and ts.step == 6:
-        ts.step = 7
-        session['tutorial_step'] = 7
+    # Bump step 5→6 on arrival so the reorder page renders with the "drag to reorder" card
+    if ts and ts.step == 5:
+        ts.step = 6
+        session['tutorial_step'] = 6
         db.session.commit()
     tutorial_step = ts.step if ts else 0
     return render_template(
@@ -13274,9 +13338,9 @@ def admin_ops_reorder_stops(shift_id, truck_number):
             and not current_user.is_admin
             and not current_user.is_super_admin):
         ts = current_user.tutorial_session
-        if ts and ts.step == 7:
-            ts.step = 8
-            session['tutorial_step'] = 8
+        if ts and ts.step == 6:
+            ts.step = 7
+            session['tutorial_step'] = 7
 
     db.session.commit()
     return jsonify({'success': True, 'redirect': url_for('admin_ops', shift_id=shift_id)})
@@ -13908,9 +13972,9 @@ def admin_crew_quick_add(shift_id):
     tutorial_step_advanced = False
     if tutorial_mode and shift.week and shift.week.is_tutorial:
         ts = current_user.tutorial_session
-        if ts and ts.step == 3:
-            ts.step = 4
-            session['tutorial_step'] = 4
+        if ts and ts.step == 2:
+            ts.step = 3
+            session['tutorial_step'] = 3
             tutorial_step_advanced = True
 
     db.session.commit()
@@ -14388,7 +14452,7 @@ def admin_tutorial_start():
     db.session.commit()
     session['tutorial_active'] = True
     session['tutorial_step'] = 1
-    return redirect(url_for('admin_schedule_index'))
+    return redirect(url_for('admin_crew_panel'))
 
 
 @app.route('/admin/tutorial/complete', methods=['GET', 'POST'])
@@ -14398,7 +14462,7 @@ def admin_tutorial_complete_page():
     if not _has_ops_access():
         abort(403)
     ts = current_user.tutorial_session
-    if ts and ts.step >= 9 and not ts.completed_at:
+    if ts and ts.step >= 8 and not ts.completed_at:
         prior_week_id = ts.tutorial_week_id
         ts.tutorial_week_id = None
         if prior_week_id:
@@ -14409,7 +14473,7 @@ def admin_tutorial_complete_page():
         ts.completed_at = datetime.utcnow()
         ts.is_retaking = False
         db.session.commit()
-    elif ts and ts.is_retaking and ts.step >= 9:
+    elif ts and ts.is_retaking and ts.step >= 8:
         prior_week_id = ts.tutorial_week_id
         ts.tutorial_week_id = None
         if prior_week_id:
