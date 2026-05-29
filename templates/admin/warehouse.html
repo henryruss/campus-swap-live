@@ -554,6 +554,14 @@ document.getElementById('route-chips-container').addEventListener('click', funct
         <i id="rp-no-img-icon" class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
       </div>
       {% include '_qc_camera_block.html' %}
+      {# Always-available file upload option #}
+      <div id="rp-upload-row" style="text-align:center; margin:-6px 0 14px;">
+        <button type="button" id="rp-upload-btn"
+                style="background:none;border:none;color:var(--primary);font-size:0.82rem;font-weight:600;cursor:pointer;text-decoration:underline;padding:0;">
+          <i class="fas fa-folder-open"></i> Upload from files
+        </button>
+        <input id="rp-upload-input" type="file" accept="image/*" style="display:none;">
+      </div>
       <div id="rp-error" style="display:none;background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:0.875rem;color:#991b1b;margin-bottom:12px;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button type="button" class="btn-outline" style="padding:8px 18px;font-size:0.88rem;" onclick="closeReplacePhotoModal()">Cancel</button>
@@ -605,6 +613,8 @@ function openReplacePhotoModal(itemId, currentPhotoUrl) {
   document.getElementById('qc-camera-wrap').style.display = 'none';
   document.getElementById('qc-fileinput-wrap').style.display = 'none';
   document.getElementById('qc-thumb-wrap').style.display = 'none';
+  document.getElementById('rp-upload-row').style.display = 'block';
+  document.getElementById('rp-upload-input').value = '';
 
   document.getElementById('rp-overlay').style.display = 'flex';
   rpStartCamera();
@@ -663,6 +673,7 @@ document.addEventListener('click', function(e) {
     _rpBlob = null;
     document.getElementById('rp-save-btn').disabled = true;
     document.getElementById('qc-thumb-wrap').style.display = 'none';
+    document.getElementById('rp-upload-row').style.display = 'block';
     if (_rpUseFile) {
       document.getElementById('qc-fileinput-wrap').style.display = 'flex';
     } else {
@@ -678,6 +689,15 @@ document.getElementById('qc-file-input').addEventListener('change', function() {
   this.value = '';
 });
 
+document.getElementById('rp-upload-btn').addEventListener('click', function() {
+  document.getElementById('rp-upload-input').click();
+});
+document.getElementById('rp-upload-input').addEventListener('change', function() {
+  var f = this.files && this.files[0];
+  if (f) rpShowThumb(f);
+  this.value = '';
+});
+
 function rpShowThumb(blob) {
   _rpBlob = blob;
   rpStopCamera();
@@ -685,6 +705,7 @@ function rpShowThumb(blob) {
   document.getElementById('qc-camera-wrap').style.display = 'none';
   document.getElementById('qc-fileinput-wrap').style.display = 'none';
   document.getElementById('qc-thumb-wrap').style.display = 'block';
+  document.getElementById('rp-upload-row').style.display = 'none';
   document.getElementById('rp-save-btn').disabled = false;
 }
 
