@@ -54,14 +54,9 @@
     <div style="flex:1;min-width:0;">
       <div class="whu-title">{{ loc.name }}</div>
       {% if loc.address %}<div class="whu-addr"><i class="fas fa-map-marker-alt" style="margin-right:4px;"></i>{{ loc.address }}</div>{% endif %}
-      {% if current_user.is_super_admin %}
+      {% if current_user.is_super_admin and loc.cost_per_sqft %}
       <div class="whu-cost-line" id="whu-cost-summary-{{ loc.id }}">
-        {% if loc.cost_per_sqft %}${{ '%.2f'|format(loc.cost_per_sqft) }}/sqft · ${{ '%.0f'|format(loc.monthly_cost) }}/mo{% else %}<span style="font-weight:400;">No cost data set</span>{% endif %}
-      </div>
-      <div class="whu-cost-fields">
-        <label>Size <input type="text" id="whu-size-{{ loc.id }}" value="{{ (loc.size_sqft|round|int) if loc.size_sqft else '' }}" placeholder="10x30 or 300" onchange="saveUnitCost({{ loc.id }})"></label>
-        <label>$/mo <input type="number" id="whu-cost-{{ loc.id }}" value="{{ ('%.0f'|format(loc.monthly_cost)) if loc.monthly_cost else '' }}" placeholder="180" min="0" step="1" onchange="saveUnitCost({{ loc.id }})"></label>
-        <span class="whu-saved-note" id="whu-cost-saved-{{ loc.id }}">Saved ✓</span>
+        ${{ '%.2f'|format(loc.cost_per_sqft) }}/sqft · ${{ '%.0f'|format(loc.monthly_cost) }}/mo
       </div>
       {% endif %}
       <div class="whu-meta">

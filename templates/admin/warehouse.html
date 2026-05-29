@@ -606,6 +606,15 @@ document.getElementById('rp-overlay').addEventListener('click', function(e) {
     document.getElementById('wh-seller-drawer').style.right = '-480px';
     document.body.style.overflow = '';
   }
+
+  document.addEventListener('click', function(e) {
+    var trigger = e.target.closest('.seller-panel-trigger');
+    if (trigger) {
+      e.preventDefault();
+      e.stopPropagation();
+      loadSellerPanel(trigger.dataset.userId);
+    }
+  });
 </script>
 
 {# Seller profile drawer #}

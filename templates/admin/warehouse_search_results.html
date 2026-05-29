@@ -15,6 +15,10 @@
     {% endif %}
     <span style="font-size:0.7rem;font-weight:700;background:#f1f5f9;color:var(--text-muted);padding:2px 6px;border-radius:5px;white-space:nowrap;">#{{ item.id }}</span>
     <span style="flex:1;min-width:0;font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.description or 'Untitled' }}</span>
+    {% if item.seller %}
+    <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller.id }}"
+       style="font-size:0.75rem;color:var(--primary);font-weight:600;text-decoration:none;white-space:nowrap;">{{ item.seller.full_name or item.seller.email }}</a>
+    {% endif %}
     {% if item.category %}<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">{{ item.category.name }}</span>{% endif %}
     <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">
       {% if item.storage_location %}{{ item.storage_location.name }}{% else %}<em>No unit</em>{% endif %}
