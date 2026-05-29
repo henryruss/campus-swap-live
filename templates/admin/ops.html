@@ -469,11 +469,18 @@
     .admin-shell { height: auto; min-height: unset; overflow: visible; }
     .admin-content { height: auto; overflow: visible; padding-left: 0; }
 
-    /* Drop the 3-zone grid; show only the main column */
-    .ops-page { display: block; height: auto; overflow: visible; }
+    /* Drop the 3-zone grid; show only the main column + unassigned at bottom */
+    .ops-page { display: flex; flex-direction: column; height: auto; overflow: visible; }
     .ops-shift-panel { display: none; }
-    .ops-unassigned-panel { display: none; }
-    .ops-main { display: block; overflow: visible; padding: 0; }
+    .ops-main { display: block; overflow-x: hidden; padding: 0; order: 1; }
+    .ops-unassigned-panel {
+      display: flex;
+      order: 2;
+      border-left: none;
+      border-top: var(--card-border);
+      max-height: none;
+      min-height: 120px;
+    }
 
     /* Mobile shift selector */
     .mobile-shift-selector {
@@ -507,14 +514,17 @@
     .btn-remove-truck { min-height: 36px; }
     .storage-chip { min-height: 36px; padding: 6px 12px; }
 
-    /* Truck cards */
+    /* Truck cards: contain within viewport */
     .ops-cards-area { padding: 10px 12px; }
+    .truck-card-new { max-width: 100%; overflow: hidden; }
     .truck-card-header-row { padding: 10px 12px; gap: 8px; }
     .cap-bar-wrap { margin-left: 0; }
     .truck-card-footer { padding: 10px 12px; }
     .truck-card-footer .btn-sm { flex: 1; justify-content: center; }
 
     /* Stop list rows: readable on small screens */
+    .stop-list { overflow: hidden; }
+    .stop-list > div[style] { white-space: normal; overflow-wrap: break-word; box-sizing: border-box; width: 100%; }
     .stop-row { padding: 10px 12px; font-size: 0.95rem; }
     .stop-seller-name { font-size: 1rem; }
     .stop-address { font-size: 0.85rem; white-space: normal; }
@@ -871,7 +881,7 @@
         <div class="stop-list">
           {% if not card.stop_rows %}
           <div style="padding: 16px; font-size: 0.83rem; color: var(--text-muted); text-align: center;">
-            No stops assigned — use auto-assign or drag from unassigned panel.
+            No stops assigned — use auto-assign or assign from the panel below.
           </div>
           {% endif %}
           {% for row in card.stop_rows %}

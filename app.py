@@ -13851,6 +13851,16 @@ def admin_items():
     all_items = items_q.order_by(InventoryItem.date_added.desc()).all()
     categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
 
+    # AI review queue
+    ai_review_items = []
+    if current_user.is_super_admin:
+        ai_review_items = (
+            InventoryItem.query
+            .filter(InventoryItem.ai_review_pending == True)
+            .order_by(InventoryItem.ai_generated_at.asc())
+            .all()
+        )
+
     # Photo verification queue
     photo_verification_items = []
     if current_user.is_super_admin:
@@ -13879,6 +13889,7 @@ def admin_items():
         available_count=available_count,
         sold_count=sold_count,
         approval_items=approval_items,
+        ai_review_items=ai_review_items,
         all_items=all_items,
         categories=categories,
         photo_verification_items=photo_verification_items,
