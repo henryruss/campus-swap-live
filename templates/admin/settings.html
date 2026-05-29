@@ -76,6 +76,25 @@
     text-decoration: none; color: var(--text-muted); transition: background 0.12s;
   }
   .nav-link:hover { background: var(--bg-cream); color: var(--primary); }
+
+  .settings-section-header {
+    cursor: pointer;
+    user-select: none;
+  }
+  .settings-section-header:hover { background: var(--bg-cream); }
+  .collapsible-chevron {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  .settings-section.is-collapsed .collapsible-chevron {
+    transform: rotate(-90deg);
+  }
+  .settings-section-body {
+    overflow: hidden;
+  }
 </style>
 
 <div class="settings-wrap">
@@ -555,7 +574,16 @@
                 <span style="color: var(--text-muted); font-size: 0.78rem;">Not started</span>
               {% endif %}
             </td>
-            <td style="padding: 8px 0 8px 8px; text-align: right;">
+            <td style="padding: 8px 0 8px 8px; text-align: right; white-space: nowrap;">
+              {% set _ts2 = u._tutorial_session if u._tutorial_session is defined else u.tutorial_session %}
+              {% if not _ts2 or not _ts2.completed_at %}
+              <form method="POST" action="{{ url_for('admin_bypass_tutorial') }}" style="display:inline; margin-right:6px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <button type="submit" class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem;"
+                        onclick="return confirm('Skip tutorial for {{ u.email }}? They\'ll go straight to the admin panel.')">Skip tutorial</button>
+              </form>
+              {% endif %}
               <form method="POST" action="{{ url_for('admin_revoke_campus_director') }}" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="user_id" value="{{ u.id }}">
@@ -614,5 +642,74 @@
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  const STORE_KEY = 'settings_collapsed';
+
+  function getCollapsed() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { return {}; }
+  }
+  function saveCollapsed(map) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(map));
+  }
+
+  function collapse(section, body, chevron, animate) {
+    body.style.display = 'none';
+    section.classList.add('is-collapsed');
+  }
+  function expand(section, body, chevron) {
+    body.style.display = '';
+    section.classList.remove('is-collapsed');
+  }
+
+  document.querySelectorAll('.settings-section').forEach(function (section) {
+    var header = section.querySelector('.settings-section-header');
+    var body   = section.querySelector('.settings-section-body');
+    if (!header || !body) return;
+
+    // Inject chevron
+    var chev = document.createElement('i');
+    chev.className = 'fas fa-chevron-down collapsible-chevron';
+    header.appendChild(chev);
+
+    var id = section.id || ('section-' + Math.random().toString(36).slice(2));
+    if (!section.id) section.id = id;
+
+    // Restore saved state
+    var collapsed = getCollapsed();
+    if (collapsed[id]) collapse(section, body, chev, false);
+
+    header.addEventListener('click', function () {
+      var map = getCollapsed();
+      if (section.classList.contains('is-collapsed')) {
+        expand(section, body, chev);
+        delete map[id];
+      } else {
+        collapse(section, body, chev, true);
+        map[id] = true;
+      }
+      saveCollapsed(map);
+    });
+  });
+
+  // Expand section targeted by URL hash (nav links or direct URL)
+  function expandHash() {
+    var hash = location.hash.slice(1);
+    if (!hash) return;
+    var target = document.getElementById(hash);
+    if (!target || !target.classList.contains('settings-section')) return;
+    var body = target.querySelector('.settings-section-body');
+    if (target.classList.contains('is-collapsed') && body) {
+      expand(target, body, target.querySelector('.collapsible-chevron'));
+      var map = getCollapsed();
+      delete map[hash];
+      saveCollapsed(map);
+    }
+  }
+  window.addEventListener('hashchange', expandHash);
+  expandHash();
+})();
+</script>
 
 {% endblock %}

@@ -14658,6 +14658,29 @@ def admin_revoke_campus_director():
     return redirect(url_for('admin_settings') + '#campus-directors')
 
 
+@app.route('/admin/user/bypass-tutorial', methods=['POST'])
+@login_required
+def admin_bypass_tutorial():
+    """Mark a campus director's tutorial as complete so they skip it. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    user_id = request.form.get('user_id', type=int)
+    user = User.query.get_or_404(user_id)
+    if not user.is_campus_director:
+        abort(400)
+    ts = user.tutorial_session
+    if ts is None:
+        ts = TutorialSession(user_id=user.id, step=7, completed_at=datetime.utcnow())
+        db.session.add(ts)
+    else:
+        ts.step = 7
+        ts.completed_at = datetime.utcnow()
+        ts.is_retaking = False
+    db.session.commit()
+    flash(f"Tutorial bypassed for {user.full_name or user.email}.", "success")
+    return redirect(url_for('admin_settings') + '#campus-directors')
+
+
 @app.route('/admin/settings/reassign-week', methods=['POST'])
 @login_required
 def admin_reassign_week():
