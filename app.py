@@ -102,13 +102,13 @@ def is_super_admin():
 def store_is_open():
     """True if the store is live — controlled by store_open_date admin setting."""
     from datetime import date as _date
-    val = AppSetting.get('store_open_date', '2026-06-01')
+    val = AppSetting.get('store_open_date', '2026-06-07')
     return _date.today() >= _date.fromisoformat(val)
 
 def store_open_date():
-    """Return the store open date as a human-readable string (e.g. 'June 1st')."""
+    """Return the store open date as a human-readable string (e.g. 'June 7th')."""
     from datetime import date as _date
-    val = AppSetting.get('store_open_date', '2026-06-01')
+    val = AppSetting.get('store_open_date', '2026-06-07')
     d = _date.fromisoformat(val)
     day = d.day
     if 11 <= day <= 13:
@@ -119,7 +119,7 @@ def store_open_date():
 
 def store_open_date_raw():
     """Return the store open date as ISO string (for form inputs)."""
-    return AppSetting.get('store_open_date', '2026-06-01')
+    return AppSetting.get('store_open_date', '2026-06-07')
 
 
 def haversine_miles(lat1, lng1, lat2, lng2):
@@ -1359,6 +1359,7 @@ def inventory():
             'inventory_teaser.html',
             preview_items=tiles,
             placeholder_range=range(placeholder_count),
+            open_date=store_open_date(),
         )
 
     cat_id = request.args.get('category_id', type=int)
@@ -1433,7 +1434,7 @@ def inventory():
 def product_detail(item_id):
     # Redirect to teaser page when shop is in pre-launch mode
     if AppSetting.get('shop_teaser_mode', 'false') == 'true':
-        flash('Items go on sale June 1st — sign up to be notified.', 'info')
+        flash(f'Items go on sale {store_open_date()} — sign up to be notified.', 'info')
         return redirect(url_for('inventory'))
     item = InventoryItem.query.get_or_404(item_id)
     # Block non-admins from viewing rejected items
@@ -14450,6 +14451,16 @@ def admin_settings():
             current = AppSetting.get('shop_teaser_mode', 'false')
             AppSetting.set('shop_teaser_mode', 'false' if current == 'true' else 'true')
             flash("Shop Teaser Mode updated.", "success")
+        elif action == 'save_shop_settings':
+            new_date = request.form.get('store_open_date_value', '').strip()
+            if new_date:
+                try:
+                    from datetime import date as _date_cls
+                    _date_cls.fromisoformat(new_date)
+                    AppSetting.set('store_open_date', new_date)
+                    flash(f"Store open date set to {store_open_date()}.", "success")
+                except ValueError:
+                    flash("Invalid date format.", "error")
         elif action == 'save_route_settings':
             for key in ['truck_raw_capacity', 'truck_capacity_buffer_pct',
                         'route_am_window', 'route_pm_window', 'maps_static_api_key',

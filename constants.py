@@ -77,6 +77,11 @@ PICKUP_WEEKS = [
     ('week3', 'May 11 – May 17'),
     ('week4', 'May 18 – May 24'),
     ('week5', 'May 25 – May 31'),
+    ('week6', 'June 1 – June 7'),
+    ('week7', 'June 8 – June 14'),
+    ('week8', 'June 15 – June 21'),
+    ('week9', 'June 22 – June 28'),
+    ('week10', 'June 29 – June 30'),
 ]
 
 # Date ranges for each pickup week (used for moveout_date validation)
@@ -86,6 +91,11 @@ PICKUP_WEEK_DATE_RANGES = {
     'week3': ('2026-05-11', '2026-05-17'),
     'week4': ('2026-05-18', '2026-05-24'),
     'week5': ('2026-05-25', '2026-05-31'),
+    'week6': ('2026-06-01', '2026-06-07'),
+    'week7': ('2026-06-08', '2026-06-14'),
+    'week8': ('2026-06-15', '2026-06-21'),
+    'week9': ('2026-06-22', '2026-06-28'),
+    'week10': ('2026-06-29', '2026-06-30'),
 }
 
 # Time-of-day options for pickup preference

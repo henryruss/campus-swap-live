@@ -140,6 +140,18 @@
           </label>
         </form>
       </div>
+      <form method="POST" action="{{ url_for('admin_settings') }}" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="_action" value="save_shop_settings">
+        <div class="settings-field">
+          <label>Shop open date</label>
+          <input type="date" name="store_open_date_value" value="{{ store_open_date or '2026-06-07' }}" required>
+        </div>
+        <div style="font-size: 0.77rem; color: var(--text-muted); margin: -8px 0 10px;">
+          Controls the date shown on the teaser page and when items become purchaseable.
+        </div>
+        <button type="submit" class="btn-primary btn-save">Save open date</button>
+      </form>
     </div>
   </div>
 
