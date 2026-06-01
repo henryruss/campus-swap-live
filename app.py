@@ -390,6 +390,15 @@ def _has_ops_access():
             or getattr(current_user, 'is_campus_director', False))
 
 
+def _has_warehouse_access():
+    """True if current user can access the warehouse tool — ops staff or approved crew workers."""
+    if _has_ops_access():
+        return True
+    return (current_user.is_authenticated
+            and getattr(current_user, 'is_worker', False)
+            and getattr(current_user, 'worker_status', None) == 'approved')
+
+
 @app.before_request
 def tutorial_gate():
     """
@@ -13491,7 +13500,7 @@ def _build_unit_data(loc):
 @app.route('/admin/warehouse')
 @login_required
 def admin_warehouse():
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
     locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
     unit_data = [_build_unit_data(loc) for loc in locations]
@@ -13508,18 +13517,21 @@ def admin_warehouse():
         .all()
     )
     storage_locations_all = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
     return render_template(
         'admin/warehouse.html',
         unit_data=unit_data,
         needs_photo_items=needs_photo_items,
         storage_locations_all=storage_locations_all,
+        storage_locations=storage_locations_all,
+        categories=categories,
     )
 
 
 @app.route('/admin/warehouse/search')
 @login_required
 def admin_warehouse_search():
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
 
     shift_id = request.args.get('shift_id', type=int)
@@ -13583,7 +13595,7 @@ def admin_warehouse_search():
 @app.route('/admin/warehouse/unit/<int:unit_id>')
 @login_required
 def admin_warehouse_unit(unit_id):
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
     loc = StorageLocation.query.get_or_404(unit_id)
     d = _build_unit_data(loc)
@@ -13610,7 +13622,7 @@ def admin_warehouse_unit(unit_id):
 @app.route('/admin/warehouse/unit/<int:unit_id>/toggle-full', methods=['POST'])
 @login_required
 def admin_warehouse_toggle_full(unit_id):
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
     loc = StorageLocation.query.get_or_404(unit_id)
     loc.is_full = not loc.is_full
@@ -13621,7 +13633,7 @@ def admin_warehouse_toggle_full(unit_id):
 @app.route('/admin/warehouse/bulk-move', methods=['POST'])
 @login_required
 def admin_warehouse_bulk_move():
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
     item_ids = request.form.getlist('item_ids[]')
     dest_id = request.form.get('destination_unit_id', type=int)
@@ -13641,7 +13653,7 @@ def admin_warehouse_bulk_move():
 @app.route('/admin/warehouse/routes')
 @login_required
 def admin_warehouse_routes():
-    if not _has_ops_access():
+    if not _has_warehouse_access():
         abort(403)
     # All shifts that have at least one seller with at least one item, most-recent-first
     rows = (
@@ -15693,6 +15705,26 @@ def crew_delivery_end(shift_id):
     run.status = 'completed'
     db.session.commit()
     return redirect(url_for('crew_dashboard'))
+
+
+# ── Dev-only login bypass ──────────────────────────────────────────────────────
+if os.environ.get('FLASK_ENV') != 'production':
+    @app.route('/dev/login-as')
+    def dev_login_as():
+        email = request.args.get('email', '').strip().lower()
+        if not email:
+            users = User.query.order_by(User.id).all()
+            links = ''.join(
+                f'<li><a href="/dev/login-as?email={u.email}">{u.email} — {u.full_name}</a></li>'
+                for u in users
+            )
+            return f'<ul>{links}</ul>'
+        user = User.query.filter(db.func.lower(User.email) == email).first()
+        if not user:
+            return f'No user found with email {email}', 404
+        login_user(user, remember=True)
+        return redirect(get_user_dashboard())
+# ── end Dev-only login bypass ──────────────────────────────────────────────────
 
 
 if __name__ == '__main__':
