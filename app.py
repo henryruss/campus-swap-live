@@ -10274,10 +10274,15 @@ def _get_worker_availability_for_week(worker, week_start):
 
 
 def _worker_available_for_slot(worker, shift, week_start):
-    """True if worker has availability for shift.day_of_week + shift.slot."""
+    """True if worker has availability for shift.day_of_week + shift.slot.
+    For 'daily' shifts, available if marked for either am or pm that day."""
     avail = _get_worker_availability_for_week(worker, week_start)
     if not avail:
         return False
+    if shift.slot == 'daily':
+        am = bool(getattr(avail, f"{shift.day_of_week}_am", False))
+        pm = bool(getattr(avail, f"{shift.day_of_week}_pm", False))
+        return am or pm
     field = f"{shift.day_of_week}_{shift.slot}"
     return bool(getattr(avail, field, False))
 
@@ -14005,6 +14010,29 @@ def admin_items():
     store_open_date = AppSetting.get('store_open_date', '')
     shop_teaser_mode = AppSetting.get('shop_teaser_mode', 'false')
 
+    # Pickup nudge: sellers with approved/available items but no pickup week set on their account
+    nudge_sellers = [
+        s for s in (
+            User.query
+            .filter(
+                User.is_seller == True,
+                User.is_internal_account == False,
+                User.pickup_week.is_(None),
+            )
+            .order_by(User.full_name)
+            .all()
+        )
+        if InventoryItem.query.filter_by(seller_id=s.id, status='available').count() > 0
+    ]
+    for s in nudge_sellers:
+        s._item_count = InventoryItem.query.filter_by(seller_id=s.id, status='available').count()
+
+    # TEMP: inject henry for email testing — remove when done
+    _henry = User.query.filter_by(email='henry.russell28@gmail.com').first()
+    if _henry and not any(s.id == _henry.id for s in nudge_sellers):
+        _henry._item_count = 0
+        nudge_sellers.insert(0, _henry)
+
     return render_template(
         'admin/items.html',
         view=view,
@@ -14025,6 +14053,7 @@ def admin_items():
         q=q,
         filter_cat=filter_cat,
         filter_needs_refresh=filter_needs_refresh,
+        nudge_sellers=nudge_sellers,
     )
 
 

@@ -691,7 +691,7 @@
       <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 12px;">
         These sellers have approved items but haven't selected a pickup week.
       </p>
-      <form method="POST" action="{{ url_for('admin_send_pickup_nudge') }}">
+      <form id="nudge-form" method="POST" action="{{ url_for('admin_send_pickup_nudge') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <table class="nudge-table">
           <thead>
@@ -1147,6 +1147,34 @@
       if (drawer && drawer.style.right === '0px') { closeItemDetail(); return; }
     }
   });
+
+  // Pickup nudge form — intercept submit, handle JSON response
+  (function() {
+    var form = document.getElementById('nudge-form');
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var fd = new FormData(form);
+      var btn = e.submitter;
+      if (btn) fd.append(btn.name, '1');
+      var origText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      fetch(form.action, { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.textContent = origText; }
+          if (data.success) {
+            if (data.reload) { window.location.reload(); }
+          } else {
+            alert(data.message || 'Something went wrong.');
+          }
+        })
+        .catch(function() {
+          if (btn) { btn.disabled = false; btn.textContent = origText; }
+          alert('Request failed — check your connection.');
+        });
+    });
+  })();
 
   // Pickup nudge collapsible
   function toggleNudgeSection(header) {
