@@ -717,7 +717,6 @@
           <button type="submit" name="send_selected" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem;">Remind Selected</button>
           <button type="submit" name="send_all" class="btn-primary" style="padding: 7px 14px; font-size: 0.83rem;">Remind All ({{ nudge_sellers | length }})</button>
         </div>
-        <pre id="nudge-debug" style="display:none; margin-top:12px; padding:12px; background:#1e293b; color:#94efb0; border-radius:6px; font-size:0.75rem; white-space:pre-wrap; max-height:400px; overflow-y:auto;"></pre>
       </form>
       {% endif %}
     </div>
@@ -1164,11 +1163,6 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.textContent = origText; }
-          var dbg = document.getElementById('nudge-debug');
-          if (data.debug && dbg) {
-            dbg.style.display = 'block';
-            dbg.textContent = data.debug.join('\n');
-          }
           if (data.success) {
             if (data.reload) { window.location.reload(); }
           } else {

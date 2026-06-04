@@ -3376,15 +3376,12 @@ def admin_send_pickup_nudge():
         target_users = User.query.filter(User.id.in_(target_ids)).all() if target_ids else []
 
     sent_count = 0
-    debug_log = []
     for u in target_users:
-        debug_log.append(f"Processing user {u.id} ({u.email})")
         # Deduplication: skip if unresolved pickup_reminder already exists
         existing = SellerAlert.query.filter_by(
             user_id=u.id, alert_type='pickup_reminder', resolved=False
         ).first()
         if existing:
-            debug_log.append(f"  SKIP: existing unresolved alert #{existing.id}")
             continue
         alert = SellerAlert(
             user_id=u.id,
@@ -3394,17 +3391,12 @@ def admin_send_pickup_nudge():
             resolved=False
         )
         db.session.add(alert)
-        debug_log.append(f"  Created alert")
 
-        if not u.email:
-            debug_log.append(f"  SKIP email: no email address")
-        else:
+        if u.email:
             try:
-                debug_log.append(f"  resend.api_key set: {bool(resend.api_key)}")
                 name = (u.full_name or 'there').split()[0]
                 base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
                 dashboard_url = f"{base_url}/dashboard"
-                debug_log.append(f"  Building html...")
                 html = wrap_email_template(f"""
                     <h2>Action Required: Select Your Pickup Week</h2>
                     <p>Hi {name},</p>
@@ -3416,18 +3408,13 @@ def admin_send_pickup_nudge():
                     <p>Questions? Reply to this email or reach out at <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
                     <p>Thanks,<br>Campus Swap</p>
                 """)
-                debug_log.append(f"  Calling send_email...")
-                result = send_email(u.email, "Action Required: Select Your Pickup Week — Campus Swap", html)
-                debug_log.append(f"  send_email returned: {result}")
+                send_email(u.email, "Action Required: Select Your Pickup Week — Campus Swap", html)
             except Exception as e:
-                import traceback
-                debug_log.append(f"  EXCEPTION: {e}")
-                debug_log.append(traceback.format_exc())
+                logger.error(f"pickup_nudge email failed for user {u.id}: {e}")
 
         sent_count += 1
     db.session.commit()
-    msg = f"Reminder sent to {sent_count} seller{'s' if sent_count != 1 else ''}."
-    return jsonify({'success': True, 'message': msg, 'debug': debug_log, 'reload': False})
+    return jsonify({'success': True, 'message': f"Reminder sent to {sent_count} seller{'s' if sent_count != 1 else ''}.", 'reload': True})
 
 
 def _run_approval_digest():
