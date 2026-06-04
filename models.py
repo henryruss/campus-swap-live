@@ -245,6 +245,16 @@ class InventoryItem(db.Model):
     ai_generated_at     = db.Column(db.DateTime, nullable=True)
     ai_approved         = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
+    # SELLER DATA PRESERVATION — write-once at item creation, never updated afterward
+    seller_description      = db.Column(db.Text, nullable=True)
+    seller_long_description = db.Column(db.Text, nullable=True)
+
+    # AI PHOTO ENHANCEMENT — True after OpenAI background replacement succeeds
+    ai_photo_enhanced       = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
+    # VISIBILITY FALLBACK — True for items approved before the photo-enhancement rollout
+    was_previously_approved = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

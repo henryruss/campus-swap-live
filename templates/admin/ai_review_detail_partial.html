@@ -8,6 +8,9 @@
   <div class="approval-modal-gallery">
     {% if all_photos %}
     <div class="approval-gallery-track-wrap" style="position:relative;">
+      {% if item.ai_photo_enhanced %}
+      <div style="position:absolute;top:10px;left:10px;z-index:10;background:rgba(16,185,129,0.9);color:white;font-size:0.7rem;font-weight:700;padding:3px 9px;border-radius:999px;backdrop-filter:blur(2px);pointer-events:none;">✨ Enhanced</div>
+      {% endif %}
       <div class="approval-gallery-track" id="approval-gallery-track">
         {% for photo in all_photos %}
         <img src="{{ url_for('uploaded_file', filename=photo) }}"

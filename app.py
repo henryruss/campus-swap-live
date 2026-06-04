@@ -1381,11 +1381,17 @@ def inventory():
     
     # Build query with eager loading to prevent N+1 queries
     # Items appear on shop once approved (pending_logistics or available or sold) - no wait for has_paid or arrived_at_store
+    # Fallback: previously-approved items remain visible while awaiting re-processing after pipeline reset
+    _visible = or_(
+        and_(InventoryItem.ai_approved == True, InventoryItem.needs_new_photo == False),
+        and_(InventoryItem.was_previously_approved == True, InventoryItem.price > 0,
+             InventoryItem.status == 'available', InventoryItem.needs_new_photo == False),
+    )
     query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
     ).filter(
-        InventoryItem.ai_approved == True,
+        _visible,
         InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
         InventoryItem.price > 0
@@ -5526,9 +5532,16 @@ def onboard():
                 collection_method='free',
                 suggested_price=_suggested_price,
             )
+            _new_item.seller_description = _new_item.description
+            _new_item.seller_long_description = _new_item.long_description
             db.session.add(_new_item)
             current_user.is_seller = True
             db.session.commit()
+            threading.Thread(
+                target=_run_ai_generation_single,
+                args=(current_app._get_current_object(), _new_item.id),
+                daemon=True
+            ).start()
             flash("Item submitted! We'll review and price it soon.", "success")
             return redirect(get_user_dashboard())
 
@@ -5584,8 +5597,16 @@ def onboard():
                     collection_method='free',
                     suggested_price=_suggested_price,
                 )
+                _new_item.seller_description = _new_item.description
+                _new_item.seller_long_description = _new_item.long_description
                 db.session.add(_new_item)
             db.session.commit()
+            if _cat_id:
+                threading.Thread(
+                    target=_run_ai_generation_single,
+                    args=(current_app._get_current_object(), _new_item.id),
+                    daemon=True
+                ).start()
             login_user(_new_user)
             return redirect(url_for('onboard_complete'))
 
@@ -5677,6 +5698,8 @@ def onboard():
             suggested_price=suggested_price,
             subcategory_id=subcategory_id,
         )
+        new_item.seller_description = new_item.description
+        new_item.seller_long_description = new_item.long_description
         db.session.add(new_item)
         db.session.flush()
 
@@ -5785,6 +5808,11 @@ def onboard():
             return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
 
         db.session.commit()
+        threading.Thread(
+            target=_run_ai_generation_single,
+            args=(current_app._get_current_object(), new_item.id),
+            daemon=True
+        ).start()
         # PostHog: item submitted for review
         try:
             posthog.capture('item_submitted', distinct_id=str(current_user.id), properties={
@@ -6456,6 +6484,8 @@ def add_item():
             suggested_price=suggested_price,
             subcategory_id=subcategory_id,
         )
+        new_item.seller_description = new_item.description
+        new_item.seller_long_description = new_item.long_description
         db.session.add(new_item)
         db.session.flush()
         
@@ -6568,6 +6598,11 @@ def add_item():
             return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
         db.session.commit()
+        threading.Thread(
+            target=_run_ai_generation_single,
+            args=(current_app._get_current_object(), new_item.id),
+            daemon=True
+        ).start()
 
         # Send item submission confirmation email
         try:
@@ -8925,6 +8960,8 @@ def crew_quick_capture():
         date_added=now,
         quality=1,
     )
+    item.seller_description = item.description
+    item.seller_long_description = item.long_description
     db.session.add(item)
     try:
         db.session.commit()
@@ -15077,6 +15114,7 @@ def admin_ai_generate_run():
     )
     if limit:
         query = query.limit(limit)
+    enhance_photos = request.form.get('enhance_photos', '1') != '0'
     item_ids = [item.id for item in query.all()]
     job_id = str(uuid.uuid4())
     _AI_JOBS[job_id] = {
@@ -15085,23 +15123,207 @@ def admin_ai_generate_run():
         'errors': [],
         'results': [],
         'done': False,
+        'phase': 'photo' if enhance_photos else 'text',
         'started_at': datetime.utcnow(),
     }
     app_obj = current_app._get_current_object()
-    t = threading.Thread(target=_run_ai_generation_job, args=(app_obj, job_id, item_ids, model), daemon=True)
+    t = threading.Thread(target=_run_ai_generation_job, args=(app_obj, job_id, item_ids, model, enhance_photos), daemon=True)
     t.start()
     return jsonify({'job_id': job_id, 'total': len(item_ids)})
 
 
-def _run_ai_generation_job(app, job_id, item_ids, model):
-    """Background thread: generate AI content for each item."""
-    import anthropic, base64, time
+def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase=None):
+    """Run the full AI pipeline for one item: optional photo enhancement + text generation.
+
+    Writes results directly to DB. Must be called within an active app context.
+    on_phase: optional callable(phase_str) called as work transitions between 'photo' and 'text'.
+    Returns True on success, False if there are no photos to process.
+    """
+    import anthropic as _anthropic, time as _time
     from storage import get_storage_instance
+    storage = get_storage_instance()
+
+    if model is None:
+        model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
+
+    # --- Photo enhancement (optional) ---
+    if enhance_photos and not item.ai_photo_enhanced and item.photo_url:
+        if on_phase:
+            on_phase('photo')
+        openai_key = os.environ.get('OPENAI_API_KEY')
+        if not openai_key:
+            app.logger.warning(f'Photo enhancement skipped for item {item.id}: OPENAI_API_KEY not set')
+        else:
+            try:
+                import openai as _openai, io as _io
+                photo_bytes = storage.get_photo_bytes(item.photo_url)
+                if photo_bytes:
+                    client = _openai.OpenAI(api_key=openai_key)
+                    response = client.images.edit(
+                        model='gpt-image-1',
+                        image=('cover.jpg', _io.BytesIO(photo_bytes), 'image/jpeg'),
+                        prompt=(
+                            'Professional product photography of this item only. Pure white background, '
+                            'white floor seamlessly meeting the wall, soft even studio lighting with no '
+                            'harsh shadows. The item should be centered and fill most of the frame. '
+                            'Remove any power cords, cables, or background clutter not part of the item itself. '
+                            'Do not add any text, watermarks, or props. Neutral, clean, marketplace-ready.'
+                        ),
+                        size='1024x1024',
+                        response_format='b64_json',
+                    )
+                    enhanced_b64 = response.data[0].b64_json
+                    enhanced_bytes = base64.b64decode(enhanced_b64)
+                    # Preserve original photo in gallery if not already there
+                    existing_gallery_urls = {p.photo_url for p in item.gallery_photos}
+                    if item.photo_url not in existing_gallery_urls:
+                        db.session.add(ItemPhoto(item_id=item.id, photo_url=item.photo_url))
+                    # Save enhanced photo and update cover
+                    new_filename = f'ai_enhanced_{item.id}_{int(_time.time())}.jpg'
+                    photo_storage.save_photo_from_bytes(enhanced_bytes, new_filename)
+                    item.photo_url = new_filename
+                    item.ai_photo_enhanced = True
+                    db.session.commit()
+            except Exception as e:
+                app.logger.error(f'Photo enhancement error for item {item.id}: {e}')
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+
+    # --- Text generation ---
+    if on_phase:
+        on_phase('text')
+
+    photos = []
+    if item.photo_url:
+        photos.append(item.photo_url)
+    for gp in item.gallery_photos:
+        if gp.photo_url != item.photo_url:
+            photos.append(gp.photo_url)
+    photos = photos[:4]
+
+    photo_data = []
+    for filename in photos:
+        photo_bytes = storage.get_photo_bytes(filename)
+        if photo_bytes:
+            ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
+            photo_data.append((photo_bytes, ext))
+
+    if not photo_data:
+        item.ai_generated_at = datetime.utcnow()
+        db.session.commit()
+        return False
+
+    seller_title = item.seller_description if item.seller_description else item.description
+    prompt = f"""You are writing product listings for a secondhand marketplace. Buyers are general consumers — not specifically college students. Never mention dorms, dorm rooms, college, campus, or students.
+
+You are looking at a photo of a secondhand item being sold. The seller has titled this item: "{seller_title}". Use that title as the authoritative source for what is being sold. Do not add, invent, or describe any other objects visible in the photo that are not the primary item described in the seller's title.
+
+Generate a product listing with:
+
+TITLE: A clean, factual title (max 60 chars). Use the seller's title as your primary input. Include brand name if visible. No punctuation at the end.
+
+DESCRIPTION: 2-3 sentences. Describe the item's key features, condition, and what makes it worth buying. Write for a general buyer. Do not mention dorms, college, or campus. Do not describe objects that are not the item being sold.
+
+PRICE: Suggest a fair secondhand price in USD as a number only (no $ sign). Base it on condition and typical resale value.
+
+RETAIL: Estimate the original retail price as a number only. This should be the typical new retail price for this type of item.
+
+Respond ONLY in this exact format with no other text:
+TITLE: ...
+DESCRIPTION: ...
+PRICE: ...
+RETAIL: ..."""
+
+    media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
+    content = []
+    for photo_bytes, ext in photo_data:
+        content.append({
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': media_map.get(ext, 'image/jpeg'),
+                       'data': base64.b64encode(photo_bytes).decode('utf-8')}
+        })
+    content.append({'type': 'text', 'text': prompt})
+
+    client = _anthropic.Anthropic()
+    raw = None
+    for attempt in range(2):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=500,
+                messages=[{'role': 'user', 'content': content}],
+            )
+            raw = response.content[0].text.strip()
+            break
+        except Exception as api_err:
+            if attempt == 0:
+                _time.sleep(5)
+            else:
+                raise api_err
+    if raw is None:
+        raise Exception('API returned no content')
+
+    def _strip_dashes(s):
+        return str(s).replace('—', ' ').replace(' – ', ' ').replace('–', ' ').replace('  ', ' ').strip()
+
+    parsed_title = parsed_desc = parsed_price = parsed_retail = None
+    for line in raw.split('\n'):
+        line = line.strip()
+        if line.startswith('TITLE:'):
+            parsed_title = line[6:].strip()
+        elif line.startswith('DESCRIPTION:'):
+            parsed_desc = line[12:].strip()
+        elif line.startswith('PRICE:'):
+            parsed_price = line[6:].strip()
+        elif line.startswith('RETAIL:'):
+            parsed_retail = line[7:].strip()
+
+    if not parsed_title or not parsed_price:
+        raise Exception(f'Failed to parse AI response: {raw[:200]}')
+
+    item.ai_description = _strip_dashes(parsed_title)[:200]
+    item.ai_long_description = _strip_dashes(parsed_desc or '')[:2000]
+    raw_price = round(float(parsed_price), 2)
+    raw_retail = round(float(parsed_retail), 2) if parsed_retail else None
+    if raw_price > 0:
+        min_retail = round(raw_price / 0.60, 2)
+        if raw_retail is None or raw_retail < min_retail:
+            raw_retail = min_retail
+    item.ai_price = raw_price
+    item.ai_retail_price = raw_retail
+    item.ai_generated_at = datetime.utcnow()
+    item.ai_review_pending = True
+    db.session.commit()
+    return True
+
+
+def _run_ai_generation_single(app, item_id):
+    """Fire-and-forget: run AI pipeline for one newly submitted item."""
+    with app.app_context():
+        item = InventoryItem.query.get(item_id)
+        if not item or item.ai_generated_at is not None or not item.photo_url:
+            return
+        try:
+            _process_single_item_ai(app, item)
+        except Exception as e:
+            app.logger.error(f'Single-item AI generation error for item {item_id}: {e}')
+            try:
+                item = InventoryItem.query.get(item_id)
+                if item and item.ai_generated_at is None:
+                    item.ai_generated_at = datetime.utcnow()
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+
+def _run_ai_generation_job(app, job_id, item_ids, model, enhance_photos=True):
+    """Background thread: generate AI content for each item in a batch."""
     started_at = datetime.utcnow()
     succeeded = 0
     error_count = 0
     with app.app_context():
-        storage = get_storage_instance()
         for item_id in item_ids:
             try:
                 item = InventoryItem.query.get(item_id)
@@ -15109,108 +15331,20 @@ def _run_ai_generation_job(app, job_id, item_ids, model):
                     _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': 'Item not found'})
                     error_count += 1
                     continue
-                # Collect photo filenames
-                photos = []
-                if item.photo_url:
-                    photos.append(item.photo_url)
-                for gp in item.gallery_photos:
-                    if gp.photo_url != item.photo_url:
-                        photos.append(gp.photo_url)
-                photos = photos[:4]
-                # Load photo bytes via storage abstraction (works for both local disk and S3)
-                photo_data = []
-                for filename in photos:
-                    photo_bytes = storage.get_photo_bytes(filename)
-                    if photo_bytes:
-                        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
-                        photo_data.append((photo_bytes, ext))
-                if not photo_data:
-                    item.ai_generated_at = datetime.utcnow()
-                    db.session.commit()
+
+                def _set_phase(phase):
+                    _AI_JOBS[job_id]['phase'] = phase
+
+                result = _process_single_item_ai(
+                    app, item,
+                    enhance_photos=enhance_photos,
+                    model=model,
+                    on_phase=_set_phase,
+                )
+                if not result:
                     _AI_JOBS[job_id]['errors'].append({'item_id': item_id, 'reason': 'No photo files found'})
                     error_count += 1
                     continue
-                # Build prompt
-                seller_note = ''
-                if item.description or item.long_description:
-                    parts = []
-                    if item.description:
-                        parts.append(item.description.strip())
-                    if item.long_description:
-                        parts.append(item.long_description.strip())
-                    combined = ' — '.join(parts)
-                    seller_note = f'The seller described it as: "{combined}". Preserve any specific details they mentioned (dimensions, damage, accessories, etc.) in your description.'
-                quality_map = {5: 'Like New', 4: 'Good', 3: 'Fair', 2: 'Poor', 1: 'Very Poor'}
-                condition_label = quality_map.get(item.quality, 'Used')
-                category_name = item.category.name if item.category else 'Item'
-                prompt = f"""You are writing marketplace listings for Campus Swap, a college student consignment shop at UNC Chapel Hill.
-
-Item details:
-- Category: {category_name}
-- Condition: {condition_label}
-{seller_note}
-
-Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markdown, no extra text. Do NOT use em-dashes or en-dashes anywhere in title or description.
-
-{{
-  "title": "Short, specific, buyer-facing title. Max 80 characters. Lead with the item type and one key detail. Examples: 'Black Mini Fridge, Perfect for Dorms', 'Grey IKEA Couch in Great Condition'. Do not start with 'I' or 'This'. No dashes as separators.",
-  "description": "2-3 sentences. Highlight the best visual features, condition, and why a student would want it. Mention any notable details from the seller if provided. Do not mention price. No em-dashes.",
-  "price": A number (no dollar sign, no quotes). Used resale price in USD for this item in this condition. Must be at least 40 percent below the retail price. Students are price-sensitive. Return only the number.,
-  "retail_price": A number (no dollar sign, no quotes). Estimated new retail price in USD for this item. Research what this item typically sells for new. Return only the number.
-}}"""
-                # Build content blocks
-                media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
-                content = []
-                for photo_bytes, ext in photo_data:
-                    content.append({
-                        'type': 'image',
-                        'source': {'type': 'base64', 'media_type': media_map.get(ext, 'image/jpeg'),
-                                   'data': base64.b64encode(photo_bytes).decode('utf-8')}
-                    })
-                content.append({'type': 'text', 'text': prompt})
-                # Call API with one retry
-                client = anthropic.Anthropic()
-                raw = None
-                for attempt in range(2):
-                    try:
-                        response = client.messages.create(
-                            model=model,
-                            max_tokens=500,
-                            messages=[{'role': 'user', 'content': content}],
-                        )
-                        raw = response.content[0].text.strip()
-                        break
-                    except Exception as api_err:
-                        if attempt == 0:
-                            time.sleep(5)
-                        else:
-                            raise api_err
-                if raw is None:
-                    raise Exception('API returned no content')
-                # Strip markdown fences
-                if raw.startswith('```'):
-                    raw = raw.split('```')[1]
-                    if raw.startswith('json'):
-                        raw = raw[4:]
-                raw = raw.strip().rstrip('```').strip()
-                parsed = json.loads(raw)
-                # Strip em-dashes and en-dashes
-                def _strip_dashes(s):
-                    return str(s).replace('—', ' ').replace('–', ' ').replace('  ', ' ').strip()
-                item.ai_description = _strip_dashes(parsed['title'])[:200]
-                item.ai_long_description = _strip_dashes(parsed['description'])[:2000]
-                raw_price = round(float(parsed['price']), 2)
-                raw_retail = round(float(parsed.get('retail_price', 0)), 2) if parsed.get('retail_price') else None
-                # Ensure retail price is high enough to show at least 40% savings on our price
-                if raw_price > 0:
-                    min_retail = round(raw_price / 0.60, 2)
-                    if raw_retail is None or raw_retail < min_retail:
-                        raw_retail = min_retail
-                item.ai_price = raw_price
-                item.ai_retail_price = raw_retail
-                item.ai_generated_at = datetime.utcnow()
-                item.ai_review_pending = True
-                db.session.commit()
                 succeeded += 1
                 _AI_JOBS[job_id]['results'].append({
                     'item_id': item_id,
@@ -15233,6 +15367,7 @@ Looking at the photo(s), write a listing. Respond ONLY with valid JSON, no markd
             finally:
                 _AI_JOBS[job_id]['completed'] += 1
         _AI_JOBS[job_id]['done'] = True
+        _AI_JOBS[job_id]['phase'] = 'done'
         # Save run log
         try:
             log_raw = AppSetting.get('ai_autofill_run_log', '[]')
@@ -15279,6 +15414,7 @@ def admin_ai_generate_status():
         'completed': job['completed'],
         'errors': job['errors'],
         'results': job['results'],
+        'phase': job.get('phase', 'photo'),
     })
 
 
