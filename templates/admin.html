@@ -1935,5 +1935,41 @@
             }
         });
     })();
+
+    // Panel functions called via inline onclick in admin_seller_panel.html partial.
+    // Must live here — scripts in innerHTML don't execute.
+    var _panelCsrf = '{{ csrf_token() }}';
+    function showClearPickupConfirm() {
+        document.getElementById('clear-pickup-initial').style.display = 'none';
+        document.getElementById('clear-pickup-confirm').style.display = '';
+    }
+    function hideClearPickupConfirm() {
+        document.getElementById('clear-pickup-confirm').style.display = 'none';
+        document.getElementById('clear-pickup-initial').style.display = '';
+    }
+    function clearSellerPickup(sellerId) {
+        var btn = document.getElementById('clear-pickup-btn');
+        var feedback = document.getElementById('clear-pickup-feedback');
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+        var fd = new FormData();
+        fd.append('csrf_token', _panelCsrf);
+        fetch('/admin/seller/' + sellerId + '/clear-pickup', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    document.getElementById('clear-pickup-confirm').style.display = 'none';
+                    feedback.style.display = 'block';
+                    feedback.style.color = '#166534';
+                    feedback.innerHTML = '<i class="fas fa-check-circle"></i> Removed. Seller is now in the unassigned pool.';
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Yes, remove';
+                    feedback.style.display = 'block';
+                    feedback.style.color = '#991b1b';
+                    feedback.textContent = data.error || 'Something went wrong.';
+                }
+            });
+    }
 </script>
 {% endblock %}

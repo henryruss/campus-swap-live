@@ -174,6 +174,36 @@
                 {% if seller.moveout_date %}{{ seller.moveout_date.strftime('%a, %b %d') }}
                 {% else %}Not provided{% endif %}
             </div>
+            {% if seller_pickup and seller_pickup.status != 'completed' %}
+            <div style="margin-top: 12px;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">
+                    <strong>Current Assignment:</strong>
+                    Shift #{{ seller_pickup.shift_id }}, Truck {{ seller_pickup.truck_number }}
+                    {% if seller_pickup.issue_type == 'no_show' %}<span style="color: #dc2626; margin-left: 4px;">(No-show)</span>{% endif %}
+                </div>
+                <div id="clear-pickup-initial">
+                    <button onclick="showClearPickupConfirm()"
+                            style="width: 100%; padding: 8px 12px; background: #fff7ed; border: 1px solid #fdba74; color: #c2410c; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;">
+                        <i class="fas fa-undo"></i> Return to Unassigned Pool
+                    </button>
+                </div>
+                <div id="clear-pickup-confirm" style="display:none; background:#fff7ed; border:1px solid #fdba74; border-radius:6px; padding:10px; font-size:0.82rem;">
+                    <div style="margin-bottom:8px; color:#92400e;">Remove from Shift #{{ seller_pickup.shift_id }}, Truck {{ seller_pickup.truck_number }} and return to the unassigned pool?</div>
+                    <div style="display:flex; gap:8px;">
+                        <button onclick="clearSellerPickup({{ seller.id }})"
+                                id="clear-pickup-btn"
+                                style="flex:1; padding:6px 10px; background:#c2410c; border:none; color:white; border-radius:5px; font-size:0.82rem; font-weight:600; cursor:pointer;">
+                            Yes, remove
+                        </button>
+                        <button onclick="hideClearPickupConfirm()"
+                                style="flex:1; padding:6px 10px; background:white; border:1px solid #cbd5e1; color:#64748b; border-radius:5px; font-size:0.82rem; cursor:pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+                <div id="clear-pickup-feedback" style="display:none; margin-top:6px; font-size:0.8rem;"></div>
+            </div>
+            {% endif %}
         </div>
         {% else %}
         <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">Not a seller</p>

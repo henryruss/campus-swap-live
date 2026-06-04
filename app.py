@@ -3120,7 +3120,24 @@ def admin_seller_panel(user_id):
     user = User.query.get_or_404(user_id)
     items = InventoryItem.query.filter_by(seller_id=user.id).order_by(InventoryItem.date_added.desc()).all()
     unresolved_count = SellerAlert.query.filter_by(user_id=user.id, resolved=False).count()
-    return render_template('admin_seller_panel.html', seller=user, seller_items=items, unresolved_alert_count=unresolved_count)
+    seller_pickup = ShiftPickup.query.filter_by(seller_id=user.id).first()
+    return render_template('admin_seller_panel.html', seller=user, seller_items=items,
+                           unresolved_alert_count=unresolved_count, seller_pickup=seller_pickup)
+
+
+@app.route('/admin/seller/<int:user_id>/clear-pickup', methods=['POST'])
+@login_required
+def admin_seller_clear_pickup(user_id):
+    """Delete a seller's ShiftPickup so they re-enter the unassigned pool."""
+    if not current_user.is_admin:
+        abort(403)
+    pickup = ShiftPickup.query.filter_by(seller_id=user_id).first_or_404()
+    if pickup.status == 'completed':
+        return jsonify({'error': 'Cannot remove a completed pickup stop.'}), 409
+    RescheduleToken.query.filter_by(pickup_id=pickup.id).delete(synchronize_session=False)
+    db.session.delete(pickup)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ── Proxy Seller Account helpers ──────────────────────────────────────────────
