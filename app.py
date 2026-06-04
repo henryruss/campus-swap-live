@@ -3376,12 +3376,15 @@ def admin_send_pickup_nudge():
         target_users = User.query.filter(User.id.in_(target_ids)).all() if target_ids else []
 
     sent_count = 0
+    debug_log = []
     for u in target_users:
+        debug_log.append(f"Processing user {u.id} ({u.email})")
         # Deduplication: skip if unresolved pickup_reminder already exists
         existing = SellerAlert.query.filter_by(
             user_id=u.id, alert_type='pickup_reminder', resolved=False
         ).first()
         if existing:
+            debug_log.append(f"  SKIP: existing unresolved alert #{existing.id}")
             continue
         alert = SellerAlert(
             user_id=u.id,
@@ -3391,9 +3394,40 @@ def admin_send_pickup_nudge():
             resolved=False
         )
         db.session.add(alert)
+        debug_log.append(f"  Created alert")
+
+        if not u.email:
+            debug_log.append(f"  SKIP email: no email address")
+        else:
+            try:
+                debug_log.append(f"  resend.api_key set: {bool(resend.api_key)}")
+                name = (u.full_name or 'there').split()[0]
+                base_url = os.environ.get('APP_BASE_URL', 'https://usecampusswap.com').rstrip('/')
+                dashboard_url = f"{base_url}/dashboard"
+                debug_log.append(f"  Building html...")
+                html = wrap_email_template(f"""
+                    <h2>Action Required: Select Your Pickup Week</h2>
+                    <p>Hi {name},</p>
+                    <p>You have items approved and ready to go with Campus Swap, but you haven't selected a pickup week yet. We need your pickup week to schedule a time to collect your items.</p>
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                        <p style="margin: 0;"><strong>Next step:</strong> Log in to your dashboard and select your pickup week and address.</p>
+                    </div>
+                    <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
+                    <p>Questions? Reply to this email or reach out at <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                    <p>Thanks,<br>Campus Swap</p>
+                """)
+                debug_log.append(f"  Calling send_email...")
+                result = send_email(u.email, "Action Required: Select Your Pickup Week — Campus Swap", html)
+                debug_log.append(f"  send_email returned: {result}")
+            except Exception as e:
+                import traceback
+                debug_log.append(f"  EXCEPTION: {e}")
+                debug_log.append(traceback.format_exc())
+
         sent_count += 1
     db.session.commit()
-    return jsonify({'success': True, 'message': f"Reminder sent to {sent_count} seller{'s' if sent_count != 1 else ''}.", 'reload': True})
+    msg = f"Reminder sent to {sent_count} seller{'s' if sent_count != 1 else ''}."
+    return jsonify({'success': True, 'message': msg, 'debug': debug_log, 'reload': False})
 
 
 def _run_approval_digest():
@@ -11684,9 +11718,7 @@ def admin_shift_notify_sellers(shift_id):
     pickups = ShiftPickup.query.filter_by(shift_id=shift_id).filter(
         ShiftPickup.notified_at == None).all()
 
-    am_window = AppSetting.get('route_am_window', '9am–1pm')
-    pm_window = AppSetting.get('route_pm_window', '1pm–5pm')
-    time_window = am_window if shift.slot == 'am' else pm_window
+    time_window = '10am–3pm'
 
     shift_day_str = shift.label  # e.g. "Monday AM"
 
