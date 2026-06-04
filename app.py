@@ -14046,12 +14046,6 @@ def admin_items():
     for s in nudge_sellers:
         s._item_count = InventoryItem.query.filter_by(seller_id=s.id, status='available').count()
 
-    # TEMP: inject henry for email testing — remove when done
-    _henry = User.query.filter_by(email='henry.russell28@gmail.com').first()
-    if _henry and not any(s.id == _henry.id for s in nudge_sellers):
-        _henry._item_count = 0
-        nudge_sellers.insert(0, _henry)
-
     return render_template(
         'admin/items.html',
         view=view,
