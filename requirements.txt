@@ -37,3 +37,4 @@ anthropic>=0.39.0
 geopy>=2.4.0
 twilio>=9.0.0
 openpyxl>=3.1
+openai>=1.0.0

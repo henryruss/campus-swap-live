@@ -15161,29 +15161,54 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
     on_phase: optional callable(phase_str) called as work transitions between 'photo' and 'text'.
     Returns True on success, False if there are no photos to process.
     """
-    import anthropic as _anthropic, time as _time
+    import anthropic as _anthropic, time as _time, io as _io
     from storage import get_storage_instance
     storage = get_storage_instance()
 
     if model is None:
         model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
 
+    item_id = item.id
+
     # --- Photo enhancement (optional) ---
+    openai_key = os.environ.get('OPENAI_API_KEY')
+    logging.warning(
+        f'[AI photo] item={item_id} photo_url={item.photo_url!r} '
+        f'ai_photo_enhanced={item.ai_photo_enhanced} '
+        f'enhance_photos={enhance_photos} '
+        f'openai_key_set={bool(openai_key)}'
+    )
+
     if enhance_photos and not item.ai_photo_enhanced and item.photo_url:
         if on_phase:
             on_phase('photo')
-        openai_key = os.environ.get('OPENAI_API_KEY')
         if not openai_key:
-            app.logger.warning(f'Photo enhancement skipped for item {item.id}: OPENAI_API_KEY not set')
+            logging.warning(f'[AI photo] item={item_id}: skipping — OPENAI_API_KEY not set')
         else:
             try:
-                import openai as _openai, io as _io
+                import openai as _openai
                 photo_bytes = storage.get_photo_bytes(item.photo_url)
-                if photo_bytes:
+                logging.warning(
+                    f'[AI photo] item={item_id}: fetched photo_bytes '
+                    f'len={len(photo_bytes) if photo_bytes else None} '
+                    f'key={item.photo_url!r}'
+                )
+                if not photo_bytes:
+                    logging.warning(f'[AI photo] item={item_id}: photo_bytes is None — storage returned nothing')
+                else:
                     client = _openai.OpenAI(api_key=openai_key)
+                    # Detect actual image format from magic bytes
+                    if photo_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                        _img_mime, _img_ext = 'image/png', 'cover.png'
+                    elif photo_bytes[:4] in (b'RIFF', b'WEBP') or photo_bytes[8:12] == b'WEBP':
+                        _img_mime, _img_ext = 'image/webp', 'cover.webp'
+                    else:
+                        _img_mime, _img_ext = 'image/jpeg', 'cover.jpg'
+                    logging.warning(f'[AI photo] item={item_id}: detected mime={_img_mime}, calling OpenAI images.edit (gpt-image-1)')
+                    # gpt-image-1 does not accept response_format — always returns b64_json
                     response = client.images.edit(
                         model='gpt-image-1',
-                        image=('cover.jpg', _io.BytesIO(photo_bytes), 'image/jpeg'),
+                        image=(_img_ext, _io.BytesIO(photo_bytes), _img_mime),
                         prompt=(
                             'Professional product photography of this item only. Pure white background, '
                             'white floor seamlessly meeting the wall, soft even studio lighting with no '
@@ -15192,26 +15217,47 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
                             'Do not add any text, watermarks, or props. Neutral, clean, marketplace-ready.'
                         ),
                         size='1024x1024',
-                        response_format='b64_json',
                     )
-                    enhanced_b64 = response.data[0].b64_json
-                    enhanced_bytes = base64.b64decode(enhanced_b64)
+                    logging.warning(
+                        f'[AI photo] item={item_id}: OpenAI response received '
+                        f'data_len={len(response.data)} '
+                        f'has_b64_json={bool(response.data[0].b64_json if response.data else None)}'
+                    )
+                    raw_b64 = response.data[0].b64_json
+                    # gpt-image-1 may return a data URI ("data:image/png;base64,...") or raw base64
+                    if raw_b64 and raw_b64.startswith('data:'):
+                        raw_b64 = raw_b64.split(',', 1)[1]
+                    enhanced_bytes = base64.b64decode(raw_b64)
+                    logging.warning(f'[AI photo] item={item_id}: decoded enhanced_bytes len={len(enhanced_bytes)}')
                     # Preserve original photo in gallery if not already there
                     existing_gallery_urls = {p.photo_url for p in item.gallery_photos}
                     if item.photo_url not in existing_gallery_urls:
-                        db.session.add(ItemPhoto(item_id=item.id, photo_url=item.photo_url))
-                    # Save enhanced photo and update cover
-                    new_filename = f'ai_enhanced_{item.id}_{int(_time.time())}.jpg'
+                        db.session.add(ItemPhoto(item_id=item_id, photo_url=item.photo_url))
+                    old_url = item.photo_url
+                    new_filename = f'ai_enhanced_{item_id}_{int(_time.time())}.jpg'
                     photo_storage.save_photo_from_bytes(enhanced_bytes, new_filename)
+                    logging.warning(f'[AI photo] item={item_id}: saved enhanced photo → {new_filename!r}')
                     item.photo_url = new_filename
                     item.ai_photo_enhanced = True
                     db.session.commit()
+                    logging.warning(
+                        f'[AI photo] item={item_id}: committed — '
+                        f'photo_url {old_url!r} → {new_filename!r}'
+                    )
             except Exception as e:
-                app.logger.error(f'Photo enhancement error for item {item.id}: {e}')
+                logging.warning(f'[AI photo] item={item_id}: EXCEPTION — {e}', exc_info=True)
                 try:
                     db.session.rollback()
                 except Exception:
                     pass
+                # Re-fetch item after rollback so text generation sees clean DB state
+                item = InventoryItem.query.get(item_id)
+    else:
+        logging.warning(
+            f'[AI photo] item={item_id}: photo step skipped '
+            f'(enhance_photos={enhance_photos}, ai_photo_enhanced={item.ai_photo_enhanced}, '
+            f'photo_url={bool(item.photo_url)})'
+        )
 
     # --- Text generation ---
     if on_phase:
@@ -15229,7 +15275,13 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
     for filename in photos:
         photo_bytes = storage.get_photo_bytes(filename)
         if photo_bytes:
-            ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
+            # Detect actual format from magic bytes — filename extension can lie
+            if photo_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                ext = 'png'
+            elif photo_bytes[8:12] == b'WEBP':
+                ext = 'webp'
+            else:
+                ext = 'jpg'
             photo_data.append((photo_bytes, ext))
 
     if not photo_data:
