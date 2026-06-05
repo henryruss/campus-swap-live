@@ -4135,16 +4135,11 @@ def api_set_pickup_week():
     """AJAX endpoint for dashboard modal to save pickup week + time preference."""
     _json = request.get_json(silent=True) or {}
     pickup_week = (request.form.get('pickup_week') or _json.get('pickup_week') or '').strip()
-    pickup_time = (request.form.get('pickup_time_preference') or _json.get('pickup_time_preference') or '').strip()
-
     valid_weeks = dict(PICKUP_WEEKS)
     if pickup_week:
         if pickup_week not in valid_weeks:
             return jsonify({'success': False, 'error': 'Invalid pickup week.'}), 400
-        if pickup_time not in PICKUP_TIME_OPTIONS:
-            return jsonify({'success': False, 'error': 'Invalid time preference.'}), 400
         current_user.pickup_week = pickup_week
-        current_user.pickup_time_preference = pickup_time
     else:
         current_user.pickup_week = None
         current_user.pickup_time_preference = None
@@ -6112,12 +6107,6 @@ def confirm_pickup():
                 flash("Please select a pickup week.", "error")
                 return redirect(url_for('confirm_pickup'))
 
-            # Validate time preference (required)
-            pickup_time = request.form.get('pickup_time_preference')
-            if pickup_time not in PICKUP_TIME_OPTIONS:
-                flash("Please select a preferred time of day.", "error")
-                return redirect(url_for('confirm_pickup'))
-
             # Validate moveout date (optional)
             moveout_raw = request.form.get('moveout_date', '').strip()
             moveout_date = None
@@ -6133,7 +6122,6 @@ def confirm_pickup():
                     flash("Invalid move-out date.", "error")
                     return redirect(url_for('confirm_pickup'))
 
-            current_user.pickup_time_preference = pickup_time
             current_user.moveout_date = moveout_date
 
             # Collect address if not already on file
@@ -6210,12 +6198,6 @@ def confirm_pickup():
             flash("Please select a pickup week.", "error")
             return redirect(url_for('confirm_pickup'))
 
-        # Validate time preference (required)
-        pickup_time = request.form.get('pickup_time_preference')
-        if pickup_time not in PICKUP_TIME_OPTIONS:
-            flash("Please select a preferred time of day.", "error")
-            return redirect(url_for('confirm_pickup'))
-
         # Validate moveout date (optional)
         moveout_raw = request.form.get('moveout_date', '').strip()
         moveout_date = None
@@ -6231,7 +6213,6 @@ def confirm_pickup():
                 flash("Invalid move-out date.", "error")
                 return redirect(url_for('confirm_pickup'))
 
-        current_user.pickup_time_preference = pickup_time
         current_user.moveout_date = moveout_date
 
         # Save address if not already on file
@@ -11322,13 +11303,17 @@ def get_item_unit_size(item):
     return 1.0
 
 
-def get_seller_unit_count(seller):
-    """Sum of unit sizes for all active items (not rejected/needs_info) belonging to this seller."""
-    items = InventoryItem.query.filter(
+def get_seller_unit_count(seller, since=None):
+    """Sum of unit sizes for all active items (not rejected/needs_info) belonging to this seller.
+    Pass since= to count only items added after that datetime (for re-pickup sellers).
+    """
+    q = InventoryItem.query.filter(
         InventoryItem.seller_id == seller.id,
         InventoryItem.status.notin_(['rejected', 'needs_info']),
-    ).all()
-    return sum(get_item_unit_size(i) for i in items)
+    )
+    if since:
+        q = q.filter(InventoryItem.date_added > since)
+    return sum(get_item_unit_size(i) for i in q.all())
 
 
 def get_effective_capacity():
@@ -12053,9 +12038,37 @@ def admin_routes_index():
     return redirect(url_for('admin_ops'), 302)
 
 
+def _get_re_pickup_seller_ids():
+    """Return {seller_id: completed_at} for sellers with a completed pickup who added items after it."""
+    completed = ShiftPickup.query.filter_by(status='completed').all()
+    result = {}
+    for pickup in completed:
+        if not pickup.completed_at:
+            continue
+        newer = InventoryItem.query.filter(
+            InventoryItem.seller_id == pickup.seller_id,
+            InventoryItem.date_added > pickup.completed_at,
+        ).first()
+        if newer:
+            result[pickup.seller_id] = pickup.completed_at
+    return result
+
+
+def _get_excluded_seller_ids(re_pickup_ids):
+    """Seller IDs to exclude from the unassigned pool.
+    Excludes: sellers with an active pickup + sellers whose only pickups are
+    completed and who have NOT added new items since (i.e. they're just done).
+    re_pickup_ids is a dict {seller_id: completed_at}.
+    """
+    active_pickup_ids = {p.seller_id for p in ShiftPickup.query.filter(ShiftPickup.status != 'completed').all()}
+    completed_only_ids = {p.seller_id for p in ShiftPickup.query.filter_by(status='completed').all()} - active_pickup_ids
+    return active_pickup_ids | (completed_only_ids - re_pickup_ids.keys())
+
+
 def _admin_routes_index_data():
     """Internal: build the route planner data (used by admin_ops)."""
-    assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
+    re_pickup_ids = _get_re_pickup_seller_ids()
+    assigned_seller_ids = _get_excluded_seller_ids(re_pickup_ids)
     _regular_unassigned = [
         s for s in (
             User.query
@@ -12083,6 +12096,9 @@ def _admin_routes_index_data():
         .all()
     )
     unassigned_sellers = _regular_unassigned + _proxy_unassigned
+
+    for s in unassigned_sellers:
+        s._had_prior_pickup = s.id in re_pickup_ids
 
     clusters = build_geographic_clusters(unassigned_sellers)
 
@@ -12113,7 +12129,7 @@ def _admin_routes_index_data():
         shift_truck_data[shift.id] = trucks_data
 
     # Seller unit counts for display
-    seller_unit_counts = {s.id: get_seller_unit_count(s) for s in unassigned_sellers}
+    seller_unit_counts = {s.id: get_seller_unit_count(s, since=re_pickup_ids.get(s.id)) for s in unassigned_sellers}
 
     # All shifts for the "assign to" dropdowns (all trucks across all shifts)
     shift_truck_options = []
@@ -12875,14 +12891,18 @@ def _ops_shift_date(shift):
     return shift.week.week_start + timedelta(days=_DAY_ORDER_OPS.index(shift.day_of_week))
 
 
-def _get_seller_item_photos(seller_id):
-    """Return list of {description, status, cover_url, gallery_urls, unit_size} for a seller's non-rejected items."""
+def _get_seller_item_photos(seller_id, since=None):
+    """Return list of {description, status, cover_url, gallery_urls, unit_size} for a seller's non-rejected items.
+    Pass since= to return only items added after that datetime (for re-pickup sellers).
+    """
     from flask import url_for as _url_for
-    items = (InventoryItem.query
-             .filter(InventoryItem.seller_id == seller_id,
-                     InventoryItem.status.notin_(['rejected']))
-             .order_by(InventoryItem.id)
-             .all())
+    q = (InventoryItem.query
+         .filter(InventoryItem.seller_id == seller_id,
+                 InventoryItem.status.notin_(['rejected']))
+         .order_by(InventoryItem.id))
+    if since:
+        q = q.filter(InventoryItem.date_added > since)
+    items = q.all()
     result = []
     for item in items:
         gallery_urls = [
@@ -13040,7 +13060,8 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
 
 def _ops_build_unassigned_panel(shift, tutorial_mode=False):
     """Build unassigned sellers pool for the right panel, filtered by shift slot."""
-    assigned_seller_ids = {p.seller_id for p in ShiftPickup.query.all()}
+    re_pickup_ids = _get_re_pickup_seller_ids()
+    assigned_seller_ids = _get_excluded_seller_ids(re_pickup_ids)
 
     if tutorial_mode:
         # Tutorial mode: show only tutorial sellers not yet assigned
@@ -13093,34 +13114,19 @@ def _ops_build_unassigned_panel(shift, tutorial_mode=False):
     )
     all_unassigned = _regular_all + _proxy_all
 
-    # Split by slot preference — sellers with a non-matching pref are dimmed but visible
-    def _slot_match(seller):
-        pref = seller.pickup_time_preference
-        if pref == 'morning' and shift.slot != 'am':
-            return False
-        if pref == 'afternoon' and shift.slot != 'pm':
-            return False
-        return True
-
-    slot_matched = [s for s in all_unassigned if _slot_match(s)]
-    slot_unmatched = [s for s in all_unassigned if not _slot_match(s)]
-
-    clusters = build_geographic_clusters(slot_matched)
-    from datetime import datetime as _dt
+    clusters = build_geographic_clusters(all_unassigned)
     _now = datetime.utcnow()
     _24h_ago = _now - timedelta(hours=24)
-    for s in slot_matched:
+    for s in all_unassigned:
         s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
-        s._unit_count = get_seller_unit_count(s)
-        s._item_photos = _get_seller_item_photos(s.id)
-    for s in slot_unmatched:
-        s._is_new = bool(s.date_joined and s.date_joined > _24h_ago)
-        s._unit_count = get_seller_unit_count(s)
-        s._item_photos = _get_seller_item_photos(s.id)
+        s._had_prior_pickup = s.id in re_pickup_ids
+        _since = re_pickup_ids.get(s.id)
+        s._unit_count = get_seller_unit_count(s, since=_since)
+        s._item_photos = _get_seller_item_photos(s.id, since=_since)
 
     return {
         'clusters': clusters,
-        'slot_unmatched': slot_unmatched,
+        'slot_unmatched': [],
         'total_unassigned': len(all_unassigned),
     }
 

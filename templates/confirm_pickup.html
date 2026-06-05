@@ -58,21 +58,6 @@
             </div>
 
             <div style="margin-top: 28px;">
-                <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">Preferred time of day</h3>
-                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px;">We'll do our best to match your preference.</p>
-                <div class="pickup-week-grid">
-                    <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="am" required>
-                        <span class="pickup-week-label">AM <span style="font-weight: 400; color: var(--text-muted);">— 9am to 1pm</span></span>
-                    </label>
-                    <label class="pickup-week-card">
-                        <input type="radio" name="pickup_time_preference" value="pm">
-                        <span class="pickup-week-label">PM <span style="font-weight: 400; color: var(--text-muted);">— 1pm to 5pm</span></span>
-                    </label>
-                </div>
-            </div>
-
-            <div style="margin-top: 28px;">
                 <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">Move-out date <span style="font-weight: 400; font-size: 0.85rem; color: var(--text-muted);">(optional)</span></h3>
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 14px;">If you know your exact move-out date, enter it here. Leave blank if you're not sure.</p>
                 <input type="date" name="moveout_date" id="moveout-date-input" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;">
@@ -139,10 +124,6 @@
             <div id="review-week" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
                 <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Pickup week</div>
                 <div id="review-week-value" style="font-weight: 600; font-size: 1rem;">—</div>
-            </div>
-            <div class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
-                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Preferred time</div>
-                <div id="review-time-value" style="font-weight: 600; font-size: 1rem;">—</div>
             </div>
             <div id="review-moveout-block" class="review-block" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; display: none;">
                 <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Move-out date</div>
@@ -334,8 +315,6 @@
         if (step === 1) {
             var week = form.querySelector('input[name="pickup_week"]:checked');
             if (!week) { showError('Please select a pickup week.'); return false; }
-            var timePref = form.querySelector('input[name="pickup_time_preference"]:checked');
-            if (!timePref) { showError('Please select a preferred time of day.'); return false; }
         }
         if (step === 2 && !hasLocation) {
             var locType = form.querySelector('input[name="pickup_location_type"]:checked');
@@ -378,12 +357,6 @@
         if (weekVal && weekRadio) {
             var weekLabels = { {% for value, label in pickup_weeks %}'{{ value }}': '{{ label }}'{% if not loop.last %}, {% endif %}{% endfor %} };
             weekVal.textContent = weekLabels[weekRadio.value] || weekRadio.value;
-        }
-        var timeRadio = form.querySelector('input[name="pickup_time_preference"]:checked');
-        var timeVal = document.getElementById('review-time-value');
-        if (timeVal && timeRadio) {
-            var timeLabels = { 'am': 'AM (9am–1pm)', 'pm': 'PM (1pm–5pm)' };
-            timeVal.textContent = timeLabels[timeRadio.value] || timeRadio.value;
         }
         var moveoutBlock = document.getElementById('review-moveout-block');
         var moveoutVal = document.getElementById('review-moveout-value');

@@ -150,7 +150,10 @@
     {% for seller in cluster.sellers %}
     <div class="seller-card">
       <div class="seller-card-info">
-        <div class="seller-name">{{ seller.full_name }}</div>
+        <div class="seller-name">
+          {{ seller.full_name }}
+          {% if seller._had_prior_pickup %}<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:8px; background:#fff3cd; color:#856404; font-size:0.7rem; font-weight:700;">re-pickup</span>{% endif %}
+        </div>
         <div class="seller-meta">
           {{ seller.pickup_week | replace('week', 'Week ') if seller.pickup_week else 'No week' }}
           &nbsp;·&nbsp; {{ (seller_unit_counts.get(seller.id, 0)) | round(1) }} units
@@ -161,13 +164,6 @@
         </div>
         {% endif %}
       </div>
-      {% if seller.pickup_time_preference == 'morning' %}
-        <span class="badge-pref badge-am">AM</span>
-      {% elif seller.pickup_time_preference == 'afternoon' %}
-        <span class="badge-pref badge-pm">PM</span>
-      {% else %}
-        <span class="badge-pref">{{ seller.pickup_time_preference or 'No pref' }}</span>
-      {% endif %}
       <div>
         <select id="assign-select-{{ seller.id }}" style="padding:6px 10px; border:1px solid var(--rule); border-radius:8px; font-size:0.8rem;">
           <option value="">— Assign to… —</option>

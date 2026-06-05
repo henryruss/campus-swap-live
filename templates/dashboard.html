@@ -456,11 +456,6 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
               {{ current_user.pickup_week | replace('week', 'Week ') if current_user.pickup_week else '—' }}
               <span style="font-size: 0.78rem; color: var(--text-muted); margin-left: 8px;">(set by ops)</span>
             </div>
-            <p style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin: 0 0 6px;">Time preference</p>
-            <div style="padding: 10px 14px; background: var(--bg-cream); border-radius: 8px; font-size: 0.9rem; color: var(--text-main); margin-bottom: 16px;">
-              {{ current_user.pickup_time_preference | capitalize if current_user.pickup_time_preference else '—' }}
-              <span style="font-size: 0.78rem; color: var(--text-muted); margin-left: 8px;">(set by ops)</span>
-            </div>
             <p style="font-size: 0.85rem; margin: 0 0 8px;">
               <a href="{{ url_for('seller_reschedule_auth_get') }}" style="color: var(--accent); font-weight: 600; text-decoration: none;">
                 Need a different time? Reschedule &rarr;
@@ -477,21 +472,6 @@ label.pickup-access-opt.is-selected .pickup-access-icon {
                 </button>
                 {% endfor %}
             </div>
-            {% if not all_slots_daily %}
-            <div id="pickup-time-section" style="margin-top: 16px; {% if not current_user.pickup_week %}display:none;{% endif %}">
-                <p style="font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin: 0 0 8px;">Time preference</p>
-                <div style="display: flex; gap: 8px;">
-                    <button type="button" class="sel-btn pickup-time-btn" data-time="morning" onclick="selectPickupTime('morning')"
-                            style="flex: 1; {% if current_user.pickup_time_preference == 'morning' %}border-color: var(--primary); background: #f0fdf4; color: var(--primary);{% endif %}">
-                        Morning <span style="font-weight: 400;">(9am–1pm)</span>
-                    </button>
-                    <button type="button" class="sel-btn pickup-time-btn" data-time="afternoon" onclick="selectPickupTime('afternoon')"
-                            style="flex: 1; {% if current_user.pickup_time_preference == 'afternoon' %}border-color: var(--primary); background: #f0fdf4; color: var(--primary);{% endif %}">
-                        Afternoon <span style="font-weight: 400;">(1pm–5pm)</span>
-                    </button>
-                </div>
-            </div>
-            {% endif %}
             {% endif %}
         </div>
 
@@ -695,7 +675,7 @@ function clearModalError(id) {
 
 // ——— Pickup modal (multi-step) ———
 var _pickupWeek = '{{ current_user.pickup_week or "" }}';
-var _pickupTime = '{{ current_user.pickup_time_preference or "" }}';
+var _pickupTime = '';
 var _pickupLocType = '{{ current_user.pickup_location_type or "" }}';
 var _currentPickupStep = 1;
 
@@ -738,8 +718,8 @@ function updatePickupStepUI() {
 
 function advancePickupStep() {
     if (_currentPickupStep === 1) {
-        if (_pickupWeek && !_pickupTime) {
-            showModalError('pickupaddr-modal-error', 'Please select a time preference.');
+        if (!_pickupWeek) {
+            showModalError('pickupaddr-modal-error', 'Please select a pickup week.');
             return;
         }
     } else if (_currentPickupStep === 2) {
@@ -779,7 +759,6 @@ function selectPickupWeek(week) {
         card.style.background = sel ? '#f0fdf4' : '';
         card.style.color = sel ? 'var(--primary)' : '';
     });
-    document.getElementById('pickup-time-section').style.display = 'block';
     clearModalError('pickupaddr-modal-error');
 }
 function selectPickupTime(time) {

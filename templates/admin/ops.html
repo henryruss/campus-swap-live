@@ -1068,11 +1068,8 @@
       <div class="seller-card-row1">
         {% if seller._is_new %}<span class="seller-card-dot" title="Newly eligible"></span>{% endif %}
         <span class="seller-card-name">{{ seller.full_name }}</span>
-        {% if seller.pickup_time_preference == 'morning' %}
-        <span class="seller-card-pref pref-am">AM</span>
-        {% elif seller.pickup_time_preference == 'afternoon' %}
-        <span class="seller-card-pref pref-pm">PM</span>
-        {% endif %}
+        {% if seller.pickup_week %}<span class="seller-card-pref" style="background: #e0f2fe; color: #075985;">{{ seller.pickup_week | replace('week', 'Wk') }}</span>{% endif %}
+        {% if seller._had_prior_pickup %}<span class="seller-card-pref" style="background: #fff3cd; color: #856404;" title="Had a prior completed pickup — new items added since">re-pickup</span>{% endif %}
         <button class="ops-photo-btn"
                 data-seller-name="{{ seller.full_name }}"
                 data-items='{{ seller._item_photos | tojson }}'
@@ -1083,7 +1080,6 @@
       </div>
       <div class="seller-card-row2">
         {{ cluster.label }} · {{ seller._unit_count | round(1) }}u
-        {% if seller.pickup_week %} · {{ seller.pickup_week | replace('week', 'Wk') }}{% endif %}
       </div>
       <div class="seller-assign-form" data-seller-id="{{ seller.id }}">
         <form method="POST" action="{{ url_for('admin_routes_assign_seller', user_id=seller.id) }}"
@@ -1106,51 +1102,6 @@
     {% endfor %}
     {% endfor %}
 
-    {% if unassigned.slot_unmatched %}
-    <div class="show-all-row">
-      <input type="checkbox" id="showAllToggle" onchange="toggleSlotUnmatched(this.checked)">
-      <label for="showAllToggle" style="cursor: pointer;">Show all unassigned ({{ unassigned.slot_unmatched | length }} don't match slot)</label>
-    </div>
-    <div id="slotUnmatchedSection" style="display: none;">
-      {% for seller in unassigned.slot_unmatched %}
-      <div class="unassigned-seller-card dimmed" onclick="toggleAssignForm(this, {{ seller.id }})">
-        <div class="seller-card-row1">
-          <span class="seller-card-name">{{ seller.full_name }}</span>
-          {% if seller.pickup_time_preference == 'morning' %}
-          <span class="seller-card-pref pref-am">AM pref</span>
-          {% elif seller.pickup_time_preference == 'afternoon' %}
-          <span class="seller-card-pref pref-pm">PM pref</span>
-          {% endif %}
-          <button class="ops-photo-btn"
-                  data-seller-name="{{ seller.full_name }}"
-                  data-items='{{ seller._item_photos | tojson }}'
-                  aria-label="View photos"
-                  onclick="event.stopPropagation(); openPhotoModal(this)">
-            <i class="fas fa-camera"></i>
-          </button>
-        </div>
-        <div class="seller-card-row2">{{ seller._unit_count | round(1) }}u</div>
-        <div class="seller-assign-form" data-seller-id="{{ seller.id }}">
-          <form method="POST" action="{{ url_for('admin_routes_assign_seller', user_id=seller.id) }}"
-                style="display: flex; gap: 6px; width: 100%;" onclick="event.stopPropagation()">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <select name="shift_truck" style="flex: 1; font-size: 0.75rem; padding: 4px; border: 1px solid var(--rule); border-radius: 6px;">
-              {% if shift %}
-              {% for t in range(1, shift.trucks + 1) %}
-              <option value="{{ shift.id }}_{{ t }}">{{ shift_date.strftime('%a %b %-d') }} {% if shift.slot == 'daily' %}10am–3pm{% elif shift.slot == 'am' %}AM{% else %}PM{% endif %} — Truck {{ t }}</option>
-              {% endfor %}
-              {% endif %}
-              {% for opt in shift_truck_options %}
-              <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" class="btn-sm primary" style="flex-shrink: 0;">Assign</button>
-          </form>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
     {% endif %}
 
     {# ── Unassigned Deliveries ── #}
