@@ -14104,6 +14104,22 @@ def admin_items():
         filter_cat=filter_cat,
         filter_needs_refresh=filter_needs_refresh,
         nudge_sellers=nudge_sellers,
+        api_key_present=bool(os.environ.get('ANTHROPIC_API_KEY')),
+        ai_models=[
+            ('claude-haiku-4-5-20251001', 'Haiku 4.5 — Fast & Cheap'),
+            ('claude-sonnet-4-6', 'Sonnet 4.6 — Balanced (Recommended)'),
+            ('claude-opus-4-7', 'Opus 4.7 — Most Capable'),
+        ],
+        current_model=AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6'),
+        eligible_count=InventoryItem.query.filter(
+            InventoryItem.status.notin_(['rejected', 'sold']),
+            InventoryItem.ai_generated_at.is_(None),
+            InventoryItem.photo_url.isnot(None),
+        ).count(),
+        pending_review_count=InventoryItem.query.filter(
+            InventoryItem.ai_review_pending == True,
+        ).count(),
+        run_log=_load_ai_run_log(),
     )
 
 
@@ -15035,6 +15051,12 @@ def admin_cd_settings():
 
 
 # ── AI AUTOFILL ────────────────────────────────────────────────────────────────
+
+def _load_ai_run_log():
+    try:
+        return json.loads(AppSetting.get('ai_autofill_run_log', '[]'))
+    except Exception:
+        return []
 
 # Module-level job store: job_id → {total, completed, errors, results, done, started_at}
 _AI_JOBS = {}
