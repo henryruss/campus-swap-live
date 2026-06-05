@@ -1454,10 +1454,13 @@
 
   function _submitAssignForm(form, sellerId) {
     var fd = new FormData(form);
+    var submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '…'; }
     fetch(form.action, { method: 'POST', body: fd })
     .then(function(r) {
       if (r.status === 422) {
         return r.json().then(function(data) {
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Assign'; }
           if (data.error === 'unit_required') {
             var shiftTruck = (fd.get('shift_truck') || '').split('_');
             var sid = shiftTruck[0];
@@ -1466,7 +1469,15 @@
               subtext: 'Assign a destination unit before adding stops to Truck ' + tnum + '.',
               pendingForm: { form: form, sellerId: sellerId }
             });
+          } else {
+            alert(data.error || 'Assignment failed.');
           }
+        });
+      }
+      if (r.status === 409) {
+        return r.json().then(function(data) {
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Assign'; }
+          alert(data.error || 'Seller already assigned.');
         });
       }
       if (r.ok) {
@@ -1474,7 +1485,12 @@
         var shiftTruck = (fd.get('shift_truck') || '').split('_');
         var sid = shiftTruck[0];
         location.href = location.pathname + (sid ? '?shift_id=' + sid : '');
+      } else {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Assign'; }
       }
+    })
+    .catch(function() {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Assign'; }
     });
   }
 

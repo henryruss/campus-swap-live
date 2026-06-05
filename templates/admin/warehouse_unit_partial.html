@@ -91,13 +91,21 @@
 </div>
 
 <div class="whu-body" id="whu-body-{{ loc.id }}">
-  {# Scoped search #}
+  {# Scoped search — items in this unit #}
   <div class="whu-search-wrap">
     <input type="text" id="whu-search-{{ loc.id }}" placeholder="Search items in this unit…"
            oninput="debounceUnitSearch({{ loc.id }}, this.value)" autocomplete="off">
     <i class="fas fa-search whu-search-icon"></i>
   </div>
   <div id="whu-search-results"></div>
+
+  {# Global search — all warehouse items #}
+  <div class="whu-search-wrap" style="margin-top:6px;">
+    <input type="text" id="whu-global-search-{{ loc.id }}" placeholder="Search all warehouse items…"
+           oninput="debounceGlobalUnitSearch({{ loc.id }}, this.value)" autocomplete="off">
+    <i class="fas fa-warehouse whu-search-icon" style="font-size:0.8rem;"></i>
+  </div>
+  <div id="whu-global-results-{{ loc.id }}" style="margin-bottom:12px;"></div>
 
   {% if not items %}
   <div style="text-align:center;padding:40px 20px;color:var(--text-muted);">
@@ -154,6 +162,18 @@ function debounceUnitSearch(unitId, q) {
   if (q.trim().length < 2) { el.innerHTML = ''; return; }
   _whuSearchTimer = setTimeout(function() {
     fetch('/admin/warehouse/search?q=' + encodeURIComponent(q.trim()) + '&unit_id=' + unitId)
+      .then(function(r){ return r.text(); })
+      .then(function(html){ el.innerHTML = html; });
+  }, 300);
+}
+
+var _whuGlobalSearchTimer = null;
+function debounceGlobalUnitSearch(unitId, q) {
+  clearTimeout(_whuGlobalSearchTimer);
+  var el = document.getElementById('whu-global-results-' + unitId);
+  if (q.trim().length < 2) { el.innerHTML = ''; return; }
+  _whuGlobalSearchTimer = setTimeout(function() {
+    fetch('/admin/warehouse/search?q=' + encodeURIComponent(q.trim()))
       .then(function(r){ return r.text(); })
       .then(function(html){ el.innerHTML = html; });
   }, 300);

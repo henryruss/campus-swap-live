@@ -12228,8 +12228,11 @@ def admin_routes_assign_seller(user_id):
     if not seller.is_tutorial_user and not seller.is_proxy_account and (not seller.pickup_week or not seller.has_pickup_location):
         return jsonify({'error': 'Seller has not set their pickup week and address'}), 422
 
-    # Global uniqueness check
-    existing = ShiftPickup.query.filter_by(seller_id=user_id).first()
+    # Global uniqueness check — ignore completed pickups so re-pickup sellers can be assigned
+    existing = ShiftPickup.query.filter(
+        ShiftPickup.seller_id == user_id,
+        ShiftPickup.status != 'completed',
+    ).first()
     if existing:
         return jsonify({'error': 'Seller already has a pickup assignment'}), 409
 
@@ -13588,7 +13591,7 @@ def admin_warehouse():
         abort(403)
     locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
     unit_data = [_build_unit_data(loc) for loc in locations]
-    unit_data.sort(key=lambda d: (d['item_count'] == 0, d['loc'].name))
+    unit_data.sort(key=lambda d: -d['battery_pct'])
 
     needs_photo_items = (
         InventoryItem.query
