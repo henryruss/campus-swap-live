@@ -12,6 +12,7 @@ import secrets
 import uuid
 import html as html_module
 import threading
+import queue
 import base64
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
@@ -5532,11 +5533,7 @@ def onboard():
             db.session.add(_new_item)
             current_user.is_seller = True
             db.session.commit()
-            threading.Thread(
-                target=_run_ai_generation_single,
-                args=(current_app._get_current_object(), _new_item.id),
-                daemon=True
-            ).start()
+            _ai_queue.put((current_app._get_current_object(), _new_item.id))
             flash("Item submitted! We'll review and price it soon.", "success")
             return redirect(get_user_dashboard())
 
@@ -5597,11 +5594,7 @@ def onboard():
                 db.session.add(_new_item)
             db.session.commit()
             if _cat_id:
-                threading.Thread(
-                    target=_run_ai_generation_single,
-                    args=(current_app._get_current_object(), _new_item.id),
-                    daemon=True
-                ).start()
+                _ai_queue.put((current_app._get_current_object(), _new_item.id))
             login_user(_new_user)
             return redirect(url_for('onboard_complete'))
 
@@ -5803,11 +5796,7 @@ def onboard():
             return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
 
         db.session.commit()
-        threading.Thread(
-            target=_run_ai_generation_single,
-            args=(current_app._get_current_object(), new_item.id),
-            daemon=True
-        ).start()
+        _ai_queue.put((current_app._get_current_object(), new_item.id))
         # PostHog: item submitted for review
         try:
             posthog.capture('item_submitted', distinct_id=str(current_user.id), properties={
@@ -6579,11 +6568,7 @@ def add_item():
             return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
 
         db.session.commit()
-        threading.Thread(
-            target=_run_ai_generation_single,
-            args=(current_app._get_current_object(), new_item.id),
-            daemon=True
-        ).start()
+        _ai_queue.put((current_app._get_current_object(), new_item.id))
 
         # Send item submission confirmation email
         try:
@@ -15245,6 +15230,7 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
                     old_url = item.photo_url
                     new_filename = f'ai_enhanced_{item_id}_{int(_time.time())}.jpg'
                     photo_storage.save_photo_from_bytes(enhanced_bytes, new_filename)
+                    del enhanced_bytes, raw_b64, photo_bytes
                     logging.warning(f'[AI photo] item={item_id}: saved enhanced photo → {new_filename!r}')
                     item.photo_url = new_filename
                     item.ai_photo_enhanced = True
@@ -15399,6 +15385,24 @@ def _run_ai_generation_single(app, item_id):
                     db.session.commit()
             except Exception:
                 db.session.rollback()
+
+
+_ai_queue = queue.Queue()
+
+
+def _ai_queue_worker():
+    while True:
+        app_ctx, item_id = _ai_queue.get()
+        try:
+            _run_ai_generation_single(app_ctx, item_id)
+        except Exception as e:
+            app_ctx.logger.error(f'AI queue worker error for item {item_id}: {e}')
+        finally:
+            _ai_queue.task_done()
+
+
+_ai_worker_thread = threading.Thread(target=_ai_queue_worker, daemon=True)
+_ai_worker_thread.start()
 
 
 def _run_ai_generation_job(app, job_id, item_ids, model, enhance_photos=True):
