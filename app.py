@@ -13993,6 +13993,12 @@ def admin_items():
     ).count()
     available_count = InventoryItem.query.filter_by(status='available').count()
     sold_count = InventoryItem.query.filter_by(status='sold').count()
+    in_storage_count = InventoryItem.query.filter(
+        InventoryItem.storage_location_id.isnot(None)
+    ).count()
+    total_sellers = db.session.query(
+        db.func.count(db.distinct(InventoryItem.seller_id))
+    ).filter(InventoryItem.storage_location_id.isnot(None)).scalar() or 0
 
     # Approval queue items (pending_valuation, for super admins; excludes quick captures)
     approval_items = []
@@ -14084,6 +14090,8 @@ def admin_items():
         pending_approval=pending_approval,
         available_count=available_count,
         sold_count=sold_count,
+        in_storage_count=in_storage_count,
+        total_sellers=total_sellers,
         approval_items=approval_items,
         ai_review_items=ai_review_items,
         all_items=all_items,
