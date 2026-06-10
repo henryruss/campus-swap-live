@@ -15580,6 +15580,29 @@ _ai_worker_thread = threading.Thread(target=_ai_queue_worker, daemon=True)
 _ai_worker_thread.start()
 
 
+def _ai_startup_requeue():
+    """On startup, re-enqueue any items that were waiting for AI when the process last died."""
+    import time
+    time.sleep(5)  # wait for gunicorn to finish binding and app to be fully ready
+    with app.app_context():
+        try:
+            orphans = InventoryItem.query.filter(
+                InventoryItem.status.notin_(['rejected', 'sold']),
+                InventoryItem.ai_generated_at.is_(None),
+                InventoryItem.photo_url.isnot(None),
+                InventoryItem.photo_url != '',
+            ).order_by(InventoryItem.date_added.asc()).all()
+            for item in orphans:
+                _ai_queue.put((app, item.id))
+            if orphans:
+                app.logger.info(f'[AI startup] re-queued {len(orphans)} orphaned items')
+        except Exception as e:
+            app.logger.error(f'[AI startup] re-queue error: {e}')
+
+
+threading.Thread(target=_ai_startup_requeue, daemon=True).start()
+
+
 def _run_ai_generation_job(app, job_id, item_ids, model, enhance_photos=True):
     """Background thread: generate AI content for each item in a batch."""
     started_at = datetime.utcnow()

@@ -1603,6 +1603,8 @@
     if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
     var approveBtn = document.getElementById('btn-ai-approve');
     if (approveBtn) approveBtn.disabled = false;
+    var resetBtnEl = document.getElementById('btn-ai-reset');
+    if (resetBtnEl) { resetBtnEl.disabled = false; resetBtnEl.textContent = 'Reset AI'; }
     fetch('/admin/ai/item/' + itemId + '/detail')
       .then(function(r){ return r.text(); })
       .then(function(html){
@@ -1653,6 +1655,7 @@
     .then(function(r){ return r.json(); })
     .then(function(data){
       if (data.success) {
+        btn.disabled = false;
         aiRemoveCard(_aiCurrentItemId);
         closeAIModal();
         aiDecrementBadge();
@@ -1693,8 +1696,10 @@
     })
     .then(function(r){ return r.json(); })
     .then(function(data){
-      if (data.success) { aiRemoveCard(_aiCurrentItemId); closeAIModal(); aiDecrementBadge(); }
-      else {
+      if (data.success) {
+        if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = 'Reset AI'; }
+        aiRemoveCard(_aiCurrentItemId); closeAIModal(); aiDecrementBadge();
+      } else {
         aiShowModalError(data.error || 'Could not reset.');
         if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = 'Reset AI'; }
       }
