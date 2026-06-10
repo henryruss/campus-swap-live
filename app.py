@@ -14248,6 +14248,7 @@ def admin_items():
             InventoryItem.status.notin_(['rejected', 'sold']),
             InventoryItem.ai_generated_at.is_(None),
             InventoryItem.photo_url.isnot(None),
+            InventoryItem.photo_url != '',
         ).count(),
         pending_review_count=InventoryItem.query.filter(
             InventoryItem.ai_review_pending == True,
@@ -15207,6 +15208,7 @@ def admin_ai_generate_page():
         InventoryItem.status.notin_(['rejected', 'sold']),
         InventoryItem.ai_generated_at.is_(None),
         InventoryItem.photo_url.isnot(None),
+        InventoryItem.photo_url != '',
     ).count()
     pending_review_count = InventoryItem.query.filter(
         InventoryItem.ai_review_pending == True,
@@ -15253,6 +15255,7 @@ def admin_ai_generate_run():
         InventoryItem.status.notin_(['rejected', 'sold']),
         InventoryItem.ai_generated_at.is_(None),
         InventoryItem.photo_url.isnot(None),
+        InventoryItem.photo_url != '',
     ).order_by(InventoryItem.date_added.asc())
     if limit:
         q = q.limit(limit)
