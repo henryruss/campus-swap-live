@@ -2,69 +2,145 @@
 <div class="approval-detail-wrap"
      data-item-id="{{ item.id }}"
      data-seller-id="{{ item.seller_id }}"
-     data-suggested-price="{{ '%.2f'|format(item.suggested_price) if item.suggested_price else '' }}">
+     data-suggested-price="{{ '%.2f'|format(item.suggested_price) if item.suggested_price else '' }}"
+     data-ai-price="{{ '%.2f'|format(item.ai_price) if item.ai_price else '' }}"
+     data-ai-ready="{{ '1' if item.ai_description else '0' }}">
 
-  {# Photo gallery #}
-  <div class="approval-modal-gallery">
-    {% set all_photos = item.gallery_photos %}
-    {% if all_photos %}
-    <div class="approval-gallery-track-wrap">
-      <div class="approval-gallery-track" id="approval-gallery-track">
-        {% for photo in all_photos %}
-        <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}"
-             alt="{{ item.description }}" class="approval-gallery-slide">
-        {% endfor %}
-      </div>
-      {% if all_photos|length > 1 %}
-      <button class="approval-gallery-btn approval-gallery-prev" onclick="approvalGalleryMove(-1)" type="button">&#8249;</button>
-      <button class="approval-gallery-btn approval-gallery-next" onclick="approvalGalleryMove(1)" type="button">&#8250;</button>
-      <div class="approval-gallery-counter">1 / {{ all_photos|length }}</div>
-      {% endif %}
+{% if item.ai_description %}
+{# ── Two-column AI layout ── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--rule);">
+
+  {# Left column — Seller Original #}
+  <div style="border-right:1px solid var(--rule);display:flex;flex-direction:column;">
+    <div style="padding:10px 14px 6px;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:var(--bg-cream);border-bottom:1px solid var(--rule);">
+      Seller Original
     </div>
-    {% elif item.photo_url %}
-    <div class="approval-gallery-track-wrap">
+    <div style="aspect-ratio:4/3;background:#f8fafc;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+      {% if item.photo_url %}
       <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-           alt="{{ item.description }}" style="width:100%;height:100%;object-fit:contain;">
+           alt="{{ item.seller_description or item.description }}"
+           style="width:100%;height:100%;object-fit:contain;">
+      {% else %}
+      <i class="fas fa-image" style="font-size:2.5rem;color:var(--text-muted);"></i>
+      {% endif %}
     </div>
-    {% else %}
-    <div class="approval-gallery-track-wrap approval-gallery-placeholder">
-      <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+    <div style="padding:14px 16px;flex:1;">
+      <div style="font-size:0.95rem;font-weight:700;color:var(--text-main);margin-bottom:6px;line-height:1.35;">
+        {{ item.seller_description or '(no title)' }}
+      </div>
+      {% if item.seller_long_description %}
+      <p style="font-size:0.82rem;color:var(--text-muted);line-height:1.55;margin:0 0 8px;white-space:pre-line;">{{ item.seller_long_description }}</p>
+      {% endif %}
+      {% if item.suggested_price %}
+      <div style="font-size:0.82rem;color:#92400e;font-weight:700;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:4px 10px;display:inline-block;">
+        Suggested: ${{ '%.2f'|format(item.suggested_price) }}
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
 
-  {# Item info #}
-  <div class="approval-modal-info-body">
-    <h2 class="approval-modal-title">{{ item.description }}</h2>
-
-    <div class="approval-modal-meta">
-      {% if item.seller %}
-      <span>Seller: <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller_id }}">{{ item.seller.full_name }}</a></span> &middot;
-      {% endif %}
-      <span>{{ item.category.name if item.category else 'Uncategorized' }}</span>
-      {% if item.quality %}
-      &middot; <span>{{ item.quality|quality_label }}</span>
-      {% endif %}
-      {% if item.date_added %}
-      &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>
+  {# Right column — AI Generated #}
+  <div style="display:flex;flex-direction:column;">
+    <div style="padding:10px 14px 6px;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#065f46;background:#ecfdf5;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:6px;">
+      <i class="fas fa-robot" style="color:#10b981;"></i> AI Generated
+    </div>
+    <div style="aspect-ratio:4/3;background:#f8fafc;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+      {% if item.photo_url %}
+      <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+           alt="{{ item.ai_description }}"
+           style="width:100%;height:100%;object-fit:contain;">
+      {% else %}
+      <i class="fas fa-image" style="font-size:2.5rem;color:var(--text-muted);"></i>
       {% endif %}
     </div>
-
-    {% if item.long_description %}
-    <p class="approval-modal-description">{{ item.long_description }}</p>
-    {% endif %}
-
-    {% if item.suggested_price %}
-    <div class="approval-modal-suggested-price">
-      Seller suggested: $<span class="suggested-value">{{ '%.2f'|format(item.suggested_price) }}</span>
+    <div style="padding:14px 16px;flex:1;">
+      <div style="font-size:0.95rem;font-weight:700;color:var(--text-main);margin-bottom:6px;line-height:1.35;">
+        {{ item.ai_description }}
+      </div>
+      {% if item.ai_long_description %}
+      <p style="font-size:0.82rem;color:var(--text-muted);line-height:1.55;margin:0 0 8px;white-space:pre-line;">{{ item.ai_long_description }}</p>
+      {% endif %}
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:4px;">
+        {% if item.ai_price %}
+        <div style="font-size:1rem;font-weight:800;color:var(--accent);">${{ '%.2f'|format(item.ai_price) }}</div>
+        {% endif %}
+        {% if item.ai_retail_price %}
+        <div style="font-size:0.78rem;color:var(--text-muted);">retail ~${{ '%.0f'|format(item.ai_retail_price) }}</div>
+        {% set savings_pct = ((1 - item.ai_price|float / item.ai_retail_price|float) * 100)|round|int if item.ai_price and item.ai_retail_price else 0 %}
+        {% if savings_pct > 0 %}
+        <span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+        {% endif %}
+        {% endif %}
+      </div>
     </div>
-    {% endif %}
-    {% if item.retail_price and item.price and item.retail_price > item.price %}
-    {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
-    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
-      <span style="font-size:0.82rem;color:var(--text-muted);">Retail ~<strong>${{ '%.0f'|format(item.retail_price) }}</strong></span>
-      <span style="background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+  </div>
+
+</div>
+
+{# Meta row below two columns #}
+<div style="padding:12px 20px 8px;border-bottom:1px solid var(--rule);font-size:0.83rem;color:var(--text-muted);">
+  {% if item.seller %}
+  Seller: <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller_id }}" style="color:var(--primary);font-weight:600;text-decoration:none;">{{ item.seller.full_name }}</a>
+  &middot;
+  {% endif %}
+  <span>{{ item.category.name if item.category else 'Uncategorized' }}</span>
+  {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
+  {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
+</div>
+
+{% else %}
+{# ── Single-column fallback: AI not yet generated ── #}
+<div class="approval-modal-gallery">
+  {% set all_photos = item.gallery_photos %}
+  {% if all_photos %}
+  <div class="approval-gallery-track-wrap">
+    <div class="approval-gallery-track" id="approval-gallery-track">
+      {% for photo in all_photos %}
+      <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}"
+           alt="{{ item.description }}" class="approval-gallery-slide">
+      {% endfor %}
     </div>
+    {% if all_photos|length > 1 %}
+    <button class="approval-gallery-btn approval-gallery-prev" onclick="approvalGalleryMove(-1)" type="button">&#8249;</button>
+    <button class="approval-gallery-btn approval-gallery-next" onclick="approvalGalleryMove(1)" type="button">&#8250;</button>
+    <div class="approval-gallery-counter">1 / {{ all_photos|length }}</div>
     {% endif %}
   </div>
+  {% elif item.photo_url %}
+  <div class="approval-gallery-track-wrap">
+    <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+         alt="{{ item.description }}" style="width:100%;height:100%;object-fit:contain;">
+  </div>
+  {% else %}
+  <div class="approval-gallery-track-wrap approval-gallery-placeholder">
+    <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
+  </div>
+  {% endif %}
+</div>
+
+<div class="approval-modal-info-body">
+  <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.85rem;color:#92400e;font-weight:600;display:flex;align-items:center;gap:8px;">
+    <i class="fas fa-robot" style="opacity:0.6;"></i>
+    AI processing… Check back in a moment.
+  </div>
+  <h2 class="approval-modal-title">{{ item.description }}</h2>
+  <div class="approval-modal-meta">
+    {% if item.seller %}
+    <span>Seller: <a href="#" class="seller-panel-trigger" data-user-id="{{ item.seller_id }}">{{ item.seller.full_name }}</a></span> &middot;
+    {% endif %}
+    <span>{{ item.category.name if item.category else 'Uncategorized' }}</span>
+    {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
+    {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
+  </div>
+  {% if item.long_description %}
+  <p class="approval-modal-description">{{ item.long_description }}</p>
+  {% endif %}
+  {% if item.suggested_price %}
+  <div class="approval-modal-suggested-price">
+    Seller suggested: $<span class="suggested-value">{{ '%.2f'|format(item.suggested_price) }}</span>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 </div>

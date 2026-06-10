@@ -1395,7 +1395,8 @@ def inventory():
         _visible,
         InventoryItem.status != 'rejected',
         InventoryItem.price.isnot(None),
-        InventoryItem.price > 0
+        InventoryItem.price > 0,
+        InventoryItem.storage_location_id.isnot(None),
     )
     
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
@@ -3091,9 +3092,67 @@ def admin_item_approval_detail(item_id):
         joinedload(InventoryItem.seller),
         joinedload(InventoryItem.gallery_photos),
     ).get_or_404(item_id)
-    if item.status != 'pending_valuation':
+    if item.status not in ('pending_valuation', 'needs_info'):
         abort(404)
     return render_template('admin/approval_detail_partial.html', item=item)
+
+
+@app.route('/admin/item/<int:item_id>/approve-unified', methods=['POST'])
+@login_required
+def admin_approve_unified(item_id):
+    """Unified approve: writes AI staged fields, sets ai_approved=True, status='available', sends email."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.options(
+        joinedload(InventoryItem.seller),
+        joinedload(InventoryItem.category),
+    ).get_or_404(item_id)
+    if item.status not in ('pending_valuation', 'needs_info'):
+        return jsonify({'success': False, 'error': 'Item cannot be approved from its current status.'}), 400
+    if item.status == 'needs_info':
+        for alert in SellerAlert.query.filter_by(item_id=item.id, resolved=False).all():
+            alert.resolved = True
+            alert.resolved_at = datetime.utcnow()
+    price_str = request.form.get('price', '').strip()
+    if not price_str:
+        return jsonify({'success': False, 'error': 'Please set a price to approve.'}), 400
+    price_valid, price_result = validate_price(price_str)
+    if not price_valid:
+        return jsonify({'success': False, 'error': f'Invalid price: {price_result}'}), 400
+    # Write AI staged fields if present
+    if item.ai_description:
+        item.description = item.ai_description
+    if item.ai_long_description:
+        item.long_description = item.ai_long_description
+    if item.ai_retail_price:
+        item.retail_price = item.ai_retail_price
+    item.price = price_result
+    item.price_updated_at = datetime.utcnow()
+    item.price_changed_acknowledged = False
+    item.status = 'available'
+    item.ai_approved = True
+    item.ai_review_pending = False
+    db.session.commit()
+    if item.seller and item.seller.email:
+        try:
+            fee_text = " Add your address and select a pickup window in your dashboard—no payment required."
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #166534;">Your Item Has Been Approved!</h2>
+                <p>Great news! Your item <strong>{item.description}</strong> has been approved.</p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Price:</strong> ${item.price:.2f}</p>
+                    <p style="margin: 0;">Next step:{fee_text}</p>
+                </div>
+                <p><a href="{url_for('dashboard', _external=True)}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Confirm in Dashboard</a></p>
+                <p>Thanks for selling with Campus Swap!</p>
+            </div>
+            """
+            send_email(item.seller.email, "Your Item Has Been Approved - Campus Swap", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send approval email: {e}")
+    return jsonify({'success': True})
 
 
 @app.route('/item/<int:item_id>/resubmit', methods=['POST'])
@@ -8936,6 +8995,7 @@ def crew_quick_capture():
         logger.error(f"Quick capture commit error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': 'Failed to save item. Please try again.'}), 500
 
+    _ai_queue.put((current_app._get_current_object(), item.id))
     return jsonify({'success': True, 'item_id': item.id})
 
 
@@ -15105,55 +15165,26 @@ def admin_ai_generate_page():
 @app.route('/admin/ai/generate/run', methods=['POST'])
 @login_required
 def admin_ai_generate_run():
-    """Kick off background AI generation job."""
-    import threading, uuid
+    """Enqueue all eligible items for background AI generation via the persistent queue worker."""
     guard = require_super_admin()
     if guard:
         return guard, 403
     if not os.environ.get('ANTHROPIC_API_KEY'):
         return jsonify({'error': 'ANTHROPIC_API_KEY is not set'}), 400
-    # Prune jobs older than 1 hour (stale/orphaned from server restarts)
-    cutoff = datetime.utcnow() - timedelta(hours=1)
-    for jid in list(_AI_JOBS.keys()):
-        started = _AI_JOBS[jid].get('started_at')
-        if started and started < cutoff:
-            del _AI_JOBS[jid]
-    # Block duplicate concurrent jobs
-    for jid, jdata in list(_AI_JOBS.items()):
-        if not jdata.get('done'):
-            return jsonify({'error': 'A job is already running'}), 409
-    limit_raw = request.form.get('limit', '').strip()
-    limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
-    # Read model from form; fall back to AppSetting default
-    model_choices = {m[0] for m in [
-        ('claude-haiku-4-5-20251001', ''), ('claude-sonnet-4-6', ''), ('claude-opus-4-7', '')
-    ]}
+    # Optionally persist model choice for the queue worker
+    model_choices = {'claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7'}
     model_form = request.form.get('model', '').strip()
-    model = model_form if model_form in model_choices else AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
-    # Collect eligible item IDs now (in request context)
-    query = InventoryItem.query.filter(
+    if model_form in model_choices:
+        AppSetting.set('ai_autofill_model', model_form)
+    items = InventoryItem.query.filter(
         InventoryItem.status.notin_(['rejected', 'sold']),
         InventoryItem.ai_generated_at.is_(None),
         InventoryItem.photo_url.isnot(None),
-    )
-    if limit:
-        query = query.limit(limit)
-    enhance_photos = request.form.get('enhance_photos', '1') != '0'
-    item_ids = [item.id for item in query.all()]
-    job_id = str(uuid.uuid4())
-    _AI_JOBS[job_id] = {
-        'total': len(item_ids),
-        'completed': 0,
-        'errors': [],
-        'results': [],
-        'done': False,
-        'phase': 'photo' if enhance_photos else 'text',
-        'started_at': datetime.utcnow(),
-    }
+    ).all()
     app_obj = current_app._get_current_object()
-    t = threading.Thread(target=_run_ai_generation_job, args=(app_obj, job_id, item_ids, model, enhance_photos), daemon=True)
-    t.start()
-    return jsonify({'job_id': job_id, 'total': len(item_ids)})
+    for item in items:
+        _ai_queue.put((app_obj, item.id))
+    return jsonify({'enqueued': len(items)})
 
 
 def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase=None):

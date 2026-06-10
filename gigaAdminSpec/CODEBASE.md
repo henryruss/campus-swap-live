@@ -551,7 +551,8 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/payouts/export` | `admin_payouts_export` | CSV export of all sold items with payout data |
 | `GET /admin/items/needs_info` | — | **Removed.** QC items now surface via AI autofill pipeline. Redirects to `/admin/ai/review`. |
 | `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price required. Sets status='available'. Returns JSON. |
-| `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation. |
+| `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation or needs_info. |
+| `POST /admin/item/<id>/approve-unified` | `admin_approve_unified` | Unified approve: writes AI staged fields → live fields, sets ai_approved=True, status='available', ai_review_pending=False, sends approval email. Super admin only. Returns JSON. |
 | `POST /admin/quick_capture/<id>/delete` | `admin_quick_capture_delete` | Hard delete any QC item (photo + DB). No captured_by guard. |
 | `POST /admin/settings/reassign-week` | `admin_reassign_week` | Bulk set pickup_week=2 for all sellers with pickup_week=1 and no ShiftPickup. Super admin only. |
 | `GET /admin/tutorial` | `admin_tutorial_welcome` | Tutorial welcome/restart page for campus directors |
@@ -873,6 +874,7 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
 - `ai_approved == True` — only items that have been through AI review appear to buyers
 - `needs_new_photo == False` — items flagged for photo replacement are hidden until the photo is verified
 - `status != 'rejected'`, `price > 0`
+- `storage_location_id IS NOT NULL` — items must have a storage unit assigned before they appear in the shop
 
 **Infinite scroll:** Replaced pagination with IntersectionObserver + `?ajax=1` endpoint. A sentinel `<div>` at the bottom of the item grid triggers the next page load 200px before it enters the viewport. Item count removed from the public shop header.
 

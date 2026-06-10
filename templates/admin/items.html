@@ -864,10 +864,6 @@
       </div>
       <div class="ai-run-controls">
         <div class="ai-run-field">
-          <label for="ai-gen-limit">Limit (blank = all)</label>
-          <input type="number" id="ai-gen-limit" min="1" placeholder="e.g. 5" style="width:110px;">
-        </div>
-        <div class="ai-run-field">
           <label for="ai-gen-model">Model</label>
           <select id="ai-gen-model">
             {% for model_id, model_label in ai_models %}
@@ -875,17 +871,8 @@
             {% endfor %}
           </select>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;font-weight:600;cursor:pointer;user-select:none;align-self:flex-end;padding-bottom:2px;">
-          <input type="checkbox" id="ai-gen-enhance-photos" checked style="width:15px;height:15px;accent-color:var(--primary);">
-          Enhance cover photos (OpenAI)
-        </label>
         <button class="btn-run-ai" id="ai-gen-run-btn" {% if not api_key_present %}disabled{% endif %}>
-          Run Generation
-        </button>
-        <button class="btn-run-ai" id="ai-gen-cancel-btn"
-                style="display:none;background:#dc2626;"
-                onclick="aiGenCancel()">
-          Cancel Job
+          Queue All for AI Processing
         </button>
         <button type="button"
                 onclick="aiResetAll(this)"
@@ -1283,14 +1270,26 @@
         document.getElementById('approval-modal-spinner').style.display = 'none';
         document.getElementById('approval-modal-footer').hidden = false;
 
-        // Pre-fill price from suggested_price data attribute
+        // Pre-fill price: ai_price if available, else suggested_price
         var wrap = content.querySelector('.approval-detail-wrap');
         if (wrap) {
+          var aiPrice = wrap.dataset.aiPrice;
           var suggested = wrap.dataset.suggestedPrice;
-          if (suggested) {
-            document.getElementById('approval-price-input').value = suggested;
+          var prefill = aiPrice || suggested || '';
+          if (prefill) document.getElementById('approval-price-input').value = prefill;
+          // Disable approve button when AI hasn't processed yet
+          var aiReady = wrap.dataset.aiReady;
+          var approveBtn = document.getElementById('btn-approve');
+          if (approveBtn) {
+            if (aiReady === '0') {
+              approveBtn.disabled = true;
+              approveBtn.title = 'Waiting for AI — check back in a moment';
+            } else {
+              approveBtn.disabled = false;
+              approveBtn.title = '';
+            }
           }
-          // Reset gallery state
+          // Reset gallery state (single-column fallback only)
           _approvalGalleryIndex = 0;
           var track = content.querySelector('#approval-gallery-track');
           var slides = track ? track.querySelectorAll('.approval-gallery-slide') : [];
@@ -1333,12 +1332,23 @@
     var price = document.getElementById('approval-price-input').value.trim();
     var fd = new FormData();
     fd.append('csrf_token', _approvalCsrf);
-    fd.append('item_id', _approvalCurrentItemId);
-    fd.append('action', action);
     fd.append('modal', '1');
-    if (action === 'approve') fd.append('price', price);
 
-    fetch('/admin/approve', { method: 'POST', body: fd })
+    var url, method;
+    if (action === 'approve') {
+      // Use unified route: writes AI fields, sets ai_approved, status=available, sends email
+      fd.append('price', price);
+      url = '/admin/item/' + _approvalCurrentItemId + '/approve-unified';
+      method = 'POST';
+    } else {
+      // reject/needs_info still use legacy route
+      fd.append('item_id', _approvalCurrentItemId);
+      fd.append('action', action);
+      url = '/admin/approve';
+      method = 'POST';
+    }
+
+    fetch(url, { method: method, body: fd })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.success) {
@@ -2005,132 +2015,48 @@
 
   (function(){
     const csrf = '{{ csrf_token() }}';
-    let pollInterval = null;
-    let currentJobId = null;
+    window._aiGenPollInterval = null; // kept for closeAIGenModal guard compatibility
 
-    window._aiGenPollInterval = null;
-
-    document.getElementById('ai-gen-run-btn') && document.getElementById('ai-gen-run-btn').addEventListener('click', function(){
-      var btn = this;
-      var limit = document.getElementById('ai-gen-limit').value.trim();
-      var model = document.getElementById('ai-gen-model').value;
-      var enhanceEl = document.getElementById('ai-gen-enhance-photos');
-      var enhancePhotos = enhanceEl ? (enhanceEl.checked ? '1' : '0') : '1';
-      btn.disabled = true; btn.textContent = 'Starting…';
-      var body = new URLSearchParams();
-      body.append('csrf_token', csrf);
-      if (limit) body.append('limit', limit);
-      body.append('model', model);
-      body.append('enhance_photos', enhancePhotos);
-      fetch('/admin/ai/generate/run', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      })
-      .then(function(r){ if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(data){
-        if (data.error) {
-          var errEl = document.getElementById('ai-gen-run-error');
-          errEl.textContent = data.error; errEl.style.display = 'block';
-          btn.disabled = false; btn.textContent = 'Run Generation';
-          if (data.error.indexOf('already running') !== -1) document.getElementById('ai-gen-cancel-btn').style.display = 'inline-block';
-          return;
-        }
+    var runBtn = document.getElementById('ai-gen-run-btn');
+    if (runBtn) {
+      runBtn.addEventListener('click', function(){
+        var btn = this;
+        var model = document.getElementById('ai-gen-model').value;
+        btn.disabled = true; btn.textContent = 'Queueing…';
         document.getElementById('ai-gen-run-error').style.display = 'none';
-        currentJobId = data.job_id;
-        document.getElementById('ai-gen-progress-section').style.display = 'block';
-        document.getElementById('ai-gen-progress-label').textContent = '0 of ' + data.total + ' complete';
-        pollInterval = setInterval(aiGenPoll, 2000);
-        window._aiGenPollInterval = pollInterval;
-      })
-      .catch(function(err){
-        var errEl = document.getElementById('ai-gen-run-error');
-        errEl.textContent = 'Request failed: ' + (err.message || ''); errEl.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'Run Generation';
-      });
-    });
-
-    function aiGenPoll() {
-      if (!currentJobId) return;
-      fetch('/admin/ai/generate/status?job_id=' + encodeURIComponent(currentJobId))
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        var pct = data.total > 0 ? Math.round(data.completed / data.total * 100) : 0;
-        document.getElementById('ai-gen-progress-bar').style.width = pct + '%';
-        var phaseLabel = data.phase === 'photo' ? 'Enhancing photos… ' : (data.phase === 'text' ? 'Generating descriptions… ' : '');
-        document.getElementById('ai-gen-progress-label').textContent = phaseLabel + data.completed + ' of ' + data.total + ' complete';
-        var feed = document.getElementById('ai-gen-result-feed');
-        var rendered = feed.querySelectorAll('.ai-result-card').length;
-        for (var i = rendered; i < data.results.length; i++) {
-          var r = data.results[i];
-          var card = document.createElement('div'); card.className = 'ai-result-card';
-          card.innerHTML = '<img src="/uploads/' + encodeURIComponent(r.photo_url) + '" class="ai-result-thumb" onerror="this.style.display=\'none\'">' +
-            '<div><div class="ai-result-title">' + escHtml(r.ai_description) + '</div><div class="ai-result-price">$' + r.ai_price.toFixed(2) + '</div></div>';
-          feed.appendChild(card);
-        }
-        requestAnimationFrame(function() { feed.scrollTop = feed.scrollHeight; });
-        var errList = document.getElementById('ai-gen-error-list');
-        var rendErr = errList.querySelectorAll('.ai-error-item').length;
-        for (var j = rendErr; j < data.errors.length; j++) {
-          var err = data.errors[j];
-          var div = document.createElement('div'); div.className = 'ai-error-item';
-          div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
-          var label = document.createElement('span');
-          label.textContent = 'Item #' + err.item_id + ' — ' + err.reason;
-          div.appendChild(label);
-          if (err.reason === 'No photo files found') {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = 'Mark Needs Photo';
-            btn.dataset.itemId = err.item_id;
-            btn.style.cssText = 'font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid #fca5a5;background:white;color:#dc2626;cursor:pointer;white-space:nowrap;font-family:inherit;flex-shrink:0;';
-            btn.addEventListener('click', function() {
-              var iid = this.dataset.itemId;
-              var self = this;
-              self.disabled = true; self.textContent = 'Saving…';
-              var fd = new FormData(); fd.append('csrf_token', csrf);
-              fetch('/admin/item/' + iid + '/mark-needs-photo', { method: 'POST', body: fd })
-                .then(function(r){ return r.json(); })
-                .then(function(d){
-                  if (d.success) { self.textContent = 'Done'; self.style.color = '#166534'; self.style.borderColor = '#a7f3d0'; self.style.background = '#d1fae5'; }
-                  else { self.disabled = false; self.textContent = 'Mark Needs Photo'; }
-                })
-                .catch(function(){ self.disabled = false; self.textContent = 'Mark Needs Photo'; });
-            });
-            div.appendChild(btn);
+        document.getElementById('ai-gen-progress-section').style.display = 'none';
+        document.getElementById('ai-gen-done-banner').classList.remove('visible');
+        var body = new URLSearchParams();
+        body.append('csrf_token', csrf);
+        body.append('model', model);
+        fetch('/admin/ai/generate/run', {
+          method: 'POST',
+          headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(data){
+          if (data.error) {
+            var errEl = document.getElementById('ai-gen-run-error');
+            errEl.textContent = data.error; errEl.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Queue All for AI Processing';
+            return;
           }
-          errList.appendChild(div);
-        }
-        if (data.done) {
-          clearInterval(pollInterval); window._aiGenPollInterval = null;
-          document.getElementById('ai-gen-done-count').textContent = data.results.length;
-          document.getElementById('ai-gen-done-banner').classList.add('visible');
-          document.getElementById('ai-gen-run-btn').disabled = false;
-          document.getElementById('ai-gen-run-btn').textContent = 'Run Generation';
-          document.getElementById('ai-gen-cancel-btn').style.display = 'none';
-        }
-      })
-      .catch(function(){});
+          var doneEl = document.getElementById('ai-gen-done-banner');
+          doneEl.innerHTML = 'Queued <strong>' + data.enqueued + '</strong> item' + (data.enqueued !== 1 ? 's' : '') +
+            '. Check the <a href="{{ url_for("admin_items", view="approve") }}" style="color:inherit;font-weight:800;">approval queue</a> in a few minutes.';
+          doneEl.classList.add('visible');
+          btn.disabled = false; btn.textContent = 'Queue All for AI Processing';
+        })
+        .catch(function(err){
+          var errEl = document.getElementById('ai-gen-run-error');
+          errEl.textContent = 'Request failed: ' + (err.message || ''); errEl.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'Queue All for AI Processing';
+        });
+      });
     }
 
-    window.aiGenCancel = function(){
-      fetch('/admin/ai/generate/cancel', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'csrf_token=' + encodeURIComponent(csrf),
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        if (data.success) {
-          clearInterval(pollInterval); window._aiGenPollInterval = null;
-          document.getElementById('ai-gen-cancel-btn').style.display = 'none';
-          document.getElementById('ai-gen-run-error').style.display = 'none';
-          document.getElementById('ai-gen-run-btn').disabled = false;
-          document.getElementById('ai-gen-run-btn').textContent = 'Run Generation';
-        }
-      })
-      .catch(function(){ alert('Could not cancel. Try refreshing the page.'); });
-    };
+    window.aiGenCancel = function(){ /* no-op — queue-based worker has no cancellable job */ };
 
     function escHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
