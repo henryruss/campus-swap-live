@@ -15176,11 +15176,16 @@ def admin_ai_generate_run():
     model_form = request.form.get('model', '').strip()
     if model_form in model_choices:
         AppSetting.set('ai_autofill_model', model_form)
-    items = InventoryItem.query.filter(
+    limit_raw = request.form.get('limit', '').strip()
+    limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
+    q = InventoryItem.query.filter(
         InventoryItem.status.notin_(['rejected', 'sold']),
         InventoryItem.ai_generated_at.is_(None),
         InventoryItem.photo_url.isnot(None),
-    ).all()
+    ).order_by(InventoryItem.date_added.asc())
+    if limit:
+        q = q.limit(limit)
+    items = q.all()
     app_obj = current_app._get_current_object()
     for item in items:
         _ai_queue.put((app_obj, item.id))

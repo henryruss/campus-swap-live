@@ -864,6 +864,10 @@
       </div>
       <div class="ai-run-controls">
         <div class="ai-run-field">
+          <label for="ai-gen-limit">Limit (blank = all)</label>
+          <input type="number" id="ai-gen-limit" min="1" placeholder="e.g. 5" style="width:110px;">
+        </div>
+        <div class="ai-run-field">
           <label for="ai-gen-model">Model</label>
           <select id="ai-gen-model">
             {% for model_id, model_label in ai_models %}
@@ -2022,6 +2026,8 @@
       runBtn.addEventListener('click', function(){
         var btn = this;
         var model = document.getElementById('ai-gen-model').value;
+        var limitEl = document.getElementById('ai-gen-limit');
+        var limit = limitEl ? limitEl.value.trim() : '';
         btn.disabled = true; btn.textContent = 'Queueing…';
         document.getElementById('ai-gen-run-error').style.display = 'none';
         document.getElementById('ai-gen-progress-section').style.display = 'none';
@@ -2029,6 +2035,7 @@
         var body = new URLSearchParams();
         body.append('csrf_token', csrf);
         body.append('model', model);
+        if (limit) body.append('limit', limit);
         fetch('/admin/ai/generate/run', {
           method: 'POST',
           headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
