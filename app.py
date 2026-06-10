@@ -15640,6 +15640,25 @@ def admin_ai_discard(item_id):
     return jsonify({'success': True})
 
 
+@app.route('/admin/ai/item/<int:item_id>/reset', methods=['POST'])
+@login_required
+def admin_ai_reset(item_id):
+    """Clear all AI fields and ai_generated_at so the item re-enters the eligible queue."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    item.ai_description = None
+    item.ai_long_description = None
+    item.ai_price = None
+    item.ai_retail_price = None
+    item.ai_review_pending = False
+    item.ai_approved = False
+    item.ai_generated_at = None
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/admin/ai/item/<int:item_id>/set-cover-photo', methods=['POST'])
 @login_required
 def admin_ai_set_cover_photo(item_id):
