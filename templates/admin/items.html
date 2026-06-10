@@ -885,19 +885,7 @@
         </button>
       </div>
       <div id="ai-gen-run-error" style="display:none;font-size:0.85rem;color:#dc2626;margin-bottom:10px;"></div>
-
-      <div id="ai-gen-progress-section" style="display:none;margin-top:4px;">
-        <div class="ai-progress-bar-wrap">
-          <div class="ai-progress-bar" id="ai-gen-progress-bar"></div>
-        </div>
-        <div id="ai-gen-progress-label" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">Starting…</div>
-        <div class="ai-result-feed" id="ai-gen-result-feed"></div>
-        <div id="ai-gen-error-list"></div>
-        <div class="ai-done-banner" id="ai-gen-done-banner">
-          Done — <span id="ai-gen-done-count">0</span> items ready for review.
-          <a href="{{ url_for('admin_items', view='ai_review') }}" style="color:inherit;font-weight:800;margin-left:8px;">Go to AI Review &rarr;</a>
-        </div>
-      </div>
+      <div class="ai-done-banner" id="ai-gen-done-banner"></div>
 
       {% if run_log %}
       <div style="margin-top:20px;border-top:1px solid var(--rule);padding-top:16px;">
@@ -2030,7 +2018,6 @@
         var limit = limitEl ? limitEl.value.trim() : '';
         btn.disabled = true; btn.textContent = 'Queueing…';
         document.getElementById('ai-gen-run-error').style.display = 'none';
-        document.getElementById('ai-gen-progress-section').style.display = 'none';
         document.getElementById('ai-gen-done-banner').classList.remove('visible');
         var body = new URLSearchParams();
         body.append('csrf_token', csrf);
