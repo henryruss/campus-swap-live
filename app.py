@@ -1611,8 +1611,15 @@ def share_card_image(item_id):
 # --- IMAGE SERVING ROUTE ---
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    # Temp files (QR mobile, guest, draft staging) are always on disk, never in S3
-    if filename.startswith('temp_') or filename.startswith('guest_temp_') or filename.startswith('draft_temp_'):
+    # Temp files: guest/draft are always on disk; QR mobile (temp_) may be in S3
+    if filename.startswith('guest_temp_') or filename.startswith('draft_temp_'):
+        return send_from_directory(app.config['TEMP_UPLOAD_FOLDER'], filename)
+    if filename.startswith('temp_'):
+        if photo_storage.is_s3():
+            disk_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
+            if os.path.exists(disk_path):
+                return send_from_directory(app.config['TEMP_UPLOAD_FOLDER'], filename)
+            return redirect(photo_storage.get_photo_url(filename), code=302)
         return send_from_directory(app.config['TEMP_UPLOAD_FOLDER'], filename)
     if photo_storage.is_s3():
         return redirect(photo_storage.get_photo_url(filename), code=302)
@@ -1767,8 +1774,8 @@ def upload_from_phone_post():
 
     safe_token = token.replace('/', '_').replace('+', '-')[:32]
     filename = f"temp_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
-    save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
     try:
+        from io import BytesIO as _BytesIO
         img = Image.open(file)
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGBA")
@@ -1783,7 +1790,16 @@ def upload_from_phone_post():
                 new_height = max_dimension
                 new_width = int(bg.width * (max_dimension / bg.height))
             bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        if photo_storage.is_s3():
+            # Upload directly to S3 — avoids a second upload at final form submit
+            buf = _BytesIO()
+            bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+            photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
+            photo_url = photo_storage.get_photo_url(filename)
+        else:
+            save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
+            bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+            photo_url = url_for('uploaded_file', filename=filename, _external=True)
     except Exception as e:
         logger.error(f"Error processing mobile upload: {e}", exc_info=True)
         return jsonify({'success': False, 'error': 'Error processing image'}), 500
@@ -1795,7 +1811,7 @@ def upload_from_phone_post():
     return jsonify({
         'success': True,
         'filename': filename,
-        'url': url_for('uploaded_file', filename=filename, _external=True),
+        'url': photo_url,
     })
 
 
@@ -4332,20 +4348,37 @@ def process_pending_onboard(user):
         for temp_fn in temp_photo_ids:
             temp_rec = TempUpload.query.filter_by(session_token=guest_upload_token, filename=temp_fn).first()
             if temp_rec:
-                old_path = os.path.join(temp_folder, temp_fn)
-                if os.path.exists(old_path):
-                    new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
+                if photo_storage.is_s3():
+                    disk_path = os.path.join(temp_folder, temp_fn)
+                    if os.path.exists(disk_path):
+                        try:
+                            photo_storage.save_photo_from_path(disk_path, new_filename)
+                            os.remove(disk_path)
+                        except OSError:
+                            pass
+                    else:
+                        try:
+                            photo_storage.copy_photo(temp_fn, new_filename)
+                            photo_storage.delete_photo(temp_fn)
+                        except Exception as e:
+                            logger.error(f"S3 copy error for {temp_fn}: {e}", exc_info=True)
+                            continue
+                else:
+                    old_path = os.path.join(temp_folder, temp_fn)
+                    if not os.path.exists(old_path):
+                        continue
                     try:
                         photo_storage.save_photo_from_path(old_path, new_filename)
                         os.remove(old_path)
                     except OSError:
                         pass
-                    if not cover_set:
-                        new_item.photo_url = new_filename
-                        cover_set = True
-                    db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
-                    db.session.delete(temp_rec)
-                    photo_index += 1
+                if not cover_set:
+                    new_item.photo_url = new_filename
+                    cover_set = True
+                db.session.add(ItemPhoto(item_id=new_item.id, photo_url=new_filename))
+                db.session.delete(temp_rec)
+                photo_index += 1
 
     # --- VIDEO HANDLING (guest -> authenticated) ---
     video_filename = pending.get('video_filename')
@@ -5787,17 +5820,37 @@ def onboard():
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
                     return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
-                old_path = os.path.join(temp_folder, temp_fn)
-                if not os.path.exists(old_path):
-                    db.session.rollback()
-                    flash("Photo from phone no longer available. Please re-upload.", "error")
-                    return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                try:
-                    photo_storage.save_photo_from_path(old_path, new_filename)
-                    os.remove(old_path)
-                except OSError:
-                    pass
+                if photo_storage.is_s3():
+                    disk_path = os.path.join(temp_folder, temp_fn)
+                    if os.path.exists(disk_path):
+                        # Legacy: file was uploaded before S3-at-upload-time change
+                        try:
+                            photo_storage.save_photo_from_path(disk_path, new_filename)
+                            os.remove(disk_path)
+                        except OSError:
+                            pass
+                    else:
+                        # New path: already in S3, just copy within S3 (no Render→S3 transfer)
+                        try:
+                            photo_storage.copy_photo(temp_fn, new_filename)
+                            photo_storage.delete_photo(temp_fn)
+                        except Exception as e:
+                            db.session.rollback()
+                            logger.error(f"S3 copy error for {temp_fn}: {e}", exc_info=True)
+                            flash("Error saving photo. Please try again.", "error")
+                            return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
+                else:
+                    old_path = os.path.join(temp_folder, temp_fn)
+                    if not os.path.exists(old_path):
+                        db.session.rollback()
+                        flash("Photo from phone no longer available. Please re-upload.", "error")
+                        return render_template('onboard.html', categories=categories, category_price_ranges=category_price_ranges, dorms=dorms, google_maps_key=google_maps_key, is_guest=False, skip_payout=True)
+                    try:
+                        photo_storage.save_photo_from_path(old_path, new_filename)
+                        os.remove(old_path)
+                    except OSError:
+                        pass
                 if not cover_set:
                     new_item.photo_url = new_filename
                     cover_set = True
@@ -6560,17 +6613,35 @@ def add_item():
                     db.session.rollback()
                     flash("Invalid or expired photo from phone. Please try again.", "error")
                     return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
-                old_path = os.path.join(temp_folder, temp_fn)
-                if not os.path.exists(old_path):
-                    db.session.rollback()
-                    flash("Photo from phone no longer available. Please re-upload.", "error")
-                    return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
                 new_filename = f"item_{new_item.id}_{int(time.time())}_{photo_index}.jpg"
-                try:
-                    photo_storage.save_photo_from_path(old_path, new_filename)
-                    os.remove(old_path)
-                except OSError:
-                    pass
+                if photo_storage.is_s3():
+                    disk_path = os.path.join(temp_folder, temp_fn)
+                    if os.path.exists(disk_path):
+                        try:
+                            photo_storage.save_photo_from_path(disk_path, new_filename)
+                            os.remove(disk_path)
+                        except OSError:
+                            pass
+                    else:
+                        try:
+                            photo_storage.copy_photo(temp_fn, new_filename)
+                            photo_storage.delete_photo(temp_fn)
+                        except Exception as e:
+                            db.session.rollback()
+                            logger.error(f"S3 copy error for {temp_fn}: {e}", exc_info=True)
+                            flash("Error saving photo. Please try again.", "error")
+                            return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+                else:
+                    old_path = os.path.join(temp_folder, temp_fn)
+                    if not os.path.exists(old_path):
+                        db.session.rollback()
+                        flash("Photo from phone no longer available. Please re-upload.", "error")
+                        return render_template('add_item.html', categories=categories, category_price_ranges=category_price_ranges)
+                    try:
+                        photo_storage.save_photo_from_path(old_path, new_filename)
+                        os.remove(old_path)
+                    except OSError:
+                        pass
                 if not cover_set:
                     new_item.photo_url = new_filename
                     cover_set = True
@@ -15189,6 +15260,7 @@ def admin_ai_generate_run():
     app_obj = current_app._get_current_object()
     for item in items:
         _ai_queue.put((app_obj, item.id))
+    app.logger.info(f'[AI worker] enqueued {len(items)} items (limit={limit})')
     return jsonify({'enqueued': len(items)})
 
 
@@ -15417,9 +15489,12 @@ def _run_ai_generation_single(app, item_id):
     with app.app_context():
         item = InventoryItem.query.get(item_id)
         if not item or item.ai_generated_at is not None or not item.photo_url:
+            app.logger.info(f'[AI worker] item {item_id}: skipped (already processed or missing photo)')
             return
+        app.logger.info(f'[AI worker] item {item_id}: starting')
         try:
             _process_single_item_ai(app, item)
+            app.logger.info(f'[AI worker] item {item_id}: done — ai_description={item.ai_description!r:.60}')
         except Exception as e:
             app.logger.error(f'Single-item AI generation error for item {item_id}: {e}')
             try:

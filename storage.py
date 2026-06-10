@@ -83,6 +83,14 @@ class LocalStorage:
         shutil.copy2(src_path, dst_path)
         return key
 
+    def copy_photo(self, src_key: str, dest_key: str) -> str:
+        """Copy a stored photo to a new key. Returns dest_key."""
+        import shutil
+        src_path = os.path.join(self.upload_folder, src_key)
+        dst_path = os.path.join(self.upload_folder, dest_key)
+        shutil.copy2(src_path, dst_path)
+        return dest_key
+
     def delete_photo(self, key: str) -> bool:
         """Delete photo from disk. Returns True if deleted."""
         path = os.path.join(self.upload_folder, key)
@@ -181,6 +189,16 @@ class S3Storage:
                 ContentType="image/jpeg",
             )
         return key
+
+    def copy_photo(self, src_key: str, dest_key: str) -> str:
+        """Server-side S3 copy — no data transfer from Render. Returns dest_key."""
+        self.client.copy_object(
+            Bucket=self.bucket,
+            CopySource={'Bucket': self.bucket, 'Key': self._key(src_key)},
+            Key=self._key(dest_key),
+            ContentType="image/jpeg",
+        )
+        return dest_key
 
     def delete_photo(self, key: str) -> bool:
         """Delete photo from S3. Returns True if deleted."""
