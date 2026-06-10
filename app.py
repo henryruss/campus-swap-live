@@ -1741,6 +1741,59 @@ def create_upload_session():
     })
 
 
+@app.route('/api/photo/upload_temp', methods=['POST'])
+@login_required
+def api_photo_upload_temp():
+    """AJAX photo upload for onboarding file input — no QR token needed, auth via session.
+    Uploads immediately when the user selects a file so the final form submit carries no raw photo data."""
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    is_valid, error_msg = validate_file_upload(file)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
+    # Re-use or create an UploadSession so the existing TempUpload lookup in onboard() works.
+    session_obj = UploadSession.query.filter_by(user_id=current_user.id).order_by(
+        UploadSession.created_at.desc()
+    ).first()
+    if not session_obj or (datetime.utcnow() - session_obj.created_at) > timedelta(minutes=UPLOAD_SESSION_EXPIRY_MINUTES):
+        token = secrets.token_urlsafe(16)
+        session_obj = UploadSession(session_token=token, user_id=current_user.id)
+        db.session.add(session_obj)
+        db.session.commit()
+    token = session_obj.session_token
+    safe_token = token.replace('/', '_').replace('+', '-')[:32]
+    filename = f"temp_{safe_token}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
+    try:
+        from io import BytesIO as _BytesIO
+        img = Image.open(file)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        if bg.width > 2000 or bg.height > 2000:
+            if bg.width > bg.height:
+                bg = bg.resize((2000, int(bg.height * 2000 / bg.width)), Image.Resampling.LANCZOS)
+            else:
+                bg = bg.resize((int(bg.width * 2000 / bg.height), 2000), Image.Resampling.LANCZOS)
+        if photo_storage.is_s3():
+            buf = _BytesIO()
+            bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+            photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
+            photo_url = photo_storage.get_photo_url(filename)
+        else:
+            save_path = os.path.join(app.config['TEMP_UPLOAD_FOLDER'], filename)
+            bg.save(save_path, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+            photo_url = url_for('uploaded_file', filename=filename, _external=True)
+    except Exception as e:
+        logger.error(f"Error processing direct photo upload: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error processing image. Please try again.'}), 500
+    temp = TempUpload(session_token=token, filename=filename)
+    db.session.add(temp)
+    db.session.commit()
+    return jsonify({'success': True, 'filename': filename, 'url': photo_url})
+
+
 @app.route('/upload_from_phone')
 def upload_from_phone():
     """Mobile page: scan QR to open this page, then take/select photo to upload."""

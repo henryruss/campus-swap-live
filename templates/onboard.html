@@ -1251,29 +1251,77 @@
         e.preventDefault();
         uploadZone.classList.remove('dragover');
         const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-        if (files.length) {
-            const existing = new Set(selectedFiles.map(f => f.name));
-            selectedFiles = selectedFiles.concat(files.filter(f => !existing.has(f.name)));
+        if (!files.length) return;
+        if (!isGuest) {
+            // Trigger the same AJAX upload path as the file input
             const dt = new DataTransfer();
-            selectedFiles.forEach(f => dt.items.add(f));
+            files.forEach(f => dt.items.add(f));
             fileInput.files = dt.files;
-            updatePreviews();
-            previewContainer.classList.add('visible');
-            hideValidationError();
+            fileInput.dispatchEvent(new Event('change'));
+            return;
         }
+        const existing = new Set(selectedFiles.map(f => f.name));
+        selectedFiles = selectedFiles.concat(files.filter(f => !existing.has(f.name)));
+        const dt2 = new DataTransfer();
+        selectedFiles.forEach(f => dt2.items.add(f));
+        fileInput.files = dt2.files;
+        updatePreviews();
+        previewContainer.classList.add('visible');
+        hideValidationError();
     });
     fileInput.addEventListener('change', function() {
         const files = Array.from(this.files);
-        if (files.length) {
-            const existing = new Set(selectedFiles.map(f => f.name));
-            selectedFiles = selectedFiles.concat(files.filter(f => !existing.has(f.name)));
-            const dt = new DataTransfer();
-            selectedFiles.forEach(f => dt.items.add(f));
-            this.files = dt.files;
-            updatePreviews();
-            previewContainer.classList.add('visible');
-            hideValidationError();
+        if (!files.length) return;
+        // For logged-in users: AJAX-upload each photo immediately so the final form submit
+        // carries only tiny temp filenames instead of large raw image data.
+        // This prevents gunicorn worker timeouts on slow mobile connections.
+        if (!isGuest) {
+            this.value = ''; // clear file input — photos go via temp upload, not form data
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+            files.forEach(function(file) {
+                const existing = new Set(tempPhotoFilenames);
+                if (existing.has(file.name)) return;
+                // Show a pending placeholder while uploading
+                const placeholderFn = '__uploading__' + file.name;
+                const objectUrl = URL.createObjectURL(file);
+                addTempPhotos([placeholderFn], [objectUrl]);
+                const fd = new FormData();
+                fd.append('photo', file);
+                fd.append('csrf_token', csrfToken);
+                fetch('/api/photo/upload_temp', {
+                    method: 'POST',
+                    body: fd,
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    // Replace placeholder with real temp filename
+                    removeTempPhoto(placeholderFn);
+                    URL.revokeObjectURL(objectUrl);
+                    if (data.success) {
+                        addTempPhotos([data.filename], [data.url]);
+                    } else {
+                        showValidationError('Photo upload failed: ' + (data.error || 'Please try again.'));
+                    }
+                })
+                .catch(function() {
+                    removeTempPhoto(placeholderFn);
+                    URL.revokeObjectURL(objectUrl);
+                    showValidationError('Photo upload failed. Please check your connection and try again.');
+                });
+            });
+            return;
         }
+        // Guest path: keep files in selectedFiles for inline form submit
+        const existing = new Set(selectedFiles.map(f => f.name));
+        selectedFiles = selectedFiles.concat(files.filter(f => !existing.has(f.name)));
+        const dt = new DataTransfer();
+        selectedFiles.forEach(f => dt.items.add(f));
+        this.files = dt.files;
+        updatePreviews();
+        previewContainer.classList.add('visible');
+        hideValidationError();
     });
     document.getElementById('add-more-btn').addEventListener('click', () => fileInput.click());
 
