@@ -111,56 +111,68 @@
 
         {# Condition #}
         <div class="filter-group">
-          <div class="filter-group-title">Condition</div>
-          <label class="filter-check-label">
-            <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
-            Like New
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
-            Good
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
-            Fair
-          </label>
+          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if condition_filters else 'false' }}">
+            Condition <i class="fas fa-chevron-down filter-group-chevron"></i>
+          </button>
+          <div class="filter-group-body" {% if not condition_filters %}style="display:none"{% endif %}>
+            <label class="filter-check-label">
+              <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
+              Like New
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
+              Good
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
+              Fair
+            </label>
+          </div>
         </div>
 
         {# Price #}
         <div class="filter-group">
-          <div class="filter-group-title">Price</div>
-          <label class="filter-check-label">
-            <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
-            Under $25
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
-            $25 – $50
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
-            $50 – $100
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
-            $100 – $200
-          </label>
-          <label class="filter-check-label">
-            <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
-            Over $200
-          </label>
+          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if price_filters else 'false' }}">
+            Price <i class="fas fa-chevron-down filter-group-chevron"></i>
+          </button>
+          <div class="filter-group-body" {% if not price_filters %}style="display:none"{% endif %}>
+            <label class="filter-check-label">
+              <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
+              Under $25
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
+              $25 – $50
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
+              $50 – $100
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
+              $100 – $200
+            </label>
+            <label class="filter-check-label">
+              <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
+              Over $200
+            </label>
+          </div>
         </div>
 
         {# Subcategory — only when a category with children is active #}
         {% if subcategories %}
         <div class="filter-group">
-          <div class="filter-group-title">Type</div>
-          {% for sub in subcategories %}
-          <label class="filter-check-label">
-            <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
-            {{ sub.name }}
-          </label>
-          {% endfor %}
+          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_sub else 'false' }}">
+            Type <i class="fas fa-chevron-down filter-group-chevron"></i>
+          </button>
+          <div class="filter-group-body" {% if not active_sub %}style="display:none"{% endif %}>
+            {% for sub in subcategories %}
+            <label class="filter-check-label">
+              <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+              {{ sub.name }}
+            </label>
+            {% endfor %}
+          </div>
         </div>
         {% endif %}
 
@@ -298,63 +310,75 @@
     <input type="hidden" name="sort" value="{{ sort_val }}">
 
     <div class="filter-group">
-      <div class="filter-group-title">Condition</div>
-      <label class="filter-check-label">
-        <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
-        Like New
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
-        Good
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
-        Fair
-      </label>
+      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if condition_filters else 'false' }}">
+        Condition <i class="fas fa-chevron-down filter-group-chevron"></i>
+      </button>
+      <div class="filter-group-body" {% if not condition_filters %}style="display:none"{% endif %}>
+        <label class="filter-check-label">
+          <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
+          Like New
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
+          Good
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
+          Fair
+        </label>
+      </div>
     </div>
 
     <div class="filter-group">
-      <div class="filter-group-title">Price</div>
-      <label class="filter-check-label">
-        <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
-        Under $25
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
-        $25 – $50
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
-        $50 – $100
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
-        $100 – $200
-      </label>
-      <label class="filter-check-label">
-        <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
-        Over $200
-      </label>
+      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if price_filters else 'false' }}">
+        Price <i class="fas fa-chevron-down filter-group-chevron"></i>
+      </button>
+      <div class="filter-group-body" {% if not price_filters %}style="display:none"{% endif %}>
+        <label class="filter-check-label">
+          <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
+          Under $25
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
+          $25 – $50
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
+          $50 – $100
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
+          $100 – $200
+        </label>
+        <label class="filter-check-label">
+          <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
+          Over $200
+        </label>
+      </div>
     </div>
 
     {% if subcategories %}
     <div class="filter-group">
-      <div class="filter-group-title">Type</div>
-      {% for sub in subcategories %}
-      <label class="filter-check-label">
-        <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
-        {{ sub.name }}
-      </label>
-      {% endfor %}
+      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_sub else 'false' }}">
+        Type <i class="fas fa-chevron-down filter-group-chevron"></i>
+      </button>
+      <div class="filter-group-body" {% if not active_sub %}style="display:none"{% endif %}>
+        {% for sub in subcategories %}
+        <label class="filter-check-label">
+          <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+          {{ sub.name }}
+        </label>
+        {% endfor %}
+      </div>
     </div>
     {% endif %}
 
     <div class="shop-filter-sheet-footer">
+      <button type="submit" class="btn btn-primary" style="width:100%;">Show results</button>
       {%- set clear_parts = [] -%}
       {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
       {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
-      <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="btn btn-outline" style="flex:0 0 auto;">Clear all</a>
-      <button type="submit" class="btn btn-primary" style="flex:1;">Show results</button>
+      <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-sheet-clear-link">Clear all filters</a>
     </div>
   </form>
 </div>
@@ -488,6 +512,16 @@
   if (backdrop) backdrop.addEventListener('click', closeSheet);
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeSheet();
+  });
+
+  /* ── Collapsible filter groups ── */
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-group-toggle');
+    if (!btn) return;
+    var body = btn.nextElementSibling;
+    var expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+    body.style.display = expanded ? 'none' : '';
   });
 
   /* Mobile sheet "Show results" — fetch + close sheet */
