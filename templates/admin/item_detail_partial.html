@@ -121,6 +121,14 @@
         <i class="fas fa-check"></i> Mark Sold
       </button>
       {% endif %}
+      {% if item.status == 'available' %}
+      <button type="button" class="btn-outline pull-from-shop-btn"
+              data-item-id="{{ item.id }}"
+              data-url="{{ url_for('admin_item_pull_from_shop', item_id=item.id) }}"
+              style="padding:9px 18px;color:var(--warning,#b45309);border-color:var(--warning,#b45309);">
+        <i class="fas fa-undo"></i> Pull from Shop
+      </button>
+      {% endif %}
       {% if current_user.is_super_admin %}
       <button type="button" class="btn-danger delete-item-btn" data-item-id="{{ item.id }}"
               style="padding:9px 18px;margin-left:auto;">
@@ -147,5 +155,30 @@
     track.style.transform = 'translateX(-' + (_idx * 100) + '%)';
     if (counter) counter.textContent = (_idx + 1) + ' / ' + total;
   };
+
+  function shopAction(btn, confirmMsg) {
+    if (!confirm(confirmMsg)) return;
+    var url = btn.dataset.url;
+    btn.disabled = true;
+    var fd = new FormData();
+    fd.append('csrf_token', typeof _itemDetailCsrf !== 'undefined' ? _itemDetailCsrf : '');
+    fetch(url, {method: 'POST', body: fd}).then(function(r){ return r.json(); }).then(function(data){
+      if (data.success) {
+        // Reload the items table if present, then close the panel
+        if (typeof reloadItemsTable === 'function') reloadItemsTable();
+        var panel = document.getElementById('item-detail-panel');
+        if (panel) panel.classList.remove('open');
+      } else {
+        alert(data.error || 'Action failed.');
+        btn.disabled = false;
+      }
+    }).catch(function(){ alert('Network error.'); btn.disabled = false; });
+  }
+
+  document.querySelectorAll('.pull-from-shop-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      shopAction(btn, 'Pull this item from the shop and return it to the AI approval queue?');
+    });
+  });
 })();
 </script>

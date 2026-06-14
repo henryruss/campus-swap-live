@@ -149,12 +149,21 @@
         </div>
 
         <div>
+            {% if current_user.is_authenticated and current_user.is_admin and item.status == 'available' %}
+            <form method="POST" action="{{ url_for('admin_item_pull_from_shop', item_id=item.id) }}"
+                  onsubmit="return confirm('Pull this item from the shop and return it to the AI approval queue?')"
+                  style="margin-bottom:10px;">
+              {{ csrf_token() | safe if false }}
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit"
+                      style="width:100%;padding:10px 18px;background:#fff7ed;color:#b45309;border:1.5px solid #f59e0b;border-radius:10px;font-weight:700;font-size:0.9rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
+                <i class="fas fa-undo"></i> Admin: Pull from Shop
+              </button>
+            </form>
+            {% endif %}
             <div class="card no-hover" style="position: sticky; top: 100px;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-                    <span class="badge" style="background: #e2e8f0; color: var(--text-muted);">
-                        ID: #{{ item.id }}
-                    </span>
-                    {% if item.status == 'sold' %}
+{% if item.status == 'sold' %}
                         <span class="badge bg-red" style="font-size: 1rem;">SOLD</span>
                     {% else %}
                         <span class="badge bg-green" style="font-size: 1rem;">Available</span>

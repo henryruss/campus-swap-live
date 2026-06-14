@@ -1,221 +1,507 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<style>
-    .inventory-search-form {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-    }
-    .inventory-search-form input[type="text"] {
-        flex: 1;
-        min-width: 120px;
-    }
-    .inventory-search-form .btn {
-        flex-shrink: 0;
-    }
-    @media (max-width: 480px) {
-        .inventory-search-form {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        .inventory-search-form input[type="text"] {
-            min-width: 0;
-        }
-    }
-</style>
 
-<div class="container">
+{# ───────────────────────────────────────────────────────────────────
+   Helper macro: build a query-string URL preserving all active params
+   except the ones overridden by kwargs.
+   Usage: shop_url(category_id=3) or shop_url(category_id=None) to remove.
+   ─────────────────────────────────────────────────────────────────── #}
+{% macro build_url(overrides={}, removals=[]) %}
+  {%- set base = [] -%}
+  {%- if current_store -%}{%- set _ = base.append('store=' ~ current_store) -%}{%- endif -%}
+  {%- if 'category_id' not in overrides and 'category_id' not in removals and active_cat -%}
+    {%- set _ = base.append('category_id=' ~ active_cat) -%}
+  {%- endif -%}
+  {%- if 'category_id' in overrides and overrides['category_id'] is not none -%}
+    {%- set _ = base.append('category_id=' ~ overrides['category_id']) -%}
+  {%- endif -%}
+  {%- if 'subcategory' not in overrides and 'subcategory' not in removals and active_sub -%}
+    {%- set _ = base.append('subcategory=' ~ active_sub) -%}
+  {%- endif -%}
+  {%- if 'subcategory' in overrides and overrides['subcategory'] is not none -%}
+    {%- set _ = base.append('subcategory=' ~ overrides['subcategory']) -%}
+  {%- endif -%}
+  {%- if 'search' not in removals and search_query -%}
+    {%- set _ = base.append('search=' ~ (search_query | urlencode)) -%}
+  {%- endif -%}
+  {%- for cond in condition_filters -%}
+    {%- if 'condition_' ~ cond not in removals -%}
+      {%- set _ = base.append('condition=' ~ cond) -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for p in price_filters -%}
+    {%- if 'price_' ~ p not in removals -%}
+      {%- set _ = base.append('price=' ~ p) -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if 'sort' not in overrides and sort_val and sort_val != 'newest' -%}
+    {%- set _ = base.append('sort=' ~ sort_val) -%}
+  {%- endif -%}
+  {%- if 'sort' in overrides and overrides['sort'] -%}
+    {%- set _ = base.append('sort=' ~ overrides['sort']) -%}
+  {%- endif -%}
+  /inventory{% if base %}?{{ base | join('&') }}{% endif %}
+{%- endmacro %}
 
-    <!-- Subtle Store Indicator -->
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 25px; padding: 10px 16px; background: #f8fafc; border-left: 3px solid var(--primary); border-radius: 6px;">
-        <i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 0.9rem;"></i>
-        <span style="font-size: 0.9rem; color: var(--text-muted);">
-            Showing items from <strong style="color: var(--text-main);">{{ current_store }}</strong>
-        </span>
-    </div>
+<div class="shop-wrap">
 
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-        <i class="fas fa-boxes" style="font-size: 1.5rem; color: var(--primary);"></i>
-        <h2 style="margin: 0;">Shop by Category</h2>
-    </div>
-    
-    <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 50px;">
-        
-        <a href="/inventory" style="flex: 1 1 150px; text-decoration: none;">
-            <div class="card text-center no-hover" 
-                 style="height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-                 {% if not active_cat %}border: 2px solid var(--primary); background: white;{% endif %}">
-                
-                <div style="width:48px; height:48px; display:flex; align-items:center; justify-content:center; margin-bottom:15px;">
-                    <i class="fas fa-store fa-fw" style="font-size: 1.75rem; color: {% if not active_cat %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
-                </div>
-                <div style="font-weight: 800; font-size: 1.1rem;">View All</div>
-                <div style="color: var(--text-muted); font-size: 0.85rem;">Show Everything</div>
-            </div>
+  {# ── Store indicator ── #}
+  <div class="shop-store-indicator">
+    <i class="fas fa-map-marker-alt"></i>
+    <span>Showing items from <strong>{{ current_store }}</strong></span>
+  </div>
+
+  {# ── Category tab bar — switching category resets all filters ── #}
+  <nav class="shop-cat-tabs" aria-label="Shop by category">
+    {%- set all_parts = [] -%}
+    {%- if current_store -%}{%- set _ = all_parts.append('store=' ~ current_store) -%}{%- endif -%}
+    <a href="/inventory{% if all_parts %}?{{ all_parts | join('&') }}{% endif %}"
+       class="shop-cat-tab{% if not active_cat %} active{% endif %}">All</a>
+
+    {% for cat in commodities %}
+    {%- set tab_parts = [] -%}
+    {%- if current_store -%}{%- set _ = tab_parts.append('store=' ~ current_store) -%}{%- endif -%}
+    {%- set _ = tab_parts.append('category_id=' ~ cat.id) -%}
+    <a href="/inventory?{{ tab_parts | join('&') }}"
+       class="shop-cat-tab{% if active_cat == cat.id %} active{% endif %}">{{ cat.name }}</a>
+    {% endfor %}
+  </nav>
+
+  {# ── Toolbar: search + sort + mobile Filters btn ── #}
+  <div class="shop-toolbar">
+    <form method="GET" action="{{ url_for('inventory') }}" class="shop-toolbar-search" id="shop-search-form">
+      {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
+      {% if active_cat %}<input type="hidden" name="category_id" value="{{ active_cat }}">{% endif %}
+      {% if active_sub %}<input type="hidden" name="subcategory" value="{{ active_sub }}">{% endif %}
+      {% for cond in condition_filters %}<input type="hidden" name="condition" value="{{ cond }}">{% endfor %}
+      {% for p in price_filters %}<input type="hidden" name="price" value="{{ p }}">{% endfor %}
+      {% if sort_val and sort_val != 'newest' %}<input type="hidden" name="sort" value="{{ sort_val }}">{% endif %}
+      <input type="text"
+             name="search"
+             placeholder="Search items…"
+             value="{{ search_query }}"
+             aria-label="Search items">
+    </form>
+
+    <div class="shop-toolbar-row2">
+    <button class="shop-filters-btn btn btn-outline" id="open-filter-sheet" type="button" aria-expanded="false" aria-controls="filter-sheet">
+      <i class="fas fa-sliders-h"></i> Filters
+    </button>
+
+    <select class="shop-sort-select" id="shop-sort-select" name="sort" aria-label="Sort items">
+      <option value="newest"{% if sort_val == 'newest' %} selected{% endif %}>Newest</option>
+      <option value="price_asc"{% if sort_val == 'price_asc' %} selected{% endif %}>Price: Low to High</option>
+      <option value="price_desc"{% if sort_val == 'price_desc' %} selected{% endif %}>Price: High to Low</option>
+      <option value="best_deal"{% if sort_val == 'best_deal' %} selected{% endif %}>Best Deal</option>
+    </select>
+    </div>{# end shop-toolbar-row2 #}
+  </div>{# end shop-toolbar #}
+
+  {# ── Shop body: sidebar + main ── #}
+  <div class="shop-body">
+
+    {# ── Desktop sidebar filter form ── #}
+    <aside class="shop-sidebar">
+      <form method="GET" action="{{ url_for('inventory') }}" id="filter-form">
+        {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
+        {% if active_cat %}<input type="hidden" name="category_id" value="{{ active_cat }}">{% endif %}
+        {% if search_query %}<input type="hidden" name="search" value="{{ search_query }}">{% endif %}
+        <input type="hidden" name="sort" value="{{ sort_val }}">
+
+        {# Condition #}
+        <div class="filter-group">
+          <div class="filter-group-title">Condition</div>
+          <label class="filter-check-label">
+            <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
+            Like New
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
+            Good
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
+            Fair
+          </label>
+        </div>
+
+        {# Price #}
+        <div class="filter-group">
+          <div class="filter-group-title">Price</div>
+          <label class="filter-check-label">
+            <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
+            Under $25
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
+            $25 – $50
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
+            $50 – $100
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
+            $100 – $200
+          </label>
+          <label class="filter-check-label">
+            <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
+            Over $200
+          </label>
+        </div>
+
+        {# Subcategory — only when a category with children is active #}
+        {% if subcategories %}
+        <div class="filter-group">
+          <div class="filter-group-title">Type</div>
+          {% for sub in subcategories %}
+          <label class="filter-check-label">
+            <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+            {{ sub.name }}
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <button type="submit" class="btn btn-primary filter-apply-btn">Apply filters</button>
+        {%- set clear_parts = [] -%}
+        {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}"
+           class="filter-clear-link">Clear filters</a>
+      </form>
+    </aside>
+
+    {# ── Main content area ── #}
+    <main class="shop-main"
+          data-has-next="{{ 'true' if pagination.has_next else 'false' }}"
+          data-next-page="{{ pagination.page + 1 if pagination.has_next else '' }}">
+
+      {# Active filter chips #}
+      <div class="shop-filters-row">
+
+        {# Search chip #}
+        {% if search_query %}
+        {%- set s_parts = [] -%}
+        {%- if current_store -%}{%- set _ = s_parts.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = s_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if active_sub -%}{%- set _ = s_parts.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- for cond in condition_filters -%}{%- set _ = s_parts.append('condition=' ~ cond) -%}{%- endfor -%}
+        {%- for p in price_filters -%}{%- set _ = s_parts.append('price=' ~ p) -%}{%- endfor -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = s_parts.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/inventory{% if s_parts %}?{{ s_parts | join('&') }}{% endif %}" class="filter-chip">
+          "{{ search_query }}" &times;
         </a>
+        {% endif %}
 
-        {% for item in commodities %}
-        <a href="/inventory?category_id={{ item.id }}" style="flex: 1 1 150px; text-decoration: none;" class="inv-cat-link" data-cat-id="{{ item.id }}">
-            <div class="card text-center no-hover"
-                 style="height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-                 {% if active_cat|int == item.id %}border: 2px solid var(--primary); background: white;{% endif %}">
-
-                <div style="width:48px; height:48px; display:flex; align-items:center; justify-content:center; margin-bottom:15px;">
-                    <i class="fas {{ item.icon or item.image_url }} fa-fw" style="font-size: 1.75rem; color: {% if active_cat|int == item.id %}var(--primary){% else %}var(--text-muted){% endif %};"></i>
-                </div>
-
-                <div style="font-weight: 700; color: var(--text-muted); font-size: 0.9rem;">{{ item.name }}</div>
-            </div>
+        {# Condition chips #}
+        {% set cond_labels = {'like_new': 'Like New', 'good': 'Good', 'fair': 'Fair'} %}
+        {% for cond in condition_filters %}
+        {%- set cp = [] -%}
+        {%- if current_store -%}{%- set _ = cp.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = cp.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if active_sub -%}{%- set _ = cp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- if search_query -%}{%- set _ = cp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
+        {%- for c2 in condition_filters if c2 != cond -%}{%- set _ = cp.append('condition=' ~ c2) -%}{%- endfor -%}
+        {%- for p in price_filters -%}{%- set _ = cp.append('price=' ~ p) -%}{%- endfor -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = cp.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/inventory{% if cp %}?{{ cp | join('&') }}{% endif %}" class="filter-chip">
+          {{ cond_labels.get(cond, cond) }} &times;
         </a>
         {% endfor %}
-    </div>
 
-    <!-- Subcategory filter pills (shown when a parent category is selected) -->
-    {% if active_cat %}
-    <div id="inv-subcategory-pills" class="subcategory-pills" style="margin-top: -30px; margin-bottom: 30px;"></div>
-    <script>
-    (function() {
-        var catId = {{ active_cat }};
-        var activeSub = {{ active_sub|default('null') }};
-        fetch('/api/subcategories/' + catId)
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var container = document.getElementById('inv-subcategory-pills');
-                if (data.skip_subcategory || data.subcategories.length === 0) {
-                    container.style.display = 'none';
-                    return;
-                }
-                // "All" pill
-                var allPill = document.createElement('a');
-                allPill.className = 'subcategory-pill' + (!activeSub ? ' selected' : '');
-                allPill.textContent = 'All';
-                allPill.href = '/inventory?category_id=' + catId;
-                container.appendChild(allPill);
+        {# Price chips #}
+        {% set price_labels = {'under_25': 'Under $25', '25_50': '$25–$50', '50_100': '$50–$100', '100_200': '$100–$200', 'over_200': 'Over $200'} %}
+        {% for p in price_filters %}
+        {%- set pp = [] -%}
+        {%- if current_store -%}{%- set _ = pp.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = pp.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if active_sub -%}{%- set _ = pp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- if search_query -%}{%- set _ = pp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
+        {%- for cond in condition_filters -%}{%- set _ = pp.append('condition=' ~ cond) -%}{%- endfor -%}
+        {%- for p2 in price_filters if p2 != p -%}{%- set _ = pp.append('price=' ~ p2) -%}{%- endfor -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = pp.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/inventory{% if pp %}?{{ pp | join('&') }}{% endif %}" class="filter-chip">
+          {{ price_labels.get(p, p) }} &times;
+        </a>
+        {% endfor %}
 
-                data.subcategories.forEach(function(sub) {
-                    var pill = document.createElement('a');
-                    pill.className = 'subcategory-pill' + (activeSub === sub.id ? ' selected' : '');
-                    pill.textContent = sub.name;
-                    pill.href = '/inventory?category_id=' + catId + '&subcategory=' + sub.id;
-                    container.appendChild(pill);
-                });
-                container.style.display = 'flex';
-            });
-    })();
-    </script>
-    {% endif %}
+        {# Subcategory chip #}
+        {% if active_sub %}
+        {%- set sub_obj = subcategories | selectattr('id', 'equalto', active_sub) | list | first -%}
+        {%- set subp = [] -%}
+        {%- if current_store -%}{%- set _ = subp.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = subp.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if search_query -%}{%- set _ = subp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
+        {%- for cond in condition_filters -%}{%- set _ = subp.append('condition=' ~ cond) -%}{%- endfor -%}
+        {%- for p in price_filters -%}{%- set _ = subp.append('price=' ~ p) -%}{%- endfor -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = subp.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/inventory{% if subp %}?{{ subp | join('&') }}{% endif %}" class="filter-chip">
+          {{ sub_obj.name if sub_obj else 'Subcategory' }} &times;
+        </a>
+        {% endif %}
 
-    <!-- Search Box -->
-    <div style="margin-bottom: 30px;">
-        <form method="GET" action="/inventory" class="inventory-search-form">
-            <input type="text" 
-                   name="search" 
-                   placeholder="Search items..." 
-                   value="{{ search_query }}"
-                   style="flex: 1; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 1rem;">
-            {% if active_cat %}
-            <input type="hidden" name="category_id" value="{{ active_cat }}">
-            {% endif %}
-            {% if current_store %}
-            <input type="hidden" name="store" value="{{ current_store }}">
-            {% endif %}
-            <button type="submit" class="btn btn-primary" style="padding: 12px 24px;">
-                <i class="fas fa-search"></i> Search
-            </button>
-            {% if search_query %}
-            <a href="/inventory{% if active_cat %}?category_id={{ active_cat }}{% endif %}{% if current_store %}{% if active_cat %}&{% else %}?{% endif %}store={{ current_store }}{% endif %}" 
-               class="btn btn-outline" 
-               style="padding: 12px 24px;">
-                Clear
-            </a>
-            {% endif %}
-        </form>
-    </div>
+        {# Clear all — only when any filter is active #}
+        {% if condition_filters or price_filters or active_sub or search_query %}
+        {%- set clear_parts = [] -%}
+        {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = clear_parts.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-chip filter-chip-clear">Clear all</a>
+        {% endif %}
+      </div>
 
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #e2e8f0;">
-        <i class="fas fa-layer-group" style="font-size: 1.5rem; color: var(--accent);"></i>
-        <h2 style="margin: 0;">
-            {% if search_query %}
-                Search Results{% if active_cat %} ({{ commodities|selectattr('id', 'equalto', active_cat|int)|map(attribute='name')|first }}){% endif %}
-            {% elif active_cat %}
-                {{ commodities|selectattr('id', 'equalto', active_cat|int)|map(attribute='name')|first }}
-            {% else %}
-                All Inventory
-            {% endif %}
-        </h2>
-    </div>
-    
-    {% if not items or items|length == 0 %}
-    <div style="padding: 30px; text-align: center; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 30px;">
-        <i class="fas fa-clock" style="font-size: 3rem; color: var(--primary); margin-bottom: 15px; opacity: 0.7;"></i>
-        <h3 style="color: var(--text-main); margin-bottom: 10px;">Items Coming Soon!</h3>
-        <p style="color: var(--text-muted); font-size: 1rem; max-width: 600px; margin: 0 auto; line-height: 1.6;">
-            Items will be posted here as they get approved. Check back soon for great deals on furniture, electronics, and more!
-        </p>
-    </div>
-    {% elif items|length < 5 %}
-    <div style="padding: 16px; margin-bottom: 20px; background: #f8fafc; border-left: 2px solid #cbd5e1; border-radius: 6px; display: flex; align-items: center; gap: 10px;">
-        <i class="fas fa-info-circle" style="color: var(--text-muted); font-size: 1rem;"></i>
-        <p style="margin: 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
-            <strong style="color: var(--text-main);">New items are being added regularly.</strong> Items will appear here as they get approved.
-        </p>
-    </div>
-    {% endif %}
-    
-    <div class="grid-inventory" id="inv-grid">
-        {% include '_inventory_cards.html' %}
-    </div>
+      {# Item grid #}
+      {% if total_count == 0 %}
+      <div class="shop-empty-state">
+        <i class="fas fa-search"></i>
+        <h3>No items match these filters</h3>
+        <p>Try adjusting your filters or browse all inventory.</p>
+        {%- set clear_parts = [] -%}
+        {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="btn btn-outline">Clear all filters</a>
+      </div>
+      {% else %}
+      <div class="shop-grid" id="shop-grid">
+        {% include '_item_card.html' %}
+      </div>
+      {% endif %}
 
-    {# Infinite scroll sentinel #}
-    <div id="inv-sentinel" style="height: 1px; margin-bottom: 60px;"></div>
-    <div id="inv-loading" style="display:none; text-align:center; padding: 24px; color: var(--text-muted); font-size:0.9rem;">
+      {# Infinite scroll sentinel #}
+      <div id="inv-sentinel" style="height: 1px; margin-bottom: 60px;"></div>
+      <div id="inv-loading" style="display:none; text-align:center; padding: 24px; color: var(--text-muted); font-size:0.9rem;">
         <i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i> Loading more…
+      </div>
+
+    </main>
+  </div>{# end shop-body #}
+
+</div>{# end shop-wrap #}
+
+{# ── Mobile filter sheet ── #}
+<div class="shop-filter-backdrop" id="filter-backdrop" aria-hidden="true"></div>
+<div class="shop-filter-sheet" id="filter-sheet" role="dialog" aria-label="Filters" aria-modal="true">
+  <div class="shop-filter-sheet-header">
+    <span class="shop-filter-sheet-title">Filters</span>
+    <button type="button" class="shop-filter-sheet-close" id="close-filter-sheet" aria-label="Close filters">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+
+  {# Same form contents as sidebar — single form, scrollable body #}
+  <form method="GET" action="{{ url_for('inventory') }}" id="filter-form-mobile">
+    {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
+    {% if active_cat %}<input type="hidden" name="category_id" value="{{ active_cat }}">{% endif %}
+    {% if search_query %}<input type="hidden" name="search" value="{{ search_query }}">{% endif %}
+    <input type="hidden" name="sort" value="{{ sort_val }}">
+
+    <div class="filter-group">
+      <div class="filter-group-title">Condition</div>
+      <label class="filter-check-label">
+        <input type="checkbox" name="condition" value="like_new"{% if 'like_new' in condition_filters %} checked{% endif %}>
+        Like New
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="condition" value="good"{% if 'good' in condition_filters %} checked{% endif %}>
+        Good
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="condition" value="fair"{% if 'fair' in condition_filters %} checked{% endif %}>
+        Fair
+      </label>
     </div>
 
+    <div class="filter-group">
+      <div class="filter-group-title">Price</div>
+      <label class="filter-check-label">
+        <input type="checkbox" name="price" value="under_25"{% if 'under_25' in price_filters %} checked{% endif %}>
+        Under $25
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="price" value="25_50"{% if '25_50' in price_filters %} checked{% endif %}>
+        $25 – $50
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="price" value="50_100"{% if '50_100' in price_filters %} checked{% endif %}>
+        $50 – $100
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="price" value="100_200"{% if '100_200' in price_filters %} checked{% endif %}>
+        $100 – $200
+      </label>
+      <label class="filter-check-label">
+        <input type="checkbox" name="price" value="over_200"{% if 'over_200' in price_filters %} checked{% endif %}>
+        Over $200
+      </label>
+    </div>
+
+    {% if subcategories %}
+    <div class="filter-group">
+      <div class="filter-group-title">Type</div>
+      {% for sub in subcategories %}
+      <label class="filter-check-label">
+        <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+        {{ sub.name }}
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="shop-filter-sheet-footer">
+      {%- set clear_parts = [] -%}
+      {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
+      {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
+      <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="btn btn-outline" style="flex:0 0 auto;">Clear all</a>
+      <button type="submit" class="btn btn-primary" style="flex:1;">Show results</button>
+    </div>
+  </form>
 </div>
 
 <script>
 (function() {
-    var nextPage = {{ pagination.page + 1 if pagination.has_next else 'null' }};
-    var loading = false;
 
-    function buildUrl(page) {
-        var params = new URLSearchParams(window.location.search);
-        params.set('page', page);
-        params.set('ajax', '1');
-        return '/inventory?' + params.toString();
-    }
+  /* ── State ── */
+  var mainEl = document.querySelector('.shop-main');
+  var nextPage = mainEl && mainEl.dataset.nextPage ? parseInt(mainEl.dataset.nextPage) : null;
+  var loading = false;
+  var observer = null;
 
-    function loadMore() {
-        if (!nextPage || loading) return;
-        loading = true;
-        document.getElementById('inv-loading').style.display = 'block';
-        fetch(buildUrl(nextPage))
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var grid = document.getElementById('inv-grid');
-                var tmp = document.createElement('div');
-                tmp.innerHTML = data.html;
-                while (tmp.firstChild) grid.appendChild(tmp.firstChild);
-                nextPage = data.has_next ? data.page + 1 : null;
-                loading = false;
-                document.getElementById('inv-loading').style.display = 'none';
-            })
-            .catch(function() {
-                loading = false;
-                document.getElementById('inv-loading').style.display = 'none';
-            });
-    }
+  /* ── Infinite scroll ── */
+  function buildAjaxUrl(page) {
+    var params = new URLSearchParams(window.location.search);
+    params.set('page', page);
+    params.set('ajax', '1');
+    return '/inventory?' + params.toString();
+  }
 
+  function loadMore() {
+    if (!nextPage || loading) return;
+    loading = true;
+    var loadingEl = document.getElementById('inv-loading');
+    if (loadingEl) loadingEl.style.display = 'block';
+    fetch(buildAjaxUrl(nextPage))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var grid = document.getElementById('shop-grid');
+        if (grid) {
+          var tmp = document.createElement('div');
+          tmp.innerHTML = data.html;
+          while (tmp.firstChild) grid.appendChild(tmp.firstChild);
+        }
+        nextPage = data.has_next ? data.page + 1 : null;
+        loading = false;
+        if (loadingEl) loadingEl.style.display = 'none';
+      })
+      .catch(function() {
+        loading = false;
+        if (loadingEl) loadingEl.style.display = 'none';
+      });
+  }
+
+  function attachSentinel() {
+    if (!('IntersectionObserver' in window)) return;
+    if (observer) observer.disconnect();
     var sentinel = document.getElementById('inv-sentinel');
-    if ('IntersectionObserver' in window) {
-        var observer = new IntersectionObserver(function(entries) {
-            if (entries[0].isIntersecting) loadMore();
-        }, { rootMargin: '200px' });
-        observer.observe(sentinel);
-    }
+    if (!sentinel) return;
+    observer = new IntersectionObserver(function(entries) {
+      if (entries[0].isIntersecting) loadMore();
+    }, { rootMargin: '200px' });
+    observer.observe(sentinel);
+  }
+
+  attachSentinel();
+
+  /* ── Fetch-based filter swap (no full page reload) ── */
+  function applyFilters(url) {
+    fetch(url)
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var newMain = doc.querySelector('.shop-main');
+        if (newMain && mainEl) {
+          mainEl.innerHTML = newMain.innerHTML;
+          mainEl.dataset.hasNext = newMain.dataset.hasNext;
+          mainEl.dataset.nextPage = newMain.dataset.nextPage || '';
+          nextPage = newMain.dataset.nextPage ? parseInt(newMain.dataset.nextPage) : null;
+          loading = false;
+          attachSentinel();
+        }
+        history.pushState(null, '', url);
+      })
+      .catch(function() {});
+  }
+
+  function formToUrl(form) {
+    var data = new FormData(form);
+    /* Sync sort from toolbar select */
+    var sortSelect = document.getElementById('shop-sort-select');
+    if (sortSelect) data.set('sort', sortSelect.value);
+    return '/inventory?' + new URLSearchParams(data).toString();
+  }
+
+  /* ── Desktop sidebar: fetch on filter change (≥900px) ── */
+  var filterForm = document.getElementById('filter-form');
+  if (filterForm) {
+    filterForm.addEventListener('change', function() {
+      if (window.innerWidth >= 900) applyFilters(formToUrl(filterForm));
+    });
+  }
+
+  /* ── Sort select: fetch on change ── */
+  var sortSelect = document.getElementById('shop-sort-select');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', function() {
+      var params = new URLSearchParams(window.location.search);
+      params.set('sort', sortSelect.value);
+      params.delete('page');
+      applyFilters('/inventory?' + params.toString());
+    });
+  }
+
+  /* ── Mobile filter sheet ── */
+  var sheet = document.getElementById('filter-sheet');
+  var backdrop = document.getElementById('filter-backdrop');
+  var openBtn = document.getElementById('open-filter-sheet');
+  var closeBtn = document.getElementById('close-filter-sheet');
+
+  function openSheet() {
+    if (!sheet) return;
+    sheet.classList.add('open');
+    if (backdrop) backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeSheet() {
+    if (!sheet) return;
+    sheet.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+    if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  if (openBtn) openBtn.addEventListener('click', openSheet);
+  if (closeBtn) closeBtn.addEventListener('click', closeSheet);
+  if (backdrop) backdrop.addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeSheet();
+  });
+
+  /* Mobile sheet "Show results" — fetch + close sheet */
+  var mobileForm = document.getElementById('filter-form-mobile');
+  if (mobileForm) {
+    mobileForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var url = formToUrl(mobileForm);
+      closeSheet();
+      applyFilters(url);
+    });
+  }
+
 })();
 </script>
+
 {% endblock %}

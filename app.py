@@ -1353,8 +1353,9 @@ def unsubscribe(token):
 @app.route('/inventory')
 def inventory():
     """Display inventory with pagination, search, and optimized queries"""
+    from sqlalchemy import case as sa_case
     # Shop Drop teaser — renders blurred mosaic + email capture before launch
-    if AppSetting.get('shop_teaser_mode', 'false') == 'true':
+    if AppSetting.get('shop_teaser_mode', 'false') == 'true' and not store_is_open():
         preview_items_raw = InventoryItem.query.filter_by(
             status='available'
         ).order_by(func.random()).limit(16).all()
@@ -1378,15 +1379,25 @@ def inventory():
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
 
+    # New filter params
+    condition_filters = request.args.getlist('condition')   # like_new | good | fair
+    price_filters = request.args.getlist('price')           # under_25 | 25_50 | 50_100 | 100_200 | over_200
+    sort_val = request.args.get('sort', 'newest')           # newest | price_asc | price_desc | best_deal
+
     commodities = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
-    
-    # Build query with eager loading to prevent N+1 queries
-    # Items appear on shop once approved (pending_logistics or available or sold) - no wait for has_paid or arrived_at_store
-    # Fallback: previously-approved items remain visible while awaiting re-processing after pipeline reset
-    _visible = or_(
-        and_(InventoryItem.ai_approved == True, InventoryItem.needs_new_photo == False),
-        and_(InventoryItem.was_previously_approved == True, InventoryItem.price > 0,
-             InventoryItem.status == 'available', InventoryItem.needs_new_photo == False),
+
+    # Subcategories for the active category (server-rendered, no ajax)
+    subcategories = []
+    if cat_id:
+        active_cat_obj = InventoryCategory.query.get(cat_id)
+        if active_cat_obj:
+            subcategories = active_cat_obj.subcategories
+
+    # Items appear on shop only when admin-approved (ai_approved=True) and status=available
+    _visible = and_(
+        InventoryItem.ai_approved == True,
+        InventoryItem.status == 'available',
+        InventoryItem.needs_new_photo == False,
     )
     query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
@@ -1398,13 +1409,14 @@ def inventory():
         InventoryItem.price > 0,
         InventoryItem.storage_location_id.isnot(None),
     )
-    
+    # FUTURE: add location/store filter here as one more .filter(...) clause
+
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
     if cat_id:
         query = query.filter(InventoryItem.category_id == cat_id)
     if sub_id:
         query = query.filter(InventoryItem.subcategory_id == sub_id)
-    
+
     # Apply search filter
     if search_query:
         search_pattern = f"%{search_query}%"
@@ -1414,23 +1426,70 @@ def inventory():
                 InventoryItem.long_description.ilike(search_pattern)
             )
         )
-    
-    # Order by status (available first) then date
-    query = query.order_by(InventoryItem.status.asc(), InventoryItem.date_added.desc())
-    
+
+    # Apply condition filter (quality: like_new=5, good=4, fair=3)
+    _condition_map = {'like_new': 5, 'good': 4, 'fair': 3}
+    if condition_filters:
+        quality_values = [_condition_map[c] for c in condition_filters if c in _condition_map]
+        if quality_values:
+            query = query.filter(InventoryItem.quality.in_(quality_values))
+
+    # Apply price bucket filter (union of checked ranges)
+    if price_filters:
+        price_clauses = []
+        for bucket in price_filters:
+            if bucket == 'under_25':
+                price_clauses.append(InventoryItem.price < 25)
+            elif bucket == '25_50':
+                price_clauses.append(and_(InventoryItem.price >= 25, InventoryItem.price < 50))
+            elif bucket == '50_100':
+                price_clauses.append(and_(InventoryItem.price >= 50, InventoryItem.price < 100))
+            elif bucket == '100_200':
+                price_clauses.append(and_(InventoryItem.price >= 100, InventoryItem.price < 200))
+            elif bucket == 'over_200':
+                price_clauses.append(InventoryItem.price >= 200)
+        if price_clauses:
+            query = query.filter(or_(*price_clauses))
+
+    # Count matching items before pagination (for display in template)
+    total_count = query.count()
+
+    # Primary sort: available first; secondary: user's chosen sort
+    _avail_first = sa_case((InventoryItem.status == 'available', 0), else_=1)
+    if sort_val == 'price_asc':
+        query = query.order_by(_avail_first, InventoryItem.price.asc())
+    elif sort_val == 'price_desc':
+        query = query.order_by(_avail_first, InventoryItem.price.desc())
+    elif sort_val == 'best_deal':
+        # Discount % = (retail_price - price) / retail_price; NULL retail_price → 0 (sort last)
+        _discount = sa_case(
+            (
+                and_(
+                    InventoryItem.retail_price.isnot(None),
+                    InventoryItem.retail_price > 0
+                ),
+                (InventoryItem.retail_price - InventoryItem.price) / InventoryItem.retail_price
+            ),
+            else_=0
+        )
+        query = query.order_by(_avail_first, _discount.desc())
+    else:
+        # default: newest
+        query = query.order_by(_avail_first, InventoryItem.date_added.desc())
+
     # Paginate results
     pagination = query.paginate(
         page=page,
         per_page=ITEMS_PER_PAGE,
         error_out=False
     )
-    
+
     items = pagination.items
     store_info = get_store_info(store_name)
 
     # Ajax scroll: return rendered card HTML + has_next flag
     if request.args.get('ajax') == '1':
-        cards_html = render_template('_inventory_cards.html',
+        cards_html = render_template('_item_card.html',
                                      items=items,
                                      current_store=store_name,
                                      search_query=search_query,
@@ -1445,12 +1504,17 @@ def inventory():
                          active_cat=cat_id,
                          active_sub=sub_id,
                          current_store=store_name,
-                         store_info=store_info)
+                         store_info=store_info,
+                         subcategories=subcategories,
+                         condition_filters=condition_filters,
+                         price_filters=price_filters,
+                         sort_val=sort_val,
+                         total_count=total_count)
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     # Redirect to teaser page when shop is in pre-launch mode
-    if AppSetting.get('shop_teaser_mode', 'false') == 'true':
+    if AppSetting.get('shop_teaser_mode', 'false') == 'true' and not store_is_open():
         flash(f'Items go on sale {store_open_date()} — sign up to be notified.', 'info')
         return redirect(url_for('inventory'))
     item = InventoryItem.query.get_or_404(item_id)
@@ -3177,7 +3241,7 @@ def admin_approve_unified(item_id):
         joinedload(InventoryItem.seller),
         joinedload(InventoryItem.category),
     ).get_or_404(item_id)
-    if item.status not in ('pending_valuation', 'needs_info'):
+    if item.status not in ('pending_valuation', 'needs_info') and not item.ai_review_pending:
         return jsonify({'success': False, 'error': 'Item cannot be approved from its current status.'}), 400
     if item.status == 'needs_info':
         for alert in SellerAlert.query.filter_by(item_id=item.id, resolved=False).all():
@@ -14143,6 +14207,22 @@ def admin_item_detail(item_id):
         payout_pct=payout_pct,
         payout_amount=payout_amount,
     )
+
+
+@app.route('/admin/item/<int:item_id>/pull-from-shop', methods=['POST'])
+@login_required
+def admin_item_pull_from_shop(item_id):
+    """Pull item from shop and return it to the AI approval queue."""
+    if not current_user.is_admin:
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    item.ai_approved = False
+    item.ai_review_pending = True
+    db.session.commit()
+    if request.form.get('modal') == '1':
+        return jsonify({'success': True})
+    flash('Item pulled from shop and moved to the AI Review tab.', 'success')
+    return redirect(url_for('inventory'))
 
 
 @app.route('/admin/item/<int:item_id>/mark-sold', methods=['POST'])

@@ -1,0 +1,57 @@
+{# _item_card.html — single item card; caller loops over items #}
+{% for item in items %}
+<a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}" class="item-card-link">
+  <div class="item-card">
+
+    <div class="item-card-img-wrap">
+      {% if item.photo_url %}
+      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+           loading="lazy"
+           alt="{{ item.description }}">
+      {% else %}
+      <div class="item-card-img-placeholder">
+        <i class="fas fa-image"></i>
+      </div>
+      {% endif %}
+
+      {# SOLD overlay — only for non-available items #}
+      {% if item.status == 'sold' %}
+      <div class="item-card-sold-overlay">
+        <div class="item-card-sold-label">SOLD</div>
+      </div>
+      {% elif item.status == 'reserved' %}
+      <div class="item-card-sold-overlay">
+        <div class="item-card-sold-label" style="color: var(--accent); border-color: var(--accent);">RESERVED</div>
+      </div>
+      {% endif %}
+
+      {# Condition badge — bottom-left #}
+      {% if item.quality %}
+      <span class="item-card-condition">{{ item.quality | quality_label }}</span>
+      {% endif %}
+
+      {# Video badge — bottom-right #}
+      {% if item.video_url %}
+      <span class="item-card-video-badge">
+        <i class="fas fa-play" style="font-size: 0.6rem;"></i> Video
+      </span>
+      {% endif %}
+    </div>
+
+    <div class="item-card-body">
+      <p class="item-card-title">{{ item.description }}</p>
+      <div class="item-card-price">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</div>
+
+      {# Retail strikethrough + % off pill — only when retail_price is present and higher than price #}
+      {% if item.retail_price and item.price and item.retail_price > item.price %}
+      {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+      <div class="item-card-retail-row">
+        <span class="item-card-retail-orig">~${{ "%.0f"|format(item.retail_price) }} retail</span>
+        <span class="item-card-off-pill">{{ savings_pct }}% off</span>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</a>
+{% endfor %}
