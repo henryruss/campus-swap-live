@@ -869,6 +869,45 @@ def _send_buyer_order_confirmation(order, sold_items):
     send_email(order.buyer_email, "Your Campus Swap Order — Confirmed!", html)
 
 
+def backfill_orders_from_buyer_orders():
+    """Create one Order per legacy BuyerOrder with no order_id.
+
+    ORM-based so works with SQLite in tests and Postgres in production.
+    Returns (total_found, orders_created, bo_linked).
+    """
+    unlinked = BuyerOrder.query.filter_by(order_id=None).all()
+    orders_created = 0
+    for bo in unlinked:
+        order = Order(
+            buyer_email=bo.buyer_email or '',
+            delivery_street=bo.delivery_address or '',
+            delivery_lat=bo.delivery_lat,
+            delivery_lng=bo.delivery_lng,
+            distance_miles=bo.distance_miles,
+            delivery_zone=bo.delivery_zone,
+            delivery_fee=bo.delivery_fee if bo.delivery_fee is not None else Decimal('0'),
+            bundle_free_delivery=False,
+            is_flexible_delivery=bool(bo.is_flexible_delivery),
+            flexible_discount=bo.flexible_discount if bo.flexible_discount is not None else Decimal('0'),
+            sales_tax=bo.sales_tax if bo.sales_tax is not None else Decimal('0'),
+            items_subtotal=bo.items_subtotal if bo.items_subtotal is not None else Decimal('0'),
+            total_paid=bo.total_paid if bo.total_paid is not None else Decimal('0'),
+            stripe_checkout_session_id=bo.stripe_checkout_session_id,
+            status='paid',
+            has_conflict=False,
+            created_at=bo.created_at or datetime.utcnow(),
+            paid_at=bo.created_at or datetime.utcnow(),
+        )
+        db.session.add(order)
+        db.session.flush()
+        bo.order_id = order.id
+        bo.item_price_paid = bo.items_subtotal if bo.items_subtotal is not None else Decimal('0')
+        bo.item_sales_tax = bo.sales_tax if bo.sales_tax is not None else Decimal('0')
+        orders_created += 1
+    db.session.commit()
+    return len(unlinked), orders_created, orders_created
+
+
 # --- VALIDATION HELPERS ---
 
 def validate_email(email):
