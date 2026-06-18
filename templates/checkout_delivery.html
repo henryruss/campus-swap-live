@@ -11,33 +11,51 @@
     padding: 0 24px;
     align-items: start;
   }
-  .delivery-item-summary {
+  .delivery-order-summary {
     padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
   }
-  .delivery-item-summary img {
-    width: 100%;
-    aspect-ratio: 1;
-    object-fit: cover;
-    border-radius: 8px;
-  }
-  .delivery-item-title {
+  .delivery-order-summary h3 {
+    font-size: 1rem;
     font-weight: 700;
-    font-size: 1.1rem;
     color: var(--text-main);
     margin: 0 0 4px;
   }
-  .delivery-item-price {
-    font-size: 1.4rem;
-    font-weight: 800;
-    color: var(--primary);
+  .summary-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .summary-item-row:last-child { border-bottom: none; }
+  .summary-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--bg-cream);
+    flex-shrink: 0;
+  }
+  .summary-item-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
     margin: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .delivery-form-card {
-    padding: 32px;
+  .summary-item-price {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
   }
+  .delivery-form-card { padding: 32px; }
   .delivery-form-card h1 {
     font-size: 1.8rem;
     color: var(--primary);
@@ -101,34 +119,36 @@
     line-height: 1.5;
   }
   @media (max-width: 640px) {
-    .delivery-page {
-      grid-template-columns: 1fr;
-    }
-    .form-row {
-      grid-template-columns: 1fr;
-    }
+    .delivery-page { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
   }
 </style>
 
 <div class="delivery-page">
 
-  <div class="card delivery-item-summary">
-    {% if item.photo_url %}
-      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="lightbox-trigger">
-    {% else %}
-      <div style="width: 100%; aspect-ratio: 1; background: var(--bg-cream); border-radius: 8px;"></div>
-    {% endif %}
-    <div>
-      <p class="delivery-item-title">{{ item.description }}</p>
-      <p class="delivery-item-price">${{ "%.2f"|format(item.price) if item.price else "—" }}</p>
+  <div class="card delivery-order-summary">
+    <h3>Your Order ({{ cart_items|length }} item{{ 's' if cart_items|length != 1 }})</h3>
+    {% for ci in cart_items %}
+    <div class="summary-item-row">
+      {% if ci.item.photo_url %}
+        <img class="summary-thumb"
+             src="{{ url_for('uploaded_file', filename=ci.item.photo_url) }}"
+             alt="{{ ci.item.description }}">
+      {% else %}
+        <div class="summary-thumb"></div>
+      {% endif %}
+      <p class="summary-item-title">{{ ci.item.description }}</p>
+      <span class="summary-item-price">${{ "%.2f"|format(ci.item.price) if ci.item.price else "—" }}</span>
     </div>
+    {% endfor %}
+    <a href="{{ url_for('cart_view') }}" style="font-size:0.85rem; color:var(--text-muted); text-decoration:none; margin-top:4px;">← Edit cart</a>
   </div>
 
   <div class="card delivery-form-card">
-    <h1>Where should we deliver this?</h1>
+    <h1>Where should we deliver?</h1>
     <p class="text-muted">
-      We deliver once per week to addresses within
-      {{ radius }} miles of Chapel Hill, NC. Delivery is free.
+      We deliver to addresses within 20 miles of campus.
+      Delivery pricing is calculated from your address.
     </p>
 
     {% if error %}
@@ -163,7 +183,7 @@
       </div>
 
       <button type="submit" class="btn-primary btn--full">
-        Continue to Payment →
+        Continue to Order Review →
       </button>
     </form>
 

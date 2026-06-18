@@ -22,6 +22,7 @@ import stripe
 import resend
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from decimal import Decimal, ROUND_HALF_UP
 
 _EASTERN = ZoneInfo('America/New_York')
 
@@ -48,7 +49,7 @@ from sqlalchemy.exc import IntegrityError
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, Order, Cart, CartItem
 
 # Import Constants
 from constants import (
@@ -149,9 +150,108 @@ def geocode_address(street, city, state, zip_code):
         return None, None
 
 
+def calculate_delivery_zone(distance_miles):
+    """Return (zone_number, Decimal fee) or None if beyond the last boundary.
+
+    Reads delivery_zone_boundaries and delivery_zone_fees from AppSettings with
+    hardcoded fallback defaults so a missing row never breaks checkout.
+    Upper bounds are inclusive (distance <= boundary).
+    """
+    boundaries_raw = AppSetting.get('delivery_zone_boundaries', '5,10,15,20')
+    fees_raw = AppSetting.get('delivery_zone_fees', '15,20,25,30')
+    boundaries = [float(b.strip()) for b in boundaries_raw.split(',')]
+    fees = [Decimal(f.strip()) for f in fees_raw.split(',')]
+    for zone_idx, boundary in enumerate(boundaries):
+        if distance_miles <= boundary:
+            return (zone_idx + 1, fees[zone_idx])
+    return None
+
+
+def compute_sales_tax(item_price):
+    """Return sales tax as Decimal rounded to 2 decimals. Applied to item price only."""
+    rate_raw = AppSetting.get('sales_tax_rate', '0.0725')
+    rate = Decimal(rate_raw)
+    return (Decimal(str(item_price)) * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _to_cents(d):
+    """Convert a Decimal dollar amount to integer cents for Stripe."""
+    return int((Decimal(str(d)) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+
 def item_is_picked_up(item):
     """True if item is in Campus Swap's possession (picked up or arrived at store)."""
     return bool(item.picked_up_at or item.arrived_at_store_at)
+
+
+# =========================================================
+# SPEC B — CART HELPERS
+# =========================================================
+
+def item_is_held(item, exclude_cart_id=None):
+    """True if the item is held in another active cart (lazy expiry — no cron)."""
+    hold_minutes = int(AppSetting.get('cart_hold_minutes', '30'))
+    cutoff = datetime.utcnow() - timedelta(minutes=hold_minutes)
+    q = CartItem.query.join(Cart).filter(
+        CartItem.item_id == item.id,
+        Cart.updated_at >= cutoff,
+    )
+    if exclude_cart_id:
+        q = q.filter(Cart.id != exclude_cart_id)
+    return q.count() > 0
+
+
+def _get_active_cart(create=True):
+    """Return (or optionally create) the active Cart for the current request."""
+    from flask_login import current_user
+    if current_user.is_authenticated:
+        cart = Cart.query.filter_by(user_id=current_user.id).order_by(Cart.id.desc()).first()
+        if not cart and create:
+            cart = Cart(user_id=current_user.id)
+            db.session.add(cart)
+            db.session.commit()
+    else:
+        token = session.get('cart_token')
+        if not token:
+            if not create:
+                return None
+            token = secrets.token_urlsafe(32)
+            session['cart_token'] = token
+        cart = Cart.query.filter_by(session_token=token).order_by(Cart.id.desc()).first()
+        if not cart and create:
+            cart = Cart(session_token=token)
+            db.session.add(cart)
+            db.session.commit()
+    return cart
+
+
+def _merge_guest_cart_into_user(user):
+    """On login: merge guest cart (from session token) into the user's cart."""
+    token = session.get('cart_token')
+    if not token:
+        return
+    guest_cart = Cart.query.filter_by(session_token=token).first()
+    if not guest_cart:
+        session.pop('cart_token', None)
+        return
+    user_cart = Cart.query.filter_by(user_id=user.id).first()
+    if not user_cart:
+        guest_cart.user_id = user.id
+        guest_cart.session_token = None
+        db.session.commit()
+    else:
+        existing_item_ids = {ci.item_id for ci in user_cart.cart_items}
+        for ci in list(guest_cart.cart_items):
+            if ci.item_id not in existing_item_ids:
+                itm = InventoryItem.query.get(ci.item_id)
+                if itm and itm.status == 'available':
+                    new_ci = CartItem(cart_id=user_cart.id, item_id=ci.item_id)
+                    db.session.add(new_ci)
+        db.session.delete(guest_cart)
+        user_cart.updated_at = datetime.utcnow()
+        db.session.commit()
+    session.pop('cart_token', None)
+
 
 def get_store_info(store_name):
     """Get store information by name"""
@@ -185,6 +285,17 @@ def inject_store_functions():
         category_requires_video=category_requires_video,
         video_required_keywords=VIDEO_REQUIRED_CATEGORIES
     )
+
+@app.context_processor
+def inject_cart_count():
+    count = 0
+    try:
+        cart = _get_active_cart(create=False)
+        if cart:
+            count = CartItem.query.filter_by(cart_id=cart.id).count()
+    except Exception:
+        pass
+    return {'cart_count': count}
 
 # SECURITY: This secret key enables sessions. 
 # On Render, set this as an Environment Variable called 'SECRET_KEY'.
@@ -725,6 +836,37 @@ def _item_sold_email_html(item, seller):
         <p>Thanks for selling with Campus Swap!</p>
     </div>
     """
+
+
+def _send_buyer_order_confirmation(order, sold_items):
+    """Send purchase confirmation email to buyer for a cart Order."""
+    if not order.buyer_email:
+        return
+    is_flexible = order.is_flexible_delivery
+    items_html = ''.join(
+        f'<li><strong>{itm.description}</strong> — ${float(itm.price):.2f}</li>'
+        for itm in sold_items
+    )
+    timing = (
+        "1–3 week delivery window — we'll give you a heads-up before your delivery date."
+        if is_flexible
+        else "Expected next Friday/Saturday — deliveries are batched weekly."
+    )
+    html = f"""
+    <div style="font-family: sans-serif; padding: 20px; max-width: 550px;">
+        <h2 style="color: #166534;">Your Campus Swap order is confirmed!</h2>
+        <p>Thanks for your purchase. Here's what you ordered:</p>
+        <ul style="line-height: 2;">{items_html}</ul>
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 0 0 8px;"><strong>Delivery address:</strong> {order.delivery_street}, {order.delivery_city}, {order.delivery_state} {order.delivery_zip}</p>
+            <p style="margin: 0 0 8px;"><strong>Delivery:</strong> {timing}</p>
+            <p style="margin: 0;"><strong>Total paid:</strong> ${float(order.total_paid):.2f}</p>
+        </div>
+        <p>Questions? Reply to this email and we'll sort it out.</p>
+        <p>Thanks for shopping with Campus Swap!</p>
+    </div>
+    """
+    send_email(order.buyer_email, "Your Campus Swap Order — Confirmed!", html)
 
 
 # --- VALIDATION HELPERS ---
@@ -2018,114 +2160,425 @@ def acknowledge_price_change(item_id):
     return jsonify({"ok": True})
 
 
-@app.route('/checkout/delivery/<int:item_id>', methods=['GET', 'POST'])
-def checkout_delivery(item_id):
-    """Render the delivery address form (GET) or validate and save address (POST)."""
+# =========================================================
+# SPEC B — CART ROUTES
+# =========================================================
+
+@app.route('/cart/add/<int:item_id>', methods=['POST'])
+def cart_add(item_id):
+    """Add item to cart (or no-op if already there). Returns JSON for async badge update."""
     item = InventoryItem.query.get_or_404(item_id)
 
+    # Gate: store must be open
+    if not store_is_open():
+        return jsonify({'error': 'Store is not open yet.'}), 403
+    if AppSetting.get('reserve_only_mode') == 'true':
+        return jsonify({'error': 'Purchases are not open yet.'}), 403
+
     if item.status == 'sold':
-        flash("That item has already been sold.", "error")
-        return redirect(url_for('inventory'))
+        return jsonify({'error': 'This item has already been sold.'}), 409
     if item.status != 'available':
-        flash("That item isn't available.", "error")
-        return redirect(url_for('product_detail', item_id=item_id))
+        return jsonify({'error': 'This item is not available.'}), 409
+
+    cart = _get_active_cart(create=True)
+
+    # Check if already in this cart (idempotent)
+    existing = CartItem.query.filter_by(cart_id=cart.id, item_id=item.id).first()
+    if existing:
+        count = CartItem.query.filter_by(cart_id=cart.id).count()
+        if request.form.get('buy_now') == '1':
+            return redirect(url_for('cart_view'))
+        return jsonify({'count': count, 'already_in_cart': True})
+
+    # Check hold by another cart
+    if item_is_held(item, exclude_cart_id=cart.id):
+        return jsonify({'error': "Someone else is checking out this item — try again in a few minutes."}), 409
+
+    ci = CartItem(cart_id=cart.id, item_id=item.id)
+    db.session.add(ci)
+    cart.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    count = CartItem.query.filter_by(cart_id=cart.id).count()
+    if request.form.get('buy_now') == '1':
+        return redirect(url_for('cart_view'))
+    return jsonify({'count': count})
+
+
+@app.route('/cart/remove/<int:item_id>', methods=['POST'])
+def cart_remove(item_id):
+    """Remove an item from the cart and release its hold."""
+    cart = _get_active_cart(create=False)
+    if cart:
+        ci = CartItem.query.filter_by(cart_id=cart.id, item_id=item_id).first()
+        if ci:
+            db.session.delete(ci)
+            cart.updated_at = datetime.utcnow()
+            db.session.commit()
+    return redirect(url_for('cart_view'))
+
+
+@app.route('/cart')
+def cart_view():
+    """Display the cart."""
+    cart = _get_active_cart(create=False)
+    cart_items = []
+    unavailable_ids = []
+
+    if cart:
+        for ci in CartItem.query.filter_by(cart_id=cart.id).order_by(CartItem.added_at).all():
+            itm = ci.item
+            if itm.status != 'available':
+                unavailable_ids.append(ci.item_id)
+                cart_items.append({'ci': ci, 'item': itm, 'unavailable': True})
+            else:
+                cart_items.append({'ci': ci, 'item': itm, 'unavailable': False})
+
+    subtotal = sum(
+        Decimal(str(r['item'].price or 0))
+        for r in cart_items
+        if not r['unavailable'] and r['item'].price
+    )
+    item_count = sum(1 for r in cart_items if not r['unavailable'])
+    bundle_min = int(AppSetting.get('bundle_min_items', '2'))
+
+    return render_template(
+        'cart.html',
+        cart_items=cart_items,
+        subtotal=subtotal,
+        item_count=item_count,
+        bundle_min=bundle_min,
+        unavailable_count=len(unavailable_ids),
+    )
+
+
+@app.route('/cart/checkout', methods=['POST'])
+def cart_checkout():
+    """Validate cart availability, store cart ref in session, redirect to address step."""
+    cart = _get_active_cart(create=False)
+    if not cart:
+        flash("Your cart is empty.", "info")
+        return redirect(url_for('cart_view'))
+
+    cart_items = CartItem.query.filter_by(cart_id=cart.id).all()
+    if not cart_items:
+        flash("Your cart is empty.", "info")
+        return redirect(url_for('cart_view'))
+
+    # Auto-remove unavailable items
+    dead = [ci for ci in cart_items if ci.item.status != 'available']
+    for ci in dead:
+        db.session.delete(ci)
+    if dead:
+        db.session.commit()
+        cart_items = [ci for ci in cart_items if ci.item.status == 'available']
+        if not cart_items:
+            flash("All items in your cart are no longer available.", "error")
+            return redirect(url_for('cart_view'))
+        flash(f"{len(dead)} item(s) were removed because they're no longer available.", "error")
+        return redirect(url_for('cart_view'))
+
+    if not store_is_open():
+        flash("The store isn't open yet.", "info")
+        return redirect(url_for('cart_view'))
     if AppSetting.get('reserve_only_mode') == 'true':
         flash("Purchases aren't open yet.", "info")
-        return redirect(url_for('product_detail', item_id=item_id))
+        return redirect(url_for('cart_view'))
 
-    radius = AppSetting.get('delivery_radius_miles', '50')
+    session['checkout_cart_id'] = cart.id
+    session.pop('pending_delivery', None)
+    return redirect(url_for('checkout_delivery'))
+
+
+# =========================================================
+# CHECKOUT ROUTES (order-level, Spec B)
+# =========================================================
+
+@app.route('/checkout/delivery', methods=['GET', 'POST'])
+def checkout_delivery():
+    """Order-level delivery address form. Replaces the old per-item route."""
+    cart_id = session.get('checkout_cart_id')
+    if not cart_id:
+        return redirect(url_for('cart_view'))
+
+    cart = Cart.query.get(cart_id)
+    if not cart:
+        session.pop('checkout_cart_id', None)
+        return redirect(url_for('cart_view'))
+
+    cart_items = CartItem.query.filter_by(cart_id=cart.id).all()
+    if not cart_items:
+        session.pop('checkout_cart_id', None)
+        return redirect(url_for('cart_view'))
+
+    # Re-check availability
+    unavailable = [ci for ci in cart_items if ci.item.status != 'available']
+    if unavailable:
+        flash("Some items are no longer available. Please review your cart.", "error")
+        return redirect(url_for('cart_view'))
 
     if request.method == 'GET':
-        return render_template('checkout_delivery.html', item=item, radius=radius, form={}, error=None)
+        return render_template('checkout_delivery.html', cart_items=cart_items, form={}, error=None)
 
-    # POST: validate and save address
     street = request.form.get('street', '').strip()
-    city = request.form.get('city', '').strip()
-    state = request.form.get('state', '').strip()
+    city   = request.form.get('city', '').strip()
+    state  = request.form.get('state', '').strip()
     zip_code = request.form.get('zip', '').strip()
     form_data = {'street': street, 'city': city, 'state': state, 'zip': zip_code}
 
     if not all([street, city, state, zip_code]):
-        return render_template('checkout_delivery.html', item=item, radius=radius,
+        return render_template('checkout_delivery.html', cart_items=cart_items,
                                form=form_data, error="Please fill in all address fields.")
 
     lat, lng = geocode_address(street, city, state, zip_code)
     if lat is None:
-        return render_template('checkout_delivery.html', item=item, radius=radius,
+        return render_template('checkout_delivery.html', cart_items=cart_items,
                                form=form_data,
-                               error="We could not find that address — please double-check and try again.")
+                               error="We couldn't verify that address — please double-check and try again.")
 
     wh_lat = AppSetting.get('warehouse_lat')
     wh_lng = AppSetting.get('warehouse_lng')
-
     if wh_lat is None or wh_lng is None:
-        app.logger.warning("warehouse_lat/warehouse_lng not configured — skipping range check (fail open)")
-    else:
-        max_miles = float(AppSetting.get('delivery_radius_miles', '50'))
-        distance = haversine_miles(float(wh_lat), float(wh_lng), lat, lng)
-        if distance > max_miles:
-            return render_template('checkout_delivery.html', item=item, radius=radius,
-                                   form=form_data,
-                                   error=f"Sorry, {city} is outside our delivery area. We currently deliver within {int(max_miles)} miles of Chapel Hill, NC.")
+        return render_template('checkout_delivery.html', cart_items=cart_items,
+                               form=form_data,
+                               error="Delivery zone lookup is temporarily unavailable. Please try again later.")
+
+    distance = haversine_miles(float(wh_lat), float(wh_lng), lat, lng)
+    zone_result = calculate_delivery_zone(distance)
+    if zone_result is None:
+        return render_template('checkout_delivery.html', cart_items=cart_items,
+                               form=form_data,
+                               error="Sorry, we currently only deliver within 20 miles of campus. Your address is outside our delivery area.")
+
+    zone_number, zone_fee = zone_result
+    bundle_min = int(AppSetting.get('bundle_min_items', '2'))
+    item_count = len(cart_items)
+    bundle_free = item_count >= bundle_min
+
+    items_subtotal = sum(Decimal(str(ci.item.price or 0)) for ci in cart_items)
+    sales_tax = sum(compute_sales_tax(ci.item.price) for ci in cart_items)
 
     session['pending_delivery'] = {
-        'item_id': item.id,
+        'cart_id': cart.id,
+        'street': street,
+        'city': city,
+        'state': state,
+        'zip': zip_code,
         'address_string': f"{street}, {city}, {state} {zip_code}",
         'lat': lat,
         'lng': lng,
+        'distance_miles': distance,
+        'zone': zone_number,
+        'zone_fee': str(zone_fee),
+        'bundle_free': bundle_free,
+        'items_subtotal': str(items_subtotal),
+        'sales_tax': str(sales_tax),
     }
-    return redirect(url_for('checkout_pay', item_id=item_id))
+    return redirect(url_for('checkout_review'))
+
+
+@app.route('/checkout/review', methods=['GET', 'POST'])
+def checkout_review():
+    """Show order breakdown (GET) or create Stripe Checkout Session (POST)."""
+    pending = session.get('pending_delivery')
+    if not pending or 'cart_id' not in pending:
+        return redirect(url_for('cart_view'))
+
+    cart = Cart.query.get(pending['cart_id'])
+    if not cart:
+        session.pop('pending_delivery', None)
+        return redirect(url_for('cart_view'))
+
+    cart_items = CartItem.query.filter_by(cart_id=cart.id).all()
+    if not cart_items:
+        session.pop('pending_delivery', None)
+        return redirect(url_for('cart_view'))
+
+    coupon_id = AppSetting.get('stripe_flexible_coupon_id')
+    flexible_available = bool(coupon_id)
+    flexible_discount_amt = Decimal(AppSetting.get('flexible_delivery_discount', '5'))
+    bundle_min = int(AppSetting.get('bundle_min_items', '2'))
+
+    bundle_free = pending['bundle_free']
+    zone = pending['zone']
+    zone_fee = Decimal('0') if bundle_free else Decimal(pending['zone_fee'])
+    items_subtotal = Decimal(pending['items_subtotal'])
+    sales_tax = Decimal(pending['sales_tax'])
+
+    if request.method == 'GET':
+        total_standard = items_subtotal + sales_tax + zone_fee
+        total_flexible = max(total_standard - flexible_discount_amt, items_subtotal + sales_tax - flexible_discount_amt)
+        return render_template(
+            'checkout_review.html',
+            cart_items=cart_items,
+            zone=zone,
+            zone_fee=zone_fee,
+            bundle_free=bundle_free,
+            items_subtotal=items_subtotal,
+            sales_tax=sales_tax,
+            total_standard=total_standard,
+            total_flexible=total_flexible,
+            flexible_discount=flexible_discount_amt,
+            flexible_available=flexible_available,
+            address=pending['address_string'],
+        )
+
+    # POST: recompute, validate, create pending Order, create Stripe session
+    # Re-fetch live items (not from pending session)
+    live_items = CartItem.query.filter_by(cart_id=cart.id).all()
+    unavailable = [ci for ci in live_items if ci.item.status != 'available']
+    if unavailable:
+        flash("Some items are no longer available.", "error")
+        return redirect(url_for('cart_view'))
+    if not live_items:
+        flash("Your cart is empty.", "info")
+        return redirect(url_for('cart_view'))
+
+    is_flexible = request.form.get('is_flexible') == '1'
+    if is_flexible and not flexible_available:
+        is_flexible = False
+
+    # Recompute everything server-side
+    item_count = len(live_items)
+    bundle_free = item_count >= bundle_min
+    zone_fee_final = Decimal('0') if bundle_free else Decimal(pending['zone_fee'])
+    items_subtotal_final = sum(Decimal(str(ci.item.price or 0)) for ci in live_items)
+    sales_tax_final = sum(compute_sales_tax(ci.item.price) for ci in live_items)
+    flex_disc = flexible_discount_amt if is_flexible else Decimal('0')
+    total_paid = max(
+        items_subtotal_final + sales_tax_final + zone_fee_final - flex_disc,
+        items_subtotal_final + sales_tax_final - flex_disc
+    )
+
+    # Create pending Order (items only marked sold in webhook)
+    new_order = Order(
+        buyer_id=current_user.id if current_user.is_authenticated else None,
+        buyer_email=current_user.email if current_user.is_authenticated else '',
+        buyer_name=current_user.full_name if current_user.is_authenticated else '',
+        delivery_street=pending['street'],
+        delivery_city=pending['city'],
+        delivery_state=pending['state'],
+        delivery_zip=pending['zip'],
+        delivery_lat=pending['lat'],
+        delivery_lng=pending['lng'],
+        distance_miles=pending['distance_miles'],
+        delivery_zone=pending['zone'] if not bundle_free else None,
+        delivery_fee=zone_fee_final,
+        bundle_free_delivery=bundle_free,
+        is_flexible_delivery=is_flexible,
+        flexible_discount=flex_disc,
+        sales_tax=sales_tax_final,
+        items_subtotal=items_subtotal_final,
+        total_paid=total_paid,
+        status='pending',
+    )
+    db.session.add(new_order)
+    db.session.commit()
+
+    try:
+        tax_rate_pct = float(Decimal(AppSetting.get('sales_tax_rate', '0.0725'))) * 100
+        stripe_line_items = []
+        for ci in live_items:
+            stripe_line_items.append({
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': ci.item.description},
+                    'unit_amount': _to_cents(Decimal(str(ci.item.price))),
+                },
+                'quantity': 1,
+            })
+        stripe_line_items.append({
+            'price_data': {
+                'currency': 'usd',
+                'product_data': {'name': f'Sales Tax ({tax_rate_pct:.2f}%)'},
+                'unit_amount': _to_cents(sales_tax_final),
+            },
+            'quantity': 1,
+        })
+        if zone_fee_final > 0:
+            stripe_line_items.append({
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': f'Delivery Fee — Zone {pending["zone"]}'},
+                    'unit_amount': _to_cents(zone_fee_final),
+                },
+                'quantity': 1,
+            })
+
+        item_ids_str = ','.join(str(ci.item_id) for ci in live_items)
+        session_kwargs = dict(
+            payment_method_types=['card'],
+            line_items=stripe_line_items,
+            mode='payment',
+            metadata={
+                'type': 'cart_order',
+                'order_id': str(new_order.id),
+                'item_ids': item_ids_str,
+            },
+            success_url=url_for('item_sold_success', _external=True) + '?order_id={CHECKOUT_SESSION_ID}',
+            cancel_url=url_for('cart_view', _external=True),
+        )
+        if is_flexible and coupon_id:
+            session_kwargs['discounts'] = [{'coupon': coupon_id}]
+        if current_user.is_authenticated and current_user.email:
+            session_kwargs['customer_email'] = current_user.email
+
+        stripe_session = stripe.checkout.Session.create(**session_kwargs)
+
+        # Store Stripe session ID on the pending Order for idempotency
+        new_order.stripe_checkout_session_id = stripe_session.id
+        db.session.commit()
+
+        return redirect(stripe_session.url, code=303)
+
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error in checkout_review (cart order): {e}")
+        # Clean up the pending Order so it doesn't orphan
+        db.session.delete(new_order)
+        db.session.commit()
+        flash("Payment processing error. Please try again.", "error")
+        return redirect(url_for('checkout_review'))
+    except Exception as e:
+        logger.error(f"Unexpected error in checkout_review (cart order): {e}", exc_info=True)
+        db.session.delete(new_order)
+        db.session.commit()
+        flash("An error occurred. Please try again.", "error")
+        return redirect(url_for('checkout_delivery'))
+
+
+# Legacy per-item checkout redirects (for any bookmarked or emailed links)
+@app.route('/checkout/delivery/<int:item_id>', methods=['GET', 'POST'])
+def checkout_delivery_legacy(item_id):
+    """Legacy URL — add item to cart and redirect to new order-level flow."""
+    if request.method == 'POST':
+        # Don't try to process the form; just send to cart
+        return redirect(url_for('product_detail', item_id=item_id))
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status == 'available' and store_is_open():
+        # Silently add to cart and redirect
+        cart = _get_active_cart(create=True)
+        if not CartItem.query.filter_by(cart_id=cart.id, item_id=item.id).first():
+            if not item_is_held(item, exclude_cart_id=cart.id):
+                db.session.add(CartItem(cart_id=cart.id, item_id=item.id))
+                cart.updated_at = datetime.utcnow()
+                db.session.commit()
+        session['checkout_cart_id'] = cart.id
+        return redirect(url_for('checkout_delivery'))
+    return redirect(url_for('product_detail', item_id=item_id))
 
 
 @app.route('/checkout/pay/<int:item_id>')
 def checkout_pay(item_id):
-    """Validate session and initiate Stripe checkout for item purchase."""
-    item = InventoryItem.query.get_or_404(item_id)
+    """Legacy route — redirect to product page."""
+    return redirect(url_for('product_detail', item_id=item_id))
 
-    delivery = session.get('pending_delivery')
-    if not delivery or delivery.get('item_id') != item_id:
-        flash('Please confirm your delivery address to continue.', 'info')
-        return redirect(url_for('checkout_delivery', item_id=item_id))
 
-    if item.status != 'available':
-        flash("Sorry! This item is no longer available.", "error")
-        return redirect(url_for('inventory'))
-
-    try:
-        img_url = url_for('uploaded_file', filename=item.photo_url, _external=True) if item.photo_url else None
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': item.description,
-                        'images': [img_url] if img_url else [],
-                    },
-                    'unit_amount': int(item.price * 100),
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            client_reference_id=str(item.id),
-            metadata={
-                'item_id': item.id,
-                'delivery_address': delivery['address_string'],
-                'delivery_lat': str(delivery['lat']),
-                'delivery_lng': str(delivery['lng']),
-            },
-            success_url=url_for('item_sold_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url=url_for('inventory', _external=True),
-        )
-        return redirect(checkout_session.url, code=303)
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error in checkout_pay: {e}")
-        flash("Payment processing error. Please try again.", "error")
-        return redirect(url_for('checkout_delivery', item_id=item_id))
-    except Exception as e:
-        logger.error(f"Unexpected error in checkout_pay: {e}", exc_info=True)
-        flash("An error occurred. Please try again.", "error")
-        return redirect(url_for('checkout_delivery', item_id=item_id))
+@app.route('/checkout/review/<int:item_id>', methods=['GET', 'POST'])
+def checkout_review_legacy(item_id):
+    """Legacy URL — redirect to current cart review."""
+    if 'pending_delivery' in session and 'cart_id' in session.get('pending_delivery', {}):
+        return redirect(url_for('checkout_review'))
+    return redirect(url_for('product_detail', item_id=item_id))
 
 
 @app.route('/buy_item/<int:item_id>')
@@ -2199,50 +2652,38 @@ def buy_item(item_id):
 @app.route('/item_success')
 def item_sold_success():
     session.pop('pending_delivery', None)
-    session_id = request.args.get('session_id')
-    if not session_id:
-        return render_template('item_success.html', item=None)
-    
+    session.pop('checkout_cart_id', None)
+
+    # New cart-order flow passes order_id (actually the Stripe session ID via {CHECKOUT_SESSION_ID})
+    stripe_session_id = request.args.get('order_id') or request.args.get('session_id')
+    if not stripe_session_id:
+        return render_template('item_success.html', order=None, items=[])
+
     try:
-        session_obj = stripe.checkout.Session.retrieve(session_id)
-        item_id = session_obj.metadata.get('item_id')
-        
+        stripe_session_obj = stripe.checkout.Session.retrieve(stripe_session_id)
+        meta = stripe_session_obj.metadata or {}
+
+        # --- New cart_order flow ---
+        if meta.get('type') == 'cart_order':
+            order_id = meta.get('order_id')
+            order = Order.query.get(int(order_id)) if order_id else None
+            items = [bo.item for bo in order.line_items] if order else []
+            return render_template('item_success.html', order=order, items=items)
+
+        # --- Legacy single-item flow ---
+        item_id = meta.get('item_id')
         if not item_id:
             flash("Invalid session.", "error")
             return redirect(url_for('inventory'))
-        
+
         item = InventoryItem.query.get(item_id)
         if not item:
             flash("Item not found.", "error")
             return redirect(url_for('inventory'))
-        
-        # Verify payment and mark as sold immediately (in case webhook hasn't fired yet)
-        # Use pessimistic locking to prevent race conditions
-        item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
-        if item and session_obj.payment_status == 'paid' and item.status == 'available':
-            item.status = 'sold'
-            item.sold_at = datetime.utcnow()
-            if item.category and item.category.count_in_stock > 0:
-                item.category.count_in_stock -= 1
-            db.session.commit()
-            logger.info(f"IMMEDIATE: Item {item_id} marked as sold from success page.")
-            
-            # Email seller (webhook should handle this, but backup in case webhook fails)
-            if item.seller:
-                try:
-                    send_email(
-                        item.seller.email,
-                        "Your Item Has Sold! - Campus Swap",
-                        _item_sold_email_html(item, item.seller)
-                    )
-                except Exception as email_error:
-                    logger.error(f"Failed to send item sold email: {email_error}")
-        
-        return render_template('item_success.html', item=item)
+
+        return render_template('item_success.html', order=None, items=[item])
     except Exception as e:
         logger.error(f"Error in item_success route: {e}", exc_info=True)
-        import traceback
-        traceback.print_exc()
         flash("Error processing payment. Please contact support.", "error")
         return redirect(url_for('inventory'))
 
@@ -2271,63 +2712,216 @@ def webhook():
     # Handle the event
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-        
-        # --- CASE 1: ITEM PURCHASE (delivery flow or legacy buy_item flow) ---
+
+        # --- CASE 0: CART ORDER (Spec B multi-item flow) ---
         _meta = session.get('metadata', {})
-        if _meta.get('item_id') and (_meta.get('type') == 'item_purchase' or not _meta.get('type')):
-            item_id = _meta.get('item_id')
+        if _meta.get('type') == 'cart_order':
+            stripe_session_id = session['id']
+            order_id = _meta.get('order_id')
+            item_ids_str = _meta.get('item_ids', '')
 
-            # Use pessimistic locking to prevent race conditions
-            item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
+            order = Order.query.get(int(order_id)) if order_id else None
+            if not order:
+                logger.error(f"WEBHOOK cart_order: Order {order_id} not found")
+            elif order.status == 'paid':
+                logger.info(f"WEBHOOK cart_order: Order {order_id} already paid (idempotent no-op)")
+            else:
+                # Flip order to paid
+                order.status = 'paid'
+                order.paid_at = datetime.utcnow()
+                order.stripe_checkout_session_id = stripe_session_id
+                customer_details = session.get('customer_details') or {}
+                if customer_details.get('email'):
+                    order.buyer_email = customer_details['email']
+                if customer_details.get('name'):
+                    order.buyer_name = customer_details['name']
+                db.session.commit()
+                logger.info(f"WEBHOOK cart_order: Order {order_id} marked paid")
 
-            if item:
-                # Double-check status before updating (prevent double-processing)
-                if item.status == 'available':
-                    # 1. Update DB
+                item_ids = [int(x.strip()) for x in item_ids_str.split(',') if x.strip()]
+                sold_items = []
+                for item_id in item_ids:
+                    item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
+                    if not item:
+                        logger.error(f"WEBHOOK cart_order: item {item_id} not found")
+                        continue
+                    if item.status != 'available':
+                        # Double-sale guard
+                        logger.error(
+                            f"WEBHOOK DOUBLE-SALE (cart_order): item {item_id} status='{item.status}', "
+                            f"Order {order_id}, Stripe {stripe_session_id}"
+                        )
+                        order.has_conflict = True
+                        try:
+                            db.session.add(SellerAlert(
+                                user_id=item.seller_id,
+                                alert_type='double_sale',
+                                custom_note=(
+                                    f"URGENT: Paid cart order #{order_id} includes item #{item_id} "
+                                    f"({item.description}) which is already '{item.status}'. "
+                                    f"Stripe session: {stripe_session_id}. Manual refund required."
+                                ),
+                            ))
+                        except Exception as ae:
+                            logger.error(f"WEBHOOK: Failed to create double-sale alert: {ae}")
+                        continue
+
+                    # Mark sold
                     item.status = 'sold'
                     item.sold_at = datetime.utcnow()
                     if item.category and item.category.count_in_stock > 0:
                         item.category.count_in_stock -= 1
-                    db.session.commit()
-                    # PostHog: item sold via Stripe webhook
+
+                    # Create BuyerOrder line
+                    per_item_tax = compute_sales_tax(item.price)
+                    addr_str = f"{order.delivery_street}, {order.delivery_city}, {order.delivery_state} {order.delivery_zip}".strip(', ')
+                    bo = BuyerOrder(
+                        item_id=item.id,
+                        order_id=order.id,
+                        buyer_email=order.buyer_email or '',
+                        delivery_address=addr_str,
+                        delivery_lat=order.delivery_lat,
+                        delivery_lng=order.delivery_lng,
+                        stripe_session_id=stripe_session_id,
+                        stripe_checkout_session_id=stripe_session_id,
+                        delivery_zone=order.delivery_zone,
+                        delivery_fee=order.delivery_fee,
+                        is_flexible_delivery=order.is_flexible_delivery,
+                        flexible_discount=order.flexible_discount,
+                        sales_tax=per_item_tax,
+                        distance_miles=order.distance_miles,
+                        items_subtotal=Decimal(str(item.price or 0)),
+                        total_paid=Decimal(str(item.price or 0)) + per_item_tax,
+                        item_price_paid=Decimal(str(item.price or 0)),
+                        item_sales_tax=per_item_tax,
+                    )
+                    db.session.add(bo)
+                    sold_items.append(item)
                     posthog.capture('item_sold', distinct_id=str(item.seller_id), properties={
                         'item_id': item.id,
                         'category': item.category.name if item.category else None,
                         'price': float(item.price) if item.price else None,
+                        'order_id': order.id,
                     })
-                    logger.info(f"WEBHOOK: Item {item_id} marked as sold")
 
-                    # 2. Email Seller (with payout details)
-                    if item.seller:
-                        try:
-                            send_email(
-                                item.seller.email,
-                                "Your Item Has Sold! - Campus Swap",
-                                _item_sold_email_html(item, item.seller)
-                            )
-                        except Exception as email_error:
-                            logger.error(f"Failed to send email to seller for item {item_id}: {email_error}")
-                else:
-                    logger.warning(f"WEBHOOK: Item {item_id} already marked as sold (status: {item.status})")
+                db.session.commit()
+                logger.info(f"WEBHOOK cart_order: {len(sold_items)} items sold for Order {order_id}")
 
-                # 3. Create BuyerOrder from delivery metadata (if present)
-                if _meta.get('delivery_address'):
+                # Remove purchased items from ALL carts
+                for item in sold_items:
+                    CartItem.query.filter_by(item_id=item.id).delete()
+                db.session.commit()
+
+                # Email each seller whose item sold
+                seller_items = {}
+                for item in sold_items:
+                    seller_items.setdefault(item.seller_id, []).append(item)
+                for seller_id, items in seller_items.items():
+                    for itm in items:
+                        if itm.seller:
+                            try:
+                                send_email(
+                                    itm.seller.email,
+                                    "Your Item Has Sold! - Campus Swap",
+                                    _item_sold_email_html(itm, itm.seller)
+                                )
+                            except Exception as email_error:
+                                logger.error(f"WEBHOOK: Failed seller email for item {itm.id}: {email_error}")
+
+                # Confirmation email to buyer
+                if order.buyer_email:
                     try:
-                        order = BuyerOrder(
-                            item_id=item.id,
-                            buyer_email=(session.get('customer_details') or {}).get('email', ''),
-                            delivery_address=_meta['delivery_address'],
-                            delivery_lat=float(_meta['delivery_lat']) if _meta.get('delivery_lat') else None,
-                            delivery_lng=float(_meta['delivery_lng']) if _meta.get('delivery_lng') else None,
-                            stripe_session_id=session['id'],
-                        )
-                        db.session.add(order)
-                        db.session.commit()
-                        logger.info(f"WEBHOOK: BuyerOrder created for item {item_id}")
-                    except Exception as order_err:
-                        logger.error(f"WEBHOOK: Failed to create BuyerOrder for item {item_id}: {order_err}")
+                        _send_buyer_order_confirmation(order, sold_items)
+                    except Exception as buyer_email_err:
+                        logger.error(f"WEBHOOK: Failed buyer confirmation email Order {order_id}: {buyer_email_err}")
+
+        # --- CASE 1: ITEM PURCHASE (delivery flow or legacy buy_item flow) ---
+        elif _meta.get('item_id') and (_meta.get('type') == 'item_purchase' or not _meta.get('type')):
+            item_id = _meta.get('item_id')
+            stripe_session_id = session['id']
+
+            # Idempotency: if we already processed this Stripe session, no-op
+            existing_order = BuyerOrder.query.filter_by(stripe_checkout_session_id=stripe_session_id).first()
+            if existing_order:
+                logger.info(f"WEBHOOK: session {stripe_session_id} already processed (idempotent no-op)")
             else:
-                logger.error(f"WEBHOOK: Item {item_id} not found in database")
+                # Use pessimistic locking to prevent race conditions
+                item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
+
+                if item:
+                    if item.status == 'available':
+                        # 1. Mark item sold
+                        item.status = 'sold'
+                        item.sold_at = datetime.utcnow()
+                        if item.category and item.category.count_in_stock > 0:
+                            item.category.count_in_stock -= 1
+                        db.session.commit()
+                        posthog.capture('item_sold', distinct_id=str(item.seller_id), properties={
+                            'item_id': item.id,
+                            'category': item.category.name if item.category else None,
+                            'price': float(item.price) if item.price else None,
+                        })
+                        logger.info(f"WEBHOOK: Item {item_id} marked as sold")
+
+                        # 2. Email Seller
+                        if item.seller:
+                            try:
+                                send_email(
+                                    item.seller.email,
+                                    "Your Item Has Sold! - Campus Swap",
+                                    _item_sold_email_html(item, item.seller)
+                                )
+                            except Exception as email_error:
+                                logger.error(f"Failed to send email to seller for item {item_id}: {email_error}")
+                    else:
+                        # Double-sale guard: item was already sold — flag for manual review
+                        logger.error(
+                            f"WEBHOOK DOUBLE-SALE: Stripe session {stripe_session_id} paid for item {item_id} "
+                            f"but item status is '{item.status}'. Manual refund may be required."
+                        )
+                        try:
+                            alert = SellerAlert(
+                                user_id=item.seller_id,
+                                alert_type='double_sale',
+                                message=(
+                                    f"URGENT: Paid order received for item #{item_id} "
+                                    f"({item.description}) which is already marked '{item.status}'. "
+                                    f"Stripe session: {stripe_session_id}. Manual refund may be required."
+                                ),
+                            )
+                            db.session.add(alert)
+                            db.session.commit()
+                        except Exception as alert_err:
+                            logger.error(f"WEBHOOK: Failed to create double-sale alert: {alert_err}")
+
+                    # 3. Create BuyerOrder with all fee/tax/zone fields from metadata
+                    if _meta.get('delivery_address'):
+                        try:
+                            buyer_email = (session.get('customer_details') or {}).get('email', '')
+                            order = BuyerOrder(
+                                item_id=item.id,
+                                buyer_email=buyer_email,
+                                delivery_address=_meta['delivery_address'],
+                                delivery_lat=float(_meta['delivery_lat']) if _meta.get('delivery_lat') else None,
+                                delivery_lng=float(_meta['delivery_lng']) if _meta.get('delivery_lng') else None,
+                                stripe_session_id=stripe_session_id,
+                                stripe_checkout_session_id=stripe_session_id,
+                                delivery_zone=int(_meta['delivery_zone']) if _meta.get('delivery_zone') else None,
+                                delivery_fee=Decimal(_meta['delivery_fee']) if _meta.get('delivery_fee') else Decimal('0'),
+                                is_flexible_delivery=(_meta.get('is_flexible_delivery') == '1'),
+                                flexible_discount=Decimal(_meta['flexible_discount']) if _meta.get('flexible_discount') else Decimal('0'),
+                                sales_tax=Decimal(_meta['sales_tax']) if _meta.get('sales_tax') else Decimal('0'),
+                                distance_miles=float(_meta['distance_miles']) if _meta.get('distance_miles') else None,
+                                items_subtotal=Decimal(_meta['items_subtotal']) if _meta.get('items_subtotal') else Decimal('0'),
+                                total_paid=Decimal(_meta['total_paid']) if _meta.get('total_paid') else Decimal('0'),
+                            )
+                            db.session.add(order)
+                            db.session.commit()
+                            logger.info(f"WEBHOOK: BuyerOrder created for item {item_id}")
+                        except Exception as order_err:
+                            logger.error(f"WEBHOOK: Failed to create BuyerOrder for item {item_id}: {order_err}")
+                else:
+                    logger.error(f"WEBHOOK: Item {item_id} not found in database")
 
         # --- CASE 2: CONFIRM PICKUP (post-approval payment) ---
         elif session.get('metadata', {}).get('type') == 'confirm_pickup':
@@ -4648,6 +5242,7 @@ def register():
         apply_admin_email_if_pending(new_user)
         db.session.refresh(new_user)
         login_user(new_user)
+        _merge_guest_cart_into_user(new_user)
         logger.info(f"New user registered: {email}")
         
         # Send welcome email
@@ -4983,6 +5578,7 @@ def login():
             else:
                 # Successful login
                 login_user(user)
+                _merge_guest_cart_into_user(user)
                 if process_pending_onboard(user):
                     flash("Item submitted! We'll review and price it soon. You'll confirm your pickup after approval. Check your spam folder if you don't receive our emails.", "success")
                 next_url = request.args.get('next') or request.form.get('next', '')

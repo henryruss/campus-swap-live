@@ -1,0 +1,204 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .cart-page {
+    max-width: 700px;
+    margin: 48px auto;
+    padding: 0 24px;
+  }
+  .cart-page h1 {
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 24px;
+  }
+  .cart-item-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cart-item-thumb {
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--bg-cream);
+    flex-shrink: 0;
+  }
+  .cart-item-thumb-placeholder {
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    background: var(--bg-cream);
+    flex-shrink: 0;
+  }
+  .cart-item-info { flex: 1; min-width: 0; }
+  .cart-item-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    margin: 0 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cart-item-price {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin: 0;
+  }
+  .cart-item-unavailable {
+    font-size: 0.82rem;
+    color: #b91c1c;
+    margin: 4px 0 0;
+  }
+  .cart-remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: color 0.15s;
+    white-space: nowrap;
+  }
+  .cart-remove-btn:hover { color: #b91c1c; }
+  .cart-summary {
+    margin-top: 24px;
+    padding: 20px;
+  }
+  .cart-subtotal-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 1rem;
+    margin-bottom: 12px;
+    color: var(--text-main);
+  }
+  .bundle-hint {
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .bundle-hint.nudge {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+  }
+  .bundle-hint.unlocked {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #15803d;
+    font-weight: 600;
+  }
+  .cart-empty {
+    text-align: center;
+    padding: 60px 0;
+    color: var(--text-muted);
+  }
+  .cart-empty i { font-size: 3rem; margin-bottom: 16px; display: block; }
+  .unavailable-notice {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 480px) {
+    .cart-item-thumb, .cart-item-thumb-placeholder { width: 56px; height: 56px; }
+  }
+</style>
+
+<div class="cart-page">
+  <h1><i class="fas fa-shopping-cart"></i> Your Cart</h1>
+
+  {% if unavailable_count > 0 %}
+  <div class="unavailable-notice">
+    <i class="fas fa-exclamation-circle"></i>
+    {{ unavailable_count }} item{{ 's' if unavailable_count != 1 }} in your cart {{ 'are' if unavailable_count != 1 else 'is' }} no longer available. Remove {{ 'them' if unavailable_count != 1 else 'it' }} before proceeding.
+  </div>
+  {% endif %}
+
+  {% if cart_items %}
+    <div class="card" style="padding: 0 20px;">
+      {% for row in cart_items %}
+      <div class="cart-item-row {% if row.unavailable %}opacity-60{% endif %}">
+        {% if row.item.photo_url %}
+          <img class="cart-item-thumb"
+               src="{{ url_for('uploaded_file', filename=row.item.photo_url) }}"
+               alt="{{ row.item.description }}">
+        {% else %}
+          <div class="cart-item-thumb-placeholder"></div>
+        {% endif %}
+        <div class="cart-item-info">
+          <p class="cart-item-title">{{ row.item.description }}</p>
+          {% if row.unavailable %}
+            <p class="cart-item-unavailable"><i class="fas fa-ban"></i> No longer available</p>
+          {% else %}
+            <p class="cart-item-price">${{ "%.2f"|format(row.item.price) if row.item.price else "—" }}</p>
+          {% endif %}
+        </div>
+        <form method="POST" action="{{ url_for('cart_remove', item_id=row.item.id) }}" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="cart-remove-btn">Remove</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="card cart-summary">
+      {% if item_count > 0 %}
+        {% if item_count == 1 %}
+          <div class="bundle-hint nudge">
+            <i class="fas fa-tag"></i> Add 1 more item for <strong>free delivery!</strong>
+          </div>
+        {% else %}
+          <div class="bundle-hint unlocked">
+            <i class="fas fa-check-circle"></i> You've unlocked <strong>free delivery!</strong>
+          </div>
+        {% endif %}
+      {% endif %}
+
+      <div class="cart-subtotal-row">
+        <span>{{ item_count }} item{{ 's' if item_count != 1 }}</span>
+        <span>${{ "%.2f"|format(subtotal) }}</span>
+      </div>
+      <div class="cart-subtotal-row" style="color: var(--text-muted); font-size: 0.9rem;">
+        <span>Delivery fee</span>
+        <span>{% if item_count >= bundle_min %}FREE{% else %}Calculated at checkout{% endif %}</span>
+      </div>
+
+      {% if unavailable_count > 0 %}
+        <button class="btn btn-primary" style="width: 100%; padding: 14px; justify-content: center; opacity: 0.5; cursor: not-allowed;" disabled>
+          Remove unavailable items to continue
+        </button>
+      {% elif item_count == 0 %}
+        <a href="{{ url_for('inventory') }}" class="btn btn-primary" style="width: 100%; padding: 14px; justify-content: center;">
+          Browse the Shop
+        </a>
+      {% else %}
+        <form method="POST" action="{{ url_for('cart_checkout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1.05rem; justify-content: center;">
+            Proceed to Checkout →
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+  {% else %}
+    <div class="card cart-empty">
+      <i class="fas fa-shopping-cart"></i>
+      <p style="font-size: 1.1rem; margin-bottom: 20px; color: var(--text-main);">Your cart is empty.</p>
+      <a href="{{ url_for('inventory') }}" class="btn btn-primary">Browse the Shop</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

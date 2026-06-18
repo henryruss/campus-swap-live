@@ -210,8 +210,8 @@
                         <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: white; border: 2px solid var(--primary); border-radius: 8px;">
                             <i class="fas fa-truck" style="color: var(--primary); font-size: 1.2rem;"></i>
                             <div style="flex: 1;">
-                                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">Weekly Delivery · Free</div>
-                                <div style="font-size: 0.85rem; color: var(--text-muted);">We deliver once per week to your door</div>
+                                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">Weekly Delivery</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Delivery calculated at checkout</div>
                             </div>
                             <i class="fas fa-check-circle" style="color: var(--primary); font-size: 1.2rem;"></i>
                         </div>
@@ -224,13 +224,61 @@
                             <span style="font-weight: 600; color: var(--text-main);">Shop opens {{ store_open_date() }}</span>
                         </div>
                     {% else %}
-                        {# Store is live — buy button #}
-                        <a href="{{ url_for('checkout_delivery', item_id=item.id) }}" class="btn btn-primary" style="width: 100%; padding: 18px; font-size: 1.2rem; justify-content: center;">
-                            Buy Now <i class="fas fa-shopping-cart"></i>
-                        </a>
-                        <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5;">
+                        {# Store is live — Add to Cart + Buy Now #}
+                        <div id="cart-action-area" style="display: flex; gap: 12px; margin-bottom: 12px;">
+                            <button id="add-to-cart-btn"
+                                    class="btn btn-outline"
+                                    style="flex: 1; padding: 14px; font-size: 1rem; justify-content: center;"
+                                    data-item-id="{{ item.id }}">
+                                <i class="fas fa-cart-plus"></i> Add to Cart
+                            </button>
+                            <form method="POST" action="{{ url_for('cart_add', item_id=item.id) }}" style="flex: 1;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="buy_now" value="1">
+                                <button type="submit" class="btn btn-primary"
+                                        style="width: 100%; padding: 14px; font-size: 1rem; justify-content: center;">
+                                    Buy Now <i class="fas fa-bolt"></i>
+                                </button>
+                            </form>
+                        </div>
+                        <div id="cart-toast" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; font-size:0.9rem; color:#15803d; text-align:center; margin-bottom:8px;">
+                            <i class="fas fa-check-circle"></i> Added to cart!
+                            <a href="{{ url_for('cart_view') }}" style="color:#15803d; font-weight:600; margin-left:8px;">View Cart</a>
+                        </div>
+                        <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; line-height: 1.5;">
                             <i class="fas fa-lock"></i> Secure payment via Stripe
                         </p>
+                        <script>
+                        (function() {
+                            var btn = document.getElementById('add-to-cart-btn');
+                            var toast = document.getElementById('cart-toast');
+                            if (!btn) return;
+                            btn.addEventListener('click', function() {
+                                btn.disabled = true;
+                                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+                                var fd = new FormData();
+                                fd.append('csrf_token', '{{ csrf_token() }}');
+                                fetch('/cart/add/{{ item.id }}', { method: 'POST', body: fd })
+                                    .then(function(r) { return r.json(); })
+                                    .then(function(data) {
+                                        if (data.error) {
+                                            btn.disabled = false;
+                                            btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                                            alert(data.error);
+                                        } else {
+                                            btn.innerHTML = '<i class="fas fa-check"></i> In Cart';
+                                            toast.style.display = '';
+                                            var badge = document.getElementById('cart-badge');
+                                            if (badge) badge.textContent = data.count;
+                                        }
+                                    })
+                                    .catch(function() {
+                                        btn.disabled = false;
+                                        btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart';
+                                    });
+                            });
+                        })();
+                        </script>
                     {% endif %}
                 {% endif %}
             </div>

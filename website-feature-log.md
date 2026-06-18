@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-04-15 (Admin UI Redesign built)
+> **Last updated:** 2026-06-18 (Spec B — Cart, Multi-Item Checkout & Bundle & Save)
 
 ---
 
@@ -136,14 +136,37 @@
 | Item sold | Disabled "Item Sold" button |
 | Store not open yet | "Shop opens [DATE]" message |
 | Reserve-only mode ON | "Reserve Item" |
-| Store open, item available | "Buy Now" → links to `/checkout/delivery/<id>` |
+| Store open, item available | **"Add to Cart"** (async, badge update) + **"Buy Now"** (add to cart → `/cart`) |
 
-**Delivery purchase flow:**
-1. "Buy Now" → `GET /checkout/delivery/<id>` — address form (street/city/state/zip)
-2. `POST /checkout/delivery/<id>` — geocodes via Nominatim (geopy), checks ≤50 miles of warehouse
-3. On success → session stores `pending_delivery` → redirect to `GET /checkout/pay/<id>`
-4. `checkout_pay` creates Stripe Checkout Session with delivery metadata → redirect to Stripe
-5. Stripe webhook creates `BuyerOrder` record from metadata
+**Cart & Checkout flow (Spec B — cart, multi-item, Bundle & Save):**
+
+*Adding to cart:*
+- "Add to Cart" → `POST /cart/add/<id>` — adds item to cart (creates if needed), places a hold (30-min lazy expiry via `cart_hold_minutes` AppSetting). Returns JSON `{count}` for async badge update. Blocked if item held by another cart.
+- "Buy Now" → same route with `buy_now=1` → redirects to `/cart` instead of returning JSON.
+- Nav shows cart icon + count badge on every page (context processor injects `cart_count`).
+- Guest carts keyed by `cart_token` in session; merge into user cart on login/register.
+
+*Cart page (`GET /cart`):*
+- Lists cart items with thumbnail, title, price, "Remove" action.
+- Shows items subtotal.
+- **Bundle hint:** 1 item → "Add 1 more for free delivery!"; 2+ → "You've unlocked free delivery."
+- "Proceed to Checkout" button. Empty state with browse link.
+- Unavailable items shown greyed with "No longer available" notice.
+
+*Checkout flow (order-level — refactored from Spec A's per-item routes):*
+1. `POST /cart/checkout` — validates all cart items available; auto-removes dead ones; redirects to `/cart` with notice if any removed; stores `checkout_cart_id` in session → redirect to `/checkout/delivery`.
+2. `GET/POST /checkout/delivery` — order-level address form (no `item_id`). Shows compact order summary. `POST` geocodes, computes distance/zone (Spec A helpers). >20 miles → inline error. In range → stores `pending_delivery` (cart_id, zone, fee, bundle_free flag, subtotal, tax) in session → redirect to `/checkout/review`.
+3. `GET /checkout/review` — order breakdown: all items, sales tax (7.25% on items only), delivery as zone fee or **"FREE — Bundle & Save"** (2+ items), optional Flexible Delivery toggle (−$5; hidden if coupon absent). JS updates displayed total cosmetically; all recomputed server-side on POST.
+4. `POST /checkout/review` — recomputes everything server-side, re-validates availability, creates **pending `Order`** row, creates Stripe Checkout Session (one line item per cart item + tax line + delivery line if >$0 + coupon if flexible) → redirect to Stripe.
+5. Stripe webhook (`checkout.session.completed`, `type='cart_order'`) — idempotency guard (check `Order.status == 'paid'`), flips Order to paid, creates one `BuyerOrder` line per item, per-item double-sale guard (flags conflict on `Order.has_conflict` and creates `SellerAlert` if item already sold), marks all available items sold, clears all carts of those items, sends one confirmation email listing all items.
+6. **Bundle & Save:** ≥2 items → `delivery_fee = 0`, `bundle_free_delivery = True`. Flexible −$5 is off total for bundles (delivery already $0).
+7. **Pending Order pattern:** Order created as `status='pending'` before Stripe redirect; items only marked sold in the webhook (project rule preserved).
+
+*Legacy per-item routes (preserved for bookmarked links):*
+- `GET /checkout/delivery/<id>` — adds item to cart, redirects to `/checkout/delivery`.
+- `POST /checkout/delivery/<id>` — redirects to product page (POST body not processed).
+- `GET /checkout/review/<id>` — redirects to `/checkout/review` if session has `cart_id`, else product page.
+- `GET /checkout/pay/<id>` — redirects to product page.
 
 **Data NOT shown to buyers:** Seller name/contact, pickup logistics, admin notes, suggested price vs. final price, collection method
 
@@ -151,15 +174,23 @@
 
 ---
 
+### Cart (`/cart`)
+- Lists all cart items with thumbnail, title, price, "Remove" button.
+- Shows items subtotal and bundle delivery hint (1 item → upsell; 2+ → "free delivery unlocked").
+- "Proceed to Checkout" validates availability and routes to address step.
+- Empty state with "Browse the shop" link.
+- Unavailable items shown greyed (sold while in cart or hold expired and claimed).
+
 ### Post-Purchase (`/item_success`)
 **What buyers see:**
-- Success confirmation with item thumbnail and description
-- Next steps:
+- Success confirmation listing **all purchased items** (thumbnail + description + price each).
+- Next steps (delivery timing copy branches on `Order.is_flexible_delivery`):
+  - **Standard:** "Expected next Friday/Saturday — batched weekly, may shift if volume is low."
+  - **Flexible:** "Estimated 1–3 weeks — we'll give you a heads-up before your delivery date."
   1. Check your email — confirmation with delivery details
-  2. We deliver once per week — heads-up before delivery day
-  3. Questions? Reply to confirmation email
-  3. Show email receipt to claim item
+  2. Questions? Reply to confirmation email
 - "Back to Shop" button
+- Accepts `?order_id=<stripe_session_id>` param (new) or legacy `?session_id=<item_id>` param.
 
 ---
 
@@ -754,16 +785,27 @@ Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env
 
 | Flow | Stripe Method | Route | Amount | When |
 |------|--------------|-------|--------|------|
-| Item purchase (buyer) | Checkout Session | POST `/create_checkout_session` → `/item_success` | Item price | Buyer clicks "Buy Now" |
+| Item purchase (buyer) — cart | Checkout Session | POST `/checkout/review` → `/item_success?order_id=…` | Σ item prices + 7.25% tax + zone fee (0 if bundle) − $5 if flexible | Buyer adds to cart → `/cart` → address → review → Stripe |
 | Pro seller activation fee | Checkout Session | POST `/upgrade_checkout` or via confirm_pickup | $15 | Onboarding or confirm pickup |
 | Pickup upgrade (Free→Pro) | Checkout Session | `/upgrade_pickup` | $15 | Seller upgrades from dashboard |
 | Save payment method | SetupIntent | POST `/create_setup_intent` → `/add_payment_method` | $0 (deferred) | Card saved for later charge |
 
 ### Webhook (`/webhook`)
 Handles:
-- `checkout.session.completed` — marks item sold, activates seller
+- `checkout.session.completed` — **cart order** (`type='cart_order'` in metadata): finds pending `Order` by `order_id`, idempotency guard (`Order.status == 'paid'`), flips to paid, creates one `BuyerOrder` per item, per-item double-sale guard (raises `SellerAlert` if already sold, sets `Order.has_conflict=True`), marks all available items sold, clears carts of those items, sends one confirmation email.
+- `checkout.session.completed` — seller activation/confirm_pickup flows (unchanged, still CASE 1 in webhook)
 - `setup_intent.succeeded` — saves payment method to user (`stripe_payment_method_id`)
 - Updates `has_paid`, `payment_declined` flags accordingly
+
+**Order model (Spec B):** `Order` is the parent row created `status='pending'` before Stripe redirect. `BuyerOrder` is now a **per-item line** under an Order (`order_id` FK). Existing single-item BuyerOrders were backfilled with one Order each (`buyer_order_delivery_fee_fields` + `cart_bundle_order_models` migrations, verified locally: 4/4 backfilled).
+
+**Stripe Coupon — Flexible Delivery:**
+`stripe_flexible_coupon_id` AppSetting must hold the Coupon id. Create once:
+```python
+import stripe; stripe.api_key = 'sk_...'
+c = stripe.Coupon.create(amount_off=500, currency='usd', duration='once', name='Flexible Delivery')
+# Then: AppSetting.set('stripe_flexible_coupon_id', c.id)
+```
 
 ### Success Pages
 | Route | After |

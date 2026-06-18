@@ -668,8 +668,44 @@ class ShopNotifySignup(db.Model):
     ip_address = db.Column(db.String(45), nullable=True)  # for spam review; never displayed
 
 
+# =========================================================
+# SPEC B — CART / BUNDLE & SAVE
+# =========================================================
+
+class Order(db.Model):
+    """Order-level parent record created per Stripe checkout session (one per cart checkout)."""
+    __tablename__ = 'order'
+    id = db.Column(db.Integer, primary_key=True)
+    buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    buyer_email = db.Column(db.String(120), nullable=True)
+    buyer_name = db.Column(db.String(100), nullable=True)
+    delivery_street = db.Column(db.String(200), nullable=True)
+    delivery_city = db.Column(db.String(100), nullable=True)
+    delivery_state = db.Column(db.String(20), nullable=True)
+    delivery_zip = db.Column(db.String(20), nullable=True)
+    delivery_lat = db.Column(db.Float, nullable=True)
+    delivery_lng = db.Column(db.Float, nullable=True)
+    distance_miles = db.Column(db.Float, nullable=True)
+    delivery_zone = db.Column(db.Integer, nullable=True)
+    delivery_fee = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    bundle_free_delivery = db.Column(db.Boolean, default=False, server_default='0')
+    is_flexible_delivery = db.Column(db.Boolean, default=False, server_default='0')
+    flexible_discount = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    sales_tax = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    items_subtotal = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    total_paid = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    stripe_checkout_session_id = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(20), default='pending', server_default='pending')
+    has_conflict = db.Column(db.Boolean, default=False, server_default='0')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
+    buyer = db.relationship('User', foreign_keys=[buyer_id], backref='orders')
+    line_items = db.relationship('BuyerOrder', backref='order', lazy=True)
+
+
 class BuyerOrder(db.Model):
-    """Delivery details for each completed item purchase. One record per sold item."""
+    """Per-item purchase line under an Order. One record per sold item."""
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), unique=True, nullable=False)
     buyer_email = db.Column(db.String(120), nullable=False)
@@ -680,7 +716,49 @@ class BuyerOrder(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     delivered_at = db.Column(db.DateTime, nullable=True)  # set when DeliveryStop completed; informational only
 
+    # Spec A: zone-based delivery pricing, sales tax, flexible delivery (legacy — Order is source of truth for new orders)
+    delivery_zone = db.Column(db.Integer, nullable=True)
+    delivery_fee = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    is_flexible_delivery = db.Column(db.Boolean, default=False, server_default='0')
+    flexible_discount = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    sales_tax = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    distance_miles = db.Column(db.Float, nullable=True)
+    items_subtotal = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    total_paid = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    stripe_checkout_session_id = db.Column(db.String(120), nullable=True)
+
+    # Spec B: order-level parent link and per-item financials
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=True)
+    item_price_paid = db.Column(db.Numeric(10, 2), nullable=True)
+    item_sales_tax = db.Column(db.Numeric(10, 2), nullable=True)
+
     item = db.relationship('InventoryItem', backref=db.backref('buyer_order', uselist=False))
+
+
+class Cart(db.Model):
+    """Active shopping cart — one per logged-in user or per guest session token."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    session_token = db.Column(db.String(64), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref='carts')
+    cart_items = db.relationship('CartItem', backref='cart', lazy=True, cascade='all, delete-orphan')
+
+
+class CartItem(db.Model):
+    """One item in a cart. Unique per (cart, item)."""
+    id = db.Column(db.Integer, primary_key=True)
+    cart_id = db.Column(db.Integer, db.ForeignKey('cart.id'), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    item = db.relationship('InventoryItem', foreign_keys=[item_id], backref='cart_items')
+
+    __table_args__ = (
+        db.UniqueConstraint('cart_id', 'item_id', name='uq_cart_item'),
+    )
 
 
 class Referral(db.Model):

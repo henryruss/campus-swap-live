@@ -1033,9 +1033,40 @@
                                 {% endif %}
                             </td>
 
-                            <td style="font-size: 0.8rem; color: var(--text-muted); max-width: 200px;">
-                                {% if item.status == 'sold' %}
-                                    {{ item.buyer_order.delivery_address if item.buyer_order else '—' }}
+                            <td style="font-size: 0.8rem; color: var(--text-muted); max-width: 220px;">
+                                {% if item.status == 'sold' and item.buyer_order %}
+                                    {% set bo = item.buyer_order %}
+                                    {% set ord = bo.order %}
+                                    <div>{{ bo.delivery_address }}</div>
+                                    {% set _zone = (ord.delivery_zone if ord else None) or bo.delivery_zone %}
+                                    {% set _fee = (ord.delivery_fee if ord else None) or bo.delivery_fee %}
+                                    {% set _tax = (bo.item_sales_tax if bo.item_sales_tax is not none else bo.sales_tax) %}
+                                    {% set _flex = (ord.is_flexible_delivery if ord else False) or bo.is_flexible_delivery %}
+                                    {% set _flex_disc = (ord.flexible_discount if ord else None) or bo.flexible_discount %}
+                                    {% set _total = (ord.total_paid if ord else None) or bo.total_paid %}
+                                    {% set _bundle = ord.bundle_free_delivery if ord else False %}
+                                    {% if _zone or _bundle %}
+                                    <div style="margin-top:4px;">
+                                        {% if _bundle %}
+                                        <span style="background:#f0fdf4;color:#15803d;border-radius:4px;padding:1px 6px;font-size:0.78rem;">Bundle &amp; Save</span>
+                                        {% else %}
+                                        <span style="background:#eff6ff;color:#1d4ed8;border-radius:4px;padding:1px 6px;font-size:0.78rem;">Zone {{ _zone }}</span>
+                                        <span style="margin-left:4px;">${{ "%.2f"|format(_fee) }} delivery</span>
+                                        {% endif %}
+                                        {% if ord %}
+                                        <span style="margin-left:4px; font-size:0.78rem; color:var(--text-muted);">{{ ord.line_items|length }} item{{ 's' if ord.line_items|length != 1 }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <div style="margin-top:2px;font-size:0.78rem;">
+                                        Tax: ${{ "%.2f"|format(_tax) }}
+                                        {% if _flex %}
+                                        · <span style="color:#15803d;">Flexible −${{ "%.2f"|format(_flex_disc) }}</span>
+                                        {% endif %}
+                                        · <strong>Total: ${{ "%.2f"|format(_total) }}</strong>
+                                    </div>
+                                    {% endif %}
+                                {% elif item.status == 'sold' %}
+                                    —
                                 {% else %}
                                     —
                                 {% endif %}

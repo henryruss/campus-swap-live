@@ -6,6 +6,11 @@ context ContextVar can get into an inconsistent state when request contexts from
 client calls are pushed mid-teardown. This patch makes AppContext.pop() robust to
 that scenario.
 """
+import os
+# Set test DB before any app import so load_dotenv() (which never overrides) sees this.
+# campusswap_prod is the local copy of the prod snapshot with all migrations applied.
+os.environ['DATABASE_URL'] = 'postgresql://henryrussell@localhost:5432/campusswap_prod'
+
 import pytest
 import flask.ctx
 from flask.ctx import _cv_app

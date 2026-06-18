@@ -204,6 +204,14 @@
         <nav class="nav-links nav-desktop" role="navigation" aria-label="Main navigation">
             <a href="/become-a-seller" class="nav-item" aria-label="Become a Seller">Become a Seller</a>
             <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
+            <a href="/cart" class="nav-item" aria-label="Shopping Cart" style="position:relative; display:inline-flex; align-items:center;">
+                <i class="fas fa-shopping-cart" style="font-size:1.1rem;"></i>
+                {% if cart_count > 0 %}
+                <span id="cart-badge" style="position:absolute; top:-6px; right:-10px; background:var(--primary); color:white; font-size:0.7rem; font-weight:700; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; line-height:1;">{{ cart_count }}</span>
+                {% else %}
+                <span id="cart-badge" style="display:none; position:absolute; top:-6px; right:-10px; background:var(--primary); color:white; font-size:0.7rem; font-weight:700; width:18px; height:18px; border-radius:50%; align-items:center; justify-content:center; line-height:1;"></span>
+                {% endif %}
+            </a>
             {% if current_user.is_authenticated %}
                 {% if current_user.is_worker and current_user.worker_status == 'approved' %}
                 <a href="/crew" class="nav-item" aria-label="Crew Portal">
@@ -259,6 +267,9 @@
         <a href="/parents" class="mobile-menu-link"><i class="fas fa-heart"></i> Parents</a>
         <a href="/become-a-seller" class="mobile-menu-link"><i class="fas fa-store"></i> Become a Seller</a>
         <a href="/inventory" class="mobile-menu-link"><i class="fas fa-shopping-bag"></i> Shop The Drop</a>
+        <a href="/cart" class="mobile-menu-link">
+            <i class="fas fa-shopping-cart"></i> Cart{% if cart_count > 0 %} <span style="background:var(--primary);color:white;border-radius:10px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;">{{ cart_count }}</span>{% endif %}
+        </a>
         <div id="mobile-store-selector" class="mobile-menu-store" onclick="toggleMobileStoreDropdown();">
             <i class="fas fa-map-marker-alt"></i>
             <span class="store-display">UNC Chapel Hill</span>

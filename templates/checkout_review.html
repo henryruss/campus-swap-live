@@ -1,0 +1,250 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+  .review-page {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 32px;
+    max-width: 900px;
+    margin: 48px auto;
+    padding: 0 24px;
+    align-items: start;
+  }
+  .review-order-summary {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .review-order-summary h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0 0 4px;
+  }
+  .review-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .review-item-row:last-child { border-bottom: none; }
+  .review-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--bg-cream);
+    flex-shrink: 0;
+  }
+  .review-item-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .review-item-price {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+  .review-address {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+  .review-card { padding: 32px; }
+  .review-card h1 {
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin: 0 0 24px;
+  }
+  .line-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .line-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95rem;
+    color: var(--text-main);
+  }
+  .line-item.muted {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+  }
+  .line-item.discount { color: #15803d; }
+  .line-item.free { color: #15803d; font-weight: 600; }
+  .line-divider {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 8px 0;
+  }
+  .line-item.total {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text-main);
+  }
+  .flexible-toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 16px;
+    margin: 20px 0 8px;
+    cursor: pointer;
+  }
+  .flexible-toggle-row input[type="checkbox"] {
+    width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px;
+    accent-color: var(--primary); cursor: pointer;
+  }
+  .flexible-label { font-size: 0.95rem; color: var(--text-main); line-height: 1.4; }
+  .flexible-label strong { color: #15803d; }
+  .flexible-label small {
+    display: block; font-size: 0.82rem; color: var(--text-muted); margin-top: 3px;
+  }
+  .btn--full {
+    width: 100%; padding: 14px; font-size: 1.05rem; justify-content: center; margin-top: 16px;
+  }
+  .review-fine-print {
+    font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-top: 12px; line-height: 1.5;
+  }
+  .back-link {
+    display: inline-block; font-size: 0.85rem; color: var(--text-muted);
+    text-decoration: none; margin-bottom: 20px;
+  }
+  .back-link:hover { color: var(--primary); }
+  @media (max-width: 640px) {
+    .review-page { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="review-page">
+
+  <div class="card review-order-summary">
+    <h3>Your Order ({{ cart_items|length }} item{{ 's' if cart_items|length != 1 }})</h3>
+    {% for ci in cart_items %}
+    <div class="review-item-row">
+      {% if ci.item.photo_url %}
+        <img class="review-thumb"
+             src="{{ url_for('uploaded_file', filename=ci.item.photo_url) }}"
+             alt="{{ ci.item.description }}">
+      {% else %}
+        <div class="review-thumb"></div>
+      {% endif %}
+      <p class="review-item-title">{{ ci.item.description }}</p>
+      <span class="review-item-price">${{ "%.2f"|format(ci.item.price) if ci.item.price else "—" }}</span>
+    </div>
+    {% endfor %}
+    <p class="review-address"><i class="fas fa-map-marker-alt" style="margin-right:4px;"></i>{{ address }}</p>
+    <a href="{{ url_for('checkout_delivery') }}" style="font-size:0.82rem; color:var(--text-muted); text-decoration:none;">← Change address</a>
+  </div>
+
+  <div class="card review-card">
+    <a href="{{ url_for('cart_view') }}" class="back-link">← Back to Cart</a>
+    <h1>Order Summary</h1>
+
+    <div class="line-items">
+      {% for ci in cart_items %}
+      <div class="line-item">
+        <span>{{ ci.item.description }}</span>
+        <span>${{ "%.2f"|format(ci.item.price) if ci.item.price else "—" }}</span>
+      </div>
+      {% endfor %}
+
+      <div class="line-item muted">
+        <span>Sales Tax (7.25%)</span>
+        <span>${{ "%.2f"|format(sales_tax) }}</span>
+      </div>
+
+      {% if bundle_free %}
+      <div class="line-item free">
+        <span>Delivery — Bundle &amp; Save</span>
+        <span>FREE</span>
+      </div>
+      {% else %}
+      <div class="line-item muted">
+        <span>Delivery — Zone {{ zone }}</span>
+        <span>${{ "%.2f"|format(zone_fee) }}</span>
+      </div>
+      {% endif %}
+
+      {% if flexible_available %}
+      <div class="line-item discount" id="flexible-discount-row" style="display:none;">
+        <span>Flexible Delivery Discount</span>
+        <span>−${{ "%.2f"|format(flexible_discount) }}</span>
+      </div>
+      {% endif %}
+
+      <hr class="line-divider">
+
+      <div class="line-item total">
+        <span>Total</span>
+        <span id="total-display">${{ "%.2f"|format(total_standard) }}</span>
+      </div>
+    </div>
+
+    {% if flexible_available %}
+    <label class="flexible-toggle-row" for="flexible-checkbox">
+      <input type="checkbox" id="flexible-checkbox">
+      <div class="flexible-label">
+        <strong>Save ${{ "%.2f"|format(flexible_discount) }}</strong> — Flexible Delivery
+        <small>1–3 week delivery window instead of next Friday/Saturday. We'll give you a heads-up before your delivery date.</small>
+      </div>
+    </label>
+    {% endif %}
+
+    <form method="POST" id="review-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="is_flexible" id="is_flexible_input" value="0">
+      <button type="submit" class="btn-primary btn--full">
+        Proceed to Payment →
+      </button>
+    </form>
+
+    <p class="review-fine-print">
+      You'll be redirected to Stripe's secure checkout. Campus Swap absorbs processing fees — you pay only what's shown above.
+    </p>
+  </div>
+
+</div>
+
+{% if flexible_available %}
+<script>
+(function () {
+  var totalStandard = {{ total_standard | float }};
+  var totalFlexible = {{ total_flexible | float }};
+  var cb = document.getElementById('flexible-checkbox');
+  var totalDisplay = document.getElementById('total-display');
+  var discountRow = document.getElementById('flexible-discount-row');
+  var isFlexibleInput = document.getElementById('is_flexible_input');
+
+  cb.addEventListener('change', function () {
+    if (cb.checked) {
+      totalDisplay.textContent = '$' + totalFlexible.toFixed(2);
+      discountRow.style.display = '';
+      isFlexibleInput.value = '1';
+    } else {
+      totalDisplay.textContent = '$' + totalStandard.toFixed(2);
+      discountRow.style.display = 'none';
+      isFlexibleInput.value = '0';
+    }
+  });
+})();
+</script>
+{% endif %}
+
+{% endblock %}
