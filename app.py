@@ -16127,13 +16127,19 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
                         f'photo_url {old_url!r} → {new_filename!r}'
                     )
             except Exception as e:
-                logging.warning(f'[AI photo] item={item_id}: EXCEPTION — {e}', exc_info=True)
+                # Log the full error type + message so Render logs show exactly what went wrong
+                # (common causes: OpenAI content policy refusal, rate limit 429, unsupported image format)
+                err_type = type(e).__name__
+                logging.error(f'[AI photo] item={item_id}: FAILED ({err_type}) — {e}', exc_info=True)
                 try:
                     db.session.rollback()
                 except Exception:
                     pass
                 # Re-fetch item after rollback so text generation sees clean DB state
                 item = InventoryItem.query.get(item_id)
+                if item is None:
+                    logging.error(f'[AI photo] item={item_id}: item vanished after rollback — aborting pipeline')
+                    return False
     else:
         logging.warning(
             f'[AI photo] item={item_id}: photo step skipped '
@@ -16255,23 +16261,40 @@ RETAIL: ..."""
     return True
 
 
+_AI_MAX_RETRIES = 3
+
+
 def _run_ai_generation_single(app, item_id):
     """Fire-and-forget: run AI pipeline for one newly submitted item."""
     with app.app_context():
         item = InventoryItem.query.get(item_id)
-        if not item or item.ai_generated_at is not None or not item.photo_url:
-            app.logger.info(f'[AI worker] item {item_id}: skipped (already processed or missing photo)')
+        if not item or not item.photo_url:
+            app.logger.info(f'[AI worker] item {item_id}: skipped (not found or missing photo)')
             return
-        app.logger.info(f'[AI worker] item {item_id}: starting')
+        # Already succeeded — ai_description is the source of truth
+        if item.ai_description is not None:
+            app.logger.info(f'[AI worker] item {item_id}: skipped (already has ai_description)')
+            return
+        # Hard stop after max retries
+        if item.ai_retry_count >= _AI_MAX_RETRIES:
+            app.logger.warning(f'[AI worker] item {item_id}: skipped (retry limit {_AI_MAX_RETRIES} reached)')
+            return
+        app.logger.info(f'[AI worker] item {item_id}: starting (attempt {item.ai_retry_count + 1}/{_AI_MAX_RETRIES})')
         try:
             _process_single_item_ai(app, item)
             app.logger.info(f'[AI worker] item {item_id}: done — ai_description={item.ai_description!r:.60}')
         except Exception as e:
-            app.logger.error(f'Single-item AI generation error for item {item_id}: {e}')
+            app.logger.error(f'[AI worker] item {item_id}: failed (attempt {item.ai_retry_count + 1}) — {e}', exc_info=True)
             try:
                 item = InventoryItem.query.get(item_id)
-                if item and item.ai_generated_at is None:
-                    item.ai_generated_at = datetime.utcnow()
+                if item:
+                    item.ai_retry_count = (item.ai_retry_count or 0) + 1
+                    # Reset ai_generated_at so the startup requeue can pick it up if under the limit
+                    if item.ai_retry_count < _AI_MAX_RETRIES:
+                        item.ai_generated_at = None
+                    else:
+                        item.ai_generated_at = datetime.utcnow()
+                        app.logger.warning(f'[AI worker] item {item_id}: giving up after {_AI_MAX_RETRIES} attempts')
                     db.session.commit()
             except Exception:
                 db.session.rollback()
@@ -16296,21 +16319,29 @@ _ai_worker_thread.start()
 
 
 def _ai_startup_requeue():
-    """On startup, re-enqueue any items that were waiting for AI when the process last died."""
+    """On startup, re-enqueue items that need AI processing.
+
+    Picks up two categories:
+    - Never-attempted: ai_description IS NULL and ai_generated_at IS NULL
+    - Failed-but-retryable: ai_description IS NULL and ai_retry_count < _AI_MAX_RETRIES
+      (ai_generated_at is reset to NULL by the error handler when retries remain)
+    Both collapse to: ai_description IS NULL AND ai_retry_count < _AI_MAX_RETRIES AND photo_url set.
+    """
     import time
     time.sleep(5)  # wait for gunicorn to finish binding and app to be fully ready
     with app.app_context():
         try:
             orphans = InventoryItem.query.filter(
                 InventoryItem.status.notin_(['rejected', 'sold']),
-                InventoryItem.ai_generated_at.is_(None),
+                InventoryItem.ai_description.is_(None),
+                InventoryItem.ai_retry_count < _AI_MAX_RETRIES,
                 InventoryItem.photo_url.isnot(None),
                 InventoryItem.photo_url != '',
             ).order_by(InventoryItem.date_added.asc()).all()
             for item in orphans:
                 _ai_queue.put((app, item.id))
             if orphans:
-                app.logger.info(f'[AI startup] re-queued {len(orphans)} orphaned items')
+                app.logger.info(f'[AI startup] re-queued {len(orphans)} items (never-attempted + retryable failures)')
         except Exception as e:
             app.logger.error(f'[AI startup] re-queue error: {e}')
 

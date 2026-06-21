@@ -1269,17 +1269,11 @@
           var suggested = wrap.dataset.suggestedPrice;
           var prefill = aiPrice || suggested || '';
           if (prefill) document.getElementById('approval-price-input').value = prefill;
-          // Disable approve button when AI hasn't processed yet
-          var aiReady = wrap.dataset.aiReady;
+          // Approve is always enabled — AI banner is informational only
           var approveBtn = document.getElementById('btn-approve');
           if (approveBtn) {
-            if (aiReady === '0') {
-              approveBtn.disabled = true;
-              approveBtn.title = 'Waiting for AI — check back in a moment';
-            } else {
-              approveBtn.disabled = false;
-              approveBtn.title = '';
-            }
+            approveBtn.disabled = false;
+            approveBtn.title = '';
           }
           // Reset gallery state (single-column fallback only)
           _approvalGalleryIndex = 0;

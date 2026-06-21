@@ -244,6 +244,7 @@ class InventoryItem(db.Model):
     ai_review_pending   = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     ai_generated_at     = db.Column(db.DateTime, nullable=True)
     ai_approved         = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    ai_retry_count      = db.Column(db.Integer, default=0, nullable=False, server_default='0')
 
     # SELLER DATA PRESERVATION — write-once at item creation, never updated afterward
     seller_description      = db.Column(db.Text, nullable=True)
