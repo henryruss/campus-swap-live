@@ -16593,6 +16593,48 @@ def admin_ai_set_cover_photo(item_id):
     return jsonify({'success': True})
 
 
+@app.route('/admin/item/<int:item_id>/delete-gallery-photo', methods=['POST'])
+@login_required
+def admin_ai_delete_gallery_photo(item_id):
+    """Remove a photo from an item in AI review. Works for both seller-uploaded
+    gallery photos and the AI-enhanced cover photo. Deleting the cover promotes
+    another photo to cover so the listing is never left without an image."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    photo_url = request.form.get('photo_url', '').strip()
+    if not photo_url:
+        return jsonify({'success': False, 'error': 'No photo_url provided'}), 400
+
+    is_cover = (photo_url == item.photo_url)
+    gallery_match = next((p for p in item.gallery_photos if p.photo_url == photo_url), None)
+    if not is_cover and gallery_match is None:
+        return jsonify({'success': False, 'error': 'Photo not found on this item'}), 400
+
+    if is_cover:
+        # Promote another photo to cover so the listing keeps an image
+        replacement = next((p for p in item.gallery_photos if p.photo_url != photo_url), None)
+        if replacement is None:
+            return jsonify({'success': False, 'error': 'This is the only photo on the item — add another before deleting it.'}), 400
+        item.photo_url = replacement.photo_url
+        db.session.delete(replacement)
+    if gallery_match is not None:
+        db.session.delete(gallery_match)
+
+    # Removing the AI-enhanced image clears the "Enhanced" flag/badge
+    if photo_url.startswith('ai_enhanced_'):
+        item.ai_photo_enhanced = False
+
+    # Delete the underlying file (best-effort; DB record is the source of truth)
+    try:
+        photo_storage.delete_photo(photo_url)
+    except Exception as e:
+        logger.error(f"Error deleting photo file {photo_url}: {e}", exc_info=True)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 # =============================================================
 # SPEC #D1 — DELIVERY ROUTES
 # =============================================================

@@ -32,9 +32,9 @@
               onclick="setCoverPhoto()">
         ★ Set as cover
       </button>
-      {# Delete gallery photo button — hidden on slide 0 (cover), visible on gallery slides #}
+      {# Delete photo button — visible on every slide, including the AI-enhanced cover #}
       <button id="delete-photo-btn" type="button"
-              style="display:none; position:absolute; top:10px; right:10px;
+              style="display:block; position:absolute; top:10px; right:10px;
                      background:rgba(220,38,38,0.85); color:white; border:none; border-radius:999px;
                      padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer;
                      white-space:nowrap; backdrop-filter:blur(2px);"
@@ -185,7 +185,7 @@ function approvalGalleryMove(dir) {
   if (counter) counter.textContent = (window._galleryIdx + 1) + ' / ' + total;
   if (coverBtn) coverBtn.style.display = window._galleryIdx === 0 ? 'none' : 'block';
   var deleteBtn = document.getElementById('delete-photo-btn');
-  if (deleteBtn) deleteBtn.style.display = window._galleryIdx === 0 ? 'none' : 'block';
+  if (deleteBtn) deleteBtn.style.display = 'block';
 }
 
 function setCoverPhoto() {
@@ -244,9 +244,9 @@ function deleteGalleryPhoto() {
   var photoUrl = slide.dataset.photo;
   var wrap = document.querySelector('.approval-detail-wrap');
   var itemId = wrap ? wrap.dataset.itemId : null;
-  if (!itemId || !photoUrl || window._galleryIdx === 0) return;
+  if (!itemId || !photoUrl) return;
 
-  if (!confirm('Delete this photo from the gallery? This cannot be undone.')) return;
+  if (!confirm('Delete this photo? This cannot be undone.')) return;
 
   var deleteBtn = document.getElementById('delete-photo-btn');
   deleteBtn.disabled = true;
