@@ -1,0 +1,347 @@
+{% extends "admin/admin_layout.html" %}
+
+{% block admin_content %}
+<style>
+  .air-wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 80px; }
+  .air-header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+  .air-header h1 { font-family: 'DM Serif Display', serif; font-size: 1.7rem; color: var(--primary); margin: 0; }
+  .air-count-pill {
+    background: var(--accent); color: white; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 800; padding: 3px 10px; white-space: nowrap;
+  }
+  .air-subhead { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 24px; }
+
+  .air-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+
+  .approve-card {
+    background: white; border: var(--card-border); border-radius: 14px;
+    overflow: hidden; cursor: pointer; transition: box-shadow 0.18s, transform 0.15s;
+    display: flex; flex-direction: column;
+  }
+  .approve-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.13); transform: translateY(-1px); }
+  .approve-card-img {
+    aspect-ratio: 4/3; overflow: hidden; background: var(--bg-cream);
+  }
+  .approve-card-img img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .approve-card-img .no-photo {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 1.8rem;
+  }
+  .approve-card-body { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .approve-card-title { font-size: 0.88rem; font-weight: 700; color: var(--text-main); line-height: 1.35; }
+  .approve-card-price { font-size: 1rem; font-weight: 800; color: var(--accent); }
+  .approve-card-seller-price { font-size: 0.78rem; color: var(--text-muted); }
+  .approve-card-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .approve-card-pill {
+    font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: var(--bg-cream); color: var(--text-muted); border: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .approve-card-review-hint {
+    font-size: 0.75rem; color: var(--text-muted); margin-top: auto; padding-top: 6px;
+    font-style: italic;
+  }
+
+  .air-empty {
+    text-align: center; padding: 80px 20px; color: var(--text-muted);
+  }
+  .air-empty i { font-size: 2.5rem; margin-bottom: 14px; display: block; color: var(--sage); }
+  .air-empty p { margin: 0; font-size: 1rem; }
+
+  /* Gallery — mirrors items.html */
+  .approval-modal-gallery { background: #f8fafc; border-radius: 20px 20px 0 0; overflow: hidden; }
+  .approval-gallery-track-wrap {
+    position: relative; aspect-ratio: 4/3; max-height: 320px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .approval-gallery-track { display: flex; width: 100%; height: 100%; transition: transform 0.3s ease; }
+  .approval-gallery-slide { flex-shrink: 0; width: 100%; height: 100%; object-fit: contain; }
+  .approval-gallery-placeholder { background: #f1f5f9; }
+  .approval-gallery-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,0.85); border: none; border-radius: 50%;
+    width: 36px; height: 36px; font-size: 1.4rem; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; color: var(--text-main);
+  }
+  .approval-gallery-prev { left: 10px; }
+  .approval-gallery-next { right: 10px; }
+  .approval-gallery-counter {
+    position: absolute; bottom: 10px; right: 14px; background: rgba(0,0,0,0.5);
+    color: white; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px;
+  }
+  .approval-modal-info-body { padding: 20px 24px 16px; }
+  .approval-modal-meta { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+
+  /* Modal (same pattern as items.html approval modal) */
+  .approval-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 2000; align-items: flex-start; justify-content: center;
+    padding: 24px 16px; overflow-y: auto;
+  }
+  .approval-modal-overlay.open { display: flex; }
+  .approval-modal-panel {
+    background: white; border-radius: 20px; width: 100%; max-width: 800px;
+    box-shadow: var(--glass-shadow); position: relative; margin: auto;
+    display: flex; flex-direction: column; max-height: 90vh;
+  }
+  .approval-modal-close {
+    position: absolute; top: 14px; right: 16px; background: none; border: none;
+    font-size: 1.5rem; color: var(--text-muted); cursor: pointer; z-index: 10;
+    line-height: 1; padding: 4px 8px; border-radius: 8px;
+  }
+  .approval-modal-close:hover { background: #f1f5f9; color: var(--text-main); }
+  .approval-modal-panel-inner { overflow-y: auto; flex: 1; }
+  .approval-modal-footer {
+    padding: 16px 24px 24px; border-top: 1px solid var(--rule);
+    flex-shrink: 0;
+  }
+  .ai-modal-footer-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn-ai-approve { background: var(--primary); color: white; border: none; padding: 9px 22px; border-radius: 8px; font-size: 0.9rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .btn-ai-approve:hover { background: var(--primary-light); }
+  .btn-ai-approve:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ai-skip { background: white; color: var(--text-muted); border: 1.5px solid var(--rule); padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-ai-skip:hover { background: var(--bg-cream); }
+  .btn-ai-discard { background: white; color: #dc2626; border: 1.5px solid #fca5a5; padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-ai-discard:hover { background: #fef2f2; }
+  .ai-modal-error { color: #dc2626; font-size: 0.82rem; margin-top: 8px; display: none; }
+  .ai-modal-error.visible { display: block; }
+</style>
+
+<div class="air-wrap">
+  <div class="air-header">
+    <h1><i class="fas fa-robot" style="color:var(--accent);margin-right:8px;"></i>AI Review Queue</h1>
+    {% if items %}
+    <span class="air-count-pill">{{ items|length }} pending</span>
+    {% endif %}
+  </div>
+  <p class="air-subhead">
+    Review AI-generated titles, descriptions, and prices before they go live. Click a card to open.
+    <a href="{{ url_for('admin_ai_generate_page') }}" style="color:var(--primary);font-weight:600;text-decoration:none;">Run generation &rarr;</a>
+  </p>
+
+  {% if not items %}
+  <div class="air-empty">
+    <i class="fas fa-check-circle"></i>
+    <p>All caught up — no items pending AI review.</p>
+  </div>
+  {% else %}
+  <div class="air-card-grid" id="card-grid">
+    {% for item in items %}
+    {% set ai_price = item.ai_price|float if item.ai_price else 0 %}
+    {% set seller_price = item.suggested_price|float if item.suggested_price else 0 %}
+    {% set final_price = [ai_price, seller_price]|max %}
+    {% set retail_price = item.ai_retail_price|float if item.ai_retail_price else 0 %}
+    {% set savings_pct = ((1 - final_price / retail_price) * 100)|round|int if retail_price > 0 and final_price > 0 else 0 %}
+    <div class="approve-card"
+         data-item-id="{{ item.id }}"
+         onclick="openAIModal({{ item.id }})">
+      <div class="approve-card-img">
+        {% if item.photo_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="lightbox-trigger"
+             alt="{{ item.ai_description or item.description }}"
+             onerror="this.parentNode.innerHTML='<div class=no-photo><i class=fas fa-image></i></div>'">
+        {% else %}
+        <div class="no-photo"><i class="fas fa-image"></i></div>
+        {% endif %}
+      </div>
+      <div class="approve-card-body">
+        <div class="approve-card-title">{{ item.ai_description or '(no title generated)' }}</div>
+        {% if final_price > 0 %}
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <div class="approve-card-price">${{ '%.2f'|format(final_price) }}</div>
+          {% if retail_price > 0 %}
+          <div style="font-size:0.78rem;color:var(--text-muted);text-decoration:line-through;">${{ '%.0f'|format(retail_price) }}</div>
+          {% endif %}
+        </div>
+        {% if savings_pct > 0 %}
+        <div style="display:inline-block;background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;">{{ savings_pct }}% off retail</div>
+        {% endif %}
+        {% endif %}
+        {% if item.suggested_price %}
+        <div class="approve-card-seller-price">Seller: ${{ '%.2f'|format(item.suggested_price) }}</div>
+        {% endif %}
+        <div class="approve-card-meta">
+          {% if item.category %}
+          <span class="approve-card-pill">{{ item.category.name }}</span>
+          {% endif %}
+          {% if item.quality %}
+          <span class="approve-card-pill">{{ item.quality|quality_label }}</span>
+          {% endif %}
+        </div>
+        <div class="approve-card-review-hint">Click to review</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# Review Modal #}
+<div class="approval-modal-overlay" id="ai-modal-overlay" onclick="handleOverlayClick(event)">
+  <div class="approval-modal-panel" id="ai-modal-panel">
+    <button class="approval-modal-close" onclick="closeAIModal()" type="button">&times;</button>
+    <div class="approval-modal-panel-inner" id="ai-modal-body">
+      <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>
+    </div>
+    <div class="approval-modal-footer">
+      <div class="ai-modal-footer-btns">
+        <button class="btn-ai-approve" id="btn-approve" onclick="submitApprove()">Approve</button>
+        <button class="btn-ai-skip" onclick="closeAIModal()">Skip</button>
+        <button class="btn-ai-discard" onclick="submitDiscard()">Discard AI</button>
+      </div>
+      <div class="ai-modal-error" id="modal-error"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const _csrf = '{{ csrf_token() }}';
+let _currentItemId = null;
+let _approveDebounce = null;
+
+function openAIModal(itemId) {
+  window._galleryIdx = 0;
+  _currentItemId = itemId;
+  document.getElementById('ai-modal-overlay').classList.add('open');
+  document.getElementById('ai-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>';
+  document.getElementById('modal-error').classList.remove('visible');
+  document.getElementById('modal-error').textContent = '';
+  document.getElementById('btn-approve').disabled = false;
+
+  fetch('/admin/ai/item/' + itemId + '/detail')
+    .then(function (r) { return r.text(); })
+    .then(function (html) {
+      document.getElementById('ai-modal-body').innerHTML = html;
+      // Re-execute any scripts in the partial
+      document.getElementById('ai-modal-body').querySelectorAll('script').forEach(function (orig) {
+        const s = document.createElement('script');
+        s.textContent = orig.textContent;
+        orig.parentNode.replaceChild(s, orig);
+      });
+    })
+    .catch(function () {
+      document.getElementById('ai-modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item.</div>';
+    });
+}
+
+function closeAIModal() {
+  _currentItemId = null;
+  document.getElementById('ai-modal-overlay').classList.remove('open');
+}
+
+function handleOverlayClick(e) {
+  if (e.target === document.getElementById('ai-modal-overlay')) closeAIModal();
+}
+
+function submitApprove() {
+  if (_approveDebounce) return;
+  if (!_currentItemId) return;
+  const btn = document.getElementById('btn-approve');
+  btn.disabled = true;
+  _approveDebounce = setTimeout(function () { _approveDebounce = null; }, 300);
+
+  const body = new URLSearchParams();
+  body.append('csrf_token', _csrf);
+  const titleEl = document.getElementById('ai-modal-body').querySelector('[name=description]');
+  const descEl  = document.getElementById('ai-modal-body').querySelector('[name=long_description]');
+  const priceEl = document.getElementById('ai-modal-body').querySelector('[name=price]');
+  if (titleEl) body.append('description', titleEl.value);
+  if (descEl)  body.append('long_description', descEl.value);
+  if (priceEl) body.append('price', priceEl.value);
+  const needsPhotoEl = document.getElementById('ai-modal-body').querySelector('#ai-needs-photo-checkbox');
+  if (needsPhotoEl && needsPhotoEl.checked) body.append('needs_new_photo', '1');
+
+  fetch('/admin/ai/item/' + _currentItemId + '/approve', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': _csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.success) {
+      removeCard(_currentItemId);
+      closeAIModal();
+      decrementBadge();
+    } else {
+      showModalError(data.error || 'Could not approve. Try again.');
+      btn.disabled = false;
+    }
+  })
+  .catch(function () {
+    showModalError('Network error. Try again.');
+    btn.disabled = false;
+  });
+}
+
+function submitDiscard() {
+  if (!_currentItemId) return;
+  const body = new URLSearchParams({ csrf_token: _csrf });
+  fetch('/admin/ai/item/' + _currentItemId + '/discard', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': _csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.success) {
+      removeCard(_currentItemId);
+      closeAIModal();
+      decrementBadge();
+    } else {
+      showModalError(data.error || 'Could not discard. Try again.');
+    }
+  })
+  .catch(function () { showModalError('Network error. Try again.'); });
+}
+
+function removeCard(itemId) {
+  const card = document.querySelector('.approve-card[data-item-id="' + itemId + '"]');
+  if (card) {
+    card.style.transition = 'opacity 0.25s, transform 0.25s';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.95)';
+    setTimeout(function () {
+      card.remove();
+      const grid = document.getElementById('card-grid');
+      if (grid && !grid.querySelector('.approve-card')) {
+        grid.outerHTML = '<div class="air-empty"><i class="fas fa-check-circle"></i><p>All caught up — no items pending AI review.</p></div>';
+      }
+    }, 260);
+  }
+}
+
+function decrementBadge() {
+  const badges = document.querySelectorAll('[data-ai-badge]');
+  badges.forEach(function (b) {
+    const n = parseInt(b.textContent, 10);
+    if (n > 1) { b.textContent = n - 1; } else { b.remove(); }
+  });
+}
+
+function showModalError(msg) {
+  const el = document.getElementById('modal-error');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+// Keyboard: Enter = approve, Escape = skip
+document.addEventListener('keydown', function (e) {
+  if (!document.getElementById('ai-modal-overlay').classList.contains('open')) return;
+  if (e.key === 'Escape') { closeAIModal(); return; }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const active = document.activeElement;
+    const isTextarea = active && active.tagName === 'TEXTAREA';
+    if (!isTextarea) {
+      e.preventDefault();
+      submitApprove();
+    }
+  }
+});
+</script>
+{% endblock %}

@@ -72,9 +72,9 @@ pickup_week: 'week1' | 'week2' | None  — seller's stated preference (per-user,
 pickup_time_preference ('morning'|'afternoon'|'evening'|null)
 moveout_date (Date, nullable)
 is_worker (bool), worker_status (None|'pending'|'approved'|'rejected'), worker_role (None|'driver'|'organizer'|'both')
-referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, generated at account creation
-referred_by_id (FK → User, nullable) — who gave them the code
-payout_rate (Integer, default 20) — stored percentage; updated when referrals are confirmed
+referral_code (String 8, unique, nullable) — 8-char uppercase alphanumeric, generated via _gen_referral_code() at proxy-seller creation (NOT on every account)
+referred_by_id (FK → User, nullable) — column exists; the automatic referral-confirmation flow that would populate it is NOT currently wired up (see Payout Rate / Referral Program below)
+payout_rate (Integer, model default 50) — stored payout percentage. Model default is 50; proxy-seller and tutorial-seed creation paths set 20 explicitly. No runtime referral-based recalculation exists.
 has_paid_boost (Boolean, default False, server_default='0') — one-time $15 payout boost purchased flag; reset each season
 is_campus_director (Boolean, default False) — has access to ops panel via role switcher; NOT is_admin/is_super_admin; gated by _has_ops_access()
 is_internal_account (Boolean, default False, server_default='0') — marks the seeded "Campus Swap" account that owns donated/unclaimed QC items; excluded from seller-facing UI and payout exports
@@ -119,18 +119,25 @@ needs_photo_refresh (Boolean, default False) — set True when replace_photo run
 retail_price (Numeric 10,2, nullable) — live retail reference set at AI approve time; shown to buyers as savings callout on inventory cards and product page
 needs_new_photo (Boolean, default False, server_default='0') — hides item from shop; set at AI review approval when "Flag for new photo" checked; cleared by replace_photo route
 needs_photo_verification (Boolean, default False, server_default='0') — item enters photo verification queue after replace_photo; cleared by verify-photo route when admin confirms photo looks good
-ai_description, ai_long_description (Text, nullable) — staged AI-generated title and description; reviewed in AI review queue before going live
+subcategory_id (FK → InventoryCategory, nullable) — optional second-level category
+ai_description, ai_long_description (Text, nullable) — staged AI-generated title and description; reviewed before going live
 ai_price, ai_retail_price (Numeric 10,2, nullable) — staged AI-suggested price and retail reference; reviewed before going live
 ai_review_pending (Boolean, default False, server_default='0') — item is in AI review queue awaiting admin approval
-ai_generated_at (DateTime, nullable) — UTC timestamp of AI generation run; NULL = not yet generated and eligible for autofill; set on both success AND error (error sentinel prevents retry loop)
-ai_approved (Boolean, default False, server_default='0') — set True at AI review approval; gates shop visibility (items must be ai_approved=True to appear in /inventory)
+ai_generated_at (DateTime, nullable) — UTC timestamp of last AI generation attempt. NOTE: the retry/eligibility sentinel is now ai_description (NULL = not yet successfully generated), not ai_generated_at. Retries are capped by ai_retry_count.
+ai_approved (Boolean, default False, server_default='0') — set True at approval; gates shop visibility (items must be ai_approved=True to appear in /inventory)
+ai_retry_count (Integer, default 0, server_default='0') — AI autofill failure counter. Incremented on each failed attempt; hard stop at 3 (_AI_MAX_RETRIES). On failure under the cap, ai_generated_at is reset to NULL so the startup requeue picks the item up again.
+ai_photo_enhanced (Boolean, default False, server_default='0') — True once OpenAI background-replacement photo enhancement succeeds for this item
+seller_description, seller_long_description (Text, nullable) — write-once snapshot of the seller's original title/description at creation; never overwritten by AI or edits (preserves seller intent for the approval-modal comparison view)
+was_previously_approved (Boolean, default False, server_default='0') — visibility fallback for items approved before the photo-enhancement rollout
+needs_photo_note (Text, nullable) — optional note attached when an item is flagged for a new photo
 ```
 
 ### InventoryCategory
 ```
-id, name, image_url, count_in_stock
+id, name, image_url, icon (e.g. 'fa-couch'), count_in_stock
 default_unit_size (Float, default 1.0, nullable) — truck space this category consumes; seeded for 12 furniture types
-items → [InventoryItem]
+parent_id (FK → InventoryCategory, nullable) — self-referential; NULL = top-level category, set = subcategory
+Relationships: parent → InventoryCategory (backref subcategories), items → [InventoryItem]
 ```
 
 ### ItemPhoto
@@ -182,20 +189,24 @@ item_count (Integer), recipient_count (Integer)
 ```
 Key-value store for runtime flags.
 AppSetting.get(key, default), AppSetting.set(key, value)
-Current keys in use: 'reserve_only_mode', 'pickup_period_active', 'current_store', 'store_open_date',
-'crew_applications_open', 'crew_allowed_email_domain', 'availability_deadline_day',
+Store/shop keys: 'reserve_only_mode', 'pickup_period_active', 'current_store', 'store_open_date',
+'shop_teaser_mode' ('true' → show pre-launch teaser on /inventory; absent/'false' → normal shop),
+'pickup_week_start', 'pickup_week_end'
+Crew/staffing keys: 'crew_applications_open', 'crew_allowed_email_domain',
 'drivers_per_truck', 'organizers_per_truck' (unused for capacity — superseded by stagger formula), 'max_trucks_per_shift',
-'shifts_required' (minimum shifts for season payout, default '10')
-Referral program keys (defaults): 'referral_base_rate' ('20'), 'referral_signup_bonus' ('10'),
-'referral_bonus_per_referral' ('10'), 'referral_max_rate' ('100'), 'referral_program_active' ('true')
-Delivery keys: 'warehouse_lat', 'warehouse_lng', 'delivery_radius_miles' (default '50')
-Teaser key: 'shop_teaser_mode' ('true' → show pre-launch teaser on /inventory; absent/'false' → normal shop)
-Route planning keys: 'truck_raw_capacity' ('18'), 'truck_capacity_buffer_pct' ('10'),
-  'route_am_window' ('9am–1pm'), 'route_pm_window' ('1pm–5pm'), 'maps_static_api_key' ('')
-Rescheduling keys: 'reschedule_token_ttl_days' ('7'), 'reschedule_max_weeks_forward' ('0' = no cap),
-  'reschedule_urgent_alert_days' ('2')
-SMS keys: 'sms_enabled' ('true' = master kill switch), 'sms_reminder_hour_eastern' ('9'),
-  'no_show_email_enabled' ('true'), 'no_show_email_hour_eastern' ('18')
+'shifts_required' (minimum shifts for season payout)
+Free-tier bookkeeping: 'free_confirmed_user_ids', 'free_rejected_user_ids' (CSV id lists)
+Delivery / pricing keys (Spec A): 'warehouse_lat', 'warehouse_lng', 'delivery_zone_boundaries' (zone mile cutoffs),
+  'delivery_zone_fees', 'flexible_delivery_discount', 'sales_tax_rate', 'stripe_flexible_coupon_id'.
+  NOTE: zone-based pricing replaced the old 'delivery_radius_miles' radius model — that key is no longer used.
+Cart / bundle keys (Spec B): 'cart_hold_minutes' (lazy hold expiry), 'bundle_min_items' (default 2 → bundle free delivery)
+AI autofill keys: 'ai_autofill_model', 'ai_autofill_run_log'
+Route planning keys: 'truck_raw_capacity', 'truck_capacity_buffer_pct',
+  'route_am_window', 'route_pm_window', 'maps_static_api_key'
+Rescheduling keys: 'reschedule_token_ttl_days', 'reschedule_urgent_alert_days'
+SMS keys: 'sms_enabled' (master kill switch), 'sms_reminder_hour_eastern',
+  'no_show_email_enabled', 'no_show_email_hour_eastern'
+NOTE: the previously-documented referral_* AppSetting keys (referral_base_rate, etc.) are NOT referenced anywhere in app.py.
 ```
 
 ### ShopNotifySignup
@@ -204,13 +215,40 @@ Email capture for pre-launch Shop Drop teaser. No UNIQUE constraint — duplicat
 id, email (String 120), created_at (DateTime), ip_address (String 45, nullable)
 ```
 
-### BuyerOrder
+### Order (Spec B — cart parent)
 ```
-Delivery details for each completed item purchase. One record per sold item.
+Order-level parent record, one per Stripe checkout session (one per cart checkout).
+id, buyer_id (FK → User, nullable), buyer_email, buyer_name
+delivery_street/city/state/zip, delivery_lat, delivery_lng, distance_miles, delivery_zone
+delivery_fee (Numeric), bundle_free_delivery (bool), is_flexible_delivery (bool), flexible_discount (Numeric)
+sales_tax (Numeric), items_subtotal (Numeric), total_paid (Numeric)
+stripe_checkout_session_id (String 120, nullable)
+status ('pending' → 'paid'), has_conflict (bool — double-sale guard), created_at, paid_at
+Relationships: buyer → User (backref orders), line_items → [BuyerOrder]
+```
+
+### BuyerOrder (per-item line)
+```
+Per-item purchase line under an Order. One record per sold item.
 id, item_id (FK → InventoryItem, unique), buyer_email (String 120)
-delivery_address (String 300), delivery_lat (Float, nullable), delivery_lng (Float, nullable)
-stripe_session_id (String 120, nullable), created_at (DateTime)
-Relationships: item → InventoryItem (backref buyer_order, uselist=False)
+delivery_address (String 300), delivery_lat, delivery_lng
+stripe_session_id (String 120, nullable), created_at, delivered_at (set when DeliveryStop completed; informational)
+Spec A fields (legacy — Order is now source of truth for new orders):
+  delivery_zone, delivery_fee, is_flexible_delivery, flexible_discount, sales_tax,
+  distance_miles, items_subtotal, total_paid, stripe_checkout_session_id
+Spec B fields: order_id (FK → Order, nullable), item_price_paid (Numeric), item_sales_tax (Numeric)
+Relationships: item → InventoryItem (backref buyer_order, uselist=False), order → Order (backref line_items)
+```
+
+### Cart / CartItem (Spec B)
+```
+Cart: active shopping cart — one per logged-in user OR per guest session token.
+  id, user_id (FK → User, nullable), session_token (String 64, nullable, indexed), created_at, updated_at
+  Relationships: user → User (backref carts), cart_items → [CartItem]
+  Lazy hold expiry: item_is_held(item, exclude_cart_id) treats a CartItem as a hold only while
+  Cart.updated_at >= now - cart_hold_minutes (AppSetting). No cron — expiry is computed at read time.
+CartItem: one item in a cart. id, cart_id (FK → Cart), item_id (FK → InventoryItem), added_at
+  Unique constraint: (cart_id, item_id)
 ```
 
 ### Referral
@@ -254,7 +292,7 @@ Relationships: shifts → [Shift], created_by → User
 ```
 One AM or PM block per day within a ShiftWeek.
 id, week_id (FK), day_of_week ('mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun')
-slot: 'am' | 'pm'
+slot: 'am' | 'pm' | 'daily'
 trucks (Integer, default 2), is_active (Boolean, default True)
 created_at
 truck_unit_plan (Text, nullable) — JSON dict {"truck_num": storage_location_id} — planned destination per truck;
@@ -265,7 +303,8 @@ overflow_truck_number (Integer, nullable) — overflow-designated truck for resc
 reschedule_locked (Boolean, default False) — excluded from seller reschedule slot grids when True
 Relationships: week → ShiftWeek, assignments → [ShiftAssignment]
 Properties: label, sort_key, drivers_needed, organizers_needed,
-            driver_assignments, organizer_assignments, is_fully_staffed, status_label
+            driver_assignments, organizer_assignments, is_fully_staffed, status_label,
+            has_delivery_trucks (computed — True if any DeliveryStop exists for this shift)
 ```
 
 ### ShiftAssignment
@@ -383,17 +422,35 @@ Flagged item during intake: damaged, missing, or completely unidentified.
 id, item_id (FK → InventoryItem, nullable — NULL for unknown/unidentified items)
 shift_id (FK → Shift), intake_record_id (FK → IntakeRecord, nullable)
 organizer_id (FK → User)
-flag_type: 'damaged' | 'missing' | 'unknown'
-description (Text, nullable), resolved (Boolean, default False)
+flag_type: 'missing' | 'damaged' | 'wrong_item' | 'extra_item' | 'unknown_item' | 'other'
+description (Text, NOT nullable), resolved (Boolean, default False)
 resolved_at (DateTime, nullable), resolved_by_id (FK → User, nullable)
 resolution_note (Text, nullable), created_at
 Relationships: item → InventoryItem, shift → Shift, intake_record → IntakeRecord,
                organizer → User, resolved_by → User
 ```
 
+### DeliveryStop (Spec D1)
+```
+One buyer delivery stop per shift. Analogous to ShiftPickup.
+id, shift_id (FK → Shift), buyer_order_id (FK → BuyerOrder), truck_number (Integer, default 1)
+stop_order (Integer, nullable), status ('pending'|'completed'|'issue'), notes (Text, nullable)
+completed_at, notified_at, capacity_warning (bool), created_at, created_by_id (FK → User, nullable)
+Unique constraint: (shift_id, buyer_order_id)
+Relationships: shift → Shift (backref delivery_stops), buyer_order → BuyerOrder (backref delivery_stop, uselist=False)
+```
+
+### DeliveryRun (Spec D1)
+```
+Run-level execution state for a delivery shift. Analogous to ShiftRun.
+id, shift_id (FK → Shift, unique), started_at, started_by_id (FK → User)
+ended_at (DateTime, nullable), status ('in_progress'|'completed')
+Relationships: shift → Shift (backref delivery_run, uselist=False), started_by → User
+```
+
 ---
 
-## Route Map (`app.py` — 10,000+ lines)
+## Route Map (`app.py` — ~17,000 lines, 260 routes)
 
 ### Public
 | Route | Function | Notes |
@@ -418,8 +475,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | Route | Function | Notes |
 |---|---|---|
 | `GET/POST /login` | `login` | Email/password login |
-| `GET/POST /register` | `register` | New account. Accepts ?ref= param (pre-fills referral code). |
-| `GET /referral/validate` | `referral_validate` | AJAX: validate referral code; returns {valid, referrer_name} (first name + last initial only). Returns {valid: false} if program inactive. |
+| `GET/POST /register` | `register` | New account. |
 | `GET /logout` | `logout` | |
 | `GET /auth/google` | `auth_google` | OAuth redirect |
 | `GET /auth/google/callback` | `auth_google_callback` | OAuth callback |
@@ -445,12 +501,22 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /confirm_pickup_success` | `confirm_pickup_success` | |
 | `GET/POST /upgrade_pickup` | `upgrade_pickup` | Upgrade from Free to Pro plan ($15) |
 | `GET /upgrade_pickup_success` | `upgrade_pickup_success` | |
-### Buyer
+### Buyer — Cart, Checkout & Purchase
 | Route | Function | Notes |
 |---|---|---|
-| `GET /reserve_item/<id>` | `reserve_item` | Non-binding reservation |
-| `GET /buy_item/<id>` | `buy_item` | Initiate Stripe checkout |
+| `POST /cart/add/<id>` | `cart_add` | Add item to active cart (user or guest session token) |
+| `POST /cart/remove/<id>` | `cart_remove` | Remove item from cart |
+| `GET /cart` | `cart_view` | Cart page — line items, bundle/delivery summary |
+| `POST /cart/checkout` | `cart_checkout` | Begin checkout for the whole cart → delivery form |
+| `GET/POST /checkout/delivery` | `checkout_delivery` | Buyer delivery address form + geocode + zone calc (cart-based) |
+| `GET/POST /checkout/review` | `checkout_review` | Order review (subtotal, delivery fee, bundle/flexible, tax, total) → Stripe. Creates pending Order before redirect. |
+| `GET/POST /checkout/delivery/<id>` | `checkout_delivery_legacy` | Legacy per-item delivery URL — redirects into cart flow |
+| `GET /checkout/pay/<id>` | `checkout_pay` | Legacy — redirect |
+| `GET/POST /checkout/review/<id>` | `checkout_review_legacy` | Legacy per-item review URL — redirect |
+| `GET /buy_item/<id>` | `buy_item` | Initiate single-item Stripe checkout |
 | `GET /item_success` | `item_sold_success` | Post-purchase success |
+
+Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the order's delivery fee is set to 0 (`bundle_free_delivery=True`). Items are only marked sold in the Stripe webhook (source of truth); the pending Order/double-sale guard prevents reselling a held item.
 
 ### Payments & Stripe
 | Route | Function | Notes |
@@ -516,7 +582,6 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/digest/send` | `send_approval_digest` | Super admin manual trigger for digest email |
 | `POST /admin/mass-email` | `admin_mass_email` | |
 | `POST /admin/database/reset` | `admin_database_reset` | Super admin only |
-| `POST /admin/settings/referral` | `admin_referral_settings` | Update referral program AppSettings (super admin only) |
 | `POST /admin/crew/approve/<user_id>` | `admin_crew_approve` | Approve worker (sets worker_role='both'); sends email |
 | `POST /admin/crew/reject/<user_id>` | `admin_crew_reject` | Reject worker application |
 | `GET /admin/crew/shift/<shift_id>/ops` | `admin_shift_ops` | Live ops view — mover-to-truck cards + route stop lists + destination unit selectors |
@@ -549,7 +614,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/payouts` | `admin_payouts` | Payout reconciliation — Unpaid tab (seller cards) + Paid history tab + CSV export |
 | `POST /admin/payouts/item/<id>/mark_paid` | `admin_payouts_mark_paid` | Mark item as paid — sets payout_sent=True, payout_sent_at=now, sends payout email |
 | `GET /admin/payouts/export` | `admin_payouts_export` | CSV export of all sold items with payout data |
-| `GET /admin/items/needs_info` | — | **Removed.** QC items now surface via AI autofill pipeline. Redirects to `/admin/ai/review`. |
+| `GET /admin/items/needs_info` | `admin_needs_info_queue` | Quick-capture items awaiting completion (is_quick_capture=True, status pending_valuation/needs_info). Renders `admin/needs_info.html`. Reachable via the `admin_request_info` redirect when a QC item gets an info request. |
 | `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price required. Sets status='available'. Returns JSON. |
 | `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation or needs_info. |
 | `POST /admin/item/<id>/approve-unified` | `admin_approve_unified` | Unified approve: writes AI staged fields → live fields, sets ai_approved=True, status='available', ai_review_pending=False, sends approval email. Super admin only. Returns JSON. |
@@ -567,8 +632,8 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/storage/<id>` | `admin_storage_detail` | All items at a storage location, filterable by status. Admin. |
 | `GET /admin/storage/audit` | — | **Redirects 302 to `/admin/warehouse`.** |
 | `GET /admin/storage/audit/search` | — | **Redirects 302 to `/admin/warehouse/search`.** |
-| `POST /admin/item/<id>/set-location` | `admin_item_set_location` | Update `storage_location_id`, `storage_row`, `storage_note` on item from audit tool. Returns JSON `{success}`. Admin. |
-| `POST /admin/item/<id>/replace-photo` | `admin_item_replace_photo` | Replace item cover photo. Also sets needs_photo_verification=True, needs_new_photo=False, deletes old cover from ItemPhoto records (prevents carousel duplication). Returns JSON {success, photo_url}. Admin. |
+| `POST /admin/item/<id>/set_location` | `admin_item_set_location` | Update `storage_location_id`, `storage_row`, `storage_note` on item from audit tool. Returns JSON `{success}`. Admin. |
+| `POST /admin/item/<id>/replace_photo` | `admin_item_replace_photo` | Replace item cover photo. Also sets needs_photo_verification=True, needs_new_photo=False, deletes old cover from ItemPhoto records (prevents carousel duplication). Returns JSON {success, photo_url}. Admin. |
 | `GET /admin/storage/template` | `admin_storage_template` | Download xlsx template for bulk storage unit import. |
 | `POST /admin/storage/import` | `admin_storage_import` | Bulk import storage units from xlsx/csv. 2 MB file size gate. openpyxl `read_only=True, data_only=True` streaming to prevent OOM. Skips rows with empty name. Returns flash + redirect. Super admin only. |
 | `GET /admin/warehouse` | `admin_warehouse` | Warehouse Floor main page. Unit card grid with capacity battery bars, item counts, Full badges. Needs New Photo section (amber, collapsible). Photo Verification Queue (indigo, open by default). Global search. _has_ops_access(). |
@@ -576,11 +641,8 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /admin/warehouse/unit/<id>/toggle-full` | `admin_warehouse_toggle_full` | Toggle StorageLocation.is_full. On mark-full: snapshots current item volume into snapshot_capacity. Returns JSON {success, is_full, snapshot_capacity}. _has_ops_access(). |
 | `GET /admin/warehouse/search` | `admin_warehouse_search` | HTML partial. Params: q (text search), unit_id (scope to one unit). Returns item rows with inline "Select Unit" location picker and camera button for needs_new_photo items. `shift_id` param: when present, returns all items from sellers on that shift (no status filter); uses `warehouse_route_results.html` partial instead of `warehouse_search_results.html`. _has_ops_access(). |
 | `GET /admin/warehouse/routes` | `admin_warehouse_routes` | HTML partial — shift chip list sorted most-recent-first, omitting shifts with zero seller items. `_has_ops_access()`. |
-| `GET /admin/warehouse/seller-search` | `admin_warehouse_seller_search` | JSON seller search for Log Item modal. Param: q. Returns [{id, name, email}]. _has_ops_access(). |
-| `POST /admin/warehouse/log-item` | `admin_warehouse_log_item` | Create QC item from warehouse floor. seller_mode: internal/existing/new. Returns JSON {success, item_id, unit_id}. _has_ops_access(). |
-| `POST /admin/warehouse/seller/create` | `admin_warehouse_create_seller` | Create proxy seller (name + email or phone). payout_rate=50, is_proxy_account=True. Returns JSON {success, seller_id, seller_name}. _has_ops_access(). |
+| `POST /admin/warehouse/bulk-move` | `admin_warehouse_bulk_move` | Bulk-move items between storage units. _has_ops_access(). |
 | `POST /admin/item/<id>/verify-photo` | `admin_item_verify_photo` | Clear needs_photo_verification flag. Returns JSON {success}. _has_ops_access(). |
-| `POST /admin/item/<id>/delete-gallery-photo` | `admin_item_delete_gallery_photo` | Delete one ItemPhoto record by id. Cannot delete cover photo. Returns JSON {success}. _has_ops_access(). |
 | `GET /admin/ai/generate` | `admin_ai_generate_page` | AI autofill generation page. Stats (eligible count, last run), model selector, run form, live progress bar, history. Super admin only. |
 | `POST /admin/ai/generate/run` | `admin_ai_generate_run` | Start background AI generation job (threading). Returns JSON {job_id}. Super admin only. |
 | `POST /admin/ai/generate/cancel` | `admin_ai_generate_cancel` | Cancel a stuck/running job by job_id. Returns JSON {success}. Super admin only. |
@@ -589,6 +651,9 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `GET /admin/ai/item/<id>/detail` | `admin_ai_review_detail` | HTML partial (no layout) for AI review modal content. Gallery with set-as-cover and delete buttons, editable fields, retail/savings display, "Flag for new photo" checkbox. Super admin only. |
 | `POST /admin/ai/item/<id>/approve` | `admin_ai_approve` | Write staged AI fields (ai_description→description, ai_long_description→long_description, ai_price→price, ai_retail_price→retail_price) to live fields. Set ai_approved=True, ai_review_pending=False. Accepts needs_new_photo=1 to flag photo replacement. Returns JSON. Super admin only. |
 | `POST /admin/ai/item/<id>/discard` | `admin_ai_discard` | Clear all ai_* staged fields, set ai_review_pending=False. Returns JSON. Super admin only. |
+| `POST /admin/ai/item/<id>/reset` | `admin_ai_reset` | Clear AI fields + ai_generated_at so the item re-enters the autofill-eligible queue. Returns JSON. Super admin only. |
+| `GET /admin/ai/generate` | `admin_ai_generate_page` | Manual AI-autofill control page (counts, model selector, run button, run history). Renders `admin/ai_generate.html`. Standalone page (not linked in nav); the automatic `_ai_queue` worker is the primary path. The companion `/admin/ai/generate/run\|status\|cancel` JSON endpoints are also triggered from the items.html approval modal. |
+| `GET /admin/ai/review` | `admin_ai_review_queue` | AI review queue — card grid of items with ai_review_pending=True. Renders `admin/ai_review.html`. The same review/approve/discard actions are also embedded in the items.html approval modal via the `/admin/ai/item/<id>/*` partials. |
 | `POST /admin/ai/item/<id>/set-cover-photo` | `admin_ai_set_cover_photo` | Swap a gallery photo (ItemPhoto) to become the cover: sets item.photo_url to the gallery photo's URL, moves old cover into an ItemPhoto record. Returns JSON {success, cover_url}. Super admin only. |
 | `GET /admin/diag` | `admin_diag` | Diagnostic page showing DB table row counts. Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |
@@ -626,6 +691,22 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /crew/quick_capture` | `crew_quick_capture` | Create item from driver photo. Returns JSON {success, item_id}. Worker-approved guard. |
 | `POST /crew/quick_capture/<id>/delete` | `crew_quick_capture_delete` | Hard delete own capture (captured_by_id guard, is_quick_capture guard, status IN pending_valuation/needs_info). |
 
+### Delivery Routes (Spec D1)
+Delivery vs pickup is determined at the truck level by the presence of `DeliveryStop` (delivery) vs `ShiftPickup` (pickup) records — `shift_type` is NOT a stored column. A truck cannot mix both (guarded in the add-stop and assign-seller routes).
+
+| Route | Function | Notes |
+|---|---|---|
+| `GET /admin/ops/delivery-queue` | `admin_ops_delivery_queue` | HTML partial — paid BuyerOrders awaiting delivery assignment. `_has_ops_access()`. |
+| `POST /admin/delivery/shift/<shift_id>/add-stop` | `admin_delivery_add_stop` | Add a DeliveryStop (buyer order) to a shift+truck. Blocks if the truck has ShiftPickups. |
+| `POST /admin/delivery/shift/<shift_id>/remove-stop/<stop_id>` | `admin_delivery_remove_stop` | Remove a DeliveryStop. |
+| `POST /admin/delivery/stop/<stop_id>/notify` | `admin_delivery_notify_stop` | Notify buyer of delivery window. |
+| `GET /admin/ops/delivery-truck-detail` | `admin_ops_delivery_truck_detail` | HTML partial for delivery truck drawer. Params: shift_id, truck. |
+| `GET /crew/delivery/<shift_id>` | `crew_delivery_view` | Phone-optimized mover delivery view (analogous to crew_shift_view). |
+| `GET /crew/delivery/<shift_id>/stops-partial` | `crew_delivery_stops_partial` | Stop list partial for auto-refresh. |
+| `POST /crew/delivery/<shift_id>/start` | `crew_delivery_start` | Create DeliveryRun. |
+| `POST /crew/delivery/stop/<stop_id>/update` | `crew_delivery_stop_update` | Mark a delivery stop completed/issue; sets BuyerOrder.delivered_at on completion. |
+| `POST /crew/delivery/<shift_id>/end` | `crew_delivery_end` | Close DeliveryRun. |
+
 ### Shift Scheduling (Admin)
 | Route | Function | Notes |
 |---|---|---|
@@ -645,8 +726,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | `POST /api/upload_session/create` | `create_upload_session` | Create QR session token |
 | `GET /api/upload_session/status` | `upload_session_status` | Poll for mobile uploads |
 | `POST /api/photos/stage` | `stage_draft_photos` | Stage computer-picked photos to temp storage for draft saving (login required) |
-| `POST /upgrade_payout_boost` | `upgrade_payout_boost` | Create $15 Stripe Checkout Session for payout boost (login required) |
-| `GET /upgrade_boost_success` | `upgrade_boost_success` | Post-payment confirmation page |
+| `POST /api/photo/upload_temp` | `api_photo_upload_temp` | Upload a single temp photo (mobile/QR flow) |
 | `GET/POST /upload_from_phone` | `upload_from_phone[_post]` | Mobile upload page |
 | `POST /upload_video_from_phone` | `upload_video_from_phone_post` | |
 
@@ -654,6 +734,7 @@ Relationships: item → InventoryItem, shift → Shift, intake_record → Intake
 | Route | Function | Notes |
 |---|---|---|
 | `POST /api/item/<id>/acknowledge_price_change` | `acknowledge_price_change` | Dismiss price-change badge |
+| `GET /api/subcategories/<parent_id>` | `api_subcategories` | JSON list of subcategories for a parent category |
 | `GET /health` | `health_check` | Render health check |
 
 ---
@@ -708,7 +789,7 @@ crew/schedule_week_partial.html — Full crew calendar injected into modal; M/O 
 crew/shift.html                — Phone-optimized mover shift view: stops in stop_order; Navigate → button; stairs/elevator badge; 30s auto-refresh of #stop-list via stops_partial; pre-start/in-progress/past states; inline notes; retroactive complete; seller phone as tel: link per stop card; two-option issue-type picker (Seller wasn't home / Item or access problem) with hidden issue_type input; destination unit banner (📦 Drop off at: Unit X) from truck_unit_plan
 crew/stops_partial.html        — HTML partial (no layout): stop list for current mover's truck; used by 30s setInterval auto-refresh fetch
 crew/intake.html               — Organizer intake page: truck sections with received/total counters, item search, bottom-sheet modal for submission; responsive (960px+ two-column, 760px+ trucks grid)
-crew/_intake_modal.html        — Bottom-sheet modal partial embedded in crew/intake.html
+(intake submission modal markup is inline in crew/intake.html — there is no separate crew/_intake_modal.html partial)
 crew/intake_search_results.html — Partial rendered via fetch into #search-results; shows item photo, ID, seller name
 admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form; Delete Week button (draft-only); Storage Units link
 admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
@@ -733,7 +814,15 @@ admin/tutorial_overlay.html    — Overlay partial included in schedule_index, c
 admin/cd_settings.html         — CD Settings page: tutorial status, Retake/Continue/Start button
 parents.html                   — Parents landing page
 inventory_teaser.html          — Pre-launch blurred mosaic + email capture (shown when shop_teaser_mode='true')
-checkout_delivery.html         — Buyer delivery address form with geocoding + radius check
+cart.html                      — Cart page: line items, remove buttons, bundle/delivery summary, checkout button (Spec B)
+checkout_delivery.html         — Buyer delivery address form with geocoding + zone calc (Spec A; cart-based)
+checkout_review.html           — Order review: subtotal, delivery fee, bundle/flexible discount, sales tax, total → Stripe (Spec A/B)
+claim_account.html             — Proxy-seller account claim page (token link)
+admin/ops_delivery_queue_partial.html — Delivery queue partial: paid BuyerOrders awaiting delivery assignment (Spec D1)
+admin/ops_delivery_truck_detail.html  — Delivery truck drawer partial (Spec D1)
+admin/ops_truck_detail.html    — Pickup truck drawer partial (loaded into ops truck detail drawer)
+admin/item_detail_partial.html — Generic admin item detail partial
+admin/pv_detail_partial.html   — Photo-verification detail partial
 crew/shift_end_confirm.html    — End Shift confirmation page: stop summary, warning, confirmed POST
 crew/shift_history.html        — Read-only completed shift item history for mover's truck; linked from crew dashboard
 crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew/dashboard.html and crew/shift.html): getUserMedia rear camera, file-input fallback, notes field, full state reset on open
@@ -746,9 +835,10 @@ admin/ops_unit_picker_partial.html  — Unit picker card grid (no layout). Activ
 admin/warehouse_routes_partial.html — Warehouse route browse shift chip list (no layout). Each chip: shift label, item count, data-shift-id.
 admin/warehouse_route_results.html  — Warehouse route browse item results (no layout). Same structure as warehouse_search_results.html but shows all items from shift sellers (no status filter); green unit chip if already placed.
 admin/warehouse_log_modal.html — Log Item 4-step modal partial (photo → category → location → seller). Three seller modes: Campus Swap internal, existing seller (live search via seller-search endpoint), new proxy seller (name + email/phone).
-admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set-location. Green unit chip shown when item already has storage_location_id set (instead of showing nothing).
-admin/ai_generate.html         — AI autofill generation page. Eligible item count, last run stats, model selector, batch size, Run button, live progress bar (polling /status), results table, error count. Extends admin_layout.html.
-admin/ai_review.html           — AI review queue. Card grid of items with ai_review_pending=True. Each card shows cover photo, AI-suggested title + price + retail. Click opens slide-in modal with detail partial.
+admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set_location. Green unit chip shown when item already has storage_location_id set (instead of showing nothing).
+admin/ai_generate.html         — Manual AI-autofill control page: eligible count, last-run stats, model selector, Run button, live progress, run history. Standalone (not nav-linked); the automatic _ai_queue worker is the primary generation path.
+admin/ai_review.html           — AI review queue: card grid of items with ai_review_pending=True; opens the AI review modal. Same actions are embedded in the items.html approval modal.
+admin/needs_info.html          — Quick-capture completion queue (is_quick_capture items in pending_valuation/needs_info). Reached via the admin_request_info redirect.
 admin/ai_review_detail_partial.html — AI review modal content (no layout). Gallery carousel with "★ Set as cover" and "Delete" buttons on non-cover slides. Editable title, description, price, retail_price inputs. Savings callout display. "Flag for new photo" checkbox. Approve and Discard buttons.
 _battery_macro.html            — Reusable Jinja2 macro `battery_bar(pct, is_full)`. Renders capacity battery bar: green 75–100%, amber 40–74%, red <40%, striped dark-red >100%, grey if pct is None. Included in warehouse.html and warehouse_unit_partial.html.
 _qc_camera_block.html          — Reusable camera capture block (getUserMedia rear-camera + file-input fallback + thumbnail preview). Included in crew/quick_capture_modal.html and warehouse log/replace-photo modals.
@@ -760,10 +850,15 @@ _qc_camera_block.html          — Reusable camera capture block (getUserMedia r
 
 ### Item Status Lifecycle
 ```
-pending_valuation → (admin approves) → approved → (seller confirms logistics) → available → (sold) → sold
+pending_valuation → (admin approves, sets price + ai_approved) → available → (sold) → sold
                   → (admin rejects) → rejected
                   → (admin requests info) → needs_info → (seller resubmits) → pending_valuation
                                                        → (admin cancels request) → pending_valuation
+
+NOTE: the intermediate 'approved' status is vestigial — it is in the allowed-values list but is never
+assigned by any route. Approval sets status DIRECTLY to 'available' (admin_approve_unified). The
+InventoryItem statuses actually written in code are: pending_valuation, needs_info, available, sold, rejected.
+(The 'pending'/'paid' statuses belong to Order; 'draft'/'published' to ShiftWeek; 'completed' to ShiftRun/stops.)
 
 Operational milestones (don't change status):
   picked_up_at         — item collected from seller
@@ -793,24 +888,21 @@ Six stages (account-level, not per-item):
 Active stage = first False condition. Interrupt callout (amber, below message) for `needs_info` items or pickup issue stops.
 
 ### Payout Rate / Referral Program
-The two-tier Pro/Free system is replaced by a referral-driven payout rate stored on `User.payout_rate`.
+Payout is a flat stored percentage on `User.payout_rate`. The old two-tier Pro/Free fee model is gone.
 
-| Starting situation | payout_rate |
-|--------------------|-------------|
-| New seller, no referral code | 20% (base rate) |
-| New seller who used a referral code | 30% (base + signup bonus) |
-| Referrer, per confirmed referral | +10% per referral, up to 100% |
+⚠️ **The automatic referral-driven escalation described in earlier versions of this doc is NOT implemented.** Verified against current code:
+- No route or helper ever creates a `Referral` record (`Referral(...)` is never instantiated).
+- `referred_by_id` is never written.
+- There is no `calculate_payout_rate`, `apply_referral_code`, or `maybe_confirm_referral_for_seller` function.
+- The `referral_base_rate` / `referral_signup_bonus` / `referral_max_rate` / `referral_program_active` AppSetting keys are never read.
 
-- `collection_method` field is retained on `InventoryItem` but no longer drives payout — `User.payout_rate` is used everywhere.
-- Payout amount: `item.price * (seller.payout_rate / 100)`. No Pro/Free distinction.
-- Referral is confirmed when `InventoryItem.arrived_at_store_at` is set during organizer intake — exactly one credit per referred seller regardless of item count.
-- `calculate_payout_rate(user)` recalculates from AppSettings: `base_rate + (signup_bonus if referred_by_id else 0) + (confirmed_count × bonus_per_referral)`, capped at `max_rate`. Result written to `User.payout_rate` at confirmation time.
-- `/upgrade_pickup` and `/upgrade_checkout` routes left in place (return redirect) to avoid broken bookmarks. UI entry points removed.
-- The $15 Pro fee is gone. `has_paid` retained harmlessly.
-- Referral program AppSetting keys: `referral_base_rate` ('20'), `referral_signup_bonus` ('10'), `referral_bonus_per_referral` ('10'), `referral_max_rate` ('100'), `referral_program_active` ('true').
-- All new sellers still get `collection_method='free'` by default (field not removed).
+What actually exists:
+- `User.payout_rate` (Integer). Model default 50. Proxy-seller and tutorial-seed creation set it to 20 explicitly; regular `register()` does not set it (falls to the model default).
+- Payout amount: `item.price * (seller.payout_rate / 100)`. Used in `/admin/payouts` and exports.
+- `User.referral_code` is generated by `_gen_referral_code()` only at proxy-seller creation. The `Referral` model and `referred_by_id` column exist but are dormant.
+- `collection_method` field is retained on `InventoryItem` but does not drive payout.
+- `/upgrade_pickup` and `/upgrade_checkout` routes left in place (return redirect) to avoid broken bookmarks. UI entry points removed. The $15 Pro fee is gone; `has_paid` retained harmlessly.
 - Pickup week is set per-user (`User.pickup_week`) during onboarding (optional, skippable) or from the dashboard modal at any time.
-- The admin free-tier confirm/reject system is commented out from active UI; preserved for ops flexibility.
 
 ### Admin Roles
 - `is_admin`: access to admin panel (inventory, approvals, free-tier management)
@@ -845,6 +937,22 @@ Delete: mover can hard-delete own captures (photo + DB) while status is `pending
 
 QC items are excluded from: standard approval queue, approval digest email, pending-items counts in admin stats bar.
 
+### AI Autofill Pipeline
+When an item is submitted, its id is enqueued to an in-process `_ai_queue` (`queue.Queue`) drained by a single daemon thread (`_ai_queue_worker`) — items process one at a time to avoid the multi-item crash that the old batch run caused. The seller never waits on it.
+
+- `_process_single_item_ai(app, item)` runs two phases: (1) OpenAI `gpt-image-1` background-replacement photo enhancement (skipped if `OPENAI_API_KEY` absent; failures are caught and logged, text still proceeds), (2) Anthropic vision+text generation that writes `ai_description`, `ai_long_description`, `ai_price`, `ai_retail_price` and sets `ai_review_pending=True`.
+- **Success sentinel is `ai_description IS NOT NULL`** — not `ai_generated_at`. Retries are bounded by `ai_retry_count` (hard stop at `_AI_MAX_RETRIES = 3`). On a failure under the cap, `ai_generated_at` is reset to NULL so the startup requeue retries it; at the cap it's left set and the item is given up on.
+- `_ai_startup_requeue()` runs ~5s after boot and re-enqueues every item with `ai_description IS NULL AND ai_retry_count < 3` and a photo — recovering items orphaned by a crash/restart mid-generation.
+- Admin approval (`/admin/item/<id>/approve-unified`) copies the staged `ai_*` fields onto the live fields, sets `ai_approved=True` and `status='available'`. The approval modal's Approve button is always enabled — the "AI processing…" banner is informational only.
+
+### Cart, Delivery Fees & Bundle (Spec A + B)
+- **Cart:** one `Cart` per logged-in user or per guest `cart_token` (session). Guest carts merge into the user's cart on login/register (`_merge_guest_cart_into_user`). Adding an item creates a `CartItem`; an item is "held" (unavailable to others) only while its cart's `updated_at` is within `cart_hold_minutes` — expiry is computed at read time, no cron.
+- **Delivery fee:** zone-based (Spec A). `calculate_delivery_zone(distance_miles)` maps distance to a zone via `delivery_zone_boundaries`; beyond the final boundary (~20 mi) delivery is unavailable. Fee comes from `delivery_zone_fees`.
+- **Sales tax:** `compute_sales_tax(item_price)` — `sales_tax_rate` (default 7.25%) applied to item price only, never to the delivery fee.
+- **Bundle & Save:** when cart `item_count >= bundle_min_items` (default 2), `delivery_fee` is set to 0 and `bundle_free_delivery=True`.
+- **Flexible delivery:** optional discount applied through a Stripe Coupon (`stripe_flexible_coupon_id`), not a negative line item.
+- **Order flow:** `checkout_review` creates a pending `Order` (status `'pending'`) before redirecting to Stripe. Items are marked sold ONLY in the Stripe webhook (source of truth). A double-sale guard sets `Order.has_conflict` / raises a `SellerAlert` if an item was already sold. Legacy per-item checkout URLs are preserved as redirects into the cart flow.
+
 ### Worker / Crew Accounts
 - Users apply at `/crew/apply` — sets `worker_status='pending'`, creates `WorkerApplication`
 - Admin approves/rejects at `/admin/crew/approve|reject/<user_id>`
@@ -866,8 +974,12 @@ QC items are excluded from: standard approval queue, approval digest email, pend
 - `current_store`: store name for display
 - `store_open_date`: date string shown on inventory banner when store not yet open
 - `shop_teaser_mode`: 'true' → `/inventory` shows blurred mosaic + email capture (pre-launch); 'false'/absent → normal shop
-- `warehouse_lat` / `warehouse_lng`: warehouse coordinates for delivery radius check (fail-open if absent)
-- `delivery_radius_miles`: max delivery distance, default '50'
+- `warehouse_lat` / `warehouse_lng`: warehouse coordinates — origin for delivery distance/zone calculation (fail-open if absent)
+- `delivery_zone_boundaries` / `delivery_zone_fees`: zone-based delivery pricing (Spec A). Replaced the old `delivery_radius_miles` radius model. Beyond the final boundary (≈20 mi), delivery is unavailable.
+- `sales_tax_rate`: sales tax applied to item price only (never to delivery fee). Default 7.25%.
+- `flexible_delivery_discount` / `stripe_flexible_coupon_id`: flexible-delivery discount applied via a Stripe Coupon (not a negative line item)
+- `cart_hold_minutes`: how long a CartItem holds an item before it frees up (lazy, read-time expiry)
+- `bundle_min_items`: cart size (default 2) at which delivery becomes free (Bundle & Save)
 
 ### Shop / Inventory Visibility
 The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies these filters:
@@ -883,10 +995,11 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
 **Shop teaser mode:** When AppSetting `shop_teaser_mode == 'true'`, `/inventory` renders `inventory_teaser.html` (blurred mosaic + email capture) instead of the shop. The toggle is on the Admin Settings page.
 
 ### Stripe Integration
-- Item purchase: standard Checkout Session
-- Pro pickup fee ($15): Checkout Session at onboarding or confirm_pickup
-- Payment method save: SetupIntent (for deferred charge at pickup)
-- Stripe webhook at `/webhook` handles all post-payment state changes
+- Cart checkout: Checkout Session created from `checkout_review` (with delivery fee, tax, optional flexible-delivery coupon). A pending `Order` is created before redirect.
+- Single-item purchase: `buy_item` Checkout Session.
+- Payment method save: SetupIntent (legacy deferred-charge path).
+- Stripe webhook at `/webhook` is the source of truth for all post-payment state: it marks items sold, sets `Order.status='paid'`, and handles both cart orders (metadata `type='cart_order'`, webhook CASE 0) and legacy single-item purchases (CASE 1). Idempotency via `stripe_checkout_session_id`; double-sale guard via `has_conflict` / `SellerAlert`.
+- The old $15 Pro pickup fee is gone (`/upgrade_*` routes return redirects).
 
 ---
 
@@ -935,17 +1048,13 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
 
 18. **CSRF in inline `<script>` blocks** — `layout.html` does NOT include a `<meta name="csrf-token">` tag. Calling `document.querySelector('meta[name=csrf-token]').content` returns `null` and throws silently. Always render the token into a JS variable using Jinja2: `const _csrf = '{{ csrf_token() }}';` at the top of the template's `<script>` block.
 
-    **Nav badge context processor:** `inject_nav_counts` injects `ai_review_pending_count` (super admin only) — the count of items with `ai_review_pending=True`. The old `qc_pending_count` / `inject_qc_pending_count` has been removed; the QC nav badge is gone.
+    **Nav badge context processor:** the context processor is `inject_qc_pending_count` (there is no `inject_nav_counts`). It injects three values: `qc_pending_count` (quick-capture items in pending_valuation/needs_info), `ai_review_pending_count` (items with `ai_review_pending=True`), and `items_pending_total` (approval-queue count + ai_review count).
 
 19. **openpyxl bulk import** — xlsx files have 1,048,576 rows by default. Always open with `read_only=True, data_only=True` to stream rows rather than load the full sheet into RAM. Also gate on a 2 MB file size check before loading. See `admin_storage_import` in `app.py`.
 
 20. **Startup `db.create_all()`** — runs unconditionally at every app startup (not just when `DATABASE_URL` is absent). Required so a fresh Postgres database gets all tables on first deploy. `db.session.rollback()` is called in both seed exception handlers to prevent Postgres transaction abort cascade (one failed query aborts the entire session until an explicit rollback).
 
-16. **Referral program helpers** — four functions in `app.py` (also re-exported via `helpers.py` for tests):
-    - `generate_unique_referral_code()` — 8-char uppercase alphanumeric (excludes O, 0, I, 1), collision-checked against DB.
-    - `apply_referral_code(new_user, code)` — looks up referrer, sets `referred_by_id`, bumps `payout_rate` by signup bonus. No-op if program inactive or code invalid.
-    - `maybe_confirm_referral_for_seller(seller)` — call in `crew_shift_stop_update` when stop becomes `'completed'`. Confirms the referral (once per seller, idempotent), recalculates referrer's rate, sends email. No-op if program inactive, no `referred_by_id`, or already confirmed.
-    - `calculate_payout_rate(user)` — `base + (signup_bonus if referred_by_id) + (confirmed × bonus_per)`, capped at max. All values from AppSettings. **Includes signup bonus in the recalculation** so a referred seller who also refers others doesn't lose their signup bonus when their rate is recalculated.
+16. **Referral helpers** — ⚠️ STALE. Earlier docs described `generate_unique_referral_code`, `apply_referral_code`, `maybe_confirm_referral_for_seller`, and `calculate_payout_rate`. **None of these functions exist in the codebase.** The only referral-related helper is `_gen_referral_code()` (8-char code, used at proxy-seller creation). The automatic referral-confirmation / payout-escalation flow is not implemented (see Payout Rate / Referral Program above).
 
 21. **422 gate for prerequisite actions** — `admin_shift_assign_seller` returns 422 `{error: 'unit_required', truck_number: N}` when the first stop is being added to a truck that has no unit assigned in `truck_unit_plan`. The frontend JS catches the 422 status code to distinguish "you need to do something first, then retry" from a 400 bad-request. After the unit picker modal completes and a unit is assigned, the form is retried automatically.
 

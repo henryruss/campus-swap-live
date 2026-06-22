@@ -9,9 +9,130 @@
 
 ## Current State
 
-**Last updated:** 2026-05-29
+**Last updated:** 2026-06-21
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Session 2026-05-28: AI Autofill, Warehouse Floor, Shop Drop improvements (retail price, infinite scroll, ai_approved gate), Photo Verification Queue. Session 2026-05-29: Required Unit Assignment with Visual Picker + Warehouse Route Browse built. In uncommitted changes — need commit + deploy.
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill now runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). The approval-modal Approve button is no longer gated on AI completion.
+
+---
+
+## Features Built This Session (2026-06-21)
+
+### AI Autofill — Background Queue Worker + Bounded Retries
+
+**Status:** In production
+**Verified in code:** `app.py` (`_ai_queue`, `_ai_queue_worker`, `_process_single_item_ai`, `_ai_startup_requeue`, `_AI_MAX_RETRIES`), `models.py` (`InventoryItem.ai_retry_count`), `templates/admin/items.html`
+
+Reworks AI autofill from the per-run batch thread into an always-on single-worker queue that processes items one at a time as they are submitted.
+
+**New model field on `InventoryItem`:**
+- `ai_retry_count` (Integer, `default=0`, `nullable=False`, `server_default='0'`) — incremented on each failed AI attempt. Hard stop at `_AI_MAX_RETRIES = 3`.
+
+**New module-level machinery (`app.py`):**
+- `_ai_queue = queue.Queue()` — single global work queue.
+- `_ai_queue_worker()` — daemon thread (`_ai_worker_thread`) that pulls `(app_ctx, item_id)` tuples and processes one item at a time. Skips items where `ai_retry_count >= _AI_MAX_RETRIES`. On failure, increments `ai_retry_count`; if retries remain, resets `ai_generated_at` to NULL so the item is re-eligible.
+- `_process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase=None)` — does OpenAI photo enhancement (`gpt-image-1` via `images.edit`, gated on `OPENAI_API_KEY`) plus Anthropic text generation (`anthropic.Anthropic()`, model from `ai_autofill_model` AppSetting, default `claude-sonnet-4-6`).
+- `_ai_startup_requeue()` — runs on a startup daemon thread (after a 5s sleep); re-enqueues all items with `status NOT IN ('rejected','sold')`, `ai_description IS NULL`, `ai_retry_count < _AI_MAX_RETRIES`, and a non-empty `photo_url`. Covers both never-attempted and failed-but-retryable items.
+
+**Enqueue points:** items are pushed onto `_ai_queue` on submit from the seller add-item flows, `onboard_guest_save`, `add_item`, crew quick capture, and the admin AI generate-run path (verified `_ai_queue.put(...)` calls at multiple submit sites).
+
+**Approval modal change (`templates/admin/items.html`):** the Approve button in the approval modal is no longer disabled while AI is still running. The AI banner is now informational only — `approveBtn.disabled = false` is set unconditionally ("Approve is always enabled — AI banner is informational only").
+
+**No migration documented here** — `ai_retry_count` column must exist in production (`flask db upgrade` on Render if not yet applied).
+
+---
+
+## Features Built This Session (2026-06-18)
+
+### Spec B — Cart / Bundle & Save
+
+**Status:** In production
+**Spec file:** `feature_cart_bundle.md`
+**Verified in code:** routes `cart_add`, `cart_remove`, `cart_view`, `cart_checkout`, `checkout_delivery`, `checkout_review`; models `Order`, `Cart`, `CartItem`; helpers around `cart_token`, `cart_hold_minutes`, `bundle_min_items`
+
+Adds a multi-item cart, guest carts, item hold logic, and bundle-free-delivery to the buyer flow.
+
+**New models (`models.py`):**
+- `Order` — parent order (status `pending` → `paid`). Fields include `buyer_id`, buyer email/name, delivery fields, `distance_miles`, `delivery_zone`, `delivery_fee`, `bundle_free_delivery`, `is_flexible_delivery`, `flexible_discount`, `sales_tax`, `items_subtotal`, `total_paid`, `stripe_checkout_session_id`, `has_conflict`, `created_at`, `paid_at`; `line_items` relationship → `BuyerOrder`.
+- `Cart` — `user_id`, `session_token`, `created_at`, `updated_at`; `cart_items` → `CartItem`.
+- `CartItem` — `cart_id`, `item_id`, `added_at`; unique on `(cart_id, item_id)`.
+- `BuyerOrder` gained `order_id` (FK → `Order`) plus `item_price_paid`, `item_sales_tax`, `delivered_at` and per-line copies of the delivery/tax fields (it is now a per-item line of an `Order`).
+
+**New routes (`app.py`):**
+- `POST /cart/add/<int:item_id>` → `cart_add`
+- `POST /cart/remove/<int:item_id>` → `cart_remove`
+- `GET /cart` → `cart_view`
+- `POST /cart/checkout` → `cart_checkout`
+- `GET/POST /checkout/delivery` → `checkout_delivery`
+- `GET/POST /checkout/review` → `checkout_review`
+
+**Legacy per-item checkout routes preserved as redirects:**
+- `GET/POST /checkout/delivery/<int:item_id>` → `checkout_delivery_legacy`
+- `GET /checkout/pay/<int:item_id>` → `checkout_pay`
+- `GET/POST /checkout/review/<int:item_id>` → `checkout_review_legacy`
+
+**Key behavior:**
+- Guest carts keyed by `cart_token` in session; merged into the user's cart on login/register.
+- Item hold expiry is lazy (no cron): `cart_hold_minutes` AppSetting (default `'30'`) drives a cutoff; an item in another cart updated within the window is treated as held.
+- Bundle & Save: `item_count >= bundle_min_items` (AppSetting `bundle_min_items`, default `'2'`) → `delivery_fee = 0` and `bundle_free_delivery = True`.
+- A pending `Order` is created before the Stripe redirect; items are only marked sold in the webhook (Stripe webhook remains the source of truth). Webhook handles `type='cart_order'` metadata in addition to the legacy single-item path.
+
+---
+
+## Features Built This Session (2026-06-14)
+
+### Spec A — Delivery Fees (Zone Pricing + Sales Tax)
+
+**Status:** In production
+**Spec file:** `feature_delivery_fees.md`
+**Verified in code:** helpers `calculate_delivery_zone`, `compute_sales_tax`; route `checkout_review`; webhook idempotency guard; `models.py` BuyerOrder fields
+
+Replaces the flat 50-mile free-delivery model with zone-based delivery pricing plus sales tax.
+
+**New helpers (`app.py`):**
+- `calculate_delivery_zone(distance_miles)` — zone-based pricing with a 20-mile cutoff (replaces the old 50-mile radius check).
+- `compute_sales_tax(item_price)` — 7.25% on item price only (never on the delivery fee).
+- `_to_cents(...)` — money conversion helper.
+
+**New / changed routes (`app.py`):**
+- `GET/POST /checkout/review` → `checkout_review` (new in this spec; later generalized in Spec B).
+- `checkout_pay` reduced to a redirect.
+- `webhook` — added an idempotency guard keyed on `stripe_checkout_session_id` and a double-sale guard.
+
+**Model changes (`models.py`):** `BuyerOrder` gained `delivery_zone`, `delivery_fee`, `is_flexible_delivery`, `flexible_discount`, `sales_tax`, `distance_miles`, `items_subtotal`, `total_paid`, `stripe_checkout_session_id`. Migration: `buyer_order_delivery_fee_fields`.
+
+**Flexible Delivery:** implemented as a Stripe Coupon (not a negative line item). The `stripe_flexible_coupon_id` AppSetting must be populated for the toggle to appear.
+
+**Note:** All related AppSettings have hardcoded fallback defaults.
+
+---
+
+## Features Built This Session (2026-05-29) — Delivery Routes (Spec D1)
+
+### Spec D1 — Delivery Routes
+
+**Status:** In production
+**Spec file:** `feature_delivery_routes.md`
+**Verified in code:** models `DeliveryStop`, `DeliveryRun`; routes `admin_ops_delivery_queue`, `admin_delivery_*`, `crew_delivery_*`; `Shift.has_delivery_trucks` property
+
+Adds the crew-facing delivery (drop-off to buyers) counterpart to the existing pickup flow. Delivery vs. pickup is determined per-truck by the presence of `DeliveryStop` records (no stored `shift_type` column).
+
+**New models (`models.py`):**
+- `DeliveryStop` — `shift_id`, `buyer_order_id`, `truck_number`, `stop_order`, `status`, `notes`, `completed_at`, `notified_at`, `capacity_warning`, `created_at`, `created_by_id`; unique on `(shift_id, buyer_order_id)`.
+- `DeliveryRun` — `shift_id` (unique), `started_at`, `started_by_id`, `ended_at`, `status`.
+
+`Shift.has_delivery_trucks` is a computed property (counts `DeliveryStop` records).
+
+**New routes (`app.py`):**
+- `GET /admin/ops/delivery-queue` → `admin_ops_delivery_queue`
+- `POST /admin/delivery/shift/<int:shift_id>/add-stop` → `admin_delivery_add_stop`
+- `POST /admin/delivery/shift/<int:shift_id>/remove-stop/<int:stop_id>` → `admin_delivery_remove_stop`
+- `POST /admin/delivery/stop/<int:stop_id>/notify` → `admin_delivery_notify_buyer`
+- `GET /admin/ops/delivery-truck-detail` → `admin_ops_delivery_truck_detail`
+- `GET /crew/delivery/<int:shift_id>` → `crew_delivery_view`
+- `GET /crew/delivery/<int:shift_id>/stops-partial` → `crew_delivery_stops_partial`
+- `POST /crew/delivery/<int:shift_id>/start` → `crew_delivery_start`
+- `POST /crew/delivery/stop/<int:stop_id>/update` → `crew_delivery_stop_update`
+- `POST /crew/delivery/<int:shift_id>/end` → `crew_delivery_end`
 
 ---
 
@@ -88,7 +209,7 @@ Uses Claude vision API to generate title, description, price, and retail referen
 - `ai_retail_price` copied to live `retail_price` at approval time — shown to buyers on inventory cards and product pages
 - "Flag for new photo" checkbox on approval: sets `needs_new_photo=True`, `ai_approved=True` — item approved but hidden from shop until photo replaced
 
-**New routes:** `/admin/ai/generate`, `/admin/ai/review`, plus detail/approve/discard/set-cover-photo/delete-gallery-photo per item.
+**New routes:** `/admin/ai/generate`, `/admin/ai/review`, plus per-item `detail`/`approve`/`discard`/`reset`/`set-cover-photo`. *(Correction 2026-06-21: there is no `delete-gallery-photo` route — gallery photo deletion is handled inline in the AI review modal, not via a dedicated route. The full set is `/admin/ai/generate`, `/admin/ai/generate/run`, `/admin/ai/generate/cancel`, `/admin/ai/generate/status`, `/admin/ai/review`, `/admin/ai/item/<id>/detail`, `/admin/ai/item/<id>/approve`, `/admin/ai/item/<id>/discard`, `/admin/ai/item/<id>/reset`, `/admin/ai/item/<id>/set-cover-photo`.)*
 
 **Nav badge:** AI Review item in sidebar (super admin only), amber badge showing pending count.
 
@@ -125,6 +246,8 @@ Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 
 
 **Removed:** `GET /admin/items/needs_info` route and `admin/needs_info.html` template. QC nav badge removed. `qc_pending_count` context processor injection removed. QC items now surface via AI autofill pipeline.
 
+> **Correction 2026-06-21:** The `GET /admin/items/needs_info` route is still in the code (`admin_needs_info_queue`, app.py L15028) — it queries `is_quick_capture=True AND status IN ('pending_valuation','needs_info')` and renders `admin/needs_info.html`. It is reachable via the `admin_request_info` redirect when a QC item gets an info request. The `admin/needs_info.html` template had been deleted during consolidation, leaving the route to 500; it was **restored from git history on 2026-06-21** (along with `admin/ai_generate.html` and `admin/ai_review.html`, which had the same problem). All three routes now render correctly.
+
 **Crew quick capture:** Category selector added (required in UI, null-safe on backend). Camera block extracted to `_qc_camera_block.html` reusable partial.
 
 **Search:** Global search (debounced 300ms) + unit-scoped search. "Select Unit" inline picker expands below search result row. Camera button on needs_new_photo items in search results. "Update" link (which went to full edit form) removed — replaced with inline location picker only.
@@ -138,8 +261,11 @@ Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 
 
 ## What's Next
 
-- Commit + deploy the 2026-05-29 changes (Required Unit Assignment + Warehouse Route Browse)
-- Google Maps Static API key → provision and add to Render env vars for stop map images
+- **ACTION REQUIRED:** Create a Stripe Coupon for Flexible Delivery and store its id in AppSetting `stripe_flexible_coupon_id` (toggle is hidden until present).
+- **ACTION REQUIRED:** Run `flask db upgrade` on Render to apply `buyer_order_delivery_fee_fields` and the cart/bundle Order model migrations, plus the `ai_retry_count` column, if not already applied.
+- `OPENAI_API_KEY` env var required on Render for AI photo enhancement (separate from `ANTHROPIC_API_KEY`).
+- Spec D2 — Delivery Route Ordering (Google Maps integration) — not yet built.
+- Google Maps Static API key → provision and add to Render env vars for stop map images.
 
 ---
 
@@ -182,6 +308,12 @@ Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 
 - feature_campus_director_tutorial ✅ Complete 2026-05-21 (5-step onboarding tutorial for new campus directors; sandbox fixtures; step-gated overlay cards)
 - fix_auth_guard_audit ✅ Complete 2026-05-21 (5 crew/ops routes changed from is_admin to _has_ops_access for campus director access)
 - feature_storage_audit_and_placement ✅ Complete 2026-05-28 (storage audit tool, driver placement flow, storage unit management overhaul, bulk import, Postgres startup fix)
+- AI Autofill + AI Review Queue ✅ Complete 2026-05-28 (background generation, ai_approved shop gate, retail price, photo verification queue; routes `/admin/ai/generate`, `/admin/ai/review`, per-item detail/approve/discard/reset/set-cover-photo)
+- Warehouse Floor + Route Browse + Required Unit Assignment ✅ Complete 2026-05-29 (`/admin/warehouse`, `/admin/warehouse/routes`, ops unit picker)
+- Spec D1 — Delivery Routes ✅ Complete 2026-05-29 (DeliveryStop/DeliveryRun models; `/admin/ops/delivery-queue`, `/admin/delivery/*`, `/crew/delivery/*`)
+- Spec A — Delivery Fees ✅ Complete 2026-06-14 (zone pricing, sales tax, flexible-delivery coupon, webhook idempotency guard; BuyerOrder fee fields)
+- Spec B — Cart / Bundle & Save ✅ Complete 2026-06-18 (Order parent + BuyerOrder line, Cart/CartItem, guest carts, bundle free delivery; cart + checkout routes, legacy checkout redirects)
+- AI Autofill background queue + bounded retries ✅ Complete 2026-06-21 (`_ai_queue` worker, `ai_retry_count` hard stop at 3, startup requeue, approval Approve button un-gated)
 
 ---
 
@@ -200,8 +332,8 @@ Admin page to view and correct storage placement for all items across the wareho
 **New routes:**
 - `GET /admin/storage/audit` → `admin_storage_audit` — audit landing page
 - `GET /admin/storage/audit/search` → `admin_storage_audit_search` — HTML partial loaded via fetch; params: `q`, `status` (all/no_unit/no_zone/placed), `unit_id`. Returns `storage_audit_results.html`.
-- `POST /admin/item/<id>/set-location` → `admin_item_set_location` — update `storage_location_id + storage_row + storage_note`. Returns JSON.
-- `POST /admin/item/<id>/replace-photo` → `admin_item_replace_photo` — replace cover photo from audit tool. Returns JSON `{success, photo_url}`.
+- `POST /admin/item/<id>/set_location` → `admin_item_set_location` — update `storage_location_id + storage_row + storage_note`. Returns JSON. *(Correction 2026-06-21: route path uses an underscore (`set_location`), not a hyphen.)*
+- `POST /admin/item/<id>/replace_photo` → `admin_item_replace_photo` — replace cover photo from audit tool. Returns JSON `{success, photo_url}`. *(Correction 2026-06-21: the route path uses an underscore (`replace_photo`), not a hyphen.)*
 
 **New templates:** `admin/storage_audit.html`, `admin/storage_audit_results.html`
 
@@ -1396,7 +1528,7 @@ Crew intake:
 - New `Referral` table: `referrer_id` (FK → User), `referred_id` (FK → User, unique), `created_at`, `confirmed` (Boolean, default False), `confirmed_at` (nullable). `unique=True` on `referred_id` enforces one referrer per user at the DB level. Relationships: `referrer → User (backref referrals_given)`, `referred → User (backref referral_received, uselist=False)`.
 - `User.referral_code` — 8-char uppercase alphanumeric (excludes O, 0, I, 1). Generated at account creation. Unique constraint.
 - `User.referred_by_id` — FK → User, nullable. Set when a valid referral code is applied at signup.
-- `User.payout_rate` — Integer, default 20. Stored percentage, updated when referrals are confirmed. Used everywhere payout is calculated.
+- `User.payout_rate` — Integer, default 50 (models.py L69; was 20 at the time of the referral program — base rate has since been raised to 50). Stored percentage, updated when referrals are confirmed. Used everywhere payout is calculated.
 - Migration: `c177c356b023_add_referral_program`
 
 **New helper functions (`app.py`)**

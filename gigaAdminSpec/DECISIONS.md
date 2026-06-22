@@ -7,6 +7,63 @@
 
 ---
 
+## AI Autofill Retry & Approval Un-gating (2026-06-21)
+
+### Decision: `ai_retry_count` caps automatic retries at 3 (`_AI_MAX_RETRIES = 3`)
+**Reasoning:** A permanently-failing item (corrupt photo, malformed API response, a category the model can't parse) would otherwise be re-enqueued on every app startup and every requeue pass, burning Anthropic API credits indefinitely on a request that will never succeed. `InventoryItem.ai_retry_count` (Integer, default 0) is incremented in the worker's `except` block; once it reaches `_AI_MAX_RETRIES` the item is skipped (`_run_ai_generation_single` returns early) and excluded from the startup requeue query. A super admin can still force a retry by clearing the AI fields via `/admin/ai/item/<id>/reset`.
+
+### Decision: Skip-guard keys on `ai_description IS NULL` (success sentinel), not `ai_generated_at`
+**Reasoning:** The original AI batch flow used `ai_generated_at` as both the success marker and the error sentinel (set on both success and giving-up). That conflation breaks the retry model: a failed attempt that should be retried can't be distinguished from a completed one by `ai_generated_at` alone. The automatic per-item worker (`_run_ai_generation_single`) now treats `ai_description IS NULL` as "not yet succeeded" — a non-null `ai_description` is the unambiguous success signal. On a retryable failure the worker resets `ai_generated_at` back to `NULL` (only setting it permanently once retries are exhausted), so the two fields no longer carry overlapping meaning. The legacy batch page (`admin_ai_generate_page`) still counts eligibility by `ai_generated_at IS NULL` — that manual flow is unchanged.
+
+### Decision: Startup requeue selects `ai_description IS NULL AND ai_retry_count < 3 AND photo_url set`
+**Reasoning:** On boot the app must re-enqueue two distinct populations — items that were never attempted, and items whose earlier attempt failed but still have retries left. Both collapse to the same predicate: no successful description yet (`ai_description IS NULL`), under the retry cap (`ai_retry_count < _AI_MAX_RETRIES`), and a usable photo (`photo_url` non-null/non-empty). `_ai_startup_requeue` runs in a daemon thread after a 5-second sleep (lets gunicorn finish binding) and pushes matching items onto the in-process AI queue. Items at or above the retry cap are intentionally excluded so they don't re-enter the loop.
+
+### Decision: Approval-modal Approve button is un-gated — AI banner is informational only
+**Reasoning:** The approval-queue modal previously disabled the Approve button until AI content finished generating, with no visual cue explaining why. Admins clicking a card whose AI hadn't completed found a silently dead button and couldn't approve at all — a hard block on a core action for a background process that may never finish (see retry cap above). The modal-open handler now always sets `approveBtn.disabled = false` and clears its title; the AI-status banner is purely informational. Approval no longer depends on AI completion — an admin can always approve with the price they enter, AI-assisted or not.
+
+---
+
+## Spec B — Cart / Bundle & Save (2026-06-18)
+
+### Decision: `Order` is the parent; `BuyerOrder` becomes a per-item line via `order_id` FK
+**Reasoning:** Spec A was single-item — one `BuyerOrder` per purchase. A multi-item cart needs one payment, one delivery address, and one Stripe session spanning several items, but still a per-item record for payout and fulfillment. `Order` holds the order-level facts (buyer, delivery address, zone, fee, tax total, `total_paid`, `status` pending→paid, `stripe_checkout_session_id`); each `BuyerOrder` line carries its own `item_id`, `item_price_paid`, and `item_sales_tax`. Existing single-item rows were backfilled with one `Order` per `BuyerOrder` so legacy data fits the new shape with no special-casing downstream.
+
+### Decision: Cart hold expiry is lazy via `cart_hold_minutes` AppSetting — no cron
+**Reasoning:** An item in someone's cart should be soft-held so two buyers don't race for it, but a hold that requires a background sweeper to expire adds an always-on cron with its own failure modes. Instead `item_is_held(item, exclude_cart_id)` computes the hold at read time: an item is held only if it sits in another cart whose `updated_at >= now - cart_hold_minutes` (default 30). Holds expire implicitly as the cutoff slides forward — no row ever needs to be touched to release a stale hold. AppSetting-driven so the window is tunable without a deploy.
+
+### Decision: Bundle & Save gives free delivery when `item_count >= bundle_min_items` (default 2)
+**Reasoning:** The growth incentive is to get buyers to consolidate purchases into one delivery run, which is also cheaper for ops (one stop, multiple items). When the cart hits the bundle threshold (`bundle_min_items` AppSetting, default 2) the delivery fee is zeroed and `Order.bundle_free_delivery = True`; `delivery_zone` is stored as `None` in that case since no zone fee applies. Flexible Delivery still works on bundles — because the fee is already $0, the $5 flexible discount comes off the order total instead of the fee (the `max(... , subtotal + tax - discount)` guard in `checkout_review`).
+
+### Decision: Pending `Order` created before the Stripe redirect; items marked sold only in the webhook
+**Reasoning:** The order row must exist before redirecting to Stripe so the webhook can look it up by `order_id` in the session metadata. But creating the order must not mark items sold — the Stripe webhook remains the single source of truth for payment state (project rule). `checkout_review` POST writes an `Order(status='pending')`, stamps the Stripe session id on it, and redirects; the webhook's CASE 0 (`metadata.type == 'cart_order'`) flips the order to `paid`, marks each still-`available` item sold, and creates the `BuyerOrder` lines. A double-sale guard (item already non-`available`) sets `Order.has_conflict` and raises a `SellerAlert` instead of silently overselling. CASE 1 handles the legacy single-item `item_purchase` path unchanged.
+
+### Decision: Guest carts via `cart_token` in session, merged into the user cart on login/register
+**Reasoning:** Buyers should be able to fill a cart before authenticating. `_get_active_cart()` keys an anonymous cart on a `cart_token` stored in the Flask session (and on `Cart.session_token`); a logged-in user's cart keys on `user_id`. `_merge_guest_cart_into_user(user)` runs on both login and register: it either re-points the guest cart to the user (if they had none) or copies still-`available` items into the existing user cart and deletes the guest cart, then clears the token. This avoids a buyer losing their cart the moment they sign in to check out.
+
+### Decision: Legacy per-item checkout URLs preserved as redirects
+**Reasoning:** Old emails and bookmarks point at `/checkout/delivery/<id>`, `/checkout/review/<id>`, and `/checkout/pay/<id>`. Rather than 404 them, each legacy route (`checkout_delivery_legacy`, `checkout_review_legacy`, `checkout_pay`) adds the item to the cart and forwards into the new order-level flow. Zero broken links, and all checkout logic lives in exactly one place (`checkout_delivery` / `checkout_review`).
+
+---
+
+## Spec A — Delivery Fees & Sales Tax (2026-06-14)
+
+### Decision: Flexible Delivery uses a Stripe Coupon, not a negative line item
+**Reasoning:** Stripe Checkout rejects line items with a negative `unit_amount`, so the $5 "flexible delivery" discount can't be modeled as a negative line. It's applied as a Stripe Coupon instead: the coupon id is stored in the `stripe_flexible_coupon_id` AppSetting and passed as `session_kwargs['discounts']` when the buyer opts in. The toggle is hidden entirely when the AppSetting is absent (`flexible_available = bool(coupon_id)`), so a missing/unconfigured coupon degrades to "no flexible option" rather than a checkout error. **ACTION REQUIRED:** the coupon must be created in the Stripe dashboard and its id stored in `stripe_flexible_coupon_id` for the option to appear.
+
+### Decision: Sales tax is 7.25% of item price only — never on the delivery fee
+**Reasoning:** Delivery is a service fee, not a taxable good, so tax applies to the item subtotal only. `compute_sales_tax(item_price)` reads the `sales_tax_rate` AppSetting (default `'0.0725'`), multiplies the item price, and rounds half-up to cents. The delivery fee is added to the Stripe total as its own untaxed line. All Spec A AppSettings carry hardcoded fallback defaults so a missing row never breaks checkout.
+
+### Decision: Zone-based pricing replaces the old 50-mile radius cutoff (20-mile max)
+**Reasoning:** A single flat radius couldn't price near vs. far deliveries differently. `calculate_delivery_zone(distance_miles)` walks `delivery_zone_boundaries` (default `5,10,15,20` miles, inclusive upper bounds) against `delivery_zone_fees` (default `15,20,25,30`) and returns `(zone, fee)` for the first boundary the distance falls within, or `None` beyond the last boundary (20 miles) — which blocks delivery rather than quoting an arbitrary far-distance price. Both lists are AppSetting-driven with fallbacks, so zones and fees are tunable without a deploy.
+
+### Decision: Webhook idempotency guard keys on `stripe_checkout_session_id`
+**Reasoning:** Stripe can redeliver a `checkout.session.completed` event, which would double-process a purchase (sell the item twice, send duplicate emails). The single-item path (CASE 1) checks for an existing `BuyerOrder` with the same `stripe_checkout_session_id` before doing anything and no-ops if found; the cart path (CASE 0) no-ops if the looked-up `Order` is already `status='paid'`. Both also hold a `with_for_update()` row lock on the item and treat an already-non-`available` item as a double-sale (alert + flag), so a redelivery or a genuine race is caught rather than silently overselling.
+
+### Decision: `checkout_review` is the new pricing/confirmation step; `checkout_pay` reduced to a redirect
+**Reasoning:** The order breakdown (subtotal, tax, zone fee, flexible/bundle discounts) needs a dedicated GET to show the buyer exactly what they'll pay before creating a Stripe session, and a POST that recomputes everything server-side (never trusting the session's cached `pending_delivery` figures) before creating the session. `checkout_review` (GET+POST) owns that; the old `checkout_pay` route is now just a redirect back to the product page (`product_detail`), with `checkout_review_legacy` forwarding into the new cart review when a pending order exists. Server-side recompute on POST re-fetches live cart items and re-derives bundle-free, zone fee, subtotal, and tax so a stale or tampered session can't change the price.
+
+---
+
 ## Required Unit Assignment + Warehouse Route Browse (2026-05-29)
 
 ### Decision: 422 response (not 400) for unit_required gate in admin_shift_assign_seller
@@ -925,8 +982,8 @@ The grid is already intuitive enough without a shortcut.
 ### Decision: Warehouse Log Item uses payout_rate=50 for new proxy sellers (vs 20 in existing proxy flow)
 **Reasoning:** Word-of-mouth sellers found at the warehouse are different from sellers who never engaged with Campus Swap. They're being asked to part with their item on the spot with no prior commitment. A higher payout rate (50%) is a stronger incentive to agree and trust the process. The existing proxy seller creation at `/admin/seller/create-proxy` uses 20% (for sellers who were pre-enrolled). Two different contexts, two different rates.
 
-### Decision: QC admin queue (`/admin/items/needs_info`) removed in favor of AI autofill pipeline
-**Reasoning:** The old queue required admins to manually fill in title, category, and price for every quick-capture item — tedious at any volume. With AI autofill, the same items are processed automatically and surface in the AI review queue with pre-filled data that admin only needs to verify and optionally edit. The dedicated QC queue was a manual workaround that becomes obsolete once AI autofill is running. Items created via quick capture (`is_quick_capture=True`) are fully eligible for AI autofill — same query, no special handling needed.
+### Decision: QC admin queue (`/admin/items/needs_info`) superseded by AI autofill pipeline (route retained)
+**Reasoning:** The old queue required admins to manually fill in title, category, and price for every quick-capture item — tedious at any volume. With AI autofill, the same items are processed automatically and surface in the AI review queue with pre-filled data that admin only needs to verify and optionally edit. The dedicated QC queue is a manual workaround that becomes obsolete once AI autofill is running. Items created via quick capture (`is_quick_capture=True`) are fully eligible for AI autofill — same query, no special handling needed. The `/admin/items/needs_info` route (`admin_needs_info_queue`) is kept in place as a fallback for items that still need manual completion — it was not deleted, just deprioritized.
 
 ### Decision: Infinite scroll on inventory page instead of pagination
 **Reasoning:** The shop is a browsing experience. Pagination interrupts browsing with a hard stop and a navigation action. Infinite scroll keeps the flow continuous — buyers scroll naturally and more content loads as they reach the bottom. The implementation uses IntersectionObserver with a 200px trigger threshold (loads next page before the user actually hits the bottom) and a server-side `?ajax=1` endpoint that returns rendered HTML fragments (no client-side template logic, consistent with server-rendered constraint).

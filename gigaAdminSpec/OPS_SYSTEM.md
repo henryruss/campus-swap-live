@@ -35,11 +35,11 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 | **Planned unit** | The `ShiftPickup.storage_location_id` (or truck entry in `Shift.truck_unit_plan`) — the destination a truck is expected to deliver to, set by admin before the shift. |
 | **Actual unit** | The `InventoryItem.storage_location_id` — where an item physically ended up, set by the organizer during intake. |
 | **Overflow truck** | A flex truck slot held in reserve to absorb rescheduled pickups |
-| **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Category is collected at capture time. Items are eligible for AI autofill (`ai_generated_at IS NULL`) and surface in the AI review queue after the next generation run. The dedicated admin queue at `/admin/items/needs_info` has been removed — QC items now flow through the AI autofill pipeline. |
+| **Quick Capture** | A field photo taken by a mover of a found/donated item with no existing listing. Creates an `InventoryItem` with `is_quick_capture=True`, `status='pending_valuation'`. Category is collected at capture time. Items are eligible for AI autofill (`ai_generated_at IS NULL`) and surface in the AI review queue after the next generation run. They also remain in the dedicated admin queue at `/admin/items/needs_info` (`admin_needs_info_queue`), which lists QC items in `pending_valuation`/`needs_info`. |
 | **Internal account** | The seeded "Campus Swap" user (`is_internal_account=True`) that owns donated or unclaimed items captured without an associated seller. `seller_id` on `InventoryItem` is never nullable — this account is the fallback. |
 | **Campus Director (CD)** | A privileged seller account (`is_campus_director=True`) that can access the admin ops panel via a role switcher in the nav. CDs are not `is_admin` or `is_super_admin`. They see a subset of admin functionality (ops, crew, schedule) intended for on-the-ground coordinators at a campus location. |
-| **CD view** | Session state (`session['cd_view']`) set to `'seller'` or `'admin'` by `/switch-role/<role>`. Controls which context a campus director sees. When set to `'seller'`, the CD sees the normal seller dashboard. |
-| **TutorialSession** | DB model tracking a campus director's tutorial progress (`current_step` 0–9, `started_at`, `completed_at`). Step advances via POST; seed fixtures are re-applied on each restart. |
+| **CD view** | Session state (`session['cd_view']`) set to `'seller'` by `/switch-role/seller` or `'admin'` by `/switch-role/admin`. Controls which context a campus director sees. When set to `'seller'`, the CD sees the normal seller dashboard. |
+| **TutorialSession** | DB model tracking a campus director's tutorial progress (`step` 0–7, `started_at`, `completed_at`, `tutorial_week_id`, `is_retaking`). Step advances via POST; seed fixtures are re-applied on each restart. |
 
 ---
 
@@ -119,7 +119,7 @@ Movers can photograph found, donated, or spot-consigned items in the field and a
 - Seller: selected seller or internal Campus Swap account
 
 **AI autofill pipeline:**
-Quick-capture items are eligible for AI autofill (`ai_generated_at IS NULL`). After a generation run, items with AI-generated data appear in the AI review queue (`/admin/ai/review`) where admin can approve or discard. The old dedicated queue at `/admin/items/needs_info` has been removed. Items are excluded from the standard approval queue and approval digest email.
+Quick-capture items are eligible for AI autofill (`ai_generated_at IS NULL`). Items are enqueued on a background worker queue (`_ai_queue`, drained by a daemon thread `_ai_queue_worker`); each item retries up to `_AI_MAX_RETRIES = 3` times (tracked by `InventoryItem.ai_retry_count`) before being hard-stopped. After generation, items with AI data appear in the AI review queue (`/admin/ai/review`) where admin can approve or discard. The dedicated `/admin/items/needs_info` queue (`admin_needs_info_queue`) still lists QC items awaiting completion. Items are excluded from the standard approval queue and approval digest email.
 
 **Crew delete:** The capturing worker can hard-delete their own captures (photo + DB record) via the `×` button on the stop card photo strip, as long as the item is still in `pending_valuation` or `needs_info`. Hard delete only — no soft-reject path.
 
@@ -197,9 +197,9 @@ Organizers can flag items as `damaged`, `missing`, or `unknown` (unidentified it
 
 ---
 
-## Seller-Facing Features (planned)
+## Seller-Facing Features (built)
 
-The ops system connects back to the seller experience in three ways:
+The ops system connects back to the seller experience in three ways (all shipped — specs #7, #8, #9):
 
 1. **Progress tracker** — visual pipeline on seller dashboard showing:
    `Pickup Scheduled → Driver En Route → Item Received → Listed → Sold & Paid`
@@ -250,6 +250,10 @@ The ops system connects back to the seller experience in three ways:
 | — | `feature_warehouse_floor.md` | ✅ Done (built 2026-05-28) | Replaces storage audit tool; unit card grid with capacity batteries; Log Item modal (photo→category→location→seller); Needs New Photo + Photo Verification queues; removes QC admin queue |
 | — | `feature_required_unit_assignment.md` | ✅ Done (built 2026-05-29) | Visual unit picker modal on ops page; required unit assignment gate before first stop; destination banner on driver shift view; placement prefill |
 | — | `feature_warehouse_route_browse.md` | ✅ Done (built 2026-05-29) | Browse by Route tab on warehouse floor; shift chip list; route item results |
+| D1 | `feature_delivery_routes.md` | ✅ Done (built 2026-05-29) | Buyer delivery routes — `DeliveryStop`/`DeliveryRun` models, delivery queue (`/admin/ops/delivery-queue`), delivery truck assignment, crew delivery shift view (`/crew/delivery/*`) |
+| A | `feature_delivery_fees.md` | ✅ Done (in production 2026-06-14) | Zone-based delivery pricing (20-mile cutoff), 7.25% sales tax on item price, Flexible Delivery via Stripe coupon; `BuyerOrder` gained delivery/tax fields; `checkout_review` route; webhook idempotency + double-sale guard |
+| B | `feature_cart_bundle.md` | ✅ Done (in production 2026-06-18) | Cart + Bundle & Save — `Cart`/`CartItem`/`Order` models, multi-item cart (`/cart/*`), bundle free delivery (`item_count >= bundle_min_items`), guest carts via `cart_token`, pending `Order` created before Stripe redirect |
+| — | AI autofill background queue | ✅ Done (in production 2026-06-21) | `_ai_queue` worker thread drains autofill jobs; `ai_retry_count` with `_AI_MAX_RETRIES = 3` hard-stop |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.
@@ -284,7 +288,7 @@ are built and signed off in `SPEC_CHECKLIST.md`.
 
 | File | Purpose |
 |------|---------|
-| `app.py` | All routes (~6,300 lines) |
+| `app.py` | All routes (~17,000 lines, 260 routes) |
 | `models.py` | All SQLAlchemy models |
 | `static/style.css` | Full design system (CSS variables, component classes) |
 | `templates/layout.html` | Base template — nav, footer, flash, analytics |

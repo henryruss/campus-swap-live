@@ -1269,8 +1269,7 @@
 - [ ] Pickup window start/end saved correctly in AppSettings
 - [ ] **Route & capacity:** saves truck_raw_capacity, buffer %, windows, maps key, category unit sizes
 - [ ] **Storage locations:** existing locations listed with active/inactive dots; create form works
-- [ ] **Referral program:** toggle and rate fields save correctly
-- [ ] **SMS notifications:** sms_enabled toggle, hour fields save
+- [ ] **SMS notifications:** sms_enabled toggle, hour fields save *(NOTE: there is no "Referral program" section in `templates/admin/settings.html`, and no `/admin/settings/referral` route exists — referral settings are not edited here. Section anchors present: shop, pickup-week-override, route, storage, sms, user-management, exports, mass-email, campus-directors, db-reset)*
 - [ ] **User management:** current admin list shown; grant/revoke admin by email works
 - [ ] **Data exports:** CSV download buttons work; preview links load
 - [ ] **Mass email:** form present; test-only checkbox visible
@@ -1476,7 +1475,7 @@
 
 ### Database & Schema
 - [ ] `flask db upgrade` runs with no errors
-- [ ] `tutorial_session` table exists with columns: `id`, `user_id`, `current_step`, `started_at`, `completed_at`
+- [ ] `tutorial_session` table exists with columns: `id`, `user_id`, `step`, `started_at`, `completed_at`, `tutorial_week_id`, `last_retake_at`, `is_retaking` *(field is `step`, not `current_step` — verified models.py)*
 - [ ] `user` table has `is_campus_director` column (Boolean, default False)
 - [ ] At least one user has `is_campus_director=True` in DB (manually created or seeded)
 
@@ -1497,14 +1496,14 @@
 - [ ] Role switcher pill shows "Seller" as active
 
 ### Tutorial Entry
-- [ ] Visit `/admin/tutorial/welcome` as a campus director — welcome page renders
-- [ ] Visit `/admin/tutorial/welcome` as a non-CD user — 403 or redirect
-- [ ] Click "Start Tutorial" — POST to `/admin/tutorial/start`, creates `TutorialSession` record in DB with `current_step=0`
+- [ ] Visit `/admin/tutorial` as a campus director — welcome page renders *(route is `/admin/tutorial` → `admin_tutorial_welcome`, not `/admin/tutorial/welcome`)*
+- [ ] Visit `/admin/tutorial` as a non-CD user — 403 or redirect
+- [ ] Click "Start Tutorial" — POST to `/admin/tutorial/start`, creates `TutorialSession` record in DB with `step=0`
 - [ ] Starting tutorial again (already started) does NOT create a duplicate `TutorialSession` row
 
 ### Tutorial Steps 0–5 (Orientation)
 - [ ] Each step page loads without error when accessed in sequence
-- [ ] Advancing a step (clicking "Next") increments `TutorialSession.current_step` in DB
+- [ ] Advancing a step (clicking "Next") increments `TutorialSession.step` in DB
 - [ ] Navigating away and returning drops the CD back at their current step (not step 0)
 - [ ] Back/forward browser navigation does not corrupt step state
 
@@ -1512,7 +1511,7 @@
 - [ ] Step 6: page shows sellers assigned to the tutorial shift (seed data visible in stops list)
 - [ ] Step 7: "Re-order route" action executes and `stop_order` values are updated on tutorial pickups
 - [ ] Step 8: "Notify sellers" action executes — no real SMS/emails sent (tutorial sellers are flagged)
-- [ ] Each step action advances `current_step` to the next value
+- [ ] Each step action advances `TutorialSession.step` to the next value *(per models.py, step 7 = complete)*
 
 ### Tutorial Seed Fixtures
 - [ ] Fixture data uses `is_tutorial=True` on `ShiftWeek` and `is_tutorial_user=True` on worker accounts
@@ -1521,7 +1520,7 @@
 - [ ] Re-starting the tutorial (POST `/admin/tutorial/start` again) resets fixtures to canonical state
 
 ### Tutorial Completion
-- [ ] Advancing past step 9 — `TutorialSession.completed_at` set in DB
+- [ ] Advancing past the final step — `TutorialSession.completed_at` set in DB *(models.py marks step 7 as complete; flow may differ from original 0–9 numbering)*
 - [ ] Completion page (`/admin/tutorial/complete`) renders correctly
 - [ ] "Go to Admin Panel" link on completion page navigates to `/admin/ops`
 - [ ] Completed tutorial: visiting welcome page again shows completion state, not a new tutorial start
@@ -1529,7 +1528,7 @@
 ### Tutorial Exit
 - [ ] "Exit tutorial" link available on all tutorial step pages
 - [ ] Clicking exit — confirmation dialog or direct redirect to `/admin/ops`
-- [ ] `TutorialSession.current_step` preserved (not reset) on exit — can resume where left off
+- [ ] `TutorialSession.step` preserved (not reset) on exit — can resume where left off
 
 ### Auth Guard Audit — CD Access to Ops Routes
 - [ ] As a campus director in admin view, open `/admin/ops` → page loads (no 403)
@@ -1633,6 +1632,120 @@
 
 **Sign-off date:**
 **Signed off by:**
+
+---
+
+## Spec D1 — Delivery Routes
+
+**Sign-off status:** ✅ Shipped 2026-05-29 (in production)
+**Spec file:** `feature_delivery_routes.md`
+
+> No detailed pass/fail checklist was recorded for this spec at sign-off.
+> This is a status note added during the 2026-06-21 documentation audit so the
+> shipped feature has coverage. Routes/models below verified against app.py / models.py.
+
+- Buyer-delivery routing built as a parallel system to seller pickups. Delivery vs. pickup
+  is determined **at the truck level** by the presence of `DeliveryStop` (delivery) vs.
+  `ShiftPickup` (pickup) records — `shift_type` is NOT a stored column.
+- Models: `DeliveryStop` (shift_id, buyer_order_id, truck_number, stop_order, status, notes,
+  completed_at, notified_at, capacity_warning, created_at, created_by_id; unique on
+  `(shift_id, buyer_order_id)`) and `DeliveryRun` (shift_id unique, started_at, started_by_id,
+  ended_at, status).
+- `Shift.has_delivery_trucks` is a computed property (counts `DeliveryStop` records).
+- Admin routes: `GET /admin/ops/delivery-queue` (`admin_ops_delivery_queue`),
+  `POST /admin/delivery/shift/<id>/add-stop`, `POST /admin/delivery/shift/<id>/remove-stop/<sid>`,
+  `POST /admin/delivery/stop/<sid>/notify`, `GET /admin/ops/delivery-truck-detail`.
+- Crew routes: `GET /crew/delivery/<id>`, `GET /crew/delivery/<id>/stops-partial`,
+  `POST /crew/delivery/<id>/start`, `POST /crew/delivery/stop/<sid>/update`,
+  `POST /crew/delivery/<id>/end`.
+- Mixed-truck guard enforced in both `admin_shift_assign_seller` (blocks if DeliveryStops exist
+  on target truck) and `admin_delivery_add_stop` (blocks if ShiftPickups exist).
+
+**Sign-off date:** Shipped to production; no formal checklist sign-off recorded.
+
+---
+
+## Spec A — Delivery Fees (Zone Pricing, Sales Tax, Flexible Delivery)
+
+**Sign-off status:** ✅ Shipped 2026-06-14 (in production)
+**Spec file:** `feature_delivery_fees.md`
+**Automated tests:** 31/31 (`test_delivery_fees.py`) at last count after Spec B updates.
+
+> Status note added during the 2026-06-21 documentation audit. Facts verified against
+> app.py / models.py. No per-checkbox sign-off recorded for this spec.
+
+- Zone-based delivery pricing (20-mile cutoff replaced the older 50-mile radius). Helpers:
+  `calculate_delivery_zone()`, `compute_sales_tax()`, `_to_cents()`.
+- New checkout flow: `GET/POST /checkout/review` (`checkout_review`) does the pricing work;
+  `/checkout/pay/<id>` reduced to a redirect. Legacy per-item routes preserved as redirects:
+  `/checkout/delivery/<id>` (`checkout_delivery_legacy`), `/checkout/review/<id>`
+  (`checkout_review_legacy`).
+- `/webhook` extended with an idempotency guard (`stripe_checkout_session_id`) and a
+  double-sale guard (raises `SellerAlert`). Stripe webhook remains the only source of truth
+  for payment state.
+- Tax = 7.25% on item price only, never on the delivery fee. All AppSettings have hardcoded
+  fallback defaults.
+- Flexible Delivery uses a Stripe Coupon (AppSetting `stripe_flexible_coupon_id`), not a
+  negative line item; the toggle is hidden when the coupon id is absent.
+- `BuyerOrder` gained: `delivery_zone`, `delivery_fee`, `is_flexible_delivery`,
+  `flexible_discount`, `sales_tax`, `distance_miles`, `items_subtotal`, `total_paid`,
+  `stripe_checkout_session_id` (migration `buyer_order_delivery_fee_fields`).
+
+**Sign-off date:** Shipped to production; no formal checklist sign-off recorded.
+
+---
+
+## Spec B — Cart / Bundle & Save
+
+**Sign-off status:** ✅ Shipped 2026-06-18 (in production)
+**Spec file:** `feature_cart_bundle.md`
+**Automated tests:** 61 total (31 Spec A + 30 Spec B) passing
+(`pytest test_delivery_fees.py test_cart_bundle.py`).
+
+> Status note added during the 2026-06-21 documentation audit. Facts verified against
+> app.py / models.py. No per-checkbox sign-off recorded for this spec.
+
+- New models: `Order` (parent — buyer info, delivery_* fields, `bundle_free_delivery`,
+  `status` pending→paid, `has_conflict`; `line_items` → `[BuyerOrder]`), `Cart`
+  (user_id, session_token, created_at, updated_at), `CartItem` (cart_id, item_id, added_at;
+  unique on `(cart_id, item_id)`). `BuyerOrder` gained `order_id` FK → `Order`. Existing rows
+  backfilled 1 `Order` per `BuyerOrder`.
+- Cart routes: `POST /cart/add/<id>`, `POST /cart/remove/<id>`, `GET /cart` (`cart_view`),
+  `POST /cart/checkout` (`cart_checkout`). Multi-item checkout entry: `GET/POST /checkout/review`.
+- Lazy hold expiry via AppSetting `cart_hold_minutes` (no cron); `item_is_held(item,
+  exclude_cart_id)` checks `Cart.updated_at >= cutoff`.
+- Bundle & Save: `item_count >= bundle_min_items` (default 2) → `delivery_fee = 0`,
+  `bundle_free_delivery = True`. Flexible −$5 still works via the Spec A coupon; for bundles
+  (delivery = $0) the $5 comes off the total instead of the fee.
+- Pending `Order` created before Stripe redirect; items marked sold only in the webhook
+  (source-of-truth preserved). Webhook CASE 0 handles `type='cart_order'` metadata; CASE 1
+  unchanged for legacy single-item.
+- Guest carts via `cart_token` in session; `_merge_guest_cart_into_user()` called on login
+  and register.
+
+**Sign-off date:** Shipped to production; no formal checklist sign-off recorded.
+
+---
+
+## Feature: AI Item Generation & Review
+
+**Sign-off status:** ✅ Shipped (in production)
+
+> Status note added during the 2026-06-21 documentation audit — this shipped feature had no
+> checklist coverage. Routes/fields verified against app.py / models.py. Listed here for
+> completeness; no per-checkbox sign-off recorded.
+
+- Admin routes: `/admin/ai/generate` (`admin_ai_generate_page`), `POST /admin/ai/generate/run`,
+  `POST /admin/ai/generate/cancel`, `GET /admin/ai/generate/status`, `/admin/ai/review`
+  (`admin_ai_review_queue`), `/admin/ai/item/<id>/detail`, `POST /admin/ai/item/<id>/approve`,
+  `POST /admin/ai/item/<id>/discard`, `POST /admin/ai/item/<id>/reset`,
+  `POST /admin/ai/item/<id>/set-cover-photo`.
+- `InventoryItem` AI fields: `ai_description`, `ai_long_description`, `ai_price`,
+  `ai_retail_price`, `ai_review_pending`, `ai_generated_at`, `ai_approved`, `ai_retry_count`
+  (Integer default 0, hard-stop at 3 retries), `ai_photo_enhanced`, `seller_description`,
+  `seller_long_description`, `was_previously_approved`.
+
+**Sign-off date:** Shipped to production; no formal checklist sign-off recorded.
 
 ---
 
