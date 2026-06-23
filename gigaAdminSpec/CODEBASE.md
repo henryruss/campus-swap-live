@@ -196,10 +196,12 @@ Crew/staffing keys: 'crew_applications_open', 'crew_allowed_email_domain',
 'drivers_per_truck', 'organizers_per_truck' (unused for capacity — superseded by stagger formula), 'max_trucks_per_shift',
 'shifts_required' (minimum shifts for season payout)
 Free-tier bookkeeping: 'free_confirmed_user_ids', 'free_rejected_user_ids' (CSV id lists)
-Delivery / pricing keys (Spec A): 'warehouse_lat', 'warehouse_lng', 'delivery_zone_boundaries' (zone mile cutoffs),
+Delivery / pricing keys (Spec A): 'warehouse_lat', 'warehouse_lng' (now editable in Settings → Route & capacity;
+  fall back to WAREHOUSE_DEFAULT_LAT/LNG when blank), 'delivery_zone_boundaries' (zone mile cutoffs),
   'delivery_zone_fees', 'flexible_delivery_discount', 'sales_tax_rate', 'stripe_flexible_coupon_id'.
   NOTE: zone-based pricing replaced the old 'delivery_radius_miles' radius model — that key is no longer used.
-Cart / bundle keys (Spec B): 'cart_hold_minutes' (lazy hold expiry), 'bundle_min_items' (default 2 → bundle free delivery)
+Cart / bundle keys (Spec B): 'checkout_hold_minutes' (default 15 — active-checkout hold window; replaces the
+  membership-based use of 'cart_hold_minutes'), 'bundle_min_items' (default 2 → bundle free delivery)
 AI autofill keys: 'ai_autofill_model', 'ai_autofill_run_log'
 Route planning keys: 'truck_raw_capacity', 'truck_capacity_buffer_pct',
   'route_am_window', 'route_pm_window', 'maps_static_api_key'
@@ -244,9 +246,12 @@ Relationships: item → InventoryItem (backref buyer_order, uselist=False), orde
 ```
 Cart: active shopping cart — one per logged-in user OR per guest session token.
   id, user_id (FK → User, nullable), session_token (String 64, nullable, indexed), created_at, updated_at
+  checkout_started_at (DateTime, nullable) — set when buyer hits "Proceed to Payment". Migration c3d4e5f6a7b8.
   Relationships: user → User (backref carts), cart_items → [CartItem]
-  Lazy hold expiry: item_is_held(item, exclude_cart_id) treats a CartItem as a hold only while
-  Cart.updated_at >= now - cart_hold_minutes (AppSetting). No cron — expiry is computed at read time.
+  Checkout-based hold (rewritten): item_is_held(item, exclude_cart_id) treats an item as held against
+  OTHER buyers ONLY while some cart's Cart.checkout_started_at is within checkout_hold_minutes
+  (AppSetting, default 15). No cron — expiry is computed at read time. The old membership-based hold
+  (cart_hold_minutes from cart presence alone) is gone — leaving an item in a cart no longer holds it.
 CartItem: one item in a cart. id, cart_id (FK → Cart), item_id (FK → InventoryItem), added_at
   Unique constraint: (cart_id, item_id)
 ```
@@ -450,7 +455,7 @@ Relationships: shift → Shift (backref delivery_run, uselist=False), started_by
 
 ---
 
-## Route Map (`app.py` — ~17,000 lines, 260 routes)
+## Route Map (`app.py` — ~17,000 lines, 263 routes)
 
 ### Public
 | Route | Function | Notes |
@@ -588,7 +593,7 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/routes` | `admin_routes_index` | GET → 302 to `/admin/ops`. Route planning absorbed into Ops tab. |
 | `POST /admin/routes/auto-assign` | `admin_routes_auto_assign` | Run auto-assignment for all unassigned eligible sellers. Returns JSON {assigned, tbd, over_cap_warnings} |
 | `POST /admin/routes/stop/<pickup_id>/move` | `admin_routes_move_stop` | Move ShiftPickup to different shift+truck; recalculates capacity_warning. Returns JSON |
-| `POST /admin/routes/seller/<user_id>/assign` | `admin_routes_assign_seller` | Manually assign unassigned seller. Returns JSON (409 if seller already has ShiftPickup) |
+| `POST /admin/routes/seller/<user_id>/assign` | `admin_routes_assign_seller` | Manually assign unassigned seller. Returns JSON (409 if seller already has ShiftPickup). Mixed-truck guard: returns 422 and creates nothing if the target truck already has DeliveryStops (previously created an orphan ShiftPickup that vanished from the unassigned list). |
 | `POST /admin/crew/shift/<shift_id>/add-truck` | `admin_shift_add_truck` | Increment Shift.trucks by 1 via raw SQL. Returns JSON {new_truck_number} |
 | `POST /admin/crew/shift/<shift_id>/order` | `admin_shift_order_stops` | Nearest-neighbor stop ordering from storage unit origin; writes stop_order to all ShiftPickups |
 | `POST /admin/crew/shift/<shift_id>/stop/<pickup_id>/reorder` | `admin_shift_reorder_stop` | Set a specific stop_order value. Returns JSON |
@@ -655,7 +660,7 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/ai/generate` | `admin_ai_generate_page` | Manual AI-autofill control page (counts, model selector, run button, run history). Renders `admin/ai_generate.html`. Standalone page (not linked in nav); the automatic `_ai_queue` worker is the primary path. The companion `/admin/ai/generate/run\|status\|cancel` JSON endpoints are also triggered from the items.html approval modal. |
 | `GET /admin/ai/review` | `admin_ai_review_queue` | AI review queue — card grid of items with ai_review_pending=True. Renders `admin/ai_review.html`. The same review/approve/discard actions are also embedded in the items.html approval modal via the `/admin/ai/item/<id>/*` partials. |
 | `POST /admin/ai/item/<id>/set-cover-photo` | `admin_ai_set_cover_photo` | Swap a gallery photo (ItemPhoto) to become the cover: sets item.photo_url to the gallery photo's URL, moves old cover into an ItemPhoto record. Returns JSON {success, cover_url}. Super admin only. |
-| `POST /admin/item/<id>/delete-gallery-photo` | `admin_ai_delete_gallery_photo` | Remove a gallery photo (ItemPhoto) entirely from an item in AI review + delete the underlying file. Rejects deleting the cover photo (set another as cover first). Returns JSON {success}. Super admin only. Used by the "Delete" button in the AI review gallery. |
+| `POST /admin/item/<id>/delete-gallery-photo` | `admin_ai_delete_gallery_photo` | **EXISTS** (previously documented as phantom/removed). Remove a photo from an item in AI review — works for both seller-uploaded gallery photos and the AI-enhanced cover. Deleting the cover promotes another photo to cover so the listing is never imageless; blocks if it's the only photo; clears `ai_photo_enhanced` when an `ai_enhanced_*` file is removed; deletes the underlying file. Returns JSON {success}. Super admin only. Used by the "Delete" button in the AI review gallery. |
 | `GET /admin/diag` | `admin_diag` | Diagnostic page showing DB table row counts. Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |
 | `POST /admin/crew/shift/<shift_id>/toggle-reschedule-lock` | `admin_toggle_reschedule_lock` | Lock/unlock shift from appearing in seller reschedule grids |
@@ -700,7 +705,8 @@ Delivery vs pickup is determined at the truck level by the presence of `Delivery
 | `GET /admin/ops/delivery-queue` | `admin_ops_delivery_queue` | HTML partial — paid BuyerOrders awaiting delivery assignment. `_has_ops_access()`. |
 | `POST /admin/delivery/shift/<shift_id>/add-stop` | `admin_delivery_add_stop` | Add a DeliveryStop (buyer order) to a shift+truck. Blocks if the truck has ShiftPickups. |
 | `POST /admin/delivery/shift/<shift_id>/remove-stop/<stop_id>` | `admin_delivery_remove_stop` | Remove a DeliveryStop. |
-| `POST /admin/delivery/stop/<stop_id>/notify` | `admin_delivery_notify_stop` | Notify buyer of delivery window. |
+| `POST /admin/delivery/stop/<stop_id>/notify` | `admin_delivery_notify_stop` | Notify buyer of delivery window (per-stop). |
+| `POST /admin/crew/shift/<shift_id>/notify-buyers` | `admin_shift_notify_buyers` | Bulk-send the "delivery scheduled" email to every unnotified buyer on the shift's delivery route. Flashes count, redirects to `admin_ops`. `_has_ops_access()`. |
 | `GET /admin/ops/delivery-truck-detail` | `admin_ops_delivery_truck_detail` | HTML partial for delivery truck drawer. Params: shift_id, truck. |
 | `GET /crew/delivery/<shift_id>` | `crew_delivery_view` | Phone-optimized mover delivery view (analogous to crew_shift_view). |
 | `GET /crew/delivery/<shift_id>/stops-partial` | `crew_delivery_stops_partial` | Stop list partial for auto-refresh. |
@@ -795,9 +801,10 @@ crew/intake_search_results.html — Partial rendered via fetch into #search-resu
 admin/schedule_index.html      — Week list sorted ascending by date + 7×2 slot toggle creation form; Delete Week button (draft-only); Storage Units link
 admin/schedule_week.html       — Schedule builder; Movers/Organizers labels; View Ops → link per shift card; Delete Week button in header (draft-only)
 admin/shift_ops.html           — Ops page: issue alert banner, green mover panel, ordered stop lists + badges (stop#, access type, cap warning), Order Route + Notify Sellers buttons, Intake Summary
-admin/ops.html                 — Main ops view (Admin UI Redesign). 3-zone layout: shift list, truck cards, unassigned panel. Storage chip buttons on truck cards: assigned = green chip with edit icon, unassigned = amber "+ Assign unit" chip. Unit picker modal (lazy-loaded via fetch into ops modal). Add Truck button visible in topbar. "Assign unit" footer button in truck card when no unit assigned (opens unit picker modal via data-action="open-unit-picker"). Stop assign forms catch 422 unit_required and open unit picker before retrying.
+admin/ops.html                 — Main ops view (Admin UI Redesign). 3-zone layout: shift list, truck cards, unassigned panel. Storage chip buttons on truck cards: assigned = green chip with edit icon, unassigned = amber "+ Assign unit" chip. Unit picker modal (lazy-loaded via fetch into ops modal). Add Truck button visible in topbar. "Assign unit" footer button in truck card when no unit assigned (opens unit picker modal via data-action="open-unit-picker"). Stop assign forms catch 422 unit_required and open unit picker before retrying. Delivery shifts show a blue "Notify Buyers" button next to "Notify Sellers" (bulk delivery-scheduled email → `admin_shift_notify_buyers`). Truck drawer re-executes injected `<script>` (fixes `notifyDeliveryBuyer`); pickup-week chip shows a compact date range via the `pickup_week_range` filter.
 admin/routes.html              — Route builder: unassigned sellers by cluster, shift capacity board, auto-assign, move/assign inline panels
 admin/route_settings.html      — Capacity settings (raw cap, buffer%), time windows, Maps API key, per-category unit sizes; SMS Notifications section (kill switches + cron hour settings)
+admin/settings.html            — Redesigned Settings tab (rendered by `admin_settings`). Route & capacity section now includes editable Warehouse latitude / longitude fields (saved via `save_route_settings`; default to WAREHOUSE_DEFAULT_* when blank).
 admin/storage_index.html       — Storage location list with inline create + edit panels (super admin)
 admin/storage_detail.html      — Items at a given storage location, filterable by status
 seller/reschedule.html         — Full pickup-window week grid (Mon–Sun columns, AM/PM rows), prev/next week navigation, radio cards
@@ -816,8 +823,8 @@ admin/cd_settings.html         — CD Settings page: tutorial status, Retake/Con
 parents.html                   — Parents landing page
 inventory_teaser.html          — Pre-launch blurred mosaic + email capture (shown when shop_teaser_mode='true')
 cart.html                      — Cart page: line items, remove buttons, bundle/delivery summary, checkout button (Spec B)
-checkout_delivery.html         — Buyer delivery address form with geocoding + zone calc (Spec A; cart-based)
-checkout_review.html           — Order review: subtotal, delivery fee, bundle/flexible discount, sales tax, total → Stripe (Spec A/B)
+checkout_delivery.html         — Buyer delivery address form (Spec A; cart-based). Google Places autocomplete + map preview + hidden lat/lng inputs; "Address confirmed" shown only when within delivery radius, out-of-area message otherwise. `.pac-container` z-index fix; `gm_authFailure` note. Client (Google Places) lat/lng preferred over server-side Nominatim geocode.
+checkout_review.html           — Order review: subtotal, delivery fee, bundle/flexible discount, sales tax, total → Stripe (Spec A/B). Two-radio delivery picker (Standard / Flexible) replacing the old single checkbox; delivery date ranges via `delivery_window`.
 claim_account.html             — Proxy-seller account claim page (token link)
 admin/ops_delivery_queue_partial.html — Delivery queue partial: paid BuyerOrders awaiting delivery assignment (Spec D1)
 admin/ops_delivery_truck_detail.html  — Delivery truck drawer partial (Spec D1)
@@ -947,7 +954,7 @@ When an item is submitted, its id is enqueued to an in-process `_ai_queue` (`que
 - Admin approval (`/admin/item/<id>/approve-unified`) copies the staged `ai_*` fields onto the live fields, sets `ai_approved=True` and `status='available'`. The approval modal's Approve button is always enabled — the "AI processing…" banner is informational only.
 
 ### Cart, Delivery Fees & Bundle (Spec A + B)
-- **Cart:** one `Cart` per logged-in user or per guest `cart_token` (session). Guest carts merge into the user's cart on login/register (`_merge_guest_cart_into_user`). Adding an item creates a `CartItem`; an item is "held" (unavailable to others) only while its cart's `updated_at` is within `cart_hold_minutes` — expiry is computed at read time, no cron.
+- **Cart:** one `Cart` per logged-in user or per guest `cart_token` (session). Guest carts merge into the user's cart on login/register (`_merge_guest_cart_into_user`). Adding an item creates a `CartItem`. An item is "held" (unavailable to others) only during active checkout — while some cart's `checkout_started_at` (set at "Proceed to Payment") is within `checkout_hold_minutes` (default 15). Expiry is computed at read time, no cron. Merely leaving an item in a cart no longer holds it (the old `cart_hold_minutes` membership hold is gone).
 - **Delivery fee:** zone-based (Spec A). `calculate_delivery_zone(distance_miles)` maps distance to a zone via `delivery_zone_boundaries`; beyond the final boundary (~20 mi) delivery is unavailable. Fee comes from `delivery_zone_fees`.
 - **Sales tax:** `compute_sales_tax(item_price)` — `sales_tax_rate` (default 7.25%) applied to item price only, never to the delivery fee.
 - **Bundle & Save:** when cart `item_count >= bundle_min_items` (default 2), `delivery_fee` is set to 0 and `bundle_free_delivery=True`.
@@ -975,11 +982,12 @@ When an item is submitted, its id is enqueued to an in-process `_ai_queue` (`que
 - `current_store`: store name for display
 - `store_open_date`: date string shown on inventory banner when store not yet open
 - `shop_teaser_mode`: 'true' → `/inventory` shows blurred mosaic + email capture (pre-launch); 'false'/absent → normal shop
-- `warehouse_lat` / `warehouse_lng`: warehouse coordinates — origin for delivery distance/zone calculation (fail-open if absent)
+- `warehouse_lat` / `warehouse_lng`: warehouse coordinates — origin for delivery distance/zone calculation. Editable in Settings → Route & capacity (`save_route_settings`); fall back to `WAREHOUSE_DEFAULT_LAT`/`WAREHOUSE_DEFAULT_LNG` (515 S Greensboro St, Carrboro NC) when blank (fail-open)
 - `delivery_zone_boundaries` / `delivery_zone_fees`: zone-based delivery pricing (Spec A). Replaced the old `delivery_radius_miles` radius model. Beyond the final boundary (≈20 mi), delivery is unavailable.
 - `sales_tax_rate`: sales tax applied to item price only (never to delivery fee). Default 7.25%.
 - `flexible_delivery_discount` / `stripe_flexible_coupon_id`: flexible-delivery discount applied via a Stripe Coupon (not a negative line item)
-- `cart_hold_minutes`: how long a CartItem holds an item before it frees up (lazy, read-time expiry)
+- `checkout_hold_minutes`: active-checkout hold window (default 15). An item is held against other buyers only while a cart's `checkout_started_at` is within this window (lazy, read-time expiry). Replaces the membership-based use of `cart_hold_minutes`.
+- `cart_hold_minutes`: legacy — no longer the hold basis (superseded by `checkout_hold_minutes`)
 - `bundle_min_items`: cart size (default 2) at which delivery becomes free (Bundle & Save)
 
 ### Shop / Inventory Visibility
@@ -1020,13 +1028,13 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
 
 7. **Photo uploads** — use `validate_file_upload()` helper. Store to `/var/data/` (Render) or `static/uploads/` (local). Serve via `url_for('uploaded_file', filename=...)`.
 
-8. **Email** — use `send_email(to, subject, html)`. Wrap HTML with `wrap_email_template()` for consistent styling.
+8. **Email** — use `send_email(to, subject, html)`. Wrap HTML with `wrap_email_template()` for consistent styling. `wrap_email_template()` is **idempotent** — if the content is already a full `<!DOCTYPE>` document it is returned unchanged (fixes the double-logo bug where a caller pre-wraps and `send_email` wraps again). The header logo is `faviconNew.png` (PNG, not SVG — clients block SVG), built from the public base URL (`APP_BASE_URL` / `BASE_URL` / `https://usecampusswap.com`), never the request host. Buyer order confirmation emails (`_send_buyer_order_confirmation`) embed item photo thumbnails via `_email_photo_url()` (an absolute, email-safe image URL that prefers a direct S3/CDN URL with no redirect, then the external `uploaded_file` route, then `BASE_URL/uploads`).
 
 9. **SellerAlert system** — reusable alert model for dashboard notifications. Types: `needs_info` (item-specific, from approval queue), `pickup_reminder` (account-level, from nudge), `preset` / `custom` (from seller profile panel). Alerts auto-resolve when the seller takes the required action (resubmit item, select pickup week, etc.).
 
 10. **Seller profile panel** — slide-out drawer (480px right-side) fetched as HTML partial via `/admin/seller/<id>/panel`. Used on admin.html and admin_approve.html. Triggered by clicking seller names.
 
-11. **Constants** — shared constants in `constants.py`: `VIDEO_REQUIRED_CATEGORIES`, `category_requires_video()`, `PICKUP_WEEKS`, `PICKUP_WEEK_DATE_RANGES`, `PICKUP_TIME_OPTIONS`. Import into `app.py` and use via context processor for templates.
+11. **Constants** — shared constants in `constants.py`: `VIDEO_REQUIRED_CATEGORIES`, `category_requires_video()`, `PICKUP_WEEKS`, `PICKUP_WEEK_DATE_RANGES`, `PICKUP_TIME_OPTIONS`. Import into `app.py` and use via context processor for templates. The `pickup_week_range` Jinja filter (`pickup_week_range_filter` in `app.py`) maps a pickup-week key (e.g. `'week9'`) to a compact date range (e.g. `'Jun 22–28'`) from `PICKUP_WEEK_DATE_RANGES`; used on the ops unassigned-seller chips.
 
 12. **Shift optimizer** — `_run_optimizer(week)` in `app.py`. Pre-caches all worker availability at the start (no DB queries mid-loop). Tracks load and same-day assignments in-memory. Sort key: `(already_doubled, flexible_for_other_slot, load, abs(role_imbalance), avoid_conflict, not preferred_match)`. `truck_number` derived from slot index position (slot 0–1 → truck 1, etc.). `assigned_by_id=NULL` on ShiftAssignment means optimizer-assigned; non-NULL means manual.
 
@@ -1058,6 +1066,8 @@ The `/inventory` route (and the `?ajax=1` infinite scroll endpoint) applies thes
 16. **Referral helpers** — ⚠️ STALE. Earlier docs described `generate_unique_referral_code`, `apply_referral_code`, `maybe_confirm_referral_for_seller`, and `calculate_payout_rate`. **None of these functions exist in the codebase.** The only referral-related helper is `_gen_referral_code()` (8-char code, used at proxy-seller creation). The automatic referral-confirmation / payout-escalation flow is not implemented (see Payout Rate / Referral Program above).
 
 21. **422 gate for prerequisite actions** — `admin_shift_assign_seller` returns 422 `{error: 'unit_required', truck_number: N}` when the first stop is being added to a truck that has no unit assigned in `truck_unit_plan`. The frontend JS catches the 422 status code to distinguish "you need to do something first, then retry" from a 400 bad-request. After the unit picker modal completes and a unit is assigned, the form is retried automatically.
+
+22. **Delivery helpers & warehouse origin** — `WAREHOUSE_DEFAULT_LAT='35.9030324'` / `WAREHOUSE_DEFAULT_LNG='-79.0709049'` (module constants, 515 S Greensboro St, Carrboro NC) are the default delivery origin used whenever the `warehouse_lat`/`warehouse_lng` AppSettings are unset. `_delivery_window(ref_date=None)` returns `{standard, flexible, friday, saturday, flex_end}` — deliveries run the upcoming Fri/Sat (Mon–Thu → this week, Fri–Sun → next week); used in the confirmation email, `item_success`, and `checkout_review`. `_send_delivery_scheduled_email(stop)` builds + sends one delivery-scheduled email and sets `notified_at` (caller commits); shared by `admin_delivery_notify_stop` (per-stop) and `admin_shift_notify_buyers` (bulk). `_email_photo_url(filename)` returns an absolute, email-safe image URL (see pattern #8).
 
 16. **Bulk SQL DELETE for cascade deletes** — when deleting a parent record that has deep FK chains (ShiftWeek → Shifts → Assignments + Pickups → IntakeRecords → IntakeFlags), use `db.session.execute(delete(Model).where(...))` in FK dependency order rather than ORM cascade. ORM cascade on deeply nested relations causes StaleDataError when the session's identity map is invalidated mid-delete.
 

@@ -9,9 +9,55 @@
 
 ## Current State
 
-**Last updated:** 2026-06-21
+**Last updated:** 2026-06-22
 **Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill now runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). The approval-modal Approve button is no longer gated on AI completion.
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Route count is now 263.
+
+---
+
+## Features Built This Session (2026-06-22) — Shop + Delivery Ops Pass
+
+**Status:** In production
+**Verified in code:** `app.py` (`WAREHOUSE_DEFAULT_LAT/LNG`, `_delivery_window`, `_email_photo_url`, `_send_delivery_scheduled_email`, `admin_shift_notify_buyers`, `admin_ai_delete_gallery_photo`, `item_is_held`, `wrap_email_template`, `pickup_week_range` template filter), `models.py` (`Cart.checkout_started_at`), migration `c3d4e5f6a7b8`, and the templates listed below.
+
+### Buyer Shop / Checkout
+
+- **Warehouse-origin fail-open.** New module constants `WAREHOUSE_DEFAULT_LAT='35.9030324'`, `WAREHOUSE_DEFAULT_LNG='-79.0709049'` (515 S Greensboro St, Carrboro NC) are used as the delivery origin whenever the `warehouse_lat` / `warehouse_lng` AppSettings are unset. `checkout_delivery` no longer hard-errors when warehouse coords are missing — it falls back to these defaults.
+- **Google Maps address autocomplete + in-range confirmation (`checkout_delivery.html`).** Google Places autocomplete + map preview + hidden lat/lng inputs; an "Address confirmed" state appears only when the address is within the delivery radius, otherwise an out-of-area message is shown. `checkout_delivery` now passes `google_maps_key`, `warehouse_lat/lng`, and `max_delivery_miles`, and prefers the client (Google Places) lat/lng over the Nominatim lookup. Includes a `.pac-container` z-index fix and a `gm_authFailure` note.
+- **Two-radio Standard / Flexible delivery picker (`checkout_review.html`).** Replaces the single Flexible checkbox with two explicit radio options. (Flexible discount still rides the Spec A Stripe coupon.)
+- **Concrete delivery date ranges.** New helper `_delivery_window(ref_date=None)` returns `{standard, flexible, friday, saturday, flex_end}`; deliveries run the upcoming Fri/Sat (Mon–Thu → this week, Fri–Sun → next week). Surfaced in the order-confirmation email, `item_success.html`, and `checkout_review.html`. The old "may shift to the following weekend" caveat was removed from the success page.
+- **Cart badge 0→1 fix (`product.html`).** The cart badge now reveals on the first add (previously stayed hidden at count 0→1).
+- **Buy Now error handling (`cart_add`).** The full-page "Buy Now" POST now flashes and redirects to the product page on error instead of returning raw JSON; the async "Add to Cart" path still returns JSON.
+- **Removed card hover animations (`static/style.css`).** Dropped the `.card` hover lift (`translateY`) and the `.item-card` image hover zoom.
+
+### Cart Hold — Checkout-Based Hold
+
+- **New model field (`models.py`):** `Cart.checkout_started_at` (DateTime, nullable) — set when the buyer hits "Proceed to Payment". **Migration:** `c3d4e5f6a7b8` (down_revision `f7e8d9c0b1a2`).
+- **`item_is_held(item, exclude_cart_id)` rewritten.** An item is now held against other buyers ONLY while a cart's `checkout_started_at` is recent (within `checkout_hold_minutes`, default 15). The previous behavior — holding for `cart_hold_minutes` (default 30) just from cart membership — is gone. Simply leaving an item in a cart no longer holds it.
+
+### Admin Ops / Delivery
+
+- **Buyer name on unassigned delivery cards (`admin/ops_delivery_queue_partial.html`).** Cards now show the buyer name; the assign form stops click propagation. Also fixed a badge/list mismatch (the count and the rendered list now agree).
+- **Pickup-week date-range chips.** New `pickup_week_range` Jinja filter maps a pickup-week key (e.g. `week9`) to a compact range (`Jun 22–28`) from `PICKUP_WEEK_DATE_RANGES`, shown on the ops unassigned-seller chips.
+- **Mixed-truck guard on `admin_routes_assign_seller`.** Assigning a pickup to a truck that already has `DeliveryStop`s now returns 422 + flash and creates nothing (previously it created an invisible orphan `ShiftPickup` and silently dropped the seller from the unassigned list).
+- **Blue "Notify Buyers" bulk button + route.** New `POST /admin/crew/shift/<shift_id>/notify-buyers` → `admin_shift_notify_buyers` (`_has_ops_access()`) bulk-sends the "delivery scheduled" email to every unnotified buyer on the shift's delivery route, flashes the count, and redirects to `admin_ops`. The blue button appears next to "Notify Sellers" in `admin/ops.html` when the shift has delivery stops.
+- **Delivery drawer "Notify Buyer" fixed.** The truck drawer now re-executes its injected `<script>` (innerHTML doesn't run inline scripts), so the per-stop `notifyDeliveryBuyer` action works again (`admin/ops.html`, `admin/ops_delivery_truck_detail.html`). The ops page also maps `delivery_queue → orders` for the unassigned-deliveries partial include.
+- **Shared helper `_send_delivery_scheduled_email(stop)`** builds + sends one delivery-scheduled email and sets `notified_at` (caller commits); used by both the per-stop `admin_delivery_notify_buyer` and the bulk `admin_shift_notify_buyers`.
+
+### Emails
+
+- **`wrap_email_template` is now idempotent.** It returns content unchanged if it is already a full `<!DOCTYPE>` document — fixes the double-logo bug where callers pre-wrapped and then `send_email` wrapped again.
+- **PNG logo via public base URL.** The logo is now `faviconNew.PNG` (clients block SVG) built from the public base URL (`APP_BASE_URL` / `BASE_URL` / usecampusswap.com), not the request host.
+- **Item photos in order confirmation.** `_send_buyer_order_confirmation` now includes item photo thumbnails (table rows) using the new `_email_photo_url(filename)` helper, which returns an absolute, email-safe URL — preferring a direct S3/CDN URL (no redirect), then the external `uploaded_file` route, then `BASE_URL/uploads`.
+
+### New AppSettings
+
+- `checkout_hold_minutes` (default `'15'`) — active-checkout hold window; replaces the membership-based use of `cart_hold_minutes`.
+- `warehouse_lat` / `warehouse_lng` — now editable in **Settings → Route & capacity** (`admin_settings` / `save_route_settings`, `admin/settings.html`); fall back to `WAREHOUSE_DEFAULT_*` when blank.
+
+### AI Review
+
+- **`POST /admin/item/<item_id>/delete-gallery-photo` → `admin_ai_delete_gallery_photo` now EXISTS** (previously documented as phantom/removed; see the 2026-05-28 correction below). Deletes a photo from an item in AI review (gallery OR the AI-enhanced cover): deleting the cover promotes another photo so the item is never imageless; blocks if it's the only photo; clears `ai_photo_enhanced` when an `ai_enhanced_*` file is removed; deletes the underlying file. Super admin only.
 
 ---
 
@@ -209,7 +255,7 @@ Uses Claude vision API to generate title, description, price, and retail referen
 - `ai_retail_price` copied to live `retail_price` at approval time — shown to buyers on inventory cards and product pages
 - "Flag for new photo" checkbox on approval: sets `needs_new_photo=True`, `ai_approved=True` — item approved but hidden from shop until photo replaced
 
-**New routes:** `/admin/ai/generate`, `/admin/ai/review`, plus per-item `detail`/`approve`/`discard`/`reset`/`set-cover-photo`. *(Correction 2026-06-21: there is no `delete-gallery-photo` route — gallery photo deletion is handled inline in the AI review modal, not via a dedicated route. The full set is `/admin/ai/generate`, `/admin/ai/generate/run`, `/admin/ai/generate/cancel`, `/admin/ai/generate/status`, `/admin/ai/review`, `/admin/ai/item/<id>/detail`, `/admin/ai/item/<id>/approve`, `/admin/ai/item/<id>/discard`, `/admin/ai/item/<id>/reset`, `/admin/ai/item/<id>/set-cover-photo`.)*
+**New routes:** `/admin/ai/generate`, `/admin/ai/review`, plus per-item `detail`/`approve`/`discard`/`reset`/`set-cover-photo`. *(Correction 2026-06-21: at the time there was no `delete-gallery-photo` route. **Superseded 2026-06-22:** `POST /admin/item/<id>/delete-gallery-photo` → `admin_ai_delete_gallery_photo` now EXISTS — see the 2026-06-22 session section above. Full set: `/admin/ai/generate`, `/admin/ai/generate/run`, `/admin/ai/generate/cancel`, `/admin/ai/generate/status`, `/admin/ai/review`, `/admin/ai/item/<id>/detail`, `/admin/ai/item/<id>/approve`, `/admin/ai/item/<id>/discard`, `/admin/ai/item/<id>/reset`, `/admin/ai/item/<id>/set-cover-photo`, plus `/admin/item/<id>/delete-gallery-photo`.)*
 
 **Nav badge:** AI Review item in sidebar (super admin only), amber badge showing pending count.
 
@@ -261,8 +307,10 @@ Replaces `/admin/storage/audit`. New URL: `/admin/warehouse`. Old URL redirects 
 
 ## What's Next
 
-- **ACTION REQUIRED:** Create a Stripe Coupon for Flexible Delivery and store its id in AppSetting `stripe_flexible_coupon_id` (toggle is hidden until present).
-- **ACTION REQUIRED:** Run `flask db upgrade` on Render to apply `buyer_order_delivery_fee_fields` and the cart/bundle Order model migrations, plus the `ai_retry_count` column, if not already applied.
+- **RESOLVED (2026-06-22):** The Stripe Coupon for Flexible Delivery is set (`stripe_flexible_coupon_id` populated).
+- **Migrations: single linear head (`c3d4e5f6a7b8`).** No multiple-heads / merge issue. The chain applies `ai_retry_count` (`f7e8d9c0b1a2`) then `Cart.checkout_started_at` (`c3d4e5f6a7b8`). `flask db upgrade` runs automatically on deploy (it is the Render build command), so no manual upgrade step is required for these.
+- **RESOLVED (2026-06-22):** Warehouse coordinates now have a Settings UI (Settings → Route & capacity), and the default fallback (`WAREHOUSE_DEFAULT_*`) works when they are blank — checkout no longer hard-errors on missing warehouse coords.
+- `GOOGLE_MAPS_API_KEY` env var required on Render for the checkout address autocomplete; `gm_authFailure` shows a note if the key is missing/misconfigured.
 - `OPENAI_API_KEY` env var required on Render for AI photo enhancement (separate from `ANTHROPIC_API_KEY`).
 - Spec D2 — Delivery Route Ordering (Google Maps integration) — not yet built.
 - Google Maps Static API key → provision and add to Render env vars for stop map images.

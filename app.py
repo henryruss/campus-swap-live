@@ -15649,6 +15649,7 @@ def admin_settings():
         elif action == 'save_route_settings':
             for key in ['truck_raw_capacity', 'truck_capacity_buffer_pct',
                         'route_am_window', 'route_pm_window', 'maps_static_api_key',
+                        'warehouse_lat', 'warehouse_lng',
                         'sms_enabled', 'sms_reminder_hour_eastern',
                         'no_show_email_enabled', 'no_show_email_hour_eastern']:
                 val = request.form.get(key)
@@ -15740,6 +15741,8 @@ def admin_settings():
         route_am_window=AppSetting.get('route_am_window', '9am–1pm'),
         route_pm_window=AppSetting.get('route_pm_window', '1pm–5pm'),
         maps_static_api_key=AppSetting.get('maps_static_api_key', ''),
+        warehouse_lat=AppSetting.get('warehouse_lat', WAREHOUSE_DEFAULT_LAT),
+        warehouse_lng=AppSetting.get('warehouse_lng', WAREHOUSE_DEFAULT_LNG),
         # SMS
         sms_enabled=AppSetting.get('sms_enabled', 'true'),
         sms_reminder_hour_eastern=AppSetting.get('sms_reminder_hour_eastern', '9'),

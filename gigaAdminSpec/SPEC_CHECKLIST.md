@@ -1739,7 +1739,9 @@
   `POST /admin/ai/generate/cancel`, `GET /admin/ai/generate/status`, `/admin/ai/review`
   (`admin_ai_review_queue`), `/admin/ai/item/<id>/detail`, `POST /admin/ai/item/<id>/approve`,
   `POST /admin/ai/item/<id>/discard`, `POST /admin/ai/item/<id>/reset`,
-  `POST /admin/ai/item/<id>/set-cover-photo`.
+  `POST /admin/ai/item/<id>/set-cover-photo`, `POST /admin/item/<id>/delete-gallery-photo`
+  (`admin_ai_delete_gallery_photo` — see 2026-06-22 pass below; **this route EXISTS**, contrary
+  to an earlier note that called it phantom/removed).
 - `InventoryItem` AI fields: `ai_description`, `ai_long_description`, `ai_price`,
   `ai_retail_price`, `ai_review_pending`, `ai_generated_at`, `ai_approved`, `ai_retry_count`
   (Integer default 0, hard-stop at 3 retries), `ai_photo_enhanced`, `seller_description`,
@@ -1752,3 +1754,85 @@
 ## Spec #10 — Admin Dashboard Overhaul
 
 **Sign-off status:** ⬜ Superseded by Admin UI Redesign (already built)
+
+---
+
+## Shop + Delivery Ops Pass — 2026-06-22
+
+**Sign-off status:** ✅ Shipped (in production)
+
+> A round of buyer-checkout and delivery-ops work done after the 2026-06-21
+> documentation audit. Routes/fields/behaviors verified against app.py / models.py.
+> Listed for completeness; no per-checkbox sign-off recorded.
+
+### Checkout — address & delivery picker
+- `checkout_delivery` passes `google_maps_key`, `warehouse_lat`/`warehouse_lng`, and
+  `max_delivery_miles` to the template; `checkout_delivery.html` runs Google Places
+  autocomplete with a map preview and hidden lat/lng. Client (Places) lat/lng is preferred
+  over Nominatim. "Address confirmed" only shows when the address is within the delivery
+  radius; an out-of-area message shows otherwise. (`.pac-container` z-index fix; `gm_authFailure`
+  note for a bad/missing key.)
+- Warehouse origin falls back to module constants `WAREHOUSE_DEFAULT_LAT`/`_LNG`
+  (35.9030324, -79.0709049 — 515 S Greensboro St, Carrboro NC) when the `warehouse_lat`/
+  `warehouse_lng` AppSettings are blank, so checkout fails open instead of hard-erroring.
+- `checkout_review.html` replaces the single Flexible checkbox with a two-radio picker
+  (Standard / Flexible). Delivery date ranges come from `_delivery_window()` (upcoming
+  Fri/Sat; Mon–Thu → this week, Fri–Sun → next week), surfaced via `delivery_window` in
+  the confirmation email, `item_success.html`, and `checkout_review`. `item_success.html`
+  dropped the "may shift to the following weekend" caveat.
+
+### Cart hold — now checkout-based
+- New `Cart.checkout_started_at` (DateTime, nullable; migration `c3d4e5f6a7b8`, down_revision
+  `f7e8d9c0b1a2`), set at "Proceed to Payment". New AppSetting `checkout_hold_minutes`
+  (default `'15'`).
+- `item_is_held(item, exclude_cart_id)` REWRITTEN — an item is held against other buyers only
+  while `Cart.checkout_started_at` is within `checkout_hold_minutes`. The old membership-based
+  hold (`cart_hold_minutes`, default 30, just from being in a cart) is gone.
+- `cart_add`: "Buy Now" (full-page POST) now flashes and redirects to the product page on
+  errors instead of returning raw JSON; async "Add to Cart" still returns JSON.
+
+### Delivery ops
+- NEW route `POST /admin/crew/shift/<id>/notify-buyers` (`admin_shift_notify_buyers`,
+  `_has_ops_access()`): bulk-sends the delivery-scheduled email to every buyer on the shift's
+  delivery route with `notified_at IS NULL`, flashes the count, redirects to ops. Shares
+  `_send_delivery_scheduled_email(stop)` with the per-stop `admin_delivery_notify_buyer`.
+- `admin/ops.html`: blue "Notify Buyers" button next to Notify Sellers (only when the shift
+  has delivery stops); truck drawer re-executes injected `<script>` so `notifyDeliveryBuyer`
+  works; `delivery_queue` mapped to `orders` for the unassigned-deliveries partial; pickup-week
+  chips show a date range via the `pickup_week_range` Jinja filter. Per-stop "Notify Buyer"
+  works in `ops_delivery_truck_detail` now; `ops_delivery_queue_partial.html` shows buyer name
+  on cards and the assign form stops click propagation.
+- Mixed-truck guard added to `admin_routes_assign_seller`: assigning a pickup to a truck that
+  already has `DeliveryStop` records returns 422 (flash) and creates nothing — previously this
+  silently created an orphan `ShiftPickup` that never rendered and dropped the seller from the
+  unassigned list. (A truck is pickup OR delivery, enforced on the ops assign path as well as
+  the delivery add-stop path.)
+- `warehouse_lat`/`warehouse_lng` are now editable in Settings → Route & capacity
+  (`save_route_settings` action in `admin_settings`); blank values fall back to the
+  `WAREHOUSE_DEFAULT_*` constants.
+
+### AI review — gallery photo delete
+- `POST /admin/item/<id>/delete-gallery-photo` (`admin_ai_delete_gallery_photo`, super admin):
+  removes a photo from an item in AI review — works for a seller-uploaded gallery photo OR the
+  AI-enhanced cover. Deleting the cover promotes another photo so the item is never imageless;
+  blocks if it's the only photo; clears `ai_photo_enhanced` when an `ai_enhanced_*` file is
+  removed; deletes the underlying file. **This route EXISTS** — an earlier note documented it
+  as phantom/removed; that was wrong.
+
+### Email fixes
+- `wrap_email_template` is now idempotent (returns content unchanged if it's already a full
+  `<!DOCTYPE>` document), fixing the double-logo bug where callers pre-wrapped and `send_email`
+  wrapped again. Logo is now `faviconNew.PNG` (not SVG — clients block SVG), built from the
+  public base URL (`APP_BASE_URL`/`BASE_URL`/usecampusswap.com), not the request host.
+- New helper `_email_photo_url(filename)` returns an absolute, email-safe image URL (prefers a
+  direct S3/CDN URL with no redirect; falls back to the external `uploaded_file` route, then
+  `BASE_URL/uploads`). `_send_buyer_order_confirmation` now includes item photo thumbnails
+  (table rows) via this helper.
+
+### Misc
+- `product.html` cart badge reveals on first add (0→1). `static/style.css` removed the `.card`
+  hover lift (translateY) and `.item-card` image hover zoom.
+- Migrations remain a single linear head (`c3d4e5f6a7b8`) — no multiple-heads/merge issue.
+- App is now ~263 routes.
+
+**Sign-off date:** Shipped to production; no formal checklist sign-off recorded.

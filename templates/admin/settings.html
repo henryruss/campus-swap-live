@@ -218,6 +218,20 @@
           <input type="text" name="maps_static_api_key" value="{{ maps_static_api_key }}" placeholder="AIza...">
         </div>
 
+        <div class="settings-row">
+          <div class="settings-field">
+            <label>Warehouse latitude</label>
+            <input type="text" name="warehouse_lat" value="{{ warehouse_lat }}" placeholder="35.9030324">
+          </div>
+          <div class="settings-field">
+            <label>Warehouse longitude</label>
+            <input type="text" name="warehouse_lng" value="{{ warehouse_lng }}" placeholder="-79.0709049">
+          </div>
+        </div>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin:4px 0 0;">
+          Origin point for buyer delivery distance &amp; zone pricing. Defaults to the storage warehouse (515 S Greensboro St) if left blank.
+        </p>
+
         {% if categories %}
         <div style="margin-top: 16px;">
           <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Category unit sizes</div>

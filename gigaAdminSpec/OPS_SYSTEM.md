@@ -180,6 +180,25 @@ auto-saves via fetch (no page reload). The mapping is stored as JSON on
 When a new seller is added to a shift, their `ShiftPickup.storage_location_id` is
 pre-populated from the truck's unit plan.
 
+**A truck is pickup OR delivery, never both.** Delivery trucks (Spec D1) carry buyer
+`DeliveryStop`s; pickup trucks carry seller `ShiftPickup`s. This is enforced on both assign
+paths: `admin_routes_assign_seller` returns 422 (and creates nothing) if you try to assign a
+seller pickup to a truck that already has `DeliveryStop` records, and the delivery add-stop
+path blocks the reverse. (Before this guard the ops assign path silently created an orphan
+`ShiftPickup` that never rendered and dropped the seller from the unassigned list.)
+
+**Ops-page sidebar (2026-06-22).** The ops page (`/admin/crew/shift/<id>/ops`) shows the
+buyer name on delivery-queue cards and renders each unassigned seller's pickup week as a
+compact date range (e.g. "Jun 22–28") via the `pickup_week_range` Jinja filter
+(`PICKUP_WEEK_DATE_RANGES`), instead of a bare week key. When a shift has delivery stops, a
+"Notify Buyers" button sits next to "Notify Sellers" (bulk notify route above).
+
+**Delivery origin / warehouse coordinates.** The delivery distance/zone math originates from
+the warehouse coordinates, now editable as `warehouse_lat` / `warehouse_lng` AppSettings in
+Settings → Route & capacity (`save_route_settings`). When blank they fall back to module
+constants `WAREHOUSE_DEFAULT_LAT` / `WAREHOUSE_DEFAULT_LNG` (515 S Greensboro St, Carrboro NC),
+so checkout fails open rather than hard-erroring.
+
 ### Organizer Intake Flow
 1. Organizer opens `/crew/intake/<shift_id>` — sees all trucks with their pending sellers
 2. For each item: search by item ID or seller name, open the bottom-sheet modal
@@ -250,10 +269,11 @@ The ops system connects back to the seller experience in three ways (all shipped
 | — | `feature_warehouse_floor.md` | ✅ Done (built 2026-05-28) | Replaces storage audit tool; unit card grid with capacity batteries; Log Item modal (photo→category→location→seller); Needs New Photo + Photo Verification queues; removes QC admin queue |
 | — | `feature_required_unit_assignment.md` | ✅ Done (built 2026-05-29) | Visual unit picker modal on ops page; required unit assignment gate before first stop; destination banner on driver shift view; placement prefill |
 | — | `feature_warehouse_route_browse.md` | ✅ Done (built 2026-05-29) | Browse by Route tab on warehouse floor; shift chip list; route item results |
-| D1 | `feature_delivery_routes.md` | ✅ Done (built 2026-05-29) | Buyer delivery routes — `DeliveryStop`/`DeliveryRun` models, delivery queue (`/admin/ops/delivery-queue`), delivery truck assignment, crew delivery shift view (`/crew/delivery/*`) |
+| D1 | `feature_delivery_routes.md` | ✅ Done (built 2026-05-29) | Buyer delivery routes — `DeliveryStop`/`DeliveryRun` models, delivery queue (`/admin/ops/delivery-queue`), delivery truck assignment, crew delivery shift view (`/crew/delivery/*`). **Notify Buyers bulk action** (`POST /admin/crew/shift/<id>/notify-buyers`, `_has_ops_access()`) added 2026-06-22 — emails every delivery-route buyer with `notified_at IS NULL`; shares `_send_delivery_scheduled_email(stop)` with the per-stop notify. |
 | A | `feature_delivery_fees.md` | ✅ Done (in production 2026-06-14) | Zone-based delivery pricing (20-mile cutoff), 7.25% sales tax on item price, Flexible Delivery via Stripe coupon; `BuyerOrder` gained delivery/tax fields; `checkout_review` route; webhook idempotency + double-sale guard |
 | B | `feature_cart_bundle.md` | ✅ Done (in production 2026-06-18) | Cart + Bundle & Save — `Cart`/`CartItem`/`Order` models, multi-item cart (`/cart/*`), bundle free delivery (`item_count >= bundle_min_items`), guest carts via `cart_token`, pending `Order` created before Stripe redirect |
 | — | AI autofill background queue | ✅ Done (in production 2026-06-21) | `_ai_queue` worker thread drains autofill jobs; `ai_retry_count` with `_AI_MAX_RETRIES = 3` hard-stop |
+| — | Shop + Delivery Ops Pass | ✅ Done (in production 2026-06-22) | Google Places autocomplete + in-range check at checkout; two-radio delivery picker + `_delivery_window()` date ranges; checkout-based cart hold (`Cart.checkout_started_at` / `checkout_hold_minutes`); Notify Buyers bulk route; mixed-truck guard on the ops assign path; buyer name + `pickup_week_range` chips on the ops sidebar; `warehouse_lat`/`warehouse_lng` configurable in Settings → Route & capacity; idempotent `wrap_email_template` + PNG logo + photo thumbnails in order emails |
 
 **Dependency order matters.** Do not begin a spec until all specs it depends on
 are built and signed off in `SPEC_CHECKLIST.md`.
@@ -288,7 +308,7 @@ are built and signed off in `SPEC_CHECKLIST.md`.
 
 | File | Purpose |
 |------|---------|
-| `app.py` | All routes (~17,000 lines, 260 routes) |
+| `app.py` | All routes (~17,000 lines, ~263 routes) |
 | `models.py` | All SQLAlchemy models |
 | `static/style.css` | Full design system (CSS variables, component classes) |
 | `templates/layout.html` | Base template — nav, footer, flash, analytics |

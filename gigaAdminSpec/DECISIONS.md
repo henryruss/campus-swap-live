@@ -7,6 +7,37 @@
 
 ---
 
+## Checkout Hold, Delivery Window & Email Fixes (2026-06-22)
+
+### Decision: Cart hold is checkout-based, not cart-membership-based
+**Reasoning:** Holding an item against other buyers the moment it lands in someone's cart (the Spec B behavior via `cart_hold_minutes`, default 30) penalizes browsing — a buyer who adds an item and closes the tab blocks everyone else for half an hour. Only an *active* payment attempt should reserve an item. `item_is_held(item, exclude_cart_id)` was rewritten to hold only while another cart's `Cart.checkout_started_at` is within `checkout_hold_minutes` (default 15). `checkout_started_at` (DateTime, nullable) is stamped when the buyer hits "Proceed to Payment" — added in migration `c3d4e5f6a7b8` (down_revision `f7e8d9c0b1a2`). The old cart-membership basis is gone; a cart with no recent `checkout_started_at` holds nothing.
+
+### Decision: Warehouse delivery origin fails open via `WAREHOUSE_DEFAULT_LAT/LNG`
+**Reasoning:** Checkout distance/zone math needs a warehouse origin, but a missing `warehouse_lat`/`warehouse_lng` AppSetting must never hard-fail a purchase. Module constants `WAREHOUSE_DEFAULT_LAT='35.9030324'` / `WAREHOUSE_DEFAULT_LNG='-79.0709049'` (515 S Greensboro St, Carrboro NC) are used whenever the AppSettings are blank or unparseable (the `try/except` in `checkout_delivery` falls back to the defaults). The two values are now also editable in Settings → Route & capacity so an admin can set the real origin without a deploy. Same fail-open intent as the Spec A "missing AppSetting → hardcoded default" rule.
+
+### Decision: Delivery dates shown as concrete date ranges via `_delivery_window`
+**Reasoning:** "Next Friday" is ambiguous mid-week — a buyer on Thursday can't tell whether that's tomorrow or eight days out. `_delivery_window(ref_date=None)` returns concrete dates: Mon–Thu maps to this week's Friday/Saturday, Fri–Sun rolls to next week, and Flexible spans that Friday through ~3 weeks out (`flex_end`). Used in the order confirmation email, `item_success`, and `checkout_review`. The `checkout_delivery.html` client mirrors the same server haversine + radius check so the green "Address confirmed" badge only appears when the address is genuinely within the delivery radius — the badge can't claim confirmation for an out-of-area address.
+
+### Decision: Standard vs Flexible delivery is two mutually-exclusive radios, Standard default
+**Reasoning:** The single "flexible delivery" checkbox on `checkout_review.html` was ambiguous about what the default (unchecked) state meant. Two explicit radios — Standard (default) and Flexible — make the choice unmistakable, while the Spec A flexible discount mechanics underneath are unchanged.
+
+### Decision: Prefer client-side (Google Places) lat/lng over server Nominatim geocoding
+**Reasoning:** The buyer confirms a specific address on the map via Google Places autocomplete; re-geocoding the typed string server-side with Nominatim can resolve to a slightly different point (or fail) and contradict what the buyer just confirmed. `checkout_delivery` POST reads `lat`/`lng` from the form (captured client-side), uses them when present and parseable, and falls back to `geocode_address()` only when they're absent — so distance/zone is computed against the exact point the buyer saw.
+
+### Decision: Mixed-truck guard added to `admin_routes_assign_seller`
+**Reasoning:** The Spec #D1 mixed-truck guard existed in `admin_shift_assign_seller` and `admin_delivery_add_stop`, but the ops-page single-seller assign path (`admin_routes_assign_seller`) lacked it. Assigning a pickup to a truck that already carried `DeliveryStop`s created an orphan `ShiftPickup` that never rendered (the delivery drawer only shows DeliveryStops) AND silently dropped the seller from the unassigned list — invisible in both places. The route now blocks (422 / flash) and creates nothing when the target truck has any `DeliveryStop`.
+
+### Decision: `wrap_email_template` is idempotent; logo is PNG built from the public base URL
+**Reasoning:** Several callers pre-wrap their content and then pass it to `send_email`, which wraps again — rendering the logo/header twice. (The bug was latent because the old logo was a broken SVG that didn't display.) `wrap_email_template` now returns the content untouched if it already starts with `<!doctype`. Two related fixes: the logo is `faviconNew.png`, not SVG (email clients block SVG), and the logo URL is built from the public base (`APP_BASE_URL`/`BASE_URL`/`usecampusswap.com`), never `url_for(_external=True)` — the request host is often localhost in dev or an internal Render host that an image proxy can't reach. Item photos in emails use `_email_photo_url()`, which prefers the direct S3/CDN URL over the `/uploads` redirect for the same proxy-reachability reason.
+
+### Decision: Bulk "Notify Buyers" route shares a `_send_delivery_scheduled_email` helper
+**Reasoning:** The per-stop "Notify Buyer" action and the new bulk `admin_shift_notify_buyers` (POST, `_has_ops_access`, sends the delivery-scheduled email to every unnotified buyer on a shift's delivery route) must produce identical emails and set `notified_at` the same way. Extracting `_send_delivery_scheduled_email(stop)` — which builds and sends one email and stamps `notified_at`, leaving the commit to the caller — keeps the two paths from drifting apart.
+
+### Decision: Truck drawer re-executes injected `<script>` tags
+**Reasoning:** Setting `innerHTML` does not execute `<script>` tags it contains, so handlers defined inside the injected truck-drawer partial (e.g. `notifyDeliveryBuyer`) never ran — the per-stop "Notify Buyer" button silently did nothing. The drawer now re-executes injected scripts after the HTML is set, so partial-defined handlers are actually wired up. Same root cause as the existing approval-modal/ops delegation decisions, but here the handler must be a real global, so re-execution (not delegation) is the fix.
+
+---
+
 ## AI Autofill Retry & Approval Un-gating (2026-06-21)
 
 ### Decision: `ai_retry_count` caps automatic retries at 3 (`_AI_MAX_RETRIES = 3`)
