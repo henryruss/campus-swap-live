@@ -743,6 +743,9 @@ class Cart(db.Model):
     session_token = db.Column(db.String(64), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Set when the buyer starts checkout ("Proceed to Payment"). An item is only held
+    # against other buyers while this is recent — never just for sitting in a cart.
+    checkout_started_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship('User', foreign_keys=[user_id], backref='carts')
     cart_items = db.relationship('CartItem', backref='cart', lazy=True, cascade='all, delete-orphan')

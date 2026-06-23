@@ -6,6 +6,7 @@
 
 {% for order in orders %}
 {% set item = order.item %}
+{% set buyer_name = (order.order.buyer_name if order.order else None) or order.buyer_email %}
 <div class="unassigned-delivery-card" data-order-id="{{ order.id }}"
      style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background 0.12s; font-size: 0.82rem;"
      onclick="toggleDeliveryAssignForm({{ order.id }})">
@@ -23,6 +24,12 @@
         {{ item.description }}
         <span style="font-size:0.68rem; background:#f1f5f9; color:var(--text-muted); border-radius:6px; padding:1px 5px; margin-left:4px;">#{{ item.id }}</span>
       </div>
+      {% if buyer_name %}
+      <div style="font-size:0.74rem; color:var(--text-main); font-weight:600; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        <i class="fas fa-user" style="color:var(--text-muted); font-weight:400;"></i>
+        {{ buyer_name }}
+      </div>
+      {% endif %}
       <div style="font-size:0.73rem; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         <i class="fas fa-map-marker-alt"></i>
         {{ order.delivery_address.split(',')[:2] | join(', ') }}
@@ -33,8 +40,9 @@
     </div>
   </div>
 
-  {# Inline assign form — hidden by default #}
-  <div id="del-assign-form-{{ order.id }}" style="display:none; margin-top:8px;">
+  {# Inline assign form — hidden by default. Stop clicks here from bubbling to the
+     card's onclick toggle (which would immediately close the form). #}
+  <div id="del-assign-form-{{ order.id }}" style="display:none; margin-top:8px;" onclick="event.stopPropagation()">
     <div id="del-assign-error-{{ order.id }}" style="display:none; font-size:0.78rem; color:#dc2626; margin-bottom:6px; padding:4px 6px; background:#fef2f2; border-radius:6px;"></div>
     <select id="del-shift-sel-{{ order.id }}"
             style="width:100%; font-size:0.78rem; padding:4px 6px; border:1px solid var(--rule); border-radius:6px; margin-bottom:6px;">

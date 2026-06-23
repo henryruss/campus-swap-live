@@ -122,6 +122,15 @@
     .delivery-page { grid-template-columns: 1fr; }
     .form-row { grid-template-columns: 1fr; }
   }
+  /* Google Places autocomplete dropdown — keep it above the cards/header so suggestions are visible */
+  .pac-container {
+    z-index: 100000 !important;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    font-family: inherit;
+    margin-top: 2px;
+  }
+  .pac-item { padding: 6px 12px; font-size: 0.9rem; cursor: pointer; }
 </style>
 
 <div class="delivery-page">
@@ -155,13 +164,19 @@
       <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <form method="POST">
+    <form method="POST" id="delivery-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="lat" id="delivery_lat" value="">
+      <input type="hidden" name="lng" id="delivery_lng" value="">
 
       <div class="form-group">
         <label for="street">Street Address</label>
-        <input type="text" id="street" name="street" required
-               value="{{ form.street or '' }}" placeholder="123 Main St">
+        <input type="text" id="street" name="street" required autocomplete="off"
+               value="{{ form.street or '' }}"
+               placeholder="{% if google_maps_key %}Start typing your address…{% else %}123 Main St{% endif %}">
+        <p id="maps-unavailable-note" style="display:none; font-size:0.78rem; color:var(--text-muted); margin:2px 0 0;">
+          Address autocomplete is unavailable right now — just type your full address and we'll verify it.
+        </p>
       </div>
 
       <div class="form-row">
@@ -182,16 +197,151 @@
         </div>
       </div>
 
-      <button type="submit" class="btn-primary btn--full">
+      {# Verified-on-map confirmation + preview (shown only when the address is within range) #}
+      <div id="address-verified" style="display:none; align-items:center; gap:8px; background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:10px 14px; font-size:0.9rem; font-weight:600; margin-bottom:14px;">
+        <i class="fas fa-circle-check"></i> Address confirmed — we’ll deliver here.
+      </div>
+      <div id="address-out-of-area" style="display:none; align-items:center; gap:8px; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:10px 14px; font-size:0.9rem; font-weight:600; margin-bottom:14px;">
+        <i class="fas fa-circle-exclamation"></i> This address is outside our delivery area (within {{ max_delivery_miles|round|int }} miles of campus).
+      </div>
+      <div id="delivery-map-container" style="display:none; margin-bottom:16px; border-radius:10px; overflow:hidden; border:1px solid var(--rule); height:200px;">
+        <iframe id="delivery-map-iframe" style="width:100%; height:100%; border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+
+      <button type="submit" class="btn-primary btn--full" id="continue-btn">
         Continue to Order Review →
       </button>
     </form>
 
     <p class="delivery-fine-print">
-      Your address is only used to schedule your delivery.
+      {% if google_maps_key %}Select your address from the dropdown so we can confirm it on the map.{% else %}Your address is only used to schedule your delivery.{% endif %}
       It is never shared or sold.
     </p>
   </div>
 
 </div>
+
+<script>
+(function() {
+  var googleMapsKey = '{{ google_maps_key or "" }}';
+  var streetInput = document.getElementById('street');
+  var cityInput   = document.getElementById('city');
+  var stateInput  = document.getElementById('state');
+  var zipInput    = document.getElementById('zip');
+  var latInput    = document.getElementById('delivery_lat');
+  var lngInput    = document.getElementById('delivery_lng');
+  var verified    = document.getElementById('address-verified');
+  var mapWrap     = document.getElementById('delivery-map-container');
+  var mapIframe   = document.getElementById('delivery-map-iframe');
+  var mapsNote    = document.getElementById('maps-unavailable-note');
+  var outOfArea   = document.getElementById('address-out-of-area');
+  var continueBtn = document.getElementById('continue-btn');
+
+  var whLat    = parseFloat('{{ warehouse_lat }}');
+  var whLng    = parseFloat('{{ warehouse_lng }}');
+  var maxMiles = parseFloat('{{ max_delivery_miles }}');
+
+  function milesBetween(lat1, lng1, lat2, lng2) {
+    var R = 3958.8, toRad = Math.PI / 180;
+    var dLat = (lat2 - lat1) * toRad, dLng = (lng2 - lng1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  function showMap(query) {
+    if (!mapIframe || !query) return;
+    mapIframe.src = 'https://www.google.com/maps/embed/v1/place?key='
+      + encodeURIComponent(googleMapsKey) + '&q=' + encodeURIComponent(query);
+    mapWrap.style.display = 'block';
+  }
+
+  function clearVerification() {
+    latInput.value = '';
+    lngInput.value = '';
+    if (verified) verified.style.display = 'none';
+    if (outOfArea) outOfArea.style.display = 'none';
+    if (mapWrap) mapWrap.style.display = 'none';
+    if (continueBtn) { continueBtn.disabled = false; continueBtn.style.opacity = ''; }
+  }
+
+  // Manual typing in any address field invalidates a prior map confirmation,
+  // so we never submit stale coordinates. Programmatic fills (below) don't fire 'input'.
+  [streetInput, cityInput, stateInput, zipInput].forEach(function(el) {
+    if (el) el.addEventListener('input', clearVerification);
+  });
+
+  function comp(components, type, useShort) {
+    for (var i = 0; i < components.length; i++) {
+      if (components[i].types.indexOf(type) !== -1) {
+        return useShort ? components[i].short_name : components[i].long_name;
+      }
+    }
+    return '';
+  }
+
+  // Called by the Maps JS loader via &callback= once the API is fully ready.
+  window.__deliveryInitAutocomplete = function() {
+    if (!streetInput || typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+    var ac = new google.maps.places.Autocomplete(streetInput, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['address_components', 'geometry', 'formatted_address']
+    });
+    ac.addListener('place_changed', function() {
+      var place = ac.getPlace();
+      if (!place || !place.address_components) return;
+      var comps = place.address_components;
+      var num   = comp(comps, 'street_number');
+      var route = comp(comps, 'route');
+      var city  = comp(comps, 'locality') || comp(comps, 'sublocality') || comp(comps, 'postal_town');
+      var state = comp(comps, 'administrative_area_level_1', true);
+      var zip   = comp(comps, 'postal_code');
+
+      streetInput.value = (num + ' ' + route).trim() || place.formatted_address;
+      if (city)  cityInput.value  = city;
+      if (state) stateInput.value = state;
+      if (zip)   zipInput.value   = zip;
+
+      if (place.geometry && place.geometry.location) {
+        var plat = place.geometry.location.lat();
+        var plng = place.geometry.location.lng();
+        latInput.value = plat;
+        lngInput.value = plng;
+        showMap(place.formatted_address || (plat + ',' + plng));
+
+        // Only confirm "we'll deliver here" if the address is actually within range.
+        var inRange = !isNaN(whLat) && !isNaN(whLng) && !isNaN(maxMiles)
+                      ? milesBetween(whLat, whLng, plat, plng) <= maxMiles
+                      : true; // if warehouse coords unavailable, defer to the server check
+        if (inRange) {
+          if (verified) verified.style.display = 'flex';
+          if (outOfArea) outOfArea.style.display = 'none';
+          if (continueBtn) { continueBtn.disabled = false; continueBtn.style.opacity = ''; }
+        } else {
+          if (verified) verified.style.display = 'none';
+          if (outOfArea) outOfArea.style.display = 'flex';
+          if (continueBtn) { continueBtn.disabled = true; continueBtn.style.opacity = '0.5'; }
+        }
+      }
+    });
+  };
+
+  // Google calls this if the key is invalid or not authorized for this domain
+  // (e.g. an HTTP-referrer-restricted key being used on localhost).
+  window.gm_authFailure = function() {
+    if (mapsNote) mapsNote.style.display = 'block';
+    if (mapWrap) mapWrap.style.display = 'none';
+  };
+
+  // If the API was already loaded by an earlier page, init immediately.
+  if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+    window.__deliveryInitAutocomplete();
+  }
+})();
+</script>
+{% if google_maps_key %}
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places&loading=async&callback=__deliveryInitAutocomplete"></script>
+{% endif %}
 {% endblock %}

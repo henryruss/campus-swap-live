@@ -34,12 +34,10 @@
             <h4 style="margin-bottom: 12px;"><i class="fas fa-truck"></i> What happens next?</h4>
             <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
                 <li>Check your email — we've sent a confirmation with your delivery details.</li>
-                {% if order and order.is_flexible_delivery %}
-                <li>Estimated 1–3 weeks — we'll give you a heads-up before your delivery date.</li>
-                {% elif items and items|length == 1 and items[0].buyer_order and items[0].buyer_order.is_flexible_delivery %}
-                <li>Estimated 1–3 weeks — we'll give you a heads-up before your delivery date.</li>
+                {% if (order and order.is_flexible_delivery) or (items and items|length == 1 and items[0].buyer_order and items[0].buyer_order.is_flexible_delivery) %}
+                <li>Estimated delivery {{ delivery_window.flexible }} — we'll give you a heads-up before your delivery date.</li>
                 {% else %}
-                <li>Expected next Friday/Saturday — deliveries are batched weekly and may shift to the following weekend if volume is low.</li>
+                <li>Expected delivery <strong>{{ delivery_window.standard }}</strong> — deliveries are batched weekly.</li>
                 {% endif %}
                 <li>Questions? Reply to your confirmation email and we'll sort it out.</li>
             </ol>

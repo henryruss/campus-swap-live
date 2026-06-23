@@ -33,6 +33,29 @@ def _now_eastern():
 def _today_eastern():
     """Current date in US Eastern time."""
     return _now_eastern().date()
+
+def _delivery_window(ref_date=None):
+    """Human-friendly delivery date estimates for buyers.
+
+    Deliveries run on the upcoming Friday/Saturday — Mon–Thu maps to this week's
+    Friday (so on a Thursday it's literally tomorrow), Fri–Sun rolls to next week.
+    Flexible delivery spans that Friday through ~3 weeks out.
+    Returns concrete dates so buyers never have to guess what "next Friday" means.
+    """
+    from datetime import timedelta
+    ref_date = ref_date or _today_eastern()
+    wd = ref_date.weekday()  # Mon=0 .. Sun=6
+    days_until_fri = (4 - wd) if wd <= 3 else (4 - wd + 7)
+    friday = ref_date + timedelta(days=days_until_fri)
+    saturday = friday + timedelta(days=1)
+    flex_end = friday + timedelta(days=21)
+    return {
+        'standard': f"{friday.strftime('%A, %B %-d')} or {saturday.strftime('%A, %B %-d')}",
+        'flexible': f"between {friday.strftime('%b %-d')} and {flex_end.strftime('%b %-d')}",
+        'friday': friday,
+        'saturday': saturday,
+        'flex_end': flex_end,
+    }
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort, current_app
 import csv
 from io import StringIO, BytesIO
@@ -124,6 +147,13 @@ def store_open_date_raw():
     return AppSetting.get('store_open_date', '2026-06-07')
 
 
+# Default delivery origin — Campus Swap storage warehouse at 515 S Greensboro St, Carrboro NC.
+# Used when the warehouse_lat/warehouse_lng AppSettings are unset, so delivery checkout
+# fails open rather than erroring.
+WAREHOUSE_DEFAULT_LAT = '35.9030324'
+WAREHOUSE_DEFAULT_LNG = '-79.0709049'
+
+
 def haversine_miles(lat1, lng1, lat2, lng2):
     """Return straight-line distance in miles between two lat/lng points."""
     R = 3958.8  # Earth radius in miles
@@ -189,12 +219,18 @@ def item_is_picked_up(item):
 # =========================================================
 
 def item_is_held(item, exclude_cart_id=None):
-    """True if the item is held in another active cart (lazy expiry — no cron)."""
-    hold_minutes = int(AppSetting.get('cart_hold_minutes', '30'))
+    """True only if another buyer is actively in checkout for this item.
+
+    The hold starts when a buyer hits "Proceed to Payment" (Cart.checkout_started_at)
+    and lapses after checkout_hold_minutes — so simply leaving an item in a cart, or
+    closing the browser, never blocks anyone else. Lazy expiry, no cron.
+    """
+    hold_minutes = int(AppSetting.get('checkout_hold_minutes', '15'))
     cutoff = datetime.utcnow() - timedelta(minutes=hold_minutes)
     q = CartItem.query.join(Cart).filter(
         CartItem.item_id == item.id,
-        Cart.updated_at >= cutoff,
+        Cart.checkout_started_at.isnot(None),
+        Cart.checkout_started_at >= cutoff,
     )
     if exclude_cart_id:
         q = q.filter(Cart.id != exclude_cart_id)
@@ -586,13 +622,17 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
         unsubscribe_url: Optional unsubscribe URL for marketing emails
         is_marketing: Whether this is a marketing email (adds unsubscribe link)
     """
-    try:
-        logo_url = url_for('static', filename='faviconNew.svg', _external=True)
-        site_url = url_for('index', _external=True)
-    except Exception:
-        base = os.environ.get('BASE_URL', 'https://usecampusswap.com')
-        logo_url = f"{base.rstrip('/')}/static/faviconNew.svg"
-        site_url = base
+    # Idempotent: many callers pre-wrap their content and then pass it to send_email(),
+    # which wraps again — that would render the logo/header twice. If the content is
+    # already a full HTML document, return it untouched.
+    if html_content and html_content.lstrip()[:60].lower().startswith('<!doctype'):
+        return html_content
+    # Always build the logo URL from the public base domain — NOT url_for(_external=True),
+    # which uses the current request host (e.g. localhost in dev / an internal Render host),
+    # neither of which an email client's image proxy can reach. PNG, not SVG (clients block SVG).
+    base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    logo_url = f"{base}/static/faviconNew.png"
+    site_url = base
     logo_block = f"""
         <div style="text-align: center; margin-bottom: 28px;">
             <a href="{site_url}" style="text-decoration: none;">
@@ -838,25 +878,58 @@ def _item_sold_email_html(item, seller):
     """
 
 
+def _email_photo_url(filename):
+    """Return an absolute, email-safe image URL for a stored photo.
+
+    Prefers the direct CDN/S3 URL (no redirect — most reliable in email clients);
+    falls back to the external uploaded_file route for local disk storage.
+    """
+    if not filename:
+        return None
+    if str(filename).startswith('http'):
+        return filename
+    try:
+        if photo_storage.is_s3():
+            return photo_storage.get_photo_url(filename)
+    except Exception:
+        pass
+    try:
+        return url_for('uploaded_file', filename=filename, _external=True)
+    except Exception:
+        base = os.environ.get('BASE_URL', 'https://usecampusswap.com').rstrip('/')
+        return f"{base}/uploads/{filename}"
+
+
 def _send_buyer_order_confirmation(order, sold_items):
     """Send purchase confirmation email to buyer for a cart Order."""
     if not order.buyer_email:
         return
     is_flexible = order.is_flexible_delivery
-    items_html = ''.join(
-        f'<li><strong>{itm.description}</strong> — ${float(itm.price):.2f}</li>'
-        for itm in sold_items
-    )
+    rows = ''
+    for itm in sold_items:
+        photo = _email_photo_url(itm.photo_url)
+        img = (
+            f'<img src="{photo}" alt="{itm.description}" width="64" height="64" '
+            f'style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;margin-right:12px;vertical-align:middle;">'
+            if photo else ''
+        )
+        rows += (
+            f'<tr><td style="padding:10px 0;border-bottom:1px solid #f1f5f9;">{img}'
+            f'<strong>{itm.description}</strong></td>'
+            f'<td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;vertical-align:middle;">${float(itm.price):.2f}</td></tr>'
+        )
+    items_html = f'<table role="presentation" style="width:100%;border-collapse:collapse;margin:12px 0;">{rows}</table>'
+    dw = _delivery_window()
     timing = (
-        "1–3 week delivery window — we'll give you a heads-up before your delivery date."
+        f"Estimated {dw['flexible']} — we'll give you a heads-up before your delivery date."
         if is_flexible
-        else "Expected next Friday/Saturday — deliveries are batched weekly."
+        else f"Expected {dw['standard']} — deliveries are batched weekly."
     )
     html = f"""
     <div style="font-family: sans-serif; padding: 20px; max-width: 550px;">
         <h2 style="color: #166534;">Your Campus Swap order is confirmed!</h2>
         <p>Thanks for your purchase. Here's what you ordered:</p>
-        <ul style="line-height: 2;">{items_html}</ul>
+        {items_html}
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <p style="margin: 0 0 8px;"><strong>Delivery address:</strong> {order.delivery_street}, {order.delivery_city}, {order.delivery_state} {order.delivery_zip}</p>
             <p style="margin: 0 0 8px;"><strong>Delivery:</strong> {timing}</p>
@@ -1070,6 +1143,27 @@ def quality_to_label(quality):
 def quality_label_filter(quality):
     """Jinja filter: map numeric quality to rubric label."""
     return quality_to_label(quality)
+
+
+@app.template_filter('pickup_week_range')
+def pickup_week_range_filter(week_key):
+    """Jinja filter: map a pickup_week key (e.g. 'week9') to a compact date range
+    like 'Jun 22–28' so admins don't have to memorize what each week number means."""
+    if not week_key:
+        return ''
+    ranges = dict(PICKUP_WEEK_DATE_RANGES)
+    rng = ranges.get(week_key)
+    if not rng:
+        return dict(PICKUP_WEEKS).get(week_key, week_key)
+    from datetime import date
+    try:
+        s = date.fromisoformat(rng[0])
+        e = date.fromisoformat(rng[1])
+    except (ValueError, TypeError):
+        return dict(PICKUP_WEEKS).get(week_key, week_key)
+    if s.month == e.month:
+        return f"{s.strftime('%b')} {s.day}–{e.day}"
+    return f"{s.strftime('%b')} {s.day}–{e.strftime('%b')} {e.day}"
 
 
 @app.template_filter('fromjson')
@@ -2205,42 +2299,54 @@ def acknowledge_price_change(item_id):
 
 @app.route('/cart/add/<int:item_id>', methods=['POST'])
 def cart_add(item_id):
-    """Add item to cart (or no-op if already there). Returns JSON for async badge update."""
+    """Add item to cart (or no-op if already there).
+
+    "Add to Cart" calls this via fetch and expects JSON (for the live badge).
+    "Buy Now" is a full-page form POST — on error it must flash + redirect to a
+    real page, not dump raw JSON into the browser.
+    """
     item = InventoryItem.query.get_or_404(item_id)
+    is_buy_now = request.form.get('buy_now') == '1'
+
+    def fail(msg, code=409):
+        if is_buy_now:
+            flash(msg, 'error')
+            return redirect(url_for('product_detail', item_id=item_id))
+        return jsonify({'error': msg}), code
 
     # Gate: store must be open
     if not store_is_open():
-        return jsonify({'error': 'Store is not open yet.'}), 403
+        return fail('Store is not open yet.', 403)
     if AppSetting.get('reserve_only_mode') == 'true':
-        return jsonify({'error': 'Purchases are not open yet.'}), 403
+        return fail('Purchases are not open yet.', 403)
 
     if item.status == 'sold':
-        return jsonify({'error': 'This item has already been sold.'}), 409
+        return fail('This item has already been sold.')
     if item.status != 'available':
-        return jsonify({'error': 'This item is not available.'}), 409
+        return fail('This item is not available.')
 
     cart = _get_active_cart(create=True)
 
     # Check if already in this cart (idempotent)
     existing = CartItem.query.filter_by(cart_id=cart.id, item_id=item.id).first()
     if existing:
-        count = CartItem.query.filter_by(cart_id=cart.id).count()
-        if request.form.get('buy_now') == '1':
+        if is_buy_now:
             return redirect(url_for('cart_view'))
+        count = CartItem.query.filter_by(cart_id=cart.id).count()
         return jsonify({'count': count, 'already_in_cart': True})
 
     # Check hold by another cart
     if item_is_held(item, exclude_cart_id=cart.id):
-        return jsonify({'error': "Someone else is checking out this item — try again in a few minutes."}), 409
+        return fail("Someone else is checking out this item — try again in a few minutes.")
 
     ci = CartItem(cart_id=cart.id, item_id=item.id)
     db.session.add(ci)
     cart.updated_at = datetime.utcnow()
     db.session.commit()
 
-    count = CartItem.query.filter_by(cart_id=cart.id).count()
-    if request.form.get('buy_now') == '1':
+    if is_buy_now:
         return redirect(url_for('cart_view'))
+    count = CartItem.query.filter_by(cart_id=cart.id).count()
     return jsonify({'count': count})
 
 
@@ -2356,8 +2462,30 @@ def checkout_delivery():
         flash("Some items are no longer available. Please review your cart.", "error")
         return redirect(url_for('cart_view'))
 
+    gmaps_key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+
+    # Warehouse origin + delivery radius — passed to the template so the client can verify
+    # an address is in range BEFORE confirming it, and reused below for the server-side calc.
+    try:
+        wh_lat_f = float(AppSetting.get('warehouse_lat') or WAREHOUSE_DEFAULT_LAT)
+        wh_lng_f = float(AppSetting.get('warehouse_lng') or WAREHOUSE_DEFAULT_LNG)
+    except (TypeError, ValueError):
+        wh_lat_f, wh_lng_f = float(WAREHOUSE_DEFAULT_LAT), float(WAREHOUSE_DEFAULT_LNG)
+    try:
+        _boundaries = [float(b.strip()) for b in AppSetting.get('delivery_zone_boundaries', '5,10,15,20').split(',')]
+        max_delivery_miles = max(_boundaries) if _boundaries else 20.0
+    except (TypeError, ValueError):
+        max_delivery_miles = 20.0
+    map_ctx = {
+        'google_maps_key': gmaps_key,
+        'warehouse_lat': wh_lat_f,
+        'warehouse_lng': wh_lng_f,
+        'max_delivery_miles': max_delivery_miles,
+    }
+
     if request.method == 'GET':
-        return render_template('checkout_delivery.html', cart_items=cart_items, form={}, error=None)
+        return render_template('checkout_delivery.html', cart_items=cart_items, form={},
+                               error=None, **map_ctx)
 
     street = request.form.get('street', '').strip()
     city   = request.form.get('city', '').strip()
@@ -2367,27 +2495,34 @@ def checkout_delivery():
 
     if not all([street, city, state, zip_code]):
         return render_template('checkout_delivery.html', cart_items=cart_items,
-                               form=form_data, error="Please fill in all address fields.")
+                               form=form_data, error="Please fill in all address fields.",
+                               **map_ctx)
 
-    lat, lng = geocode_address(street, city, state, zip_code)
+    # Prefer the lat/lng captured client-side from Google Places (address the buyer
+    # confirmed on the map). Fall back to server-side Nominatim geocoding otherwise.
+    lat = lng = None
+    form_lat = request.form.get('lat', '').strip()
+    form_lng = request.form.get('lng', '').strip()
+    if form_lat and form_lng:
+        try:
+            lat, lng = float(form_lat), float(form_lng)
+        except ValueError:
+            lat = lng = None
+    if lat is None:
+        lat, lng = geocode_address(street, city, state, zip_code)
     if lat is None:
         return render_template('checkout_delivery.html', cart_items=cart_items,
                                form=form_data,
-                               error="We couldn't verify that address — please double-check and try again.")
+                               error="We couldn't verify that address — please double-check and try again.",
+                               **map_ctx)
 
-    wh_lat = AppSetting.get('warehouse_lat')
-    wh_lng = AppSetting.get('warehouse_lng')
-    if wh_lat is None or wh_lng is None:
-        return render_template('checkout_delivery.html', cart_items=cart_items,
-                               form=form_data,
-                               error="Delivery zone lookup is temporarily unavailable. Please try again later.")
-
-    distance = haversine_miles(float(wh_lat), float(wh_lng), lat, lng)
+    distance = haversine_miles(wh_lat_f, wh_lng_f, lat, lng)
     zone_result = calculate_delivery_zone(distance)
     if zone_result is None:
         return render_template('checkout_delivery.html', cart_items=cart_items,
                                form=form_data,
-                               error="Sorry, we currently only deliver within 20 miles of campus. Your address is outside our delivery area.")
+                               error="Sorry, we currently only deliver within 20 miles of campus. Your address is outside our delivery area.",
+                               **map_ctx)
 
     zone_number, zone_fee = zone_result
     bundle_min = int(AppSetting.get('bundle_min_items', '2'))
@@ -2460,6 +2595,7 @@ def checkout_review():
             flexible_discount=flexible_discount_amt,
             flexible_available=flexible_available,
             address=pending['address_string'],
+            delivery_window=_delivery_window(),
         )
 
     # POST: recompute, validate, create pending Order, create Stripe session
@@ -2512,6 +2648,9 @@ def checkout_review():
         status='pending',
     )
     db.session.add(new_order)
+    # Mark this cart as actively in checkout — this (and only this) holds its items
+    # against other buyers, for a short window that lapses if the buyer abandons.
+    cart.checkout_started_at = datetime.utcnow()
     db.session.commit()
 
     try:
@@ -2696,7 +2835,7 @@ def item_sold_success():
     # New cart-order flow passes order_id (actually the Stripe session ID via {CHECKOUT_SESSION_ID})
     stripe_session_id = request.args.get('order_id') or request.args.get('session_id')
     if not stripe_session_id:
-        return render_template('item_success.html', order=None, items=[])
+        return render_template('item_success.html', order=None, items=[], delivery_window=_delivery_window())
 
     try:
         stripe_session_obj = stripe.checkout.Session.retrieve(stripe_session_id)
@@ -2707,7 +2846,7 @@ def item_sold_success():
             order_id = meta.get('order_id')
             order = Order.query.get(int(order_id)) if order_id else None
             items = [bo.item for bo in order.line_items] if order else []
-            return render_template('item_success.html', order=order, items=items)
+            return render_template('item_success.html', order=order, items=items, delivery_window=_delivery_window())
 
         # --- Legacy single-item flow ---
         item_id = meta.get('item_id')
@@ -2720,7 +2859,7 @@ def item_sold_success():
             flash("Item not found.", "error")
             return redirect(url_for('inventory'))
 
-        return render_template('item_success.html', order=None, items=[item])
+        return render_template('item_success.html', order=None, items=[item], delivery_window=_delivery_window())
     except Exception as e:
         logger.error(f"Error in item_success route: {e}", exc_info=True)
         flash("Error processing payment. Please contact support.", "error")
@@ -13121,6 +13260,17 @@ def admin_routes_assign_seller(user_id):
         return redirect(url_for('admin_ops'))
 
     shift = Shift.query.get_or_404(int(shift_id))
+
+    # Mixed-truck guard: a truck carrying buyer deliveries cannot also take pickup stops.
+    # Without this, the pickup would be created on the delivery truck, vanish from the
+    # unassigned list, and never render (the delivery drawer only shows DeliveryStops).
+    if DeliveryStop.query.filter_by(shift_id=shift.id, truck_number=int(truck_number)).count() > 0:
+        msg = f"Truck {int(truck_number)} is a delivery truck — it can only carry buyer deliveries, not pickups."
+        if not request.is_json and request.form:
+            flash(msg, "error")
+            return redirect(url_for('admin_ops', shift_id=shift.id))
+        return jsonify({'error': msg}), 422
+
     effective_cap = get_effective_capacity()
     truck_pickups = ShiftPickup.query.filter_by(shift_id=shift.id, truck_number=int(truck_number)).all()
     load = sum(get_seller_unit_count(p.seller) for p in truck_pickups)
@@ -14172,6 +14322,13 @@ def admin_ops():
             })
 
     delivery_queue = _build_delivery_queue()
+    # Delivery stops on the CURRENT shift — drives the "Notify Buyers" button in the header
+    has_delivery_stops = False
+    delivery_unnotified_count = 0
+    if shift:
+        _shift_del_stops = DeliveryStop.query.filter_by(shift_id=shift.id).all()
+        has_delivery_stops = len(_shift_del_stops) > 0
+        delivery_unnotified_count = sum(1 for s in _shift_del_stops if s.notified_at is None)
     # Upcoming delivery-eligible shifts for the assign form in the delivery queue panel
     _today_val = _today_eastern()
     _upcoming_del_shifts = sorted(
@@ -14198,6 +14355,8 @@ def admin_ops():
         tutorial_step=tutorial_step,
         delivery_queue=delivery_queue,
         upcoming_delivery_shifts=_upcoming_del_shifts,
+        has_delivery_stops=has_delivery_stops,
+        delivery_unnotified_count=delivery_unnotified_count,
     )
 
 
@@ -16658,7 +16817,7 @@ def _build_delivery_queue():
             ~BuyerOrder.delivery_stop.has(),
             BuyerOrder.delivered_at.is_(None),
         )
-        .options(joinedload(BuyerOrder.item))
+        .options(joinedload(BuyerOrder.item), joinedload(BuyerOrder.order))
         .order_by(BuyerOrder.created_at.asc())
         .all()
     )
@@ -16753,37 +16912,74 @@ def admin_delivery_remove_stop(shift_id, stop_id):
     return jsonify(success=True)
 
 
-@app.route('/admin/delivery/stop/<int:stop_id>/notify', methods=['POST'])
-@login_required
-def admin_delivery_notify_buyer(stop_id):
-    """Send delivery scheduled email to buyer. Sets notified_at. Idempotent."""
-    if not _has_ops_access():
-        return jsonify(error='Forbidden'), 403
-    stop = DeliveryStop.query.get_or_404(stop_id)
+def _send_delivery_scheduled_email(stop):
+    """Send the 'delivery scheduled' email for one DeliveryStop and set notified_at.
+    Returns True if sent. Caller is responsible for committing the session."""
     order = stop.buyer_order
+    if not order or not order.buyer_email:
+        return False
     item = order.item
     shift = stop.shift
     shift_date = _ops_shift_date(shift)
 
     photo_html = ''
-    if item.photo_url:
-        photo_url = url_for('uploaded_file', filename=item.photo_url, _external=True)
-        photo_html = f'<img src="{photo_url}" alt="{item.description}" style="max-width:200px;border-radius:8px;margin:12px 0;">'
+    if item and item.photo_url:
+        photo_url = _email_photo_url(item.photo_url)
+        if photo_url:
+            photo_html = f'<img src="{photo_url}" alt="{item.description}" style="max-width:240px;border-radius:8px;margin:12px 0;">'
 
+    # NOTE: pass raw content — send_email() wraps it in the template (logo/footer).
+    # Wrapping here too would double the logo header.
     html = f"""
-<h2 style="font-family:serif;color:#1a3d1a;">Your Campus Swap Delivery is Scheduled</h2>
-<p>Great news! Your item is scheduled for delivery.</p>
+<h2 style="color:#1a3d1a;">Your Campus Swap delivery is scheduled!</h2>
+<p>Great news — your item is scheduled for delivery.</p>
 {photo_html}
-<p><strong>Item:</strong> {item.description}</p>
+<p><strong>Item:</strong> {item.description if item else 'Your order'}</p>
 <p><strong>Delivery address:</strong> {order.delivery_address}</p>
 <p><strong>Delivery date:</strong> {shift_date.strftime('%A, %B %-d, %Y')}</p>
 <p>We'll send you a heads-up on the day of delivery.</p>
-<p>Questions? Reply to this email.</p>
+<p>Questions? Just reply to this email.</p>
 """
     send_email(order.buyer_email, 'Your Campus Swap delivery is scheduled', html)
     stop.notified_at = _now_eastern().replace(tzinfo=None)
+    return True
+
+
+@app.route('/admin/delivery/stop/<int:stop_id>/notify', methods=['POST'])
+@login_required
+def admin_delivery_notify_buyer(stop_id):
+    """Send delivery scheduled email to one buyer. Sets notified_at. Idempotent."""
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    stop = DeliveryStop.query.get_or_404(stop_id)
+    if not _send_delivery_scheduled_email(stop):
+        return jsonify(error='This buyer has no email on file.'), 400
     db.session.commit()
     return jsonify(notified_at=stop.notified_at.strftime('%-I:%M %p'))
+
+
+@app.route('/admin/crew/shift/<int:shift_id>/notify-buyers', methods=['POST'])
+@login_required
+def admin_shift_notify_buyers(shift_id):
+    """Send the delivery-scheduled email to every unnotified buyer on this shift's delivery route."""
+    if not _has_ops_access():
+        abort(403)
+    Shift.query.get_or_404(shift_id)
+    stops = DeliveryStop.query.filter_by(shift_id=shift_id).filter(
+        DeliveryStop.notified_at == None).all()
+    sent = 0
+    for stop in stops:
+        try:
+            if _send_delivery_scheduled_email(stop):
+                sent += 1
+        except Exception as e:
+            logger.error(f"Failed to notify buyer for delivery stop {stop.id}: {e}")
+    db.session.commit()
+    if sent:
+        flash(f"Notified {sent} buyer{'s' if sent != 1 else ''}.", "success")
+    else:
+        flash("No buyers to notify on this route.", "info")
+    return redirect(url_for('admin_ops', shift_id=shift_id))
 
 
 # ── Delivery truck detail drawer (admin ops) ──────────────────

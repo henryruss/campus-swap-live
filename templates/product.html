@@ -269,7 +269,11 @@
                                             btn.innerHTML = '<i class="fas fa-check"></i> In Cart';
                                             toast.style.display = '';
                                             var badge = document.getElementById('cart-badge');
-                                            if (badge) badge.textContent = data.count;
+                                            if (badge) {
+                                                badge.textContent = data.count;
+                                                // Reveal the badge on the first add (0 -> 1); it's display:none when the cart starts empty
+                                                badge.style.display = 'flex';
+                                            }
                                         }
                                     })
                                     .catch(function() {

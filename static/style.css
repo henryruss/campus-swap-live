@@ -81,7 +81,7 @@ a, button, .btn, .share-card-btn, .mobile-menu-link, .mobile-menu-store,
     margin-bottom: 30px; 
     overflow: hidden;
 }
-.card:hover { transform: translateY(-5px); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); }
+.card:hover { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); }
 .card.no-hover:hover { transform: none; box-shadow: var(--glass-shadow); }
 
 .btn {
@@ -2479,7 +2479,7 @@ body.teaser-page footer { display: none; }
   display: block;
 }
 .item-card:hover .item-card-img-wrap img {
-  transform: scale(1.04);
+  transform: none;
 }
 .item-card-img-placeholder {
   width: 100%;

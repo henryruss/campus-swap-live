@@ -760,6 +760,16 @@
           {% endif %}
         </button>
         {% endif %}
+        {% if has_delivery_stops %}
+        <button class="btn-sm" id="notifyBuyersBtn"
+                data-unnotified="{{ delivery_unnotified_count }}"
+                style="background:#2563eb; color:white; border-color:#2563eb;">
+          <i class="fas fa-bell"></i> Notify Buyers
+          {% if delivery_unnotified_count > 0 %}
+            <span style="background: rgba(255,255,255,0.3); border-radius: 10px; padding: 0 6px; font-size: 0.7rem;">{{ delivery_unnotified_count }}</span>
+          {% endif %}
+        </button>
+        {% endif %}
       </div>
     </div>
 
@@ -1068,7 +1078,7 @@
       <div class="seller-card-row1">
         {% if seller._is_new %}<span class="seller-card-dot" title="Newly eligible"></span>{% endif %}
         <span class="seller-card-name">{{ seller.full_name }}</span>
-        {% if seller.pickup_week %}<span class="seller-card-pref" style="background: #e0f2fe; color: #075985;">{{ seller.pickup_week | replace('week', 'Wk') }}</span>{% endif %}
+        {% if seller.pickup_week %}<span class="seller-card-pref" style="background: #e0f2fe; color: #075985;">{{ seller.pickup_week | replace('week', 'Wk') }} · {{ seller.pickup_week | pickup_week_range }}</span>{% endif %}
         {% if seller._had_prior_pickup %}<span class="seller-card-pref" style="background: #fff3cd; color: #856404;" title="Had a prior completed pickup — new items added since">re-pickup</span>{% endif %}
         <button class="ops-photo-btn"
                 data-seller-name="{{ seller.full_name }}"
@@ -1119,7 +1129,11 @@
       <div style="font-size:0.75rem; color:var(--text-muted);">Sold items awaiting delivery assignment</div>
     </div>
     <div id="delivery-queue-list">
-      {% include 'admin/ops_delivery_queue_partial.html' with context %}
+      {# The partial loops over `orders` and `upcoming_shifts`; the ops route names them
+         `delivery_queue` / `upcoming_delivery_shifts`, so map them here. #}
+      {% with orders = delivery_queue, upcoming_shifts = upcoming_delivery_shifts %}
+        {% include 'admin/ops_delivery_queue_partial.html' with context %}
+      {% endwith %}
     </div>
   </aside>
 
@@ -1164,6 +1178,12 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 </form>
 
+{# Notify buyers (delivery route) confirmation dialog #}
+<form method="POST" action="{{ url_for('admin_shift_notify_buyers', shift_id=shift.id) if shift else '#' }}"
+      id="notifyBuyersForm" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+</form>
+
 <script>
   // ── Scroll selected shift into view within the panel only ──
   document.addEventListener('DOMContentLoaded', function() {
@@ -1192,7 +1212,16 @@
 
     fetch('/admin/ops/truck-detail?shift_id=' + shiftId + '&truck=' + truckNum)
       .then(function(r) { return r.text(); })
-      .then(function(html) { content.innerHTML = html; })
+      .then(function(html) {
+        content.innerHTML = html;
+        // Browsers don't run <script> tags injected via innerHTML — re-create them so
+        // partial-defined handlers (e.g. notifyDeliveryBuyer in the delivery drawer) work.
+        content.querySelectorAll('script').forEach(function(orig) {
+          var s = document.createElement('script');
+          s.textContent = orig.textContent;
+          orig.parentNode.replaceChild(s, orig);
+        });
+      })
       .catch(function() {
         content.innerHTML = '<div style="padding:20px;color:#dc2626;">Error loading truck detail.</div>';
       });
@@ -1266,6 +1295,17 @@
       : 'All sellers already notified. Re-send to newly added sellers?';
     if (confirm(msg)) {
       document.getElementById('notifyForm').submit();
+    }
+  });
+
+  // ── Notify buyers (delivery route) ──
+  document.getElementById('notifyBuyersBtn') && document.getElementById('notifyBuyersBtn').addEventListener('click', function() {
+    var unnotified = parseInt(this.dataset.unnotified, 10);
+    var msg = unnotified > 0
+      ? 'Send a delivery confirmation to ' + unnotified + ' buyer' + (unnotified !== 1 ? 's' : '') + ' on this route?'
+      : 'All buyers already notified. Re-send delivery confirmation to everyone on this route?';
+    if (confirm(msg)) {
+      document.getElementById('notifyBuyersForm').submit();
     }
   });
 
