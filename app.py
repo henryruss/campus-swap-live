@@ -3970,10 +3970,30 @@ def admin_approve():
 @app.route('/admin/item/<int:item_id>/toggle-featured', methods=['POST'])
 @login_required
 def admin_item_toggle_featured(item_id):
-    """Toggle InventoryItem.is_featured (homepage pin). Admin only. Returns JSON."""
+    """Toggle InventoryItem.is_featured (homepage pin). Admin only. Returns JSON.
+    Pinning is blocked if the item isn't homepage-eligible — it would be pinned but
+    invisible, which is confusing. Unpinning is always allowed."""
     if not current_user.is_admin:
         return jsonify({'success': False, 'error': 'Access denied.'}), 403
     item = InventoryItem.query.get_or_404(item_id)
+    # If trying to pin (not currently featured), check eligibility first
+    if not item.is_featured:
+        ineligible_reasons = []
+        if item.status != 'available':
+            ineligible_reasons.append('not available')
+        if not item.ai_approved:
+            ineligible_reasons.append('not AI approved')
+        if not item.ai_photo_enhanced:
+            ineligible_reasons.append('no AI-enhanced photo')
+        if item.needs_new_photo:
+            ineligible_reasons.append('needs new photo')
+        if item.needs_photo_verification:
+            ineligible_reasons.append('photo needs verification')
+        if ineligible_reasons:
+            return jsonify({
+                'success': False,
+                'error': f"Can’t pin — item won’t appear on homepage: {', '.join(ineligible_reasons)}."
+            }), 422
     item.is_featured = not item.is_featured
     db.session.commit()
     return jsonify({'success': True, 'is_featured': item.is_featured})
@@ -15156,6 +15176,8 @@ def admin_items():
     q = request.args.get('q', '').strip()
     filter_cat = request.args.get('cat', type=int)
     filter_needs_refresh = request.args.get('needs_refresh') == '1'
+    filter_stage = request.args.get('stage', '')
+    filter_sort = request.args.get('sort', 'date_desc')
 
     items_q = InventoryItem.query.join(User, InventoryItem.seller_id == User.id, isouter=True)
     if q:
@@ -15172,8 +15194,75 @@ def admin_items():
     if filter_needs_refresh:
         items_q = items_q.filter(InventoryItem.needs_photo_refresh == True)
 
-    all_items = items_q.order_by(InventoryItem.date_added.desc()).all()
-    categories = InventoryCategory.query.order_by(InventoryCategory.name).all()
+    # Lifecycle stage filter
+    if filter_stage == 'pending_review':
+        items_q = items_q.filter(InventoryItem.status.in_(['pending_valuation', 'needs_info']))
+    elif filter_stage == 'awaiting_pickup':
+        # pending_logistics folds here; picked_up_at not yet set
+        items_q = items_q.filter(
+            InventoryItem.status.in_(['available', 'pending_logistics']),
+            InventoryItem.picked_up_at.is_(None),
+        )
+    elif filter_stage == 'in_transit':
+        # Picked up by driver but not yet assigned a storage location
+        items_q = items_q.filter(
+            InventoryItem.status == 'available',
+            InventoryItem.picked_up_at.isnot(None),
+            InventoryItem.storage_location_id.is_(None),
+        )
+    elif filter_stage == 'at_warehouse':
+        # Any item physically in the warehouse regardless of approval status
+        items_q = items_q.filter(
+            InventoryItem.storage_location_id.isnot(None),
+        )
+    elif filter_stage == 'live_in_shop':
+        items_q = items_q.filter(
+            InventoryItem.status == 'available',
+            InventoryItem.ai_approved == True,
+            InventoryItem.ai_photo_enhanced == True,
+            InventoryItem.needs_new_photo == False,
+            InventoryItem.needs_photo_verification == False,
+        )
+    elif filter_stage == 'sold':
+        items_q = items_q.filter(InventoryItem.status == 'sold')
+    elif filter_stage == 'rejected':
+        items_q = items_q.filter(InventoryItem.status == 'rejected')
+
+    if filter_sort == 'date_asc':
+        items_q = items_q.order_by(InventoryItem.date_added.asc())
+    elif filter_sort == 'price_asc':
+        items_q = items_q.order_by(InventoryItem.price.asc().nullslast())
+    elif filter_sort == 'price_desc':
+        items_q = items_q.order_by(InventoryItem.price.desc().nullslast())
+    else:
+        items_q = items_q.order_by(InventoryItem.date_added.desc())
+
+    all_items = items_q.all()
+
+    # Only show categories that actually have items in the DB
+    categories = (
+        db.session.query(InventoryCategory)
+        .join(InventoryItem, InventoryItem.category_id == InventoryCategory.id)
+        .group_by(InventoryCategory.id)
+        .order_by(InventoryCategory.name)
+        .all()
+    )
+
+    filter_cat_name = None
+    if filter_cat:
+        cat_obj = InventoryCategory.query.get(filter_cat)
+        filter_cat_name = cat_obj.name if cat_obj else None
+
+    STAGE_LABELS = {
+        'pending_review': 'Pending Review',
+        'awaiting_pickup': 'Awaiting Pickup',
+        'in_transit': 'In Transit',
+        'at_warehouse': 'At Warehouse',
+        'live_in_shop': 'Live in Shop',
+        'sold': 'Sold',
+        'rejected': 'Rejected',
+    }
+    filter_stage_label = STAGE_LABELS.get(filter_stage, None)
 
     # AI review queue
     ai_review_items = []
@@ -15243,7 +15332,11 @@ def admin_items():
         shop_teaser_mode=shop_teaser_mode,
         q=q,
         filter_cat=filter_cat,
+        filter_cat_name=filter_cat_name,
         filter_needs_refresh=filter_needs_refresh,
+        filter_stage=filter_stage,
+        filter_stage_label=filter_stage_label,
+        filter_sort=filter_sort,
         nudge_sellers=nudge_sellers,
         api_key_present=bool(os.environ.get('ANTHROPIC_API_KEY')),
         ai_models=[

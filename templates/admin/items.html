@@ -32,10 +32,53 @@
 
   .items-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
   .items-table th {
-    padding: 9px 10px; background: var(--bg-cream); border-bottom: var(--card-border);
+    padding: 10px 10px 8px; background: var(--bg-cream); border-bottom: var(--card-border);
     text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--text-muted); position: sticky; top: 0; z-index: 5;
+    vertical-align: top; white-space: normal;
   }
+  /* Column-header filter/sort popovers */
+  .col-hd { cursor: pointer; user-select: none; }
+  .col-hd-inner { display: flex; flex-direction: column; gap: 3px; }
+  .col-hd-label { display: inline-flex; align-items: center; gap: 4px; }
+  .qc-badge {
+    display: inline-block; padding: 1px 5px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 800; letter-spacing: 0.04em;
+    background: #e0f2fe; color: #0369a1; vertical-align: middle;
+    margin-left: 5px; text-transform: uppercase;
+  }
+  .col-hd.is-filtered .col-hd-label { color: var(--primary); }
+  .col-hd:hover:not(.is-filtered) .col-hd-label { opacity: 0.75; }
+  .col-hd-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--primary); color: white; border-radius: 5px;
+    padding: 2px 6px; font-size: 0.68rem; font-weight: 700;
+    text-transform: none; letter-spacing: 0; white-space: nowrap;
+    cursor: default;
+  }
+  .col-hd-chip-x {
+    font-size: 0.75rem; opacity: 0.75; cursor: pointer;
+    color: white; text-decoration: none; line-height: 1;
+  }
+  .col-hd-chip-x:hover { opacity: 1; }
+  .col-popover {
+    display: none; position: fixed;
+    min-width: 168px; background: white;
+    border: 1px solid var(--rule); border-radius: 9px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.13);
+    z-index: 1000; padding: 5px 0;
+    max-height: 340px; overflow-y: auto;
+  }
+  .col-popover.open { display: block; }
+  .col-pop-opt {
+    display: block; padding: 7px 14px; font-size: 0.81rem;
+    color: var(--text-main); text-decoration: none; cursor: pointer;
+    white-space: nowrap; text-transform: none; letter-spacing: 0;
+    font-weight: 400;
+  }
+  .col-pop-opt:hover { background: #f1f5f9; }
+  .col-pop-opt.active { font-weight: 700; color: var(--primary); }
+  .col-pop-divider { border: none; border-top: 1px solid var(--rule); margin: 4px 0; }
   .items-table td { padding: 9px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
   .items-table tr:hover td { background: #fafafa; }
   .item-desc { font-weight: 600; color: var(--text-main); max-width: 220px; }
@@ -725,28 +768,17 @@
   <div class="items-filter-bar">
     <form method="GET" action="{{ url_for('admin_items') }}" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;" id="items-filter-form">
       <input type="hidden" name="view" value="all">
+      {% if filter_cat %}<input type="hidden" name="cat" value="{{ filter_cat }}">{% endif %}
+      {% if filter_stage %}<input type="hidden" name="stage" value="{{ filter_stage }}">{% endif %}
+      {% if filter_sort and filter_sort != 'date_desc' %}<input type="hidden" name="sort" value="{{ filter_sort }}">{% endif %}
       <input type="text" name="q" id="items-q" value="{{ q }}" placeholder="Search by item, seller name, email, or ID…" style="min-width: 240px; flex: 1;">
-      <select name="category_id" id="items-cat-select" style="min-width: 130px;">
-        <option value="">All categories</option>
-        {% for cat in categories %}
-        <option value="{{ cat.id }}" {% if filter_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-        {% endfor %}
-      </select>
-      <select name="subcategory_id" id="items-subcat-select" style="min-width: 130px; {% if not filter_cat %}display:none;{% endif %}">
-        <option value="">All subcategories</option>
-        {% if filter_cat %}
-          {% for sub in selected_cat_subcategories %}
-          <option value="{{ sub.id }}" {% if filter_subcategory_id == sub.id %}selected{% endif %}>{{ sub.name }}</option>
-          {% endfor %}
-        {% endif %}
-      </select>
       <label style="display:flex; align-items:center; gap:5px; font-size:0.83rem; color:var(--text-main); cursor:pointer; white-space:nowrap;">
         <input type="checkbox" name="needs_refresh" value="1" {% if filter_needs_refresh %}checked{% endif %}> Needs photo refresh
       </label>
-      <button type="submit" class="btn-outline" style="padding: 7px 14px; font-size: 0.83rem; display:none;">Filter</button>
-      {% if q or filter_cat or filter_needs_refresh %}
-      <a href="{{ url_for('admin_items', view='all') }}" style="font-size: 0.83rem; color: var(--text-muted);">Clear</a>
-      {% endif %}
+      <a href="{{ url_for('admin_items', view='all') }}"
+         style="font-size: 0.83rem; color: var(--text-muted); white-space: nowrap; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; {% if not (q or filter_cat or filter_needs_refresh or filter_stage or filter_sort not in ('', 'date_desc')) %}visibility: hidden; pointer-events: none;{% endif %}">
+        Clear all
+      </a>
     </form>
   </div>
 
@@ -756,17 +788,70 @@
         <tr>
           <th>Item</th>
           <th>Seller</th>
-          <th>Category</th>
-          <th>Price</th>
-          <th>Status</th>
-          <th>Date added</th>
+          <th class="col-hd {% if filter_cat %}is-filtered{% endif %}" data-pop-target="pop-category">
+            <div class="col-hd-inner">
+              <span class="col-hd-label">Category <i class="fas fa-filter" style="font-size:0.6rem;"></i></span>
+              {% if filter_cat_name %}
+              <span class="col-hd-chip" onclick="event.stopPropagation()">
+                {{ filter_cat_name }}
+                <a class="col-hd-chip-x col-pop-opt" data-set-param="cat" data-set-value="" title="Clear">×</a>
+              </span>
+              {% endif %}
+            </div>
+          </th>
+          <th class="col-hd {% if filter_sort in ('price_asc','price_desc') %}is-filtered{% endif %}" data-pop-target="pop-price">
+            <div class="col-hd-inner">
+              <span class="col-hd-label">Price
+                {% if filter_sort == 'price_asc' %}<i class="fas fa-arrow-up" style="font-size:0.65rem;"></i>
+                {% elif filter_sort == 'price_desc' %}<i class="fas fa-arrow-down" style="font-size:0.65rem;"></i>
+                {% else %}<i class="fas fa-sort" style="font-size:0.65rem; opacity:0.4;"></i>{% endif %}
+              </span>
+              {% if filter_sort == 'price_asc' %}
+              <span class="col-hd-chip" onclick="event.stopPropagation()">
+                Low → High
+                <a class="col-hd-chip-x col-pop-opt" data-set-param="sort" data-set-value="date_desc" title="Clear">×</a>
+              </span>
+              {% elif filter_sort == 'price_desc' %}
+              <span class="col-hd-chip" onclick="event.stopPropagation()">
+                High → Low
+                <a class="col-hd-chip-x col-pop-opt" data-set-param="sort" data-set-value="date_desc" title="Clear">×</a>
+              </span>
+              {% endif %}
+            </div>
+          </th>
+          <th class="col-hd {% if filter_stage %}is-filtered{% endif %}" data-pop-target="pop-stage">
+            <div class="col-hd-inner">
+              <span class="col-hd-label">Stage <i class="fas fa-filter" style="font-size:0.6rem;"></i></span>
+              {% if filter_stage_label %}
+              <span class="col-hd-chip" onclick="event.stopPropagation()">
+                {{ filter_stage_label }}
+                <a class="col-hd-chip-x col-pop-opt" data-set-param="stage" data-set-value="" title="Clear">×</a>
+              </span>
+              {% endif %}
+            </div>
+          </th>
+          <th class="col-hd {% if filter_sort in ('date_asc',) %}is-filtered{% endif %}" data-pop-target="pop-date">
+            <div class="col-hd-inner">
+              <span class="col-hd-label">Date added
+                {% if filter_sort == 'date_asc' %}<i class="fas fa-arrow-up" style="font-size:0.65rem;"></i>
+                {% else %}<i class="fas fa-arrow-down" style="font-size:0.65rem; opacity:0.4;"></i>{% endif %}
+              </span>
+              {% if filter_sort == 'date_asc' %}
+              <span class="col-hd-chip" onclick="event.stopPropagation()">
+                Oldest first
+                <a class="col-hd-chip-x col-pop-opt" data-set-param="sort" data-set-value="date_desc" title="Clear">×</a>
+              </span>
+              {% endif %}
+            </div>
+          </th>
           <th>Payout sent</th>
+          <th style="text-align:center;">Pin</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% if not all_items %}
-        <tr><td colspan="8" style="text-align: center; padding: 32px; color: var(--text-muted);">No items found.</td></tr>
+        <tr><td colspan="9" style="text-align: center; padding: 32px; color: var(--text-muted);">No items found.</td></tr>
         {% endif %}
         {% for item in all_items %}
         <tr data-item-id="{{ item.id }}"
@@ -776,6 +861,7 @@
                     style="background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--primary);text-align:left;font-weight:600;">
               {{ item.description[:60] }}{% if item.description|length > 60 %}…{% endif %}
             </button>
+            {% if item.is_quick_capture %}<span class="qc-badge">QC</span>{% endif %}
           </td>
           <td>
             {% if item.seller %}
@@ -803,6 +889,17 @@
               {% else %}<i class="fas fa-clock" style="color: #f59e0b;"></i>{% endif %}
             {% else %}—{% endif %}
           </td>
+          <td style="text-align:center;">
+            {% if item.status == 'available' %}
+            <button type="button" class="hp-pin-btn"
+                    data-item-id="{{ item.id }}"
+                    data-featured="{{ 'true' if item.is_featured else 'false' }}"
+                    title="{{ 'Unpin from homepage' if item.is_featured else 'Pin to homepage' }}"
+                    style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:1.1rem;color:{{ '#f59e0b' if item.is_featured else '#cbd5e1' }};transition:color 0.15s;">
+              <i class="fas fa-star"></i>
+            </button>
+            {% else %}—{% endif %}
+          </td>
           <td style="white-space: nowrap;">
             <a href="{{ url_for('edit_item', item_id=item.id) }}"
                class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem; text-decoration: none; display: inline-block;">Edit</a>
@@ -822,6 +919,41 @@
     </table>
   </div>
   {% endif %}
+</div>
+
+{# Column-header filter/sort popovers — fixed-positioned so they escape overflow:auto #}
+<div id="pop-category" class="col-popover">
+  <a class="col-pop-opt {% if not filter_cat %}active{% endif %}" data-set-param="cat" data-set-value="">All categories</a>
+  <hr class="col-pop-divider">
+  {% for cat in categories %}
+  <a class="col-pop-opt {% if filter_cat == cat.id %}active{% endif %}" data-set-param="cat" data-set-value="{{ cat.id }}">{{ cat.name }}</a>
+  {% endfor %}
+</div>
+
+<div id="pop-price" class="col-popover">
+  <a class="col-pop-opt {% if filter_sort == 'price_asc' %}active{% endif %}" data-set-param="sort" data-set-value="price_asc">Low → High</a>
+  <a class="col-pop-opt {% if filter_sort == 'price_desc' %}active{% endif %}" data-set-param="sort" data-set-value="price_desc">High → Low</a>
+  {% if filter_sort in ('price_asc', 'price_desc') %}
+  <hr class="col-pop-divider">
+  <a class="col-pop-opt" data-set-param="sort" data-set-value="date_desc" style="color:var(--text-muted);">Clear sort</a>
+  {% endif %}
+</div>
+
+<div id="pop-stage" class="col-popover">
+  <a class="col-pop-opt {% if not filter_stage %}active{% endif %}" data-set-param="stage" data-set-value="">All stages</a>
+  <hr class="col-pop-divider">
+  <a class="col-pop-opt {% if filter_stage == 'pending_review' %}active{% endif %}" data-set-param="stage" data-set-value="pending_review">Pending Review</a>
+  <a class="col-pop-opt {% if filter_stage == 'awaiting_pickup' %}active{% endif %}" data-set-param="stage" data-set-value="awaiting_pickup">Awaiting Pickup</a>
+  <a class="col-pop-opt {% if filter_stage == 'in_transit' %}active{% endif %}" data-set-param="stage" data-set-value="in_transit">In Transit</a>
+  <a class="col-pop-opt {% if filter_stage == 'at_warehouse' %}active{% endif %}" data-set-param="stage" data-set-value="at_warehouse">At Warehouse</a>
+  <a class="col-pop-opt {% if filter_stage == 'live_in_shop' %}active{% endif %}" data-set-param="stage" data-set-value="live_in_shop">Live in Shop</a>
+  <a class="col-pop-opt {% if filter_stage == 'sold' %}active{% endif %}" data-set-param="stage" data-set-value="sold">Sold</a>
+  <a class="col-pop-opt {% if filter_stage == 'rejected' %}active{% endif %}" data-set-param="stage" data-set-value="rejected">Rejected</a>
+</div>
+
+<div id="pop-date" class="col-popover">
+  <a class="col-pop-opt {% if filter_sort == 'date_desc' or not filter_sort %}active{% endif %}" data-set-param="sort" data-set-value="date_desc">Newest first</a>
+  <a class="col-pop-opt {% if filter_sort == 'date_asc' %}active{% endif %}" data-set-param="sort" data-set-value="date_asc">Oldest first</a>
 </div>
 
 {# Seller profile panel drawer #}
@@ -1168,44 +1300,8 @@
     chevron.style.transform = open ? 'rotate(180deg)' : '';
   }
 
-  // Subcategory dropdown population
   document.addEventListener('DOMContentLoaded', function() {
-    var catSelect = document.getElementById('items-cat-select');
-    var subSelect = document.getElementById('items-subcat-select');
-    if (!catSelect || !subSelect) return;
-
-    catSelect.addEventListener('change', function() {
-      var catId = this.value;
-      if (!catId) {
-        subSelect.style.display = 'none';
-        subSelect.innerHTML = '<option value="">All subcategories</option>';
-        return;
-      }
-      fetch('/admin/items/subcategories?category_id=' + encodeURIComponent(catId))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          subSelect.innerHTML = '<option value="">All subcategories</option>';
-          if (data.subcategories && data.subcategories.length > 0) {
-            data.subcategories.forEach(function(sub) {
-              var opt = document.createElement('option');
-              opt.value = sub.id;
-              opt.textContent = sub.name;
-              subSelect.appendChild(opt);
-            });
-            subSelect.style.display = '';
-          } else {
-            subSelect.style.display = 'none';
-          }
-        });
-    });
-
-    // Auto-submit on category/subcategory/checkbox change (these still need a reload)
-    ['items-cat-select', 'items-subcat-select'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el) el.addEventListener('change', function() {
-        document.getElementById('items-filter-form').submit();
-      });
-    });
+    // Auto-submit needs_refresh checkbox
     var refreshCb = document.querySelector('[name="needs_refresh"]');
     if (refreshCb) refreshCb.addEventListener('change', function() {
       document.getElementById('items-filter-form').submit();
@@ -2055,6 +2151,77 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
   })();
+
+  // Column-header filter/sort popovers
+  (function() {
+    var openPop = null;
+
+    function closeAll() {
+      document.querySelectorAll('.col-popover.open').forEach(function(p) { p.classList.remove('open'); });
+      openPop = null;
+    }
+
+    document.querySelectorAll('.col-hd').forEach(function(th) {
+      th.addEventListener('click', function(e) {
+        // Let option clicks bubble to the document handler below
+        if (e.target.closest('.col-pop-opt')) return;
+        var pop = document.getElementById(th.dataset.popTarget);
+        if (!pop) return;
+        if (pop.classList.contains('open')) { closeAll(); return; }
+        closeAll();
+        var rect = th.getBoundingClientRect();
+        pop.style.top = (rect.bottom + 4) + 'px';
+        // Clamp so popover doesn't run off the right edge
+        var left = rect.left;
+        var popW = 168;
+        if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+        pop.style.left = left + 'px';
+        pop.classList.add('open');
+        openPop = pop;
+        e.stopPropagation();
+      });
+    });
+
+    document.addEventListener('click', function(e) {
+      // Close on outside click
+      if (!e.target.closest('.col-popover') && !e.target.closest('.col-hd')) closeAll();
+    });
+
+    // Navigate on option click
+    document.addEventListener('click', function(e) {
+      var opt = e.target.closest('.col-pop-opt[data-set-param]');
+      if (!opt) return;
+      var key = opt.dataset.setParam;
+      var value = opt.dataset.setValue || '';
+      var p = new URLSearchParams(window.location.search);
+      p.set('view', 'all');
+      if (value) p.set(key, value); else p.delete(key);
+      window.location.href = '/admin/items?' + p.toString();
+    });
+  })();
+
+  // Homepage pin toggle
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.hp-pin-btn');
+    if (!btn) return;
+    var itemId = btn.dataset.itemId;
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ csrf_token() }}');
+    btn.disabled = true;
+    fetch('/admin/item/' + itemId + '/toggle-featured', { method: 'POST', body: fd })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        btn.disabled = false;
+        if (data.success) {
+          btn.dataset.featured = data.is_featured ? 'true' : 'false';
+          btn.style.color = data.is_featured ? '#f59e0b' : '#cbd5e1';
+          btn.title = data.is_featured ? 'Unpin from homepage' : 'Pin to homepage';
+        } else {
+          alert(data.error || 'Could not update pin.');
+        }
+      })
+      .catch(function(){ btn.disabled = false; });
+  });
 
   function maybeBoxAlert(e, form) {
     var cb = form.querySelector('input[name="send_box_alert"]');

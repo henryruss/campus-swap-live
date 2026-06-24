@@ -963,6 +963,7 @@
                             <th>Status</th>
                             <th>Delivery Address</th>
                             <th>Payout</th>
+                            <th style="text-align: center;">Pin</th>
                             <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
@@ -1090,19 +1091,23 @@
                                 {% endif %}
                             </td>
                             
+                            <td style="text-align: center; white-space: nowrap;">
+                                {% if item.status == 'available' %}
+                                <button type="button"
+                                        class="hp-pin-btn"
+                                        data-item-id="{{ item.id }}"
+                                        data-featured="{{ 'true' if item.is_featured else 'false' }}"
+                                        title="{{ 'Unpin from homepage' if item.is_featured else 'Pin to homepage' }}"
+                                        style="background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 6px; font-size: 1.1rem; color: {{ '#f59e0b' if item.is_featured else '#cbd5e1' }}; transition: color 0.15s;">
+                                    <i class="fas fa-star"></i>
+                                </button>
+                                {% else %}
+                                <span style="color: #e2e8f0; font-size: 0.8rem;">—</span>
+                                {% endif %}
+                            </td>
+
                             <td style="text-align: right; min-width: 180px;">
                                 <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center; flex-wrap: wrap;">
-
-                                    {% if item.status == 'available' %}
-                                    <button type="button"
-                                            class="text-btn hp-pin-btn"
-                                            data-item-id="{{ item.id }}"
-                                            data-featured="{{ 'true' if item.is_featured else 'false' }}"
-                                            title="{{ 'Unpin from homepage' if item.is_featured else 'Pin to homepage' }}"
-                                            style="color: {{ '#f59e0b' if item.is_featured else 'var(--text-muted)' }}; font-size: 1rem; padding: 2px 4px;">
-                                        <i class="fas fa-star"></i>
-                                    </button>
-                                    {% endif %}
 
                                     <a href="{{ url_for('edit_item', item_id=item.id) }}" class="text-btn btn-edit">Edit</a>
 
@@ -1568,7 +1573,7 @@
                         btn.style.color = data.is_featured ? '#f59e0b' : 'var(--text-muted)';
                         btn.title = data.is_featured ? 'Unpin from homepage' : 'Pin to homepage';
                     } else {
-                        if (typeof showFlashMessage === 'function') showFlashMessage(data.error || 'Error', 'error');
+                        alert(data.error || 'Could not update pin.');
                     }
                 })
                 .catch(function() {
