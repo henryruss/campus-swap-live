@@ -64,6 +64,13 @@ MAX_NAME_LENGTH = 100
 # Pagination
 ITEMS_PER_PAGE = 24
 
+# Homepage curation limits
+HOMEPAGE_FEATURED_LIMIT = 12  # max items in the foreground curated grid
+HOMEPAGE_HERO_TILE_LIMIT = 12  # max photo tiles in the hero mosaic background
+
+# Category names excluded from hero mosaic tiles (decorative/misc items don't read well as background)
+HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES = {'Other'}
+
 # Rate Limiting (requests per time period)
 RATE_LIMIT_LOGIN = "5 per minute"
 RATE_LIMIT_REGISTER = "3 per hour"

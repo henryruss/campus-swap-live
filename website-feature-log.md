@@ -1075,3 +1075,28 @@ Grouped by area for on-campus pickup dropdown:
 - Dynamically generates PNG share card via PIL/Pillow
 - Card includes: item photo, title, price, condition, quality rating
 - Used as OG image for social sharing
+
+---
+
+## Homepage Redesign (2026-06-23)
+
+### Season-Aware Homepage (`/`)
+- **Four modes** driven by two existing AppSettings (`pickup_period_active`, `shop_teaser_mode`):
+  - `dual` — both pickups and shop live: two-door hero (Buy + Sell), category chips, curated grid
+  - `buyer_only` — shop live, pickups closed: single wide Buy door, chips, grid
+  - `seller_only` — pickups on, shop not live: Sell door primary + muted "shop opens soon" ghost door
+  - `off_season` — both off: evergreen copy block on solid brand band
+- Hero photo mosaic (CSS grid, `loading="lazy"`, `object-fit: cover`) with frosted-glass panels (`backdrop-filter: blur(14px)`) and `@supports` solid fallback. Scrim layer ensures readability.
+- Category chips row links to `/inventory?category_id=N` (matches real `inventory()` route param).
+- Curated grid reuses `_item_card.html` partial; `HOMEPAGE_FEATURED_LIMIT=8` items.
+- Eligible pool: `status='available'`, `ai_approved=True`, `ai_photo_enhanced=True`, `needs_new_photo=False`, `needs_photo_verification=False`.
+- Pinned items (`is_featured=True`) guaranteed front slots; rest filled by blend score (retail_price + savings, normalized, round-robin by category).
+- Hero tiles: top-`retail_price` items, round-robin by category, `HOMEPAGE_HERO_TILE_LIMIT=12`.
+- Waitlist form removed. `$65` line removed.
+
+### Homepage Pin Toggle (Admin)
+- `POST /admin/item/<id>/toggle-featured` — toggles `InventoryItem.is_featured`, returns JSON.
+- Star icon added to each `available` item row in the admin lifecycle table. Gold = pinned, gray = unpinned. Wired via fetch (no page reload).
+
+### Become-a-Seller Out-of-Season Banner
+- When `pickup_period_active=false`: banner displays above CTA; CTA button shows "Signups Closed" (disabled). Authenticated users still see "Go to Dashboard". Interactive room and How It Works content remain visible.

@@ -1021,3 +1021,25 @@ The grid is already intuitive enough without a shortcut.
 
 ### Decision: Category required in crew quick capture modal
 **Reasoning:** Items without categories are harder for AI autofill to price correctly — category is a strong prior for what something is worth. Adding category selection at capture time costs the mover ~2 seconds and significantly improves AI output quality. The backend remains null-safe (no hard server block) because direct API calls or network errors mid-form shouldn't brick the entire capture flow.
+
+---
+
+## Homepage Redesign (2026-06-23)
+
+### Decision: Season-aware homepage driven by two existing AppSetting flags (not a new flag)
+**Reasoning:** `pickup_period_active` and `shop_teaser_mode` already cover the four meaningful states: dual (both on), buyer-only (shop live, pickups closed), seller-only (pickups on, shop not live), off-season (both off). Adding a third flag would create a larger boolean matrix with impossible states. The `_homepage_state()` helper translates the two flags into an explicit `mode` enum string so templates read cleanly.
+
+### Decision: `is_featured` on InventoryItem is a pin, not a filter — it supplements curation, doesn't replace it
+**Reasoning:** The curated grid selects items by blend score (retail price + savings %). Pinned items (`is_featured=True`) are guaranteed a slot at the front, then the remaining slots fill from unpinned items by blend score. This means admin can promote specific items for marketing reasons without dismantling the algorithmic ranking. If pinned items exceed the grid limit, the grid is still capped at `HOMEPAGE_FEATURED_LIMIT=8`.
+
+### Decision: Hero mosaic uses `loading="lazy"` and fixed `width`/`height` hints — no server-side resize
+**Reasoning:** The mosaic tiles are CSS-sized (`object-fit: cover`) so browsers don't need the native image resolution. Lazy loading defers off-screen tiles on mobile. We don't resize because we already run images through the upload pipeline; adding a second resize pass introduces complexity and storage overhead. If performance becomes a measurable issue, a separate thumbnail generation step is the right fix — not inline in the route.
+
+### Decision: Interactive room stays on `become_a_seller.html` — CODEBASE.md was wrong
+**Reasoning:** Grep confirmed the room SVG, CSS, and JS are entirely in `become_a_seller.html`. The `index.html` entry in CODEBASE.md was stale documentation. No template move was needed. CODEBASE.md updated to reflect reality.
+
+### Decision: `_item_card.html` partial reused on homepage — no new partial
+**Reasoning:** The existing partial already handles photos, prices, savings pills, and links. Duplicating it for the homepage would immediately diverge. The homepage route passes `current_store`, `search_query=''`, and `active_cat=None` to satisfy the partial's expected context variables. The partial's `{% for item in items %}` loop is invoked via `{% with items = featured_items %}{% include '_item_card.html' %}{% endwith %}`.
+
+### Decision: Seller out-of-season banner uses disabled button (not a redirect) when signups closed
+**Reasoning:** The become-a-seller page has valid evergreen content (how it works, interactive room calculator). Redirecting away from it during off-season would hide that content from prospective sellers who want to learn about the product before the window opens. A disabled CTA with a banner is more honest and less disruptive than a hard redirect.

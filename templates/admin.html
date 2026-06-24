@@ -1092,7 +1092,18 @@
                             
                             <td style="text-align: right; min-width: 180px;">
                                 <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center; flex-wrap: wrap;">
-                                    
+
+                                    {% if item.status == 'available' %}
+                                    <button type="button"
+                                            class="text-btn hp-pin-btn"
+                                            data-item-id="{{ item.id }}"
+                                            data-featured="{{ 'true' if item.is_featured else 'false' }}"
+                                            title="{{ 'Unpin from homepage' if item.is_featured else 'Pin to homepage' }}"
+                                            style="color: {{ '#f59e0b' if item.is_featured else 'var(--text-muted)' }}; font-size: 1rem; padding: 2px 4px;">
+                                        <i class="fas fa-star"></i>
+                                    </button>
+                                    {% endif %}
+
                                     <a href="{{ url_for('edit_item', item_id=item.id) }}" class="text-btn btn-edit">Edit</a>
 
                                     {% if item.status == 'needs_info' %}
@@ -1539,6 +1550,32 @@
             galleryForm.addEventListener('change', handleLifecycleChange);
             galleryForm.addEventListener('click', handleLifecycleUndo);
         }
+
+        // Homepage pin toggle
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.hp-pin-btn');
+            if (!btn) return;
+            var itemId = btn.dataset.itemId;
+            var fd = new FormData();
+            fd.append('csrf_token', '{{ csrf_token() }}');
+            btn.disabled = true;
+            fetch('/admin/item/' + itemId + '/toggle-featured', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    btn.disabled = false;
+                    if (data.success) {
+                        btn.dataset.featured = data.is_featured ? 'true' : 'false';
+                        btn.style.color = data.is_featured ? '#f59e0b' : 'var(--text-muted)';
+                        btn.title = data.is_featured ? 'Unpin from homepage' : 'Pin to homepage';
+                    } else {
+                        if (typeof showFlashMessage === 'function') showFlashMessage(data.error || 'Error', 'error');
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    if (typeof showFlashMessage === 'function') showFlashMessage('Request failed', 'error');
+                });
+        });
 
         // Item Lifecycle filters (category, seller email, item title)
         function runLifecycleFilter() {

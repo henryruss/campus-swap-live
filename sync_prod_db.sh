@@ -43,5 +43,8 @@ createdb "$LOCAL_DB"
 echo "→ Restoring..."
 psql "$LOCAL_DB" < "$SNAPSHOT"
 
+echo "→ Applying any pending local migrations..."
+cd "$SCRIPT_DIR" && flask db upgrade
+
 echo ""
-echo "Done. Local '$LOCAL_DB' is now a copy of prod."
+echo "Done. Local '$LOCAL_DB' is now a copy of prod (+ local migrations applied)."

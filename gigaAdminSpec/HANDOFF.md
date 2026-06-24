@@ -1773,3 +1773,28 @@ None — built exactly as specced.
    CODEBASE.md to understand the existing patterns, then implement the spec.
    Ask me before making any decision not covered by the spec."
 4. After the session, update this file with what was built and any deviations.
+
+---
+
+## Homepage Redesign (feature_homepage_redesign) — 2026-06-23
+
+**Status:** Complete — in dev, pending deploy
+
+### What was built
+- `index.html` fully rewritten: season-aware (dual/buyer_only/seller_only/off_season modes), frosted-glass two-door hero over inventory photo mosaic with `@supports backdrop-filter` fallback, category chips linking to `/inventory?category_id=N`, curated item grid via `_item_card.html` partial, solid brand-band fallback for non-shop modes. Waitlist form removed. `$65` line removed.
+- `become_a_seller.html`: out-of-season banner + disabled CTA when `pickup_period_active=false`. No other changes.
+- `admin.html`: star toggle button per available item in lifecycle table, wired to `POST /admin/item/<id>/toggle-featured` via fetch. Gold = pinned, gray = unpinned.
+- `models.py`: `InventoryItem.is_featured` Boolean added (server_default='0').
+- `constants.py`: `HOMEPAGE_FEATURED_LIMIT=8`, `HOMEPAGE_HERO_TILE_LIMIT=12`.
+- `app.py`: `_homepage_state()`, `_round_robin_category()`, `_select_hero_tiles()`, `_select_featured_grid()` helpers; `index()` route rewritten (GET-only, no POST); `admin_item_toggle_featured` route added.
+- Migration: `3ee9ed093bb3_add_is_featured_to_inventory_item` — applied locally.
+
+### Deploy checklist
+1. Push to main → Render auto-deploys
+2. In Render shell: `flask db upgrade` (applies `3ee9ed093bb3`)
+3. Smoke test: `/` in dual mode, `/` in seller-only mode, `/` when eligible pool is empty
+
+### Caveats / follow-up
+- Off-season copy in `index.html` links to `url_for('about')` — confirm that route exists (it does as of last check)
+- Hero mosaic uses `loading="lazy"` — first paint above fold on desktop may show placeholder bg color briefly on slow connections. Acceptable for now; revisit if measured as a problem.
+- CODEBASE.md: interactive room location corrected (was `index.html`, actually `become_a_seller.html`)

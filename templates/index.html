@@ -1,604 +1,345 @@
 {% extends "layout.html" %}
-
 {% block content %}
+{# PLACEHOLDER COPY — tone/messaging to be refined by Henry #}
 <style>
-    /* ANNOUNCEMENT BANNER - full-width top bar */
-    .announcement-banner {
-        width: 100%;
-        background: var(--primary);
-        color: var(--text-light);
-        text-align: center;
-        padding: 22px 24px;
-        z-index: 10;
-    }
-    .announcement-banner-main {
-        font-weight: 700;
-        font-size: 1.25rem;
-        color: var(--text-light);
-        display: block;
-        margin-bottom: 6px;
-        line-height: 1.3;
-    }
-    .announcement-banner-sub {
-        font-size: 1rem;
-        color: rgba(245, 240, 232, 0.8);
-        display: block;
-        line-height: 1.4;
-    }
+/* ── Homepage hero ── */
+.hp-hero {
+    position: relative;
+    overflow: hidden;
+    min-height: 56vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
-    /* HERO LAYOUT */
-    .hero-wrapper {
-        min-height: 85vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        overflow: hidden;
-        text-align: center;
-        padding-top: 0;
-    }
-    
-    /* ANIMATED BLOBS */
-    .blob {
-        position: absolute;
-        width: 600px;
-        height: 600px;
-        border-radius: 50%;
-        opacity: 0.4;
-        filter: blur(80px);
-        z-index: -1;
-        animation: float 10s infinite;
-    }
-    @keyframes float { 
-        0% { transform: translate(0,0); } 
-        50% { transform: translate(20px, -40px); } 
-        100% { transform: translate(0,0); } 
-    }
+/* Photo mosaic tiles fill the hero background */
+.hp-mosaic {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 3px;
+    z-index: 0;
+}
+.hp-mosaic-tile {
+    overflow: hidden;
+}
+.hp-mosaic-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    display: block;
+    filter: brightness(0.92);
+}
 
-    /* TYPOGRAPHY */
-    .hero-title {
-        font-family: 'DM Serif Display', Georgia, serif;
-        font-size: 4.5rem;
-        font-weight: 400;
-        color: var(--text-main);
-        margin-bottom: 30px;
-        line-height: 1.1;
-        letter-spacing: -0.01em;
-    }
+/* Scrim over tiles so panels stay readable */
+.hp-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(26,61,26,0.72) 0%, rgba(26,61,26,0.55) 100%);
+    z-index: 1;
+}
 
-    /* --- THE "AIRBNB" ANIMATION STYLES --- */
-    .hero-sentence {
-        font-size: 1.8rem;
-        color: var(--text-muted);
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 15px;
-        flex-wrap: wrap; /* Wraps nicely on mobile */
-        margin-bottom: 50px;
-    }
+/* Solid brand band (fallback when no mosaic / off-season / seller-only / empty pool) */
+.hp-hero-solid {
+    background: var(--primary);
+}
 
-    .ticker-container {
-        height: 110px; /* Fixed height for the box */
-        width: 140px;
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
-        border: 1px solid rgba(0,0,0,0.05);
-        overflow: hidden;
-        position: relative;
-        display: inline-block;
-        vertical-align: middle;
-    }
+/* Frosted-glass panels sitting on top of the mosaic */
+.hp-doors {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    gap: 24px;
+    padding: 48px 20px;
+    max-width: 900px;
+    width: 100%;
+    justify-content: center;
+}
 
-    .ticker-wrapper {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        /* JS will animate this 'transform' property */
-        transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
+.hp-door {
+    flex: 1;
+    max-width: 400px;
+    border-radius: 20px;
+    padding: 36px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
 
-    .ticker-item {
-        height: 110px; /* Matches container */
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        color: var(--primary);
+/* Frosted-glass variant (backdrop-filter) */
+@supports (backdrop-filter: blur(1px)) {
+    .hp-door-buy {
+        background: rgba(26, 61, 26, 0.72);
+        border: 1px solid rgba(255,255,255,0.18);
+        backdrop-filter: blur(14px) saturate(1.4);
+        -webkit-backdrop-filter: blur(14px) saturate(1.4);
     }
+    .hp-door-sell {
+        background: rgba(245, 240, 232, 0.78);
+        border: 1px solid rgba(138,184,138,0.5);
+        backdrop-filter: blur(14px) saturate(1.2);
+        -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    }
+}
+/* Solid fallback — no blur support */
+@supports not (backdrop-filter: blur(1px)) {
+    .hp-door-buy  { background: rgba(26,61,26,0.88); border: 1px solid rgba(255,255,255,0.15); }
+    .hp-door-sell { background: rgba(245,240,232,0.92); border: 1px solid var(--sage); }
+}
 
-    .ticker-icon { font-size: 2.5rem; margin-bottom: 5px; }
-    .ticker-price { font-size: 1.4rem; font-weight: 800; color: var(--text-main); }
-    
-    /* VALUE PROPS ROW */
-    .value-props-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 24px;
-        margin: 80px 0;
-        align-items: start;
-    }
-    .value-prop-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 36px 28px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-    .value-prop-card .vp-icon {
-        width: 52px;
-        height: 52px;
-        background: rgba(6, 78, 59, 0.08);
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        color: var(--primary);
-        margin-bottom: 4px;
-    }
-    .value-prop-card h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        line-height: 1.3;
-        color: var(--text-main);
-        margin: 0;
-    }
-    .value-prop-card p {
-        font-size: 1rem;
-        color: var(--text-muted);
-        line-height: 1.6;
-        margin: 0;
-    }
+.hp-door-eyebrow {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.hp-door-buy .hp-door-eyebrow { color: rgba(245,240,232,0.75); }
+.hp-door-sell .hp-door-eyebrow { color: var(--text-muted); }
 
-    /* Ready to sell card */
-    .ready-to-sell-card {
-        text-align: center;
-        padding: 50px 30px;
-        max-width: 560px;
-        margin: 0 auto 80px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-    .ready-to-sell-card h2 {
-        font-size: 2rem;
-        margin-bottom: 24px;
-    }
-    .ready-to-sell-cta {
-        display: flex;
-        justify-content: center;
-    }
-    .ready-to-sell-cta .btn {
-        padding: 14px 28px;
-        font-size: 1rem;
-    }
-    .ready-to-sell-or {
-        display: block;
-        color: var(--text-muted);
-        font-size: 0.9rem;
-        margin: 20px 0 16px;
-    }
-    .ready-to-sell-form {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-    }
-    .ready-to-sell-form input {
-        width: 200px;
-        padding: 14px 16px;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        font-size: 1rem;
-    }
-    .ready-to-sell-form button {
-        padding: 14px 24px;
-        font-size: 1rem;
-    }
-    .ready-to-sell-subtext {
-        margin-top: 20px;
-        font-size: 0.9rem;
-        color: var(--text-muted);
-    }
-    .ready-to-sell-subtext a {
-        color: var(--primary);
-    }
+.hp-door-heading {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 1.75rem;
+    line-height: 1.2;
+    margin: 0;
+}
+.hp-door-buy .hp-door-heading { color: var(--text-light); }
+.hp-door-sell .hp-door-heading { color: var(--text-main); }
 
-    .testimonial-card {
-        display: flex;
-        flex-direction: column;
-    }
-    .testimonial-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 24px -8px rgba(6, 78, 59, 0.12);
-    }
+.hp-door-sub {
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin: 0;
+}
+.hp-door-buy .hp-door-sub { color: rgba(245,240,232,0.8); }
+.hp-door-sell .hp-door-sub { color: var(--text-muted); }
 
-    .testimonial-author {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-top: auto;
-        padding-top: 20px;
-    }
-    .testimonial-avatar {
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        object-fit: cover;
-        flex-shrink: 0;
-        border: 2px solid rgba(6, 78, 59, 0.15);
-    }
-    .testimonial-author-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
+.hp-door-btn {
+    display: inline-block;
+    padding: 11px 22px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-decoration: none;
+    align-self: flex-start;
+    margin-top: 6px;
+    transition: opacity 0.15s;
+}
+.hp-door-btn:hover { opacity: 0.88; }
+.hp-door-buy .hp-door-btn { background: var(--bg-cream); color: var(--primary); }
+.hp-door-sell .hp-door-btn { background: var(--primary); color: var(--text-light); }
 
-    /* Testimonials: distinct block to stand out from value props */
-    .testimonials-section {
-        margin: 100px -20px 80px;
-        padding: 70px 40px 80px;
-        background: linear-gradient(180deg, rgba(6, 78, 59, 0.04) 0%, rgba(6, 78, 59, 0.08) 100%);
-        border-top: 2px solid rgba(6, 78, 59, 0.12);
-        border-bottom: 2px solid rgba(6, 78, 59, 0.12);
-    }
-    .testimonials-section h2 {
-        font-size: 2.25rem !important;
-    }
+/* Muted "shop opens soon" tile in seller-only mode */
+.hp-door-muted {
+    background: rgba(245,240,232,0.18);
+    border: 1px solid rgba(245,240,232,0.2);
+    color: rgba(245,240,232,0.7);
+}
+.hp-door-muted .hp-door-heading { color: rgba(245,240,232,0.7); }
+.hp-door-muted .hp-door-sub { color: rgba(245,240,232,0.5); }
+.hp-door-muted .hp-door-btn {
+    background: rgba(245,240,232,0.15);
+    color: rgba(245,240,232,0.7);
+    border: 1px solid rgba(245,240,232,0.25);
+}
 
-    /* What we offer carousel (Neighbor-style) - full-width */
-    .what-we-offer-section {
-        padding: 0 0 32px;
-        text-align: center;
-        background: linear-gradient(180deg, rgba(6, 78, 59, 0.06) 0%, rgba(6, 78, 59, 0.02) 100%);
-        border-top: 1px solid rgba(6, 78, 59, 0.1);
-        border-bottom: 1px solid rgba(6, 78, 59, 0.1);
-        width: 100%;
-    }
-    .carousel-full-width {
-        width: 100vw;
-        margin-left: calc(-50vw + 50%);
-        padding: 20px 0 0;
-    }
-    .what-we-offer-section h2 {
-        font-size: 2.25rem;
-        color: var(--text-main);
-        margin-bottom: 8px;
-    }
-    .carousel-track {
-        overflow: hidden;
-        width: 100%;
-    }
-    .carousel-inner {
-        display: flex;
-        gap: 16px;
-        animation: carousel-scroll 35s linear infinite;
-        width: max-content;
-    }
-    @keyframes carousel-scroll {
-        0% { transform: translateX(0); }
-        100% { transform: translateX(-50%); }
-    }
-    .carousel-card {
-        width: 200px;
-        flex-shrink: 0;
-        border-radius: 16px;
-        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
-        position: relative;
-        overflow: hidden;
-        aspect-ratio: 280 / 360;
-    }
-    .carousel-card img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        object-position: top;
-        display: block;
-    }
-    .carousel-label {
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        background: rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        color: white;
-        padding: 4px 10px;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        z-index: 1;
-    }
+/* Off-season: evergreen copy block */
+.hp-offseason-copy {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    padding: 60px 20px;
+    max-width: 620px;
+}
+.hp-offseason-copy h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 2.5rem;
+    color: var(--text-light);
+    margin-bottom: 16px;
+}
+.hp-offseason-copy p { color: rgba(245,240,232,0.8); font-size: 1.05rem; line-height: 1.65; margin-bottom: 14px; }
+.hp-offseason-copy a { color: var(--bg-cream); text-decoration: underline; }
 
-    @media (max-width: 768px) { 
-        .announcement-banner { padding: 18px 20px; }
-        .announcement-banner-main { font-size: 1.1rem; }
-        .announcement-banner-sub { font-size: 0.9rem; }
-.value-props-row { grid-template-columns: 1fr; gap: 16px; }
-        .hero-title { font-size: 3rem; } 
-        .hero-sentence { font-size: 1.4rem; }
-        .hero-wrapper {
-            min-height: calc(100vh - 120px); /* Extend to fill below compact header */
-            padding-top: 20px;
-        }
-        .ready-to-sell-form { width: 100%; max-width: 300px; }
-        .ready-to-sell-form input { flex: 1; min-width: 0; }
-        /* Store section responsive */
-        .store-info-grid {
-            grid-template-columns: 1fr !important;
-            gap: 30px !important;
-        }
-        /* Testimonials responsive */
-        .testimonials-section { margin: 60px -16px 50px; padding: 50px 30px 60px; }
-        .testimonials-grid { grid-template-columns: 1fr !important; }
-        /* Carousel responsive */
-        .what-we-offer-section { padding: 0 0 24px; }
-        .what-we-offer-section h2 { font-size: 1.75rem; margin-bottom: 24px; }
-        .carousel-card { width: 160px; }
-        .carousel-inner { gap: 12px; }
-        .carousel-label { font-size: 0.65rem; padding: 3px 8px; }
-    }
-    @media (max-width: 480px) {
-        .ticker-container { width: 110px; height: 88px; }
-        .ticker-item { height: 88px; }
-        .ticker-icon { font-size: 1.8rem; margin-bottom: 4px; }
-        .ticker-price { font-size: 1.1rem; }
-        .carousel-card { width: 140px; }
-        .carousel-inner { gap: 10px; }
-    }
+/* Full-width Buy door in buyer-only mode */
+.hp-door-fullwidth { max-width: 560px; }
+
+/* ── Category chips ── */
+.hp-chips-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 16px 20px 8px;
+    scrollbar-width: none;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+.hp-chips-row::-webkit-scrollbar { display: none; }
+.hp-chip {
+    display: inline-block;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+.hp-chip:hover, .hp-chip-all { background: var(--primary); color: var(--text-light); border-color: var(--primary); }
+
+/* ── Curated grid ── */
+.hp-grid-section {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 16px 60px;
+}
+.hp-grid-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 16px 0 12px;
+}
+.hp-grid-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+}
+.hp-grid-see-all {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-decoration: none;
+}
+.hp-grid-see-all:hover { text-decoration: underline; }
+
+.hp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 14px;
+}
+
+/* ── Mobile adjustments ── */
+@media (max-width: 700px) {
+    .hp-doors { flex-direction: column; gap: 16px; padding: 28px 16px; }
+    .hp-door { max-width: 100%; padding: 28px 22px; }
+    .hp-door-buy  { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(26,61,26,0.88); }
+    .hp-door-sell { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(245,240,232,0.94); }
+    .hp-door-heading { font-size: 1.5rem; }
+    .hp-mosaic { grid-template-columns: repeat(3, 1fr); }
+    .hp-mosaic-tile:nth-child(n+10) { display: none; }
+    .hp-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .hp-offseason-copy h1 { font-size: 1.75rem; }
+}
+@media (max-width: 480px) {
+    .hp-mosaic { grid-template-columns: repeat(2, 1fr); }
+    .hp-mosaic-tile:nth-child(n+7) { display: none; }
+}
 </style>
 
-<div class="announcement-banner">
-    <span class="announcement-banner-main">Free listing, free pickup. We only take 50% when it sells.</span>
-    <span class="announcement-banner-sub">No upfront costs, no monthly fees. We only get paid when you do.</span>
-</div>
+{# ══════════════════════════════════════════════════════════════
+   HERO — mode-driven, mosaic availability is independent of mode
+   ══════════════════════════════════════════════════════════════ #}
 
-<div class="hero-wrapper">
-    <div class="blob" style="background: #C2D9C2; top: -10%; left: -10%; opacity: 0.3;"></div>
-    <div class="blob" style="background: #F2DDB7; bottom: -10%; right: -10%; animation-delay: -5s; opacity: 0.3;"></div>
+{% if hs.mode in ('dual', 'buyer_only') %}
+{# ── DUAL / BUYER-ONLY: frosted doors, mosaic background if tiles exist ── #}
+<div class="hp-hero{% if not hero_tiles %} hp-hero-solid{% endif %}">
 
-    <div style="max-width: 900px; padding: 20px 20px 20px;">
-        
-        <p class="reveal fade-up" style="font-size: 1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 12px;">Campus Swap</p>
-        <h1 class="hero-title reveal fade-up">
-            Move Out.<br>
-            <span style="color: var(--primary);">Cash In.</span>
-        </h1>
-        <p class="reveal fade-up" style="font-size: 1.1rem; color: var(--text-muted); margin-bottom: 30px;">Turn move-out into cash.</p>
-        
-        <div class="hero-sentence reveal fade-up" style="animation-delay: 0.2s;">
-            <span>You could make</span>
-            
-            <div class="ticker-container">
-                <div class="ticker-wrapper" id="ticker">
-                    </div>
-            </div>
-            
-            <span>selling your stuff.</span>
+    {% if hero_tiles %}
+    <div class="hp-mosaic">
+        {% for tile in hero_tiles %}
+        <div class="hp-mosaic-tile">
+            <img src="{{ url_for('uploaded_file', filename=tile.photo_url) }}"
+                 alt="{{ tile.description }}"
+                 loading="lazy"
+                 width="200" height="260">
         </div>
-
-        <div class="reveal fade-up" style="animation-delay: 0.4s;">
-            <a href="{{ url_for('become_a_seller') }}" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
-                Start Selling <i class="fas fa-arrow-right"></i>
-            </a>
-        </div>
+        {% endfor %}
     </div>
-</div>
+    <div class="hp-scrim"></div>
+    {% endif %}
 
-<section class="what-we-offer-section reveal fade-up">
-    <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 24px 20px 0;">
-        <h2>What We Offer</h2>
-    </div>
-    <div class="carousel-track carousel-full-width">
-            <div class="carousel-inner">
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/couch.png' if carousel_image_base else url_for('static', filename='CarouselPics/couch.png') %}
-                <div class="carousel-card"><span class="carousel-label">Couch</span><img src="{{ carousel_img }}" alt="Couch"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/futon.png' if carousel_image_base else url_for('static', filename='CarouselPics/futon.png') %}
-                <div class="carousel-card"><span class="carousel-label">Futon</span><img src="{{ carousel_img }}" alt="Futon"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/mattress.png' if carousel_image_base else url_for('static', filename='CarouselPics/mattress.png') %}
-                <div class="carousel-card"><span class="carousel-label">Mattress</span><img src="{{ carousel_img }}" alt="Mattress"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/rug.png' if carousel_image_base else url_for('static', filename='CarouselPics/rug.png') %}
-                <div class="carousel-card"><span class="carousel-label">Rug</span><img src="{{ carousel_img }}" alt="Rug"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/minifridge.png' if carousel_image_base else url_for('static', filename='CarouselPics/minifridge.png') %}
-                <div class="carousel-card"><span class="carousel-label">Mini fridge</span><img src="{{ carousel_img }}" alt="Mini fridge"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/microwave.png' if carousel_image_base else url_for('static', filename='CarouselPics/microwave.png') %}
-                <div class="carousel-card"><span class="carousel-label">Microwave</span><img src="{{ carousel_img }}" alt="Microwave"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/tv.png' if carousel_image_base else url_for('static', filename='CarouselPics/tv.png') %}
-                <div class="carousel-card"><span class="carousel-label">TV</span><img src="{{ carousel_img }}" alt="TV"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/ACunit.png' if carousel_image_base else url_for('static', filename='CarouselPics/ACunit.png') %}
-                <div class="carousel-card"><span class="carousel-label">AC unit</span><img src="{{ carousel_img }}" alt="AC unit"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/heater.png' if carousel_image_base else url_for('static', filename='CarouselPics/heater.png') %}
-                <div class="carousel-card"><span class="carousel-label">Heater</span><img src="{{ carousel_img }}" alt="Heater"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/xbox.png' if carousel_image_base else url_for('static', filename='CarouselPics/xbox.png') %}
-                <div class="carousel-card"><span class="carousel-label">Xbox</span><img src="{{ carousel_img }}" alt="Xbox"></div>
-                <!-- Duplicate set for seamless loop -->
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/couch.png' if carousel_image_base else url_for('static', filename='CarouselPics/couch.png') %}
-                <div class="carousel-card"><span class="carousel-label">Couch</span><img src="{{ carousel_img }}" alt="Couch"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/futon.png' if carousel_image_base else url_for('static', filename='CarouselPics/futon.png') %}
-                <div class="carousel-card"><span class="carousel-label">Futon</span><img src="{{ carousel_img }}" alt="Futon"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/mattress.png' if carousel_image_base else url_for('static', filename='CarouselPics/mattress.png') %}
-                <div class="carousel-card"><span class="carousel-label">Mattress</span><img src="{{ carousel_img }}" alt="Mattress"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/rug.png' if carousel_image_base else url_for('static', filename='CarouselPics/rug.png') %}
-                <div class="carousel-card"><span class="carousel-label">Rug</span><img src="{{ carousel_img }}" alt="Rug"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/minifridge.png' if carousel_image_base else url_for('static', filename='CarouselPics/minifridge.png') %}
-                <div class="carousel-card"><span class="carousel-label">Mini fridge</span><img src="{{ carousel_img }}" alt="Mini fridge"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/microwave.png' if carousel_image_base else url_for('static', filename='CarouselPics/microwave.png') %}
-                <div class="carousel-card"><span class="carousel-label">Microwave</span><img src="{{ carousel_img }}" alt="Microwave"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/tv.png' if carousel_image_base else url_for('static', filename='CarouselPics/tv.png') %}
-                <div class="carousel-card"><span class="carousel-label">TV</span><img src="{{ carousel_img }}" alt="TV"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/ACunit.png' if carousel_image_base else url_for('static', filename='CarouselPics/ACunit.png') %}
-                <div class="carousel-card"><span class="carousel-label">AC unit</span><img src="{{ carousel_img }}" alt="AC unit"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/heater.png' if carousel_image_base else url_for('static', filename='CarouselPics/heater.png') %}
-                <div class="carousel-card"><span class="carousel-label">Heater</span><img src="{{ carousel_img }}" alt="Heater"></div>
-                {% set carousel_img = carousel_image_base ~ 'CarouselPics/xbox.png' if carousel_image_base else url_for('static', filename='CarouselPics/xbox.png') %}
-                <div class="carousel-card"><span class="carousel-label">Xbox</span><img src="{{ carousel_img }}" alt="Xbox"></div>
-            </div>
+    <div class="hp-doors">
+        {# ── Buy door (always present in dual + buyer-only) ── #}
+        <div class="hp-door hp-door-buy{% if hs.mode == 'buyer_only' %} hp-door-fullwidth{% endif %}">
+            <span class="hp-door-eyebrow">Shop</span>
+            {# PLACEHOLDER — refine copy #}
+            <h1 class="hp-door-heading">Too good to toss.</h1>
+            <p class="hp-door-sub">Move-out furniture, rescued from the curb and ready for your place.</p>
+            <a href="{{ url_for('inventory') }}" class="hp-door-btn">Browse the shop &rarr;</a>
         </div>
-    <div style="text-align: center; padding: 24px 20px 32px;">
-        <a href="{{ url_for('inventory') }}" class="btn btn-primary" style="padding: 18px 45px; font-size: 1.2rem; border-radius: 50px;">
-            Shop Great Deals <i class="fas fa-arrow-right"></i>
-        </a>
-    </div>
-</section>
 
-<div class="container">
-    <div class="value-props-row">
-        <div class="value-prop-card reveal fade-up">
-            <div class="vp-icon"><i class="fas fa-camera"></i></div>
-            <h2>Snap &amp; Relax.</h2>
-            <p>Let&rsquo;s face it: you&rsquo;re not going to sell your mini-fridge before move-out. Don&rsquo;t waste time on Facebook Marketplace. Snap a photo of your furniture and appliances, and we&rsquo;ll handle the rest.</p>
+        {# ── Sell door — dual mode only ── #}
+        {% if hs.mode == 'dual' %}
+        <div class="hp-door hp-door-sell">
+            <span class="hp-door-eyebrow">Moving out?</span>
+            {# PLACEHOLDER — refine copy #}
+            <h1 class="hp-door-heading">Don&rsquo;t dump it. Sell it.</h1>
+            <p class="hp-door-sub">We pick it up, sell it, and pay you. Free pickup, $0 upfront.</p>
+            <a href="{{ url_for('become_a_seller') }}" class="hp-door-btn">Start listing &rarr;</a>
         </div>
-        <div class="value-prop-card reveal fade-up" style="animation-delay: 0.1s;">
-            <div class="vp-icon"><i class="fas fa-box-open"></i></div>
-            <h2>Leave in May. Get Paid All Summer.</h2>
-            <p>You leave in May. Buyers don&rsquo;t. Students arrive all summer and into next semester, and they need what you&rsquo;re leaving behind. We pick up your items, list them at our store near campus, and sell them 24/7 for three months. No dumping. No waiting around. We handle everything.</p>
-        </div>
-        <div class="value-prop-card reveal fade-up" style="animation-delay: 0.2s;">
-            <div class="vp-icon"><i class="fas fa-scale-balanced"></i></div>
-            <h2>Better Than Storage. Smarter Than Facebook.</h2>
-            <p>A storage unit costs you money all summer with nothing to show for it. Facebook Marketplace means strangers, no-shows, and hauling stuff yourself. With us, you make money instead of spending it. The best part? we do all the heavy lifting.</p>
-        </div>
-    </div>
-    <div class="reveal fade-up" style="text-align: center; margin: 60px 0 80px;">
-        <p style="font-size: 1.25rem; color: var(--text-muted); margin-bottom: 16px;">Curious how it all works?</p>
-        <a href="{{ url_for('become_a_seller') }}" class="btn btn-primary" style="padding: 14px 28px; font-size: 1rem;">
-            Learn more about becoming a seller <i class="fas fa-arrow-right"></i>
-        </a>
-    </div>
-</div>
-
-    <section class="testimonials-section reveal fade-up">
-        <div style="text-align: center; margin-bottom: 50px;">
-            <h2 style="font-size: 2rem; color: var(--text-main); margin-bottom: 10px;">What Students Say</h2>
-            <p style="color: var(--text-muted); font-size: 1.05rem;">Real experiences from Campus Swap sellers</p>
-        </div>
-        <div class="testimonials-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
-            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
-                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
-                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0;">I was dreading trying to sell my mini fridge on Facebook. Campus Swap picked it up on move-out day and I got paid $65 when it sold. So easy.</p>
-                <div class="testimonial-author">
-                    <img src="{{ url_for('static', filename='headshots/andrew.jpeg') }}" alt="Andrew T." class="testimonial-avatar" loading="lazy">
-                    <div class="testimonial-author-info">
-                        <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Andrew T.</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Davidson College &rsquo;26</div>
-                    </div>
-                </div>
-            </div>
-            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
-                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
-                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0;">I gave them my futon and desk during move-out. A few weeks later, I got paid! Way better than leaving stuff on the curb.</p>
-                <div class="testimonial-author">
-                    <img src="{{ url_for('static', filename='headshots/piper.jpeg') }}" alt="Piper H." class="testimonial-avatar" loading="lazy">
-                    <div class="testimonial-author-info">
-                        <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Piper H.</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Davidson College &rsquo;26</div>
-                    </div>
-                </div>
-            </div>
-            <div class="testimonial-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px; transition: transform 0.2s, box-shadow 0.2s;">
-                <div style="color: var(--accent); font-size: 1.5rem; margin-bottom: 12px;">&ldquo;</div>
-                <p style="color: var(--text-main); font-size: 1rem; line-height: 1.6; margin: 0;">The service fee was totally worth it. They came to my house, loaded everything, and I didn&rsquo;t have to deal with random Marketplace buyers. 10/10.</p>
-                <div class="testimonial-author">
-                    <img src="{{ url_for('static', filename='headshots/jack.jpeg') }}" alt="Jack P." class="testimonial-avatar" loading="lazy">
-                    <div class="testimonial-author-info">
-                        <div style="font-weight: 600; color: var(--primary); font-size: 0.95rem;">Jack P.</div>
-                        <div style="font-size: 0.85rem; color: var(--text-muted);">Davidson College &rsquo;26</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <div id="join" class="card reveal fade-up ready-to-sell-card">
-        <h2>Ready to sell?</h2>
-        <div style="background: var(--bg-cream); border: var(--card-border); border-radius: 10px; padding: 12px 20px; margin-bottom: 20px; max-width: 480px;">
-            <p style="margin: 0; font-size: 0.9rem; color: var(--text-muted); line-height: 1.5;">
-                <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
-                We accept items valued at $50 or more. Think furniture, appliances, and electronics — not small accessories or décor.
-            </p>
-        </div>
-        <div class="ready-to-sell-cta">
-            <a href="/become-a-seller" class="btn btn-primary">Learn more <i class="fas fa-arrow-right"></i></a>
-        </div>
-        {% if google_oauth_enabled %}
-        <span class="ready-to-sell-or">or</span>
-        <a href="/auth/google" class="btn-google" style="margin-bottom: 16px; max-width: 320px; margin-left: auto; margin-right: auto; display: flex;">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-            Sign in with Google
-        </a>
         {% endif %}
-        <span class="ready-to-sell-or">or</span>
-        <form method="POST" class="ready-to-sell-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="email" name="email" placeholder="student@college.edu" required>
-            {% if turnstile_site_key %}
-            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" style="margin: 16px auto; display: flex; justify-content: center;"></div>
-            {% endif %}
-            <button type="submit" class="btn btn-primary">{% if pickup_period_active %}Create Account{% else %}Get Notified{% endif %}</button>
-        </form>
-        <p class="ready-to-sell-subtext">{% if pickup_period_active %}Seller spots are limited. <a href="/become-a-seller">Learn more</a>{% else %}We&rsquo;ll email you when signups open next year.{% endif %}</p>
     </div>
 </div>
 
-<script>
-    // 1. SCROLL REVEAL LOGIC
-    const observer = new IntersectionObserver(entries => {
-        entries.forEach(entry => { if(entry.isIntersecting) entry.target.classList.add('active'); });
-    });
-    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+{% elif hs.mode == 'seller_only' %}
+{# ── SELLER-ONLY: solid band, sell door primary, muted "shop opens soon" ── #}
+<div class="hp-hero hp-hero-solid">
+    <div class="hp-doors">
+        <div class="hp-door hp-door-sell">
+            <span class="hp-door-eyebrow">Moving out?</span>
+            <h1 class="hp-door-heading">Don&rsquo;t dump it. Sell it.</h1>
+            <p class="hp-door-sub">We pick it up, sell it, and pay you. Free pickup, $0 upfront.</p>
+            <a href="{{ url_for('become_a_seller') }}" class="hp-door-btn">Start listing &rarr;</a>
+        </div>
+        <div class="hp-door hp-door-muted">
+            <span class="hp-door-eyebrow">Shop</span>
+            <h1 class="hp-door-heading">Shop opens soon.</h1>
+            <p class="hp-door-sub">We&rsquo;re gearing up for the season. Check back once we have items from sellers.</p>
+            <a href="{{ url_for('inventory') }}" class="hp-door-btn">Preview the shop &rarr;</a>
+        </div>
+    </div>
+</div>
 
-    // 2. TICKER ANIMATION LOGIC (icons from admin category settings)
-    const items = {{ ticker_items | tojson | safe }};
+{% else %}
+{# ── OFF-SEASON: evergreen brand hero ── #}
+<div class="hp-hero hp-hero-solid">
+    <div class="hp-offseason-copy">
+        {# PLACEHOLDER — refine copy #}
+        <h1>Furniture deserves a second life.</h1>
+        <p>Campus Swap keeps good furniture in circulation &mdash; we pick it up from students moving out and hand it to the next ones moving in, instead of letting it hit the curb.</p>
+        <p>We run during spring move-out and summer move-in. Check back in the spring &mdash; or <a href="{{ url_for('about') }}">learn more about us</a>.</p>
+    </div>
+</div>
+{% endif %}
 
-    const wrapper = document.getElementById('ticker');
-    
-    // Build the HTML for the list
-    // We duplicate the first item at the end to make the loop seamless
-    let html = '';
-    items.forEach(item => {
-        html += `
-        <div class="ticker-item">
-            <i class="fas ${item.icon} ticker-icon"></i>
-            <div class="ticker-price">${item.price}</div>
-        </div>`;
-    });
-    // Add the first one again at the bottom for seamless loop
-    html += `
-        <div class="ticker-item">
-            <i class="fas ${items[0].icon} ticker-icon"></i>
-            <div class="ticker-price">${items[0].price}</div>
-        </div>`;
-    
-    wrapper.innerHTML = html;
+{# ── CATEGORY CHIPS (dual + buyer-only when shop is live) ── #}
+{% if hs.shop_live and categories %}
+<div class="hp-chips-row">
+    <a href="{{ url_for('inventory') }}" class="hp-chip hp-chip-all">All</a>
+    {% for cat in categories %}
+    <a href="{{ url_for('inventory', category_id=cat.id) }}" class="hp-chip">{{ cat.name }}</a>
+    {% endfor %}
+</div>
+{% endif %}
 
-    // Animation Loop
-    let currentIndex = 0;
-    const itemHeight = 110; // Must match CSS height
-    const totalItems = items.length;
+{# ── CURATED GRID (dual + buyer-only, non-empty pool) ── #}
+{% if hs.shop_live and featured_items %}
+<div class="hp-grid-section">
+    <div class="hp-grid-header">
+        <h2>Shop the inventory</h2>
+        <a href="{{ url_for('inventory') }}" class="hp-grid-see-all">See all &rarr;</a>
+    </div>
+    <div class="hp-grid">
+        {% with items = featured_items %}
+        {% include '_item_card.html' %}
+        {% endwith %}
+    </div>
+</div>
+{% endif %}
 
-    setInterval(() => {
-        currentIndex++;
-        
-        // Slide up
-        wrapper.style.transition = 'transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1)';
-        wrapper.style.transform = `translateY(-${currentIndex * itemHeight}px)`;
-
-        // Reset if we hit the clone at the end
-        if (currentIndex === totalItems) {
-            setTimeout(() => {
-                wrapper.style.transition = 'none'; // Instant jump (no animation)
-                currentIndex = 0;
-                wrapper.style.transform = `translateY(0px)`;
-            }, 500); // Wait for the slide to finish before resetting
-        }
-    }, 2500); // Change every 2.5 seconds
-</script>
 {% endblock %}

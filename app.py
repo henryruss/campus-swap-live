@@ -89,6 +89,7 @@ from constants import (
     ITEMS_PER_PAGE, RESIDENCE_HALLS_BY_STORE, OFF_CAMPUS_COMPLEXES,
     PICKUP_WEEKS, PICKUP_WEEK_DATE_RANGES, PICKUP_TIME_OPTIONS,
     WAREHOUSE_CAPACITY,
+    HOMEPAGE_FEATURED_LIMIT, HOMEPAGE_HERO_TILE_LIMIT, HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES,
     get_price_range_for_category
 )
 
@@ -1292,84 +1293,140 @@ def _get_ticker_items():
     ]
 
 
-@app.route('/', methods=['GET', 'POST'])
-@limiter.limit("10 per hour", methods=['POST']) if limiter else lambda f: f
+def _homepage_state():
+    """Return homepage mode and two booleans off the two existing AppSetting flags."""
+    pickups_on = AppSetting.get('pickup_period_active', 'false').lower() == 'true'
+    shop_live = AppSetting.get('shop_teaser_mode', 'false').lower() != 'true'
+    if pickups_on and shop_live:
+        mode = 'dual'
+    elif shop_live:
+        mode = 'buyer_only'
+    elif pickups_on:
+        mode = 'seller_only'
+    else:
+        mode = 'off_season'
+    return {'mode': mode, 'pickups_on': pickups_on, 'shop_live': shop_live}
+
+
+def _round_robin_category(pool, limit):
+    """Select up to `limit` items from an ordered pool using round-robin across category_id."""
+    if not pool or limit <= 0:
+        return []
+    from collections import defaultdict
+    by_cat = defaultdict(list)
+    for it in pool:
+        by_cat[it.category_id if it.category_id is not None else 0].append(it)
+    cat_keys = list(by_cat.keys())
+    cat_ptr = {k: 0 for k in cat_keys}
+    result = []
+    seen = set()
+    while len(result) < limit:
+        added = False
+        for k in cat_keys:
+            if len(result) >= limit:
+                break
+            items_in_cat = by_cat[k]
+            ptr = cat_ptr[k]
+            while ptr < len(items_in_cat) and items_in_cat[ptr].id in seen:
+                ptr += 1
+            cat_ptr[k] = ptr
+            if ptr < len(items_in_cat):
+                it = items_in_cat[ptr]
+                result.append(it)
+                seen.add(it.id)
+                cat_ptr[k] = ptr + 1
+                added = True
+        if not added:
+            break
+    return result
+
+
+def _select_hero_tiles(eligible, limit):
+    """Pick hero mosaic tiles: highest retail_price, round-robin by category.
+    Excludes HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES (e.g. 'Other') and any item
+    whose photo_url is not an AI-enhanced file (ai_photo_enhanced flag can be True
+    even after a manual photo replacement that left a seller-uploaded filename)."""
+    pool = [
+        it for it in eligible
+        if it.photo_url
+        and it.photo_url.startswith('ai_enhanced_')
+        and not (it.category and it.category.name in HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES)
+    ]
+    sorted_pool = sorted(
+        pool,
+        key=lambda it: float(it.retail_price) if it.retail_price else 0,
+        reverse=True,
+    )
+    return _round_robin_category(sorted_pool, limit)
+
+
+def _select_featured_grid(eligible, limit):
+    """Pick foreground grid: pinned items first, then blend-score + category round-robin."""
+    if not eligible:
+        return []
+    prices = [float(it.retail_price) if it.retail_price else 0 for it in eligible]
+    savings = [
+        (float(it.retail_price) - float(it.price))
+        if (it.retail_price and it.price and float(it.retail_price) > float(it.price))
+        else 0
+        for it in eligible
+    ]
+    max_price = max(prices) or 1
+    max_savings = max(savings) or 1
+
+    def blend_score(it):
+        p = float(it.retail_price) if it.retail_price else 0
+        s = (float(it.retail_price) - float(it.price)) if (
+            it.retail_price and it.price and float(it.retail_price) > float(it.price)
+        ) else 0
+        return (p / max_price) + (s / max_savings)
+
+    pinned = [it for it in eligible if it.is_featured]
+    unpinned = sorted([it for it in eligible if not it.is_featured], key=blend_score, reverse=True)
+    pinned_sel = _round_robin_category(pinned, limit)
+    remaining = limit - len(pinned_sel)
+    return pinned_sel + _round_robin_category(unpinned, remaining)
+
+
+@app.route('/')
 def index():
-    # 1. TRACKING LOGIC
     if request.args.get('source'):
         session['source'] = request.args.get('source')
 
-    ticker_items = _get_ticker_items()
+    hs = _homepage_state()
+    categories = []
+    featured_items = []
+    hero_tiles = []
+    eligible = []
 
-    if request.method == 'POST':
-        if not verify_turnstile(request.form.get('cf-turnstile-response', '')):
-            flash("Verification failed. Please try again.", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
-        email = request.form.get('email', '').strip()
-        
-        # Validate email
-        if not email:
-            flash("Please provide your email address.", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
-        
-        if not validate_email(email):
-            flash("Please provide a valid email address.", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
-        
-        if len(email) > MAX_EMAIL_LENGTH:
-            flash(f"Email address is too long (max {MAX_EMAIL_LENGTH} characters).", "error")
-            return render_template('index.html', pickup_period_active=get_pickup_period_active(), ticker_items=ticker_items)
-        
-        # Check if pickup period is active
-        pickup_period_active = get_pickup_period_active()
-        if not pickup_period_active:
-            # Pickup period closed - still collect email for marketing
-            # Check if email already exists
-            existing_user = User.query.filter_by(email=email).first()
-            if not existing_user:
-                # Create a guest account (no password set yet)
-                guest_user = User(email=email, referral_source=session.get('source', 'direct'))
-                db.session.add(guest_user)
-                db.session.commit()
-                logger.info(f"Guest account created (pickup period closed): {email}")
-            
-            flash("Pickup period has ended for this year. We've saved your email and will notify you when signups open next year! Check your spam folder when we send the notification.", "info")
-            return redirect(url_for('index'))
-        
-        # Pickup period is active - proceed with normal flow
-        # Check if user already exists
-        user = User.query.filter_by(email=email).first()
-        
-        if user:
-            # SCENARIO A: User exists
-            if user.password_hash:
-                # If they have a password, ask them to login
-                flash("You already have an account. Please log in.", "info")
-                return redirect(url_for('login', email=email))
-            else:
-                # SCENARIO B: Existing Lead (No password yet) -> Log them in & go to dashboard
-                login_user(user)
-                return redirect(get_user_dashboard())
-        
-        else:
-            # SCENARIO C: New Lead -> Create, Log In, & Redirect
-            source = session.get('source', 'direct')
-            
-            # Create User with NO password initially
-            new_user = User(email=email, referral_source=source)
-            db.session.add(new_user)
-            db.session.commit()
-            
-            # Auto-Login the new user
-            login_user(new_user)
-            
-            # Email captured for marketing - no welcome email sent to avoid spam
-            # Redirect straight to action
-            flash("Account created! Complete your profile and activate as a seller to start listing items.", "success")
-            return redirect(get_user_dashboard())
-    
-    pickup_period_active = get_pickup_period_active()
-    return render_template('index.html', pickup_period_active=pickup_period_active, ticker_items=ticker_items)
+    if hs['shop_live']:
+        eligible = InventoryItem.query.filter_by(
+            status='available',
+            ai_approved=True,
+            ai_photo_enhanced=True,
+            needs_new_photo=False,
+            needs_photo_verification=False,
+        ).all()
+        hero_tiles = _select_hero_tiles(eligible, HOMEPAGE_HERO_TILE_LIMIT)
+        featured_items = _select_featured_grid(eligible, HOMEPAGE_FEATURED_LIMIT)
+        categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+
+    app.logger.info(
+        '[homepage] pickups_on=%s shop_live=%s mode=%s eligible=%d hero_tiles=%d featured=%d',
+        hs['pickups_on'], hs['shop_live'], hs['mode'],
+        len(eligible), len(hero_tiles), len(featured_items),
+    )
+
+    return render_template(
+        'index.html',
+        hs=hs,
+        categories=categories,
+        featured_items=featured_items,
+        hero_tiles=hero_tiles,
+        current_store=get_current_store(),
+        search_query='',
+        active_cat=None,
+    )
 
 @app.route('/about')
 def about():
@@ -3908,6 +3965,18 @@ def admin_approve():
         sort=sort_param,
         resubmitted_item_ids=resubmitted_item_ids,
     )
+
+
+@app.route('/admin/item/<int:item_id>/toggle-featured', methods=['POST'])
+@login_required
+def admin_item_toggle_featured(item_id):
+    """Toggle InventoryItem.is_featured (homepage pin). Admin only. Returns JSON."""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied.'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    item.is_featured = not item.is_featured
+    db.session.commit()
+    return jsonify({'success': True, 'is_featured': item.is_featured})
 
 
 @app.route('/admin/item/<int:item_id>/approve', methods=['POST'])

@@ -130,6 +130,7 @@ ai_photo_enhanced (Boolean, default False, server_default='0') — True once Ope
 seller_description, seller_long_description (Text, nullable) — write-once snapshot of the seller's original title/description at creation; never overwritten by AI or edits (preserves seller intent for the approval-modal comparison view)
 was_previously_approved (Boolean, default False, server_default='0') — visibility fallback for items approved before the photo-enhancement rollout
 needs_photo_note (Text, nullable) — optional note attached when an item is flagged for a new photo
+is_featured (Boolean, default False, server_default='0') — admin-pinned homepage slot; guaranteed appearance in curated grid before blend-score ranked items
 ```
 
 ### InventoryCategory
@@ -621,6 +622,7 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/payouts/export` | `admin_payouts_export` | CSV export of all sold items with payout data |
 | `GET /admin/items/needs_info` | `admin_needs_info_queue` | Quick-capture items awaiting completion (is_quick_capture=True, status pending_valuation/needs_info). Renders `admin/needs_info.html`. Reachable via the `admin_request_info` redirect when a QC item gets an info request. |
 | `POST /admin/item/<id>/approve` | `admin_item_approve` | One-click approve for quick-capture items only. No price required. Sets status='available'. Returns JSON. |
+| `POST /admin/item/<id>/toggle-featured` | `admin_item_toggle_featured` | Toggle `InventoryItem.is_featured` (homepage pin). Admin only. Returns JSON `{success, is_featured}`. |
 | `GET /admin/item/<id>/approval-detail` | `admin_item_approval_detail` | HTML partial (no layout) with full item data for approval modal. 404 if not pending_valuation or needs_info. |
 | `POST /admin/item/<id>/approve-unified` | `admin_approve_unified` | Unified approve: writes AI staged fields → live fields, sets ai_approved=True, status='available', ai_review_pending=False, sends approval email. Super admin only. Returns JSON. |
 | `POST /admin/quick_capture/<id>/delete` | `admin_quick_capture_delete` | Hard delete any QC item (photo + DB). No captured_by guard. |
@@ -750,7 +752,7 @@ Delivery vs pickup is determined at the truck level by the presence of `Delivery
 
 ```
 layout.html                    — Base template (nav, footer, analytics)
-index.html                     — Homepage (hero, waitlist form, interactive room)
+index.html                     — Homepage (season-aware: dual/buyer_only/seller_only/off_season modes; frosted-glass hero mosaic, category chips, curated grid via _item_card.html; no waitlist form)
 about.html
 inventory.html                 — Shop front (category grid + item cards)
 product.html                   — Product detail page (gallery, buy button)
@@ -769,7 +771,7 @@ add_item.html                  — Item upload form (QR upload, photo carousel)
 edit_item.html                 — Edit existing item
 upload.html                    — Upload page
 upload_from_phone.html
-become_a_seller.html           — Seller landing page
+become_a_seller.html           — Seller landing page (interactive room calculator, out-of-season banner + disabled CTA when pickup_period_active=false)
 confirm_pickup.html            — Legacy (route now redirects to /dashboard)
 complete_profile.html          — Post-OAuth phone collection (new, minimal)
 upgrade_pickup.html            — Upgrade from Free to Pro plan
