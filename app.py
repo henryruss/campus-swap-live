@@ -939,6 +939,18 @@ def _send_buyer_order_confirmation(order, sold_items):
         <p>Thanks for shopping with Campus Swap!</p>
     </div>
     """
+    _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    _refund_policy_url = f"{_base}/refund-policy"
+    html += f"""
+    <div style="font-family: sans-serif; padding: 0 20px 20px; max-width: 550px;">
+        <div style="margin-top: 8px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+            <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b; font-weight: 600;">Refund Policy</p>
+            <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b;">Changed your mind? Email us before your delivery day and we'll refund you in full — no questions asked.</p>
+            <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b;">After delivery, refunds are issued only if an item is damaged or materially different from its listing. <a href="{_refund_policy_url}" style="color: #166534;">View our full refund policy</a>.</p>
+            <p style="margin: 0; font-size: 0.875rem; color: #64748b;">Questions? Reply to this email or contact us at <a href="mailto:team@usecampusswap.com" style="color: #166534;">team@usecampusswap.com</a>.</p>
+        </div>
+    </div>
+    """
     send_email(order.buyer_email, "Your Campus Swap Order — Confirmed!", html)
 
 

@@ -730,6 +730,7 @@ Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env
 | 11 | New account created | User | "Welcome to Campus Swap!" | Platform overview, quick start guide, dashboard link |
 | 12 | Admin fires "Notify Sellers" (Spec #8) | Seller | "Your Campus Swap pickup is {shift_day_str}" | Pickup day/window confirmed, reschedule CTA with token link |
 | 13 | Mover flags stop as no-show — end-of-day cron (Spec #9) | Seller | "We're sorry we missed you, {first_name}!" | Warm apology, reschedule link (`/reschedule/<token>` with extended TTL). Sent once per stop via `no_show_email_sent_at` guard. |
+| 15 | Stripe webhook `checkout.session.completed` (`type='cart_order'`) | Buyer | "Your Campus Swap Order — Confirmed!" | Item list with thumbnails and prices, delivery address, delivery window, total paid, refund policy footer (pre-delivery full refund; post-delivery damage/deviation only; link to `/refund-policy`) |
 
 ### Internal (2 types)
 
@@ -1009,7 +1010,7 @@ Grouped by area for on-campus pickup dropdown:
 | About | `/about` | Problem/solution narrative, store address, team info |
 | Privacy Policy | `/privacy-policy` | Data collected, third parties (Google, Stripe, Resend, PostHog) |
 | Terms & Conditions | `/terms-and-conditions` | |
-| Refund Policy | `/refund-policy` | |
+| Refund Policy | `/refund-policy` | Full policy content added June 2026: pre-delivery full refund on request; post-delivery refund only for damage or deviation from original seller photo; 48-hour claim window; all via team@usecampusswap.com |
 | Director | `/director` | Internal ops — "Become a Campus Director" recruiting page, links to jobs@campusswap.com |
 | Unsubscribe Confirm | `/unsubscribe/<token>` | One-click marketing unsubscribe, unique token per user |
 | Unsubscribe Success | (after confirm) | Confirms unsubscribe, notes transactional emails continue |
