@@ -118,7 +118,7 @@
     <div class="whu-item-row">
       <input type="checkbox" class="whu-move-cb" value="{{ item.id }}" onchange="updateMoveCount({{ loc.id }})">
       {% if item.photo_url %}
-      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="whu-thumb lightbox-trigger" loading="lazy" alt="">
+      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" class="whu-thumb" loading="lazy" alt="" onclick="loadItemDetail({{ item.id }})" style="cursor:zoom-in;">
       {% else %}
       <div class="whu-thumb-placeholder"><i class="fas fa-image"></i></div>
       {% endif %}

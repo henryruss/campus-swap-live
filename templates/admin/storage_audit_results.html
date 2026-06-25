@@ -81,7 +81,8 @@
     <span class="audit-id-badge">#{{ item.id }}</span>
     {% if item.photo_url %}
     <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-         alt="" class="lightbox-trigger" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0;">
+         alt="" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0; cursor:zoom-in;"
+         onclick="loadItemDetail({{ item.id }})">
     {% else %}
     <div style="width:44px; height:44px; border-radius:8px; background:var(--bg-cream); border:1px solid var(--rule); flex-shrink:0;"></div>
     {% endif %}
@@ -141,8 +142,9 @@
       <div style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:8px;">Replace Photo</div>
       {% if item.photo_url %}
       <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
-           class="photo-thumb lightbox-trigger" alt="Current photo"
-           style="width:72px; height:72px; border-radius:8px; object-fit:cover; display:block; margin-bottom:8px;">
+           class="photo-thumb" alt="Current photo"
+           style="width:72px; height:72px; border-radius:8px; object-fit:cover; display:block; margin-bottom:8px; cursor:zoom-in;"
+           onclick="loadItemDetail({{ item.id }})">
       {% else %}
       <div style="width:72px; height:72px; border-radius:8px; background:var(--bg-cream); border:1px dashed var(--rule); display:flex; align-items:center; justify-content:center; margin-bottom:8px;">
         <span style="font-size:0.7rem; color:var(--text-muted);">No photo</span>

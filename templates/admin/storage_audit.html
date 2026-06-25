@@ -206,4 +206,41 @@
   });
 })();
 </script>
+
+{# Item detail drawer — positioning/sizing handled by style.css #item-detail-drawer rules #}
+<div id="item-detail-overlay" onclick="closeItemDetail()"></div>
+<div id="item-detail-drawer">
+  <button onclick="closeItemDetail()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.5rem;color:var(--text-muted);cursor:pointer;z-index:10;line-height:1;padding:4px 8px;border-radius:8px;">&times;</button>
+  <div id="item-detail-content"></div>
+</div>
+
+<script>
+var _itemDetailCsrf = '{{ csrf_token() }}';
+function loadItemDetail(itemId) {
+  var overlay = document.getElementById('item-detail-overlay');
+  var drawer = document.getElementById('item-detail-drawer');
+  var content = document.getElementById('item-detail-content');
+  content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+  overlay.style.display = 'block';
+  drawer.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  fetch('/admin/item/' + itemId + '/detail')
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      content.innerHTML = html;
+      content.querySelectorAll('script').forEach(function(orig) {
+        var s = document.createElement('script'); s.textContent = orig.textContent;
+        orig.parentNode.replaceChild(s, orig);
+      });
+    })
+    .catch(function() {
+      content.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">Failed to load item details.</div>';
+    });
+}
+function closeItemDetail() {
+  document.getElementById('item-detail-overlay').style.display = 'none';
+  document.getElementById('item-detail-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+</script>
 {% endblock %}
