@@ -180,6 +180,7 @@
   </div>
 
   {# Pre-run stop preview #}
+  {% set row_labels = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left','back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
   {% for stop in stops %}
   {% set order = stop.buyer_order %}
   {% set item = order.item %}
@@ -192,6 +193,29 @@
     </div>
     {% if item.photo_url %}
     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
+    {% else %}
+    <div class="stop-thumb" style="background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
+      <i class="fas fa-image" style="font-size:1.8rem;"></i>
+    </div>
+    {% endif %}
+    {# Storage pickup info #}
+    {% if item.storage_location %}
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem;">
+      <div style="font-weight:700; color:#166534; margin-bottom:2px;">
+        <i class="fas fa-warehouse"></i>
+        {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ row_labels.get(item.storage_row, item.storage_row) }}{% endif %}
+      </div>
+      {% if item.storage_location.address %}
+      <div style="color:#166534; font-size:0.8rem;">{{ item.storage_location.address }}</div>
+      {% endif %}
+      {% if item.storage_location.location_note %}
+      <div style="color:#15803d; font-size:0.78rem; margin-top:2px; font-style:italic;">{{ item.storage_location.location_note }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div style="font-size:0.8rem; color:var(--text-muted); margin:6px 0;">
+      <i class="fas fa-warehouse"></i> Storage location not yet assigned
+    </div>
     {% endif %}
     <div class="stop-address">
       <i class="fas fa-map-marker-alt"></i>
@@ -219,6 +243,7 @@
     {% endif %}
   </div>
 
+  {% set row_labels = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left','back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
   <div id="stop-list">
   {% for stop in stops %}
   {% set order = stop.buyer_order %}
@@ -233,6 +258,29 @@
     </div>
     {% if item.photo_url %}
     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
+    {% else %}
+    <div class="stop-thumb" style="background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
+      <i class="fas fa-image" style="font-size:1.8rem;"></i>
+    </div>
+    {% endif %}
+    {# Storage pickup info #}
+    {% if item.storage_location %}
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem;">
+      <div style="font-weight:700; color:#166534; margin-bottom:2px;">
+        <i class="fas fa-warehouse"></i>
+        {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ row_labels.get(item.storage_row, item.storage_row) }}{% endif %}
+      </div>
+      {% if item.storage_location.address %}
+      <div style="color:#166534; font-size:0.8rem;">{{ item.storage_location.address }}</div>
+      {% endif %}
+      {% if item.storage_location.location_note %}
+      <div style="color:#15803d; font-size:0.78rem; margin-top:2px; font-style:italic;">{{ item.storage_location.location_note }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div style="font-size:0.8rem; color:var(--text-muted); margin:6px 0;">
+      <i class="fas fa-warehouse"></i> Storage location not yet assigned
+    </div>
     {% endif %}
     <div class="stop-address">
       <i class="fas fa-map-marker-alt"></i>

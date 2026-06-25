@@ -16985,8 +16985,14 @@ def _get_delivery_item_unit_size(item):
 
 
 def _build_delivery_queue():
-    """All BuyerOrders that are sold, have no DeliveryStop, and not yet delivered."""
-    orders = (
+    """Unassigned BuyerOrders grouped into delivery stops.
+    Cart orders (same order_id) collapse into one group; legacy solo orders each get their own.
+    Returns list of group dicts consumed by ops_delivery_queue_partial.html.
+    """
+    from flask import url_for as _url_for
+    from collections import OrderedDict
+
+    raw = (
         BuyerOrder.query
         .join(InventoryItem, BuyerOrder.item_id == InventoryItem.id)
         .filter(
@@ -16998,7 +17004,40 @@ def _build_delivery_queue():
         .order_by(BuyerOrder.created_at.asc())
         .all()
     )
-    return orders
+
+    groups = OrderedDict()
+    for bo in raw:
+        key = ('order', bo.order_id) if bo.order_id else ('solo', bo.id)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(bo)
+
+    result = []
+    for bos in groups.values():
+        primary = bos[0]
+        buyer_name = (primary.order.buyer_name if primary.order else None) or primary.buyer_email
+        item_photos = []
+        for bo in bos:
+            item = bo.item
+            item_photos.append({
+                'description': item.description or '',
+                'status': item.status,
+                'cover_url': _url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '',
+                'gallery_urls': [],
+            })
+        unit_total = sum(_get_delivery_item_unit_size(bo.item) for bo in bos)
+        result.append({
+            'buyer_order_ids': [bo.id for bo in bos],
+            'line_items': bos,
+            'buyer_name': buyer_name,
+            'buyer_email': primary.buyer_email,
+            'delivery_address': primary.delivery_address,
+            'delivery_lat': primary.delivery_lat,
+            'delivery_lng': primary.delivery_lng,
+            'item_photos': item_photos,
+            'unit_total': unit_total,
+        })
+    return result
 
 
 @app.route('/admin/ops/delivery-queue')
@@ -17024,6 +17063,63 @@ def admin_ops_delivery_queue():
         orders=orders,
         upcoming_shifts=upcoming_shifts,
     )
+
+
+@app.route('/admin/delivery/assign', methods=['POST'])
+@login_required
+def admin_delivery_assign():
+    """Form-POST assign: add one or more BuyerOrders to a delivery shift truck, then redirect.
+    Accepts buyer_order_ids as a comma-separated string to support cart orders with multiple items.
+    """
+    if not _has_ops_access():
+        abort(403)
+    ids_str = request.form.get('buyer_order_ids', '')
+    try:
+        buyer_order_ids = [int(x) for x in ids_str.split(',') if x.strip()]
+    except ValueError:
+        abort(400)
+    shift_truck = request.form.get('shift_truck', '') or ''
+    try:
+        shift_id_str, truck_str = shift_truck.split('_', 1)
+        shift_id = int(shift_id_str)
+        truck_number = int(truck_str)
+    except (ValueError, AttributeError):
+        abort(400)
+    if not buyer_order_ids:
+        abort(400)
+
+    existing_pickups = ShiftPickup.query.filter_by(
+        shift_id=shift_id, truck_number=truck_number
+    ).count()
+    if existing_pickups > 0:
+        flash('This truck already has pickup stops — a truck cannot be used for both.', 'error')
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    effective_cap = get_effective_capacity()
+    existing_stops = DeliveryStop.query.filter_by(shift_id=shift_id, truck_number=truck_number).all()
+    truck_load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in existing_stops)
+    max_order = db.session.query(db.func.max(DeliveryStop.stop_order)).filter_by(shift_id=shift_id).scalar() or 0
+
+    for buyer_order_id in buyer_order_ids:
+        order = BuyerOrder.query.get_or_404(buyer_order_id)
+        if order.delivery_stop:
+            continue  # already assigned (e.g. duplicate submit); skip silently
+        unit_size = _get_delivery_item_unit_size(order.item)
+        cap_warn = (truck_load + unit_size) > effective_cap
+        max_order += 1
+        stop = DeliveryStop(
+            shift_id=shift_id,
+            buyer_order_id=buyer_order_id,
+            truck_number=truck_number,
+            stop_order=max_order,
+            capacity_warning=cap_warn,
+            created_by_id=current_user.id,
+        )
+        db.session.add(stop)
+        truck_load += unit_size
+
+    db.session.commit()
+    return redirect(url_for('admin_ops', shift_id=shift_id))
 
 
 @app.route('/admin/delivery/shift/<int:shift_id>/add-stop', methods=['POST'])

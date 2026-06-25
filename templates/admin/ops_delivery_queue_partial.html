@@ -4,15 +4,16 @@
 </div>
 {% endif %}
 
-{% for order in orders %}
-{% set item = order.item %}
-{% set buyer_name = (order.order.buyer_name if order.order else None) or order.buyer_email %}
-<div class="unassigned-delivery-card" data-order-id="{{ order.id }}"
+{% for group in orders %}
+{% set primary = group.line_items[0] %}
+{% set primary_item = primary.item %}
+{% set group_key = group.buyer_order_ids[0] %}
+<div class="unassigned-delivery-card" data-order-id="{{ group_key }}"
      style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background 0.12s; font-size: 0.82rem;"
-     onclick="toggleDeliveryAssignForm({{ order.id }})">
+     onclick="toggleDeliveryAssignForm({{ group_key }})">
   <div style="display:flex; align-items:flex-start; gap:8px;">
-    {% if item.photo_url %}
-    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}"
+    {% if primary_item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=primary_item.photo_url) }}" alt="{{ primary_item.description }}"
          style="width:44px; height:44px; border-radius:6px; object-fit:cover; flex-shrink:0; border:1px solid var(--rule);">
     {% else %}
     <div style="width:44px; height:44px; border-radius:6px; background:var(--bg-cream); border:1px solid var(--rule); flex-shrink:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
@@ -20,50 +21,57 @@
     </div>
     {% endif %}
     <div style="flex:1; min-width:0;">
-      <div style="font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-        {{ item.description }}
-        <span style="font-size:0.68rem; background:#f1f5f9; color:var(--text-muted); border-radius:6px; padding:1px 5px; margin-left:4px;">#{{ item.id }}</span>
+      <div style="font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:4px;">
+        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          {% if group.line_items | length > 1 %}
+            {{ group.line_items | length }} items
+          {% else %}
+            {{ primary_item.description }}
+            <span style="font-size:0.68rem; background:#f1f5f9; color:var(--text-muted); border-radius:6px; padding:1px 5px; margin-left:4px;">#{{ primary_item.id }}</span>
+          {% endif %}
+        </span>
+        <button class="ops-photo-btn"
+                data-seller-name="{{ group.buyer_name }}"
+                data-items='{{ group.item_photos | tojson }}'
+                aria-label="View items"
+                onclick="event.stopPropagation(); openPhotoModal(this)">
+          <i class="fas fa-camera"></i>
+        </button>
       </div>
-      {% if buyer_name %}
       <div style="font-size:0.74rem; color:var(--text-main); font-weight:600; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         <i class="fas fa-user" style="color:var(--text-muted); font-weight:400;"></i>
-        {{ buyer_name }}
+        {{ group.buyer_name }}
       </div>
-      {% endif %}
       <div style="font-size:0.73rem; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         <i class="fas fa-map-marker-alt"></i>
-        {{ order.delivery_address.split(',')[:2] | join(', ') }}
+        {{ group.delivery_address.split(',')[:2] | join(', ') }}
       </div>
       <div style="font-size:0.73rem; color:var(--text-muted); margin-top:1px;">
-        {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
+        {{ group.unit_total | round(1) }}u
       </div>
     </div>
   </div>
 
-  {# Inline assign form — hidden by default. Stop clicks here from bubbling to the
-     card's onclick toggle (which would immediately close the form). #}
-  <div id="del-assign-form-{{ order.id }}" style="display:none; margin-top:8px;" onclick="event.stopPropagation()">
-    <div id="del-assign-error-{{ order.id }}" style="display:none; font-size:0.78rem; color:#dc2626; margin-bottom:6px; padding:4px 6px; background:#fef2f2; border-radius:6px;"></div>
-    <select id="del-shift-sel-{{ order.id }}"
-            style="width:100%; font-size:0.78rem; padding:4px 6px; border:1px solid var(--rule); border-radius:6px; margin-bottom:6px;">
-      <option value="">— Select shift —</option>
-      {% for s in upcoming_shifts %}
-      <option value="{{ s.id }}"
-              data-trucks="{{ s.trucks }}"
-              data-label="{{ s.label }}">
-        {{ s.week.week_start.strftime('%b %-d') }} {{ s.label }}
-      </option>
-      {% endfor %}
-    </select>
-    <select id="del-truck-sel-{{ order.id }}"
-            style="width:100%; font-size:0.78rem; padding:4px 6px; border:1px solid var(--rule); border-radius:6px; margin-bottom:6px;">
-      <option value="">— Select truck —</option>
-    </select>
-    <button type="button"
-            onclick="submitDeliveryAssign({{ order.id }})"
-            style="width:100%; padding:6px; background:var(--accent); color:white; border:none; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;">
-      Add to Route
-    </button>
+  {# Inline assign form — mirrors pickup assign: one shift_truck select + Assign button. #}
+  <div id="del-assign-form-{{ group_key }}" style="display:none; margin-top:8px;" onclick="event.stopPropagation()">
+    <form method="POST" action="{{ url_for('admin_delivery_assign') }}"
+          style="display:flex; gap:6px; width:100%;" onclick="event.stopPropagation()">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="buyer_order_ids" value="{{ group.buyer_order_ids | join(',') }}">
+      <select name="shift_truck" style="flex:1; font-size:0.75rem; padding:4px; border:1px solid var(--rule); border-radius:6px;">
+        {% if shift %}
+        {% for t in range(1, shift.trucks + 1) %}
+        <option value="{{ shift.id }}_{{ t }}">
+          {{ shift_date.strftime('%a %b %-d') }} {% if shift.slot == 'daily' %}10am–3pm{% elif shift.slot == 'am' %}AM{% else %}PM{% endif %} — Truck {{ t }}
+        </option>
+        {% endfor %}
+        {% endif %}
+        {% for opt in shift_truck_options %}
+        <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-sm primary" style="flex-shrink:0;">Assign</button>
+    </form>
   </div>
 </div>
 {% endfor %}
@@ -73,73 +81,15 @@
   if (window.__deliveryQueueInit) return;
   window.__deliveryQueueInit = true;
 
-  function toggleDeliveryAssignForm(orderId) {
-    var form = document.getElementById('del-assign-form-' + orderId);
+  function toggleDeliveryAssignForm(groupKey) {
+    var form = document.getElementById('del-assign-form-' + groupKey);
     if (!form) return;
     var isOpen = form.style.display !== 'none';
-    // close all
     document.querySelectorAll('[id^="del-assign-form-"]').forEach(function(el) {
       el.style.display = 'none';
     });
     if (!isOpen) form.style.display = 'block';
   }
   window.toggleDeliveryAssignForm = toggleDeliveryAssignForm;
-
-  // Populate truck selector when shift changes
-  document.addEventListener('change', function(e) {
-    var sel = e.target;
-    if (!sel.id || !sel.id.startsWith('del-shift-sel-')) return;
-    var orderId = sel.id.replace('del-shift-sel-', '');
-    var truckSel = document.getElementById('del-truck-sel-' + orderId);
-    if (!truckSel) return;
-    truckSel.innerHTML = '<option value="">— Select truck —</option>';
-    var opt = sel.options[sel.selectedIndex];
-    var trucks = parseInt(opt.dataset.trucks || '0');
-    for (var t = 1; t <= trucks; t++) {
-      var o = document.createElement('option');
-      o.value = t;
-      o.textContent = 'Truck ' + t;
-      truckSel.appendChild(o);
-    }
-    if (trucks === 1) truckSel.value = '1';
-  });
-
-  function submitDeliveryAssign(orderId) {
-    var shiftSel = document.getElementById('del-shift-sel-' + orderId);
-    var truckSel = document.getElementById('del-truck-sel-' + orderId);
-    var errEl = document.getElementById('del-assign-error-' + orderId);
-    errEl.style.display = 'none';
-
-    if (!shiftSel.value || !truckSel.value) {
-      errEl.textContent = 'Select a shift and truck.';
-      errEl.style.display = 'block';
-      return;
-    }
-    var shiftId = shiftSel.value;
-    var csrfToken = document.querySelector('meta[name="csrf-token"]') ?
-      document.querySelector('meta[name="csrf-token"]').content :
-      (document.querySelector('input[name="csrf_token"]') || {}).value || '';
-
-    var fd = new FormData();
-    fd.append('csrf_token', csrfToken);
-    fd.append('buyer_order_id', orderId);
-    fd.append('truck_number', truckSel.value);
-
-    fetch('/admin/delivery/shift/' + shiftId + '/add-stop', { method: 'POST', body: fd })
-      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
-      .then(function(res) {
-        if (!res.ok || res.data.error) {
-          errEl.textContent = res.data.error || 'Failed to add stop.';
-          errEl.style.display = 'block';
-        } else {
-          window.location.href = '/admin/ops?shift_id=' + shiftId;
-        }
-      })
-      .catch(function() {
-        errEl.textContent = 'Network error. Try again.';
-        errEl.style.display = 'block';
-      });
-  }
-  window.submitDeliveryAssign = submitDeliveryAssign;
 })();
 </script>
