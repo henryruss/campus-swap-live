@@ -9,13 +9,41 @@
 
 ## Current State
 
-**Last updated:** 2026-06-22
+**Last updated:** 2026-06-28
 **Active spec:** None
 **Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Route count is now 263.
 
 ---
 
-## Features Built This Session (2026-06-22) — Shop + Delivery Ops Pass
+## Features Built This Session (2026-06-28) — Meta Catalog Feed + GA4 Conversion Events
+
+**Status:** Built, ready to deploy
+**Verified in code:** `app.py` (`CATALOG_CATEGORY_MAP`, `_catalog_cache`, `CATALOG_CACHE_TTL`, `meta_catalog_feed`, `admin_catalog_preview`), `templates/layout.html` (GA4 purchase / begin_checkout / view_cart events)
+
+### Meta Product Catalog Feed (`/catalog.xml`)
+- Public RSS 2.0 feed compatible with Meta Commerce Manager / Advantage+ dynamic ads.
+- **No auth** — Meta's crawler cannot authenticate. Feed exposes only data already public on the shop.
+- Eligibility filter mirrors the shop: `status='available'`, `ai_approved=True`, `needs_new_photo=False`, `price>0`, `photo_url` set, `storage_location_id` set.
+- Fields per item: `g:id` (PK), `g:title`, `g:description`, `g:link` (with UTM params), `g:image_link` (via `_email_photo_url()`), `g:price` (e.g. `"45.00 USD"`), `g:availability=in stock`, `g:condition=used`, `g:brand=Campus Swap`, `g:google_product_category` (from `CATALOG_CATEGORY_MAP`), optional `g:additional_image_link` (first gallery photo).
+- Module-level cache: `_catalog_cache = {"xml": None, "built_at": None}`, `CATALOG_CACHE_TTL = 3600`. Rebuilt after TTL expires; no manual invalidation needed.
+- All text fields XML-escaped with `html.escape()` (imported as `html_module`).
+- Configure in Meta Commerce Manager: catalog type → "E-commerce", feed URL → `https://usecampusswap.com/catalog.xml`, schedule → daily.
+
+### Admin Catalog Preview (`/admin/catalog/preview`)
+- Super admin only (uses `require_super_admin()`).
+- Inline HTML table (no layout template) showing first 10 catalog-eligible items: ID, title, price, category, thumbnail, link.
+- Use to verify feed data before connecting to Meta.
+
+### GA4 Conversion Events (`layout.html`)
+- Three events added after `{% block head_extra %}` in `layout.html`, guarded by `request.path`.
+- `/item_success` → `gtag('event', 'purchase', {transaction_id, value, currency: 'USD', tax, items})` — only fires when `order` is available and has `total_paid`. Populates items array from `order.line_items` (one entry per `BuyerOrder`).
+- `/checkout/delivery` → `gtag('event', 'begin_checkout')`
+- `/cart` → `gtag('event', 'view_cart')`
+- GA4 tag ID: `G-T696XM5XN9` (existing, not duplicated). Events are additive alongside the existing pageview.
+
+---
+
+## Features Built Last Session (2026-06-22) — Shop + Delivery Ops Pass
 
 **Status:** In production
 **Verified in code:** `app.py` (`WAREHOUSE_DEFAULT_LAT/LNG`, `_delivery_window`, `_email_photo_url`, `_send_delivery_scheduled_email`, `admin_shift_notify_buyers`, `admin_ai_delete_gallery_photo`, `item_is_held`, `wrap_email_template`, `pickup_week_range` template filter), `models.py` (`Cart.checkout_started_at`), migration `c3d4e5f6a7b8`, and the templates listed below.

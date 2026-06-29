@@ -154,6 +154,36 @@ def store_open_date_raw():
 WAREHOUSE_DEFAULT_LAT = '35.9030324'
 WAREHOUSE_DEFAULT_LNG = '-79.0709049'
 
+# --- Meta Product Catalog Feed ---
+_catalog_cache = {"xml": None, "built_at": None}
+CATALOG_CACHE_TTL = 3600  # 1 hour
+
+CATALOG_CATEGORY_MAP = {
+    "Couch": "Furniture > Sofas & Loveseats",
+    "Sofa": "Furniture > Sofas & Loveseats",
+    "Futon": "Furniture > Sofas & Loveseats",
+    "Mattress": "Furniture > Beds & Accessories > Mattresses",
+    "Bed Frame": "Furniture > Beds & Accessories > Bed Frames",
+    "Headboard": "Furniture > Beds & Accessories > Headboards",
+    "Desk": "Furniture > Desks",
+    "Chair": "Furniture > Chairs",
+    "Dresser": "Furniture > Dressers & Chests of Drawers",
+    "Bookshelf": "Furniture > Bookcases & Shelving",
+    "Rug": "Home & Garden > Rugs",
+    "TV": "Electronics > Video > Televisions",
+    "Television": "Electronics > Video > Televisions",
+    "Mini Fridge": "Appliances > Kitchen Appliances > Refrigerators",
+    "Fridge": "Appliances > Kitchen Appliances > Refrigerators",
+    "Microwave": "Appliances > Kitchen Appliances > Microwaves",
+    "AC": "Appliances > Climate Control > Air Conditioners",
+    "Air Conditioner": "Appliances > Climate Control > Air Conditioners",
+    "Heater": "Appliances > Climate Control > Space Heaters",
+    "Gaming": "Electronics > Video Game Consoles & Accessories",
+    "Console": "Electronics > Video Game Consoles & Accessories",
+    "Printer": "Electronics > Print, Copy, Scan & Fax > Printers",
+    "Lamp": "Home & Garden > Lighting",
+}
+
 
 def haversine_miles(lat1, lng1, lat2, lng2):
     """Return straight-line distance in miles between two lat/lng points."""
@@ -1654,6 +1684,131 @@ def robots_txt():
     ]
     
     return Response('\n'.join(robots), mimetype='text/plain')
+
+@app.route('/catalog.xml')
+def meta_catalog_feed():
+    """Public Meta product catalog feed (RSS 2.0). No auth required."""
+    now = _now_eastern()
+    if (_catalog_cache["xml"] is not None and _catalog_cache["built_at"] is not None
+            and (now - _catalog_cache["built_at"]).seconds < CATALOG_CACHE_TTL):
+        return Response(_catalog_cache["xml"], mimetype='application/xml')
+
+    items = InventoryItem.query.filter(
+        InventoryItem.status == 'available',
+        InventoryItem.ai_approved == True,
+        InventoryItem.needs_new_photo == False,
+        InventoryItem.price.isnot(None),
+        InventoryItem.price > 0,
+        InventoryItem.photo_url.isnot(None),
+        InventoryItem.storage_location_id.isnot(None),
+    ).all()
+
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">',
+        '  <channel>',
+        '    <title>Campus Swap — UNC Chapel Hill</title>',
+        '    <link>https://usecampusswap.com/shop</link>',
+        '    <description>Dorm furniture and appliances, delivered across Chapel Hill.</description>',
+    ]
+
+    for item in items:
+        cat_name = item.category.name if item.category else None
+        google_cat = CATALOG_CATEGORY_MAP.get(cat_name, "Furniture") if cat_name else "Home & Garden"
+
+        title = html_module.escape(item.description or '')
+        desc = html_module.escape(item.long_description or item.description or '')
+        link = f"https://usecampusswap.com/item/{item.id}?utm_source=facebook&utm_medium=cpc&utm_campaign=catalog"
+        price_str = f"{float(item.price):.2f} USD"
+
+        raw_img_url = _email_photo_url(item.photo_url)
+        if raw_img_url and not raw_img_url.startswith('http'):
+            raw_img_url = 'https://usecampusswap.com' + raw_img_url
+        image_url = raw_img_url or ''
+
+        lines.append('    <item>')
+        lines.append(f'      <g:id>{item.id}</g:id>')
+        lines.append(f'      <g:title>{title}</g:title>')
+        lines.append(f'      <g:description>{desc}</g:description>')
+        lines.append(f'      <g:link>{link}</g:link>')
+        lines.append(f'      <g:image_link>{image_url}</g:image_link>')
+        lines.append(f'      <g:price>{price_str}</g:price>')
+        lines.append('      <g:availability>in stock</g:availability>')
+        lines.append('      <g:condition>used</g:condition>')
+        lines.append('      <g:brand>Campus Swap</g:brand>')
+        lines.append(f'      <g:google_product_category>{google_cat}</g:google_product_category>')
+
+        if item.gallery_photos:
+            first_gallery = item.gallery_photos[0]
+            raw_gallery_url = _email_photo_url(first_gallery.photo_url)
+            if raw_gallery_url and not raw_gallery_url.startswith('http'):
+                raw_gallery_url = 'https://usecampusswap.com' + raw_gallery_url
+            if raw_gallery_url:
+                lines.append(f'      <g:additional_image_link>{raw_gallery_url}</g:additional_image_link>')
+
+        lines.append('    </item>')
+
+    lines.append('  </channel>')
+    lines.append('</rss>')
+    xml_string = '\n'.join(lines)
+
+    _catalog_cache["xml"] = xml_string
+    _catalog_cache["built_at"] = now
+
+    return Response(xml_string, mimetype='application/xml')
+
+
+@app.route('/admin/catalog/preview')
+@login_required
+def admin_catalog_preview():
+    """Admin preview of catalog feed (first 10 items). Super admin only."""
+    guard = require_super_admin()
+    if guard:
+        return guard
+
+    items = InventoryItem.query.filter(
+        InventoryItem.status == 'available',
+        InventoryItem.ai_approved == True,
+        InventoryItem.needs_new_photo == False,
+        InventoryItem.price.isnot(None),
+        InventoryItem.price > 0,
+        InventoryItem.photo_url.isnot(None),
+        InventoryItem.storage_location_id.isnot(None),
+    ).limit(10).all()
+
+    rows = []
+    for item in items:
+        cat_name = item.category.name if item.category else '—'
+        img_url = _email_photo_url(item.photo_url) or ''
+        link = f"https://usecampusswap.com/item/{item.id}?utm_source=facebook&utm_medium=cpc&utm_campaign=catalog"
+        rows.append(
+            f'<tr>'
+            f'<td>{item.id}</td>'
+            f'<td>{html_module.escape(item.description or "")}</td>'
+            f'<td>${float(item.price):.2f}</td>'
+            f'<td>{html_module.escape(cat_name)}</td>'
+            f'<td><img src="{img_url}" style="max-height:60px;max-width:80px;"></td>'
+            f'<td><a href="{link}" target="_blank">View</a></td>'
+            f'</tr>'
+        )
+
+    table_html = '\n'.join(rows)
+    return f"""<!DOCTYPE html>
+<html>
+<head><title>Catalog Preview</title>
+<style>body{{font-family:sans-serif;padding:20px}}table{{border-collapse:collapse;width:100%}}
+th,td{{border:1px solid #ccc;padding:8px;text-align:left}}th{{background:#f0f0f0}}</style>
+</head>
+<body>
+<h2>Meta Catalog Preview (first 10 eligible items)</h2>
+<table>
+  <thead><tr><th>ID</th><th>Title</th><th>Price</th><th>Category</th><th>Image</th><th>Link</th></tr></thead>
+  <tbody>{table_html}</tbody>
+</table>
+<p><small>Total shown: {len(items)}. Filter: status=available, ai_approved=True, needs_new_photo=False, price&gt;0, photo_url set, storage_location_id set.</small></p>
+</body>
+</html>"""
+
 
 @app.route('/favicon.ico')
 @app.route('/favicon.png')

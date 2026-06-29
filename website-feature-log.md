@@ -771,8 +771,11 @@ Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env
 
 ### Google Analytics
 - GA4 tag (G-T696XM5XN9) on all pages via layout.html
-- Standard pageview + automatic event tracking only
-- No custom GA events configured
+- Standard pageview + automatic event tracking
+- **Custom conversion events (added 2026-06-28)** — fired conditionally in `layout.html` via `request.path` guards:
+  - `/item_success` → `gtag('event', 'purchase', {transaction_id, value, currency: 'USD', tax, items})` — uses `order.stripe_checkout_session_id`, `order.total_paid`, `order.sales_tax`, and `order.line_items`. Only fires for cart-order flow where `order` is available.
+  - `/checkout/delivery` → `gtag('event', 'begin_checkout')`
+  - `/cart` → `gtag('event', 'view_cart')`
 
 ### Referral Source Tracking
 - `?src=` query parameter on any URL → stored in session → saved to `user.referral_source` at account creation
@@ -1100,3 +1103,23 @@ Grouped by area for on-campus pickup dropdown:
 
 ### Become-a-Seller Out-of-Season Banner
 - When `pickup_period_active=false`: banner displays above CTA; CTA button shows "Signups Closed" (disabled). Authenticated users still see "Go to Dashboard". Interactive room and How It Works content remain visible.
+
+---
+
+## Meta Product Catalog Feed + GA4 Conversion Events (2026-06-28)
+
+### Meta Catalog Feed (`/catalog.xml`)
+- Public RSS 2.0 product feed for Meta Commerce Manager / Advantage+ dynamic ads.
+- No authentication — Meta's crawler cannot send auth headers.
+- Item eligibility: `status='available'`, `ai_approved=True`, `needs_new_photo=False`, `price>0`, `photo_url` set, `storage_location_id` set (same as shop visibility gate).
+- Fields: `g:id` (PK), `g:title`, `g:description` (falls back to title), `g:link` (with UTMs: `utm_source=facebook&utm_medium=cpc&utm_campaign=catalog`), `g:image_link` (absolute HTTPS via `_email_photo_url()`), `g:price` (format: `"45.00 USD"`), `g:availability=in stock`, `g:condition=used`, `g:brand=Campus Swap`, `g:google_product_category` (from `CATALOG_CATEGORY_MAP`), optional `g:additional_image_link` (first gallery photo).
+- Module-level cache: `_catalog_cache`, `CATALOG_CACHE_TTL=3600`. Rebuilt after 1 hour; no manual invalidation needed.
+- Admin preview: `GET /admin/catalog/preview` (super admin only) — inline HTML table of first 10 eligible items to verify feed before connecting to Meta.
+- **To configure in Meta:** Commerce Manager → Catalog → Add Items → Data Feed → URL: `https://usecampusswap.com/catalog.xml`, schedule: daily.
+
+### GA4 Conversion Events
+- Three conversion events added to `layout.html`, after `{% block head_extra %}`, guarded by `request.path`.
+- Tag ID: `G-T696XM5XN9` (existing pageview tag — no new script load).
+- `purchase` event on `/item_success` (cart-order flow only, when `order` and `order.total_paid` are set): `transaction_id`, `value`, `currency: 'USD'`, `tax`, `items` array (one per BuyerOrder line, using `item_price_paid`).
+- `begin_checkout` event on `/checkout/delivery`.
+- `view_cart` event on `/cart`.

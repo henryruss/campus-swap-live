@@ -473,6 +473,7 @@ Relationships: shift → Shift (backref delivery_run, uselist=False), started_by
 | `GET /share/item/<id>/card.png` | `share_card_image` | OG share card image |
 | `GET /sitemap.xml` | `sitemap` | |
 | `GET /robots.txt` | `robots_txt` | |
+| `GET /catalog.xml` | `meta_catalog_feed` | Public Meta/Facebook product catalog (RSS 2.0). No auth. Module-level `_catalog_cache` + `CATALOG_CACHE_TTL=3600`. Eligibility mirrors shop filter. |
 | `GET /uploads/<filename>` | `uploaded_file` | Serve uploaded files |
 | `GET /unsubscribe/<token>` | `unsubscribe` | Email unsubscribe |
 | `GET /parents` | `parents` | Parents landing page |
@@ -556,6 +557,7 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/ops` | `admin_ops` | Main ops view — shift panel, truck cards, unassigned panel. Default entry point. |
 | `GET /admin/ops/truck-detail` | `admin_ops_truck_detail` | HTML partial for truck detail drawer. Params: shift_id, truck. |
 | `GET /admin/ops/unit-picker-partial` | `admin_ops_unit_picker_partial` | HTML partial — card grid of active StorageLocations with capacity data for unit picker modal. `_has_ops_access()`. |
+| `GET /admin/catalog/preview` | `admin_catalog_preview` | Inline HTML table preview of first 10 catalog-eligible items. Super admin only. |
 | `GET /admin/items` | `admin_items` | Items tab — approval queue + lifecycle table. view=approve|all. |
 | `GET /admin/sellers` | `admin_sellers` | Sellers tab — list, nudge, free-tier. |
 | `GET /admin/crew` | `admin_crew_panel` | Crew tab — pending applications + approved workers. |

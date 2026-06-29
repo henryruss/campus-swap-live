@@ -171,6 +171,33 @@
     </script>
     {% endif %}
     {% block head_extra %}{% endblock %}
+    <!-- GA4 Conversion Events -->
+    {% if request.path == '/item_success' and order and order.total_paid %}
+    <script>
+      window.addEventListener('load', function() {
+        var gaItems = [{% for li in order.line_items %}{% if li.item %}{item_id:'{{ li.item.id }}',item_name:{{ li.item.description | tojson }},price:{{ li.item_price_paid | float if li.item_price_paid else (li.item.price | float) }},quantity:1}{% if not loop.last %},{% endif %}{% endif %}{% endfor %}];
+        gtag('event', 'purchase', {
+          transaction_id: {{ order.stripe_checkout_session_id | tojson }},
+          value: {{ order.total_paid | float }},
+          currency: 'USD',
+          tax: {{ order.sales_tax | float if order.sales_tax else 0 }},
+          items: gaItems
+        });
+      });
+    </script>
+    {% elif request.path == '/checkout/delivery' %}
+    <script>
+      window.addEventListener('load', function() {
+        gtag('event', 'begin_checkout');
+      });
+    </script>
+    {% elif request.path == '/cart' %}
+    <script>
+      window.addEventListener('load', function() {
+        gtag('event', 'view_cart');
+      });
+    </script>
+    {% endif %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
 

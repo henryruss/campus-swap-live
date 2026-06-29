@@ -7,6 +7,22 @@
 
 ---
 
+## Meta Catalog Feed + GA4 Events (2026-06-28)
+
+### Decision: `/catalog.xml` is intentionally public (no auth)
+**Reasoning:** Meta's Commerce Manager crawler has no mechanism to send authentication headers. The feed only exposes data that is already publicly visible on the shop (available, ai_approved items with photos and storage assigned). Making it public is not a security issue — it's required for the feed to function.
+
+### Decision: Module-level dict cache (`_catalog_cache`) instead of Redis or Flask-Caching
+**Reasoning:** The catalog feed is read-heavy and write-once-per-hour. A simple module-level dict is enough — it avoids adding a cache dependency, works correctly on a single-process Render web service, and resets automatically on redeploy (acceptable since items that just sold will re-appear for at most 1 hour in any case). If we ever move to multi-process/multi-worker, replace with a proper cache layer.
+
+### Decision: GA4 purchase event placed in `layout.html` (not in `item_success.html`)
+**Reasoning:** The spec calls for additive events alongside the existing GA4 pageview (which is in layout.html). Placing the purchase event in layout.html keeps all analytics logic in one file, avoids modifying the child template, and relies on Jinja template context sharing (variables passed to `render_template('item_success.html', order=order, ...)` are available when layout.html renders the block). Guarded by `{% if request.path == '/item_success' and order and order.total_paid %}` to prevent misfires on other pages or when order is missing (legacy single-item flow returns `order=None`).
+
+### Decision: GA4 items array uses `item_price_paid` from `BuyerOrder`, not `item.price`
+**Reasoning:** `item_price_paid` is the actual amount paid for the item in this order — it reflects any pricing at checkout time. `item.price` could differ if the item price was changed after purchase. GA4 purchase events should reflect actual transaction values, not current listing prices.
+
+---
+
 ## Checkout Hold, Delivery Window & Email Fixes (2026-06-22)
 
 ### Decision: Cart hold is checkout-based, not cart-membership-based
