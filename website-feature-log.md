@@ -769,6 +769,11 @@ Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env
 - `person_profiles: 'identified_only'`
 - No custom frontend events configured — relies on autocapture
 
+### Meta Pixel
+- Pixel ID `1010460188257865` installed on all pages via `layout.html` (in `<head>`, after GA4 tags)
+- Fires `PageView` on every page load
+- Includes `<noscript>` fallback pixel for no-JS environments
+
 ### Google Analytics
 - GA4 tag (G-T696XM5XN9) on all pages via layout.html
 - Standard pageview + automatic event tracking
