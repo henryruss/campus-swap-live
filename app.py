@@ -1593,7 +1593,7 @@ def sitemap():
     # Static pages with priorities
     static_pages = [
         {'url': '/', 'priority': '1.0', 'changefreq': 'weekly'},
-        {'url': '/inventory', 'priority': '0.9', 'changefreq': 'daily'},
+        {'url': '/shop', 'priority': '0.9', 'changefreq': 'daily'},
         {'url': '/become-a-seller', 'priority': '0.9', 'changefreq': 'weekly'},
         {'url': '/about', 'priority': '0.8', 'changefreq': 'monthly'},
         {'url': '/privacy-policy', 'priority': '0.5', 'changefreq': 'monthly'},
@@ -1695,6 +1695,10 @@ def unsubscribe(token):
     return render_template('unsubscribe_confirm.html', user_email=user.email)
 
 @app.route('/inventory')
+def inventory_redirect():
+    return redirect(url_for('inventory', **request.args), 301)
+
+@app.route('/shop')
 def inventory():
     """Display inventory with pagination, search, and optimized queries"""
     from sqlalchemy import case as sa_case

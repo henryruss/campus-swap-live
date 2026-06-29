@@ -68,7 +68,7 @@
       ],
       "potentialAction": {
         "@type": "SearchAction",
-        "target": "https://usecampusswap.com/inventory?search={search_term_string}",
+        "target": "https://usecampusswap.com/shop?search={search_term_string}",
         "query-input": "required name=search_term_string"
       }
     }
@@ -112,7 +112,7 @@
       "logo": "{{ url_for('static', filename='faviconNew.svg', _external=True) }}",
       "potentialAction": {
         "@type": "SearchAction",
-        "target": "https://usecampusswap.com/inventory?search={search_term_string}",
+        "target": "https://usecampusswap.com/shop?search={search_term_string}",
         "query-input": "required name=search_term_string"
       }
     }
@@ -140,7 +140,7 @@
           "@type": "ListItem",
           "position": 3,
           "name": "Shop The Drop",
-          "item": "https://usecampusswap.com/inventory"
+          "item": "https://usecampusswap.com/shop"
         },
         {
           "@type": "ListItem",
@@ -203,7 +203,7 @@
         
         <nav class="nav-links nav-desktop" role="navigation" aria-label="Main navigation">
             <a href="/become-a-seller" class="nav-item" aria-label="Become a Seller">Become a Seller</a>
-            <a href="/inventory" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
+            <a href="/shop" class="nav-item" aria-label="Shop The Drop - Browse inventory">Shop The Drop</a>
             <a href="/cart" class="nav-item" aria-label="Shopping Cart" style="position:relative; display:inline-flex; align-items:center;">
                 <i class="fas fa-shopping-cart" style="font-size:1.1rem;"></i>
                 {% if cart_count > 0 %}
@@ -266,7 +266,7 @@
         <a href="/about" class="mobile-menu-link"><i class="fas fa-info-circle"></i> About Us</a>
         <a href="/parents" class="mobile-menu-link"><i class="fas fa-heart"></i> Parents</a>
         <a href="/become-a-seller" class="mobile-menu-link"><i class="fas fa-store"></i> Become a Seller</a>
-        <a href="/inventory" class="mobile-menu-link"><i class="fas fa-shopping-bag"></i> Shop The Drop</a>
+        <a href="/shop" class="mobile-menu-link"><i class="fas fa-shopping-bag"></i> Shop The Drop</a>
         <a href="/cart" class="mobile-menu-link">
             <i class="fas fa-shopping-cart"></i> Cart{% if cart_count > 0 %} <span style="background:var(--primary);color:white;border-radius:10px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;">{{ cart_count }}</span>{% endif %}
         </a>
@@ -335,7 +335,7 @@
                 The sustainable way to move out and move in.
             </p>
             <div style="margin-bottom: 30px;">
-                <a href="/inventory">Shop</a>
+                <a href="/shop">Shop</a>
                 <a href="/become-a-seller">Become a Seller</a>
                 <a href="/about">About Us</a>
                 <a href="/become-a-seller#faq">FAQ</a>
@@ -592,13 +592,13 @@
             sessionStorage.setItem('selectedStore', storeName);
             
             // If on inventory page, reload with store parameter
-            if (window.location.pathname === '/inventory') {
+            if (window.location.pathname === '/shop') {
                 const url = new URL(window.location);
                 url.searchParams.set('store', storeName);
                 window.location.href = url.toString();
             } else {
-                // Otherwise redirect to inventory with store
-                window.location.href = '/inventory?store=' + encodeURIComponent(storeName);
+                // Otherwise redirect to shop with store
+                window.location.href = '/shop?store=' + encodeURIComponent(storeName);
             }
         };
         

@@ -41,7 +41,7 @@
   {%- if 'sort' in overrides and overrides['sort'] -%}
     {%- set _ = base.append('sort=' ~ overrides['sort']) -%}
   {%- endif -%}
-  /inventory{% if base %}?{{ base | join('&') }}{% endif %}
+  /shop{% if base %}?{{ base | join('&') }}{% endif %}
 {%- endmacro %}
 
 <div class="shop-wrap">
@@ -56,14 +56,14 @@
   <nav class="shop-cat-tabs" aria-label="Shop by category">
     {%- set all_parts = [] -%}
     {%- if current_store -%}{%- set _ = all_parts.append('store=' ~ current_store) -%}{%- endif -%}
-    <a href="/inventory{% if all_parts %}?{{ all_parts | join('&') }}{% endif %}"
+    <a href="/shop{% if all_parts %}?{{ all_parts | join('&') }}{% endif %}"
        class="shop-cat-tab{% if not active_cat %} active{% endif %}">All</a>
 
     {% for cat in commodities %}
     {%- set tab_parts = [] -%}
     {%- if current_store -%}{%- set _ = tab_parts.append('store=' ~ current_store) -%}{%- endif -%}
     {%- set _ = tab_parts.append('category_id=' ~ cat.id) -%}
-    <a href="/inventory?{{ tab_parts | join('&') }}"
+    <a href="/shop?{{ tab_parts | join('&') }}"
        class="shop-cat-tab{% if active_cat == cat.id %} active{% endif %}">{{ cat.name }}</a>
     {% endfor %}
   </nav>
@@ -180,7 +180,7 @@
         {%- set clear_parts = [] -%}
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}"
+        <a href="/shop{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}"
            class="filter-clear-link">Clear filters</a>
       </form>
     </aside>
@@ -202,7 +202,7 @@
         {%- for cond in condition_filters -%}{%- set _ = s_parts.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = s_parts.append('price=' ~ p) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = s_parts.append('sort=' ~ sort_val) -%}{%- endif -%}
-        <a href="/inventory{% if s_parts %}?{{ s_parts | join('&') }}{% endif %}" class="filter-chip">
+        <a href="/shop{% if s_parts %}?{{ s_parts | join('&') }}{% endif %}" class="filter-chip">
           "{{ search_query }}" &times;
         </a>
         {% endif %}
@@ -218,7 +218,7 @@
         {%- for c2 in condition_filters if c2 != cond -%}{%- set _ = cp.append('condition=' ~ c2) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = cp.append('price=' ~ p) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = cp.append('sort=' ~ sort_val) -%}{%- endif -%}
-        <a href="/inventory{% if cp %}?{{ cp | join('&') }}{% endif %}" class="filter-chip">
+        <a href="/shop{% if cp %}?{{ cp | join('&') }}{% endif %}" class="filter-chip">
           {{ cond_labels.get(cond, cond) }} &times;
         </a>
         {% endfor %}
@@ -234,7 +234,7 @@
         {%- for cond in condition_filters -%}{%- set _ = pp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p2 in price_filters if p2 != p -%}{%- set _ = pp.append('price=' ~ p2) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = pp.append('sort=' ~ sort_val) -%}{%- endif -%}
-        <a href="/inventory{% if pp %}?{{ pp | join('&') }}{% endif %}" class="filter-chip">
+        <a href="/shop{% if pp %}?{{ pp | join('&') }}{% endif %}" class="filter-chip">
           {{ price_labels.get(p, p) }} &times;
         </a>
         {% endfor %}
@@ -249,7 +249,7 @@
         {%- for cond in condition_filters -%}{%- set _ = subp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = subp.append('price=' ~ p) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = subp.append('sort=' ~ sort_val) -%}{%- endif -%}
-        <a href="/inventory{% if subp %}?{{ subp | join('&') }}{% endif %}" class="filter-chip">
+        <a href="/shop{% if subp %}?{{ subp | join('&') }}{% endif %}" class="filter-chip">
           {{ sub_obj.name if sub_obj else 'Subcategory' }} &times;
         </a>
         {% endif %}
@@ -260,7 +260,7 @@
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = clear_parts.append('sort=' ~ sort_val) -%}{%- endif -%}
-        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-chip filter-chip-clear">Clear all</a>
+        <a href="/shop{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-chip filter-chip-clear">Clear all</a>
         {% endif %}
       </div>
 
@@ -273,7 +273,7 @@
         {%- set clear_parts = [] -%}
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="btn btn-outline">Clear all filters</a>
+        <a href="/shop{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="btn btn-outline">Clear all filters</a>
       </div>
       {% else %}
       <div class="shop-grid" id="shop-grid">
@@ -378,7 +378,7 @@
       {%- set clear_parts = [] -%}
       {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
       {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
-      <a href="/inventory{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-sheet-clear-link">Clear all filters</a>
+      <a href="/shop{% if clear_parts %}?{{ clear_parts | join('&') }}{% endif %}" class="filter-sheet-clear-link">Clear all filters</a>
     </div>
   </form>
 </div>
@@ -397,7 +397,7 @@
     var params = new URLSearchParams(window.location.search);
     params.set('page', page);
     params.set('ajax', '1');
-    return '/inventory?' + params.toString();
+    return '/shop?' + params.toString();
   }
 
   function loadMore() {
@@ -463,7 +463,7 @@
     /* Sync sort from toolbar select */
     var sortSelect = document.getElementById('shop-sort-select');
     if (sortSelect) data.set('sort', sortSelect.value);
-    return '/inventory?' + new URLSearchParams(data).toString();
+    return '/shop?' + new URLSearchParams(data).toString();
   }
 
   /* ── Desktop sidebar: fetch on filter change (≥900px) ── */
@@ -481,7 +481,7 @@
       var params = new URLSearchParams(window.location.search);
       params.set('sort', sortSelect.value);
       params.delete('page');
-      applyFilters('/inventory?' + params.toString());
+      applyFilters('/shop?' + params.toString());
     });
   }
 

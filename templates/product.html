@@ -110,7 +110,7 @@
     </div>
     
     <div style="margin-bottom: 20px;">
-        <a href="/inventory?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}{% if request.args.get('category_id') %}&category_id={{ request.args.get('category_id') }}{% endif %}{% if request.args.get('page') %}&page={{ request.args.get('page') }}{% endif %}" style="color: var(--text-muted); font-weight: 600;">
+        <a href="/shop?store={{ current_store }}{% if request.args.get('search') %}&search={{ request.args.get('search')|urlencode }}{% endif %}{% if request.args.get('category_id') %}&category_id={{ request.args.get('category_id') }}{% endif %}{% if request.args.get('page') %}&page={{ request.args.get('page') }}{% endif %}" style="color: var(--text-muted); font-weight: 600;">
             <i class="fas fa-arrow-left"></i> Back to {% if request.args.get('search') %}Search Results{% else %}Shop{% endif %}
         </a>
     </div>

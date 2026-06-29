@@ -36,7 +36,7 @@
 ### Header (Desktop)
 - Logo (SVG, links to `/`)
 - "About Us" link
-- Store selector dropdown (currently only "UNC Chapel Hill") — stores selection in `sessionStorage`, redirects to `/inventory?store=` on change
+- Store selector dropdown (currently only "UNC Chapel Hill") — stores selection in `sessionStorage`, redirects to `/shop?store=` on change
 - "Become a Seller" link
 - "Shop The Drop" link
 - **Logged in:** Dashboard link, user icon dropdown (single "Admin" link to `/admin/ops` if admin, Dashboard if not, Account Settings, Logout)
@@ -89,14 +89,14 @@
 
 ---
 
-### Shop Front (`/inventory`)
+### Shop Front (`/shop`)
 
 **Pre-launch Teaser Mode (`shop_teaser_mode = 'true'` AppSetting):**
 - Full-viewport blurred mosaic of real approved item photos (up to 16 real + placeholder tiles to fill 12 minimum)
 - Dark overlay + centered card: "Shop Drop — Opens June 1st"
 - Email capture form → `POST /shop/notify` → `ShopNotifySignup` table
 - `noindex` meta tag injected; no category/search UI shown
-- `/item/<id>` redirects to `/inventory` with flash "Items go on sale June 1st — sign up to be notified."
+- `/item/<id>` redirects to `/shop` with flash "Items go on sale June 1st — sign up to be notified."
 - Toggle in admin panel header bar; CSV export of signups at `/admin/export/notify-signups`
 
 **Live Mode (`shop_teaser_mode = 'false'` or absent):**
@@ -128,7 +128,7 @@
 - Condition label + quality rating (Like New / Good / Fair) — mapped from integer: 5=Like New, 4=Good, 3=Fair
 - Delivery method: "Weekly Delivery · Free"
 - Share button with card preview + copy link (generates OG share card image via `/share/item/<id>/card.png`)
-- **In teaser mode:** redirects to `/inventory` with flash (no item pages accessible)
+- **In teaser mode:** redirects to `/shop` with flash (no item pages accessible)
 
 **Action buttons (conditional):**
 | Condition | Button Shown |
@@ -993,7 +993,7 @@ Grouped by area for on-campus pickup dropdown:
 ### Structured Data (JSON-LD)
 1. **Organization** — name, URL, logo, search action
 2. **LocalBusiness** — store address (dynamic from `get_store_info()`), area served
-3. **WebSite** — search action target: `/inventory?search={query}`
+3. **WebSite** — search action target: `/shop?search={query}`
 4. **BreadcrumbList** — Home → Become a Seller → Shop The Drop → About Us
 
 ### Technical SEO
@@ -1087,7 +1087,7 @@ Grouped by area for on-campus pickup dropdown:
   - `seller_only` — pickups on, shop not live: Sell door primary + muted "shop opens soon" ghost door
   - `off_season` — both off: evergreen copy block on solid brand band
 - Hero photo mosaic (CSS grid, `loading="lazy"`, `object-fit: cover`) with frosted-glass panels (`backdrop-filter: blur(14px)`) and `@supports` solid fallback. Scrim layer ensures readability.
-- Category chips row links to `/inventory?category_id=N` (matches real `inventory()` route param).
+- Category chips row links to `/shop?category_id=N` (matches real `inventory()` route param).
 - Curated grid reuses `_item_card.html` partial; `HOMEPAGE_FEATURED_LIMIT=8` items.
 - Eligible pool: `status='available'`, `ai_approved=True`, `ai_photo_enhanced=True`, `needs_new_photo=False`, `needs_photo_verification=False`.
 - Pinned items (`is_featured=True`) guaranteed front slots; rest filled by blend score (retail_price + savings, normalized, round-robin by category).
