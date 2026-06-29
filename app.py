@@ -155,7 +155,7 @@ WAREHOUSE_DEFAULT_LAT = '35.9030324'
 WAREHOUSE_DEFAULT_LNG = '-79.0709049'
 
 # --- Meta Product Catalog Feed ---
-_catalog_cache = {"xml": None, "built_at": None}
+_catalog_cache = {"xml": None, "built_at": None}  # invalidated on redeploy
 CATALOG_CACHE_TTL = 3600  # 1 hour
 
 CATALOG_CATEGORY_MAP = {
@@ -1718,13 +1718,15 @@ def meta_catalog_feed():
 
         title = html_module.escape(item.description or '')
         desc = html_module.escape(item.long_description or item.description or '')
-        link = f"https://usecampusswap.com/item/{item.id}?utm_source=facebook&utm_medium=cpc&utm_campaign=catalog"
+        # & between UTM params must be &amp; in XML
+        link = html_module.escape(f"https://usecampusswap.com/item/{item.id}?utm_source=facebook&utm_medium=cpc&utm_campaign=catalog")
         price_str = f"{float(item.price):.2f} USD"
+        google_cat = html_module.escape(google_cat)
 
         raw_img_url = _email_photo_url(item.photo_url)
         if raw_img_url and not raw_img_url.startswith('http'):
             raw_img_url = 'https://usecampusswap.com' + raw_img_url
-        image_url = raw_img_url or ''
+        image_url = html_module.escape(raw_img_url or '')
 
         lines.append('    <item>')
         lines.append(f'      <g:id>{item.id}</g:id>')
@@ -1744,7 +1746,7 @@ def meta_catalog_feed():
             if raw_gallery_url and not raw_gallery_url.startswith('http'):
                 raw_gallery_url = 'https://usecampusswap.com' + raw_gallery_url
             if raw_gallery_url:
-                lines.append(f'      <g:additional_image_link>{raw_gallery_url}</g:additional_image_link>')
+                lines.append(f'      <g:additional_image_link>{html_module.escape(raw_gallery_url)}</g:additional_image_link>')
 
         lines.append('    </item>')
 
