@@ -229,7 +229,8 @@
                             <button id="add-to-cart-btn"
                                     class="btn btn-outline"
                                     style="flex: 1; padding: 14px; font-size: 1rem; justify-content: center;"
-                                    data-item-id="{{ item.id }}">
+                                    data-item-id="{{ item.id }}"
+                                    data-item-price="{{ item.price | float }}">
                                 <i class="fas fa-cart-plus"></i> Add to Cart
                             </button>
                             <form method="POST" action="{{ url_for('cart_add', item_id=item.id) }}" style="flex: 1;">
@@ -274,6 +275,12 @@
                                                 // Reveal the badge on the first add (0 -> 1); it's display:none when the cart starts empty
                                                 badge.style.display = 'flex';
                                             }
+                                            fbq('track', 'AddToCart', {
+                                                content_ids: [btn.dataset.itemId],
+                                                content_type: 'product',
+                                                value: parseFloat(btn.dataset.itemPrice),
+                                                currency: 'USD'
+                                            });
                                         }
                                     })
                                     .catch(function() {
@@ -447,4 +454,13 @@
     {% endif %}
 </script>
 
+<script>
+fbq('track', 'ViewContent', {
+  content_ids: ['{{ item.id }}'],
+  content_type: 'product',
+  content_name: '{{ item.description | e }}',
+  value: {{ item.price | float }},
+  currency: 'USD'
+});
+</script>
 {% endblock %}

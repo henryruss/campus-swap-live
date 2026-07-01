@@ -46,4 +46,14 @@
         <a href="/shop" class="btn btn-primary">Back to Shop</a>
     </div>
 </div>
+{% if order %}
+<script>
+fbq('track', 'Purchase', {
+  value: {{ order.total_paid | float }},
+  currency: 'USD',
+  content_type: 'product',
+  content_ids: [{% for line in order.line_items %}'{{ line.item_id }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+});
+</script>
+{% endif %}
 {% endblock %}

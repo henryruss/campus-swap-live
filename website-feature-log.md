@@ -773,6 +773,10 @@ Sellers receive automated texts at four moments (requires Twilio A2P 10DLC + env
 - Pixel ID `1010460188257865` installed on all pages via `layout.html` (in `<head>`, after GA4 tags)
 - Fires `PageView` on every page load
 - Includes `<noscript>` fallback pixel for no-JS environments
+- **Standard ecommerce events (added 2026-06-30):**
+  - `ViewContent` — fires on every product detail page (`product.html`, bottom of `{% block content %}`). Passes `content_ids: [item.id]`, `content_name`, `value: item.price`, `currency: 'USD'`.
+  - `AddToCart` — fires in the Add to Cart JS handler in `product.html` after a successful `/cart/add/<id>` POST. Item ID and price passed via `data-item-id` / `data-item-price` attributes on the button; read with `btn.dataset.itemId` / `btn.dataset.itemPrice`. Does NOT fire for the Buy Now form submit.
+  - `Purchase` — fires on `/item_success` (`item_success.html`, bottom of `{% block content %}`). Wrapped in `{% if order %}` guard. Passes `value: order.total_paid`, `currency: 'USD'`, `content_ids` from `order.line_items` (each `line.item_id`).
 
 ### Google Analytics
 - GA4 tag (G-T696XM5XN9) on all pages via layout.html
