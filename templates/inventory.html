@@ -383,6 +383,38 @@
   </form>
 </div>
 
+<button id="shop-back-to-top"
+        aria-label="Back to top"
+        style="position:fixed; bottom:28px; right:24px; z-index:500;
+               width:44px; height:44px; border-radius:50%; border:none; cursor:pointer;
+               background:var(--primary); color:white; font-size:1.1rem;
+               display:flex; align-items:center; justify-content:center;
+               box-shadow:0 4px 12px rgba(0,0,0,0.18);
+               opacity:0; pointer-events:none;
+               transition:opacity 0.2s;">
+  <i class="fas fa-arrow-up"></i>
+</button>
+
+{# ── Product detail modal ── #}
+<div id="product-modal"
+     role="dialog" aria-modal="true" aria-label="Product detail"
+     style="display:none; position:fixed; inset:0; z-index:1500;
+            background:white; overflow-y:auto; overscroll-behavior:contain;">
+  <div style="position:sticky; top:0; z-index:1; background:white;
+              border-bottom:1px solid #f1f5f9;
+              display:flex; justify-content:flex-start; padding:10px 16px;">
+    <button id="product-modal-close"
+            aria-label="Back to Shop"
+            style="display:flex; align-items:center; gap:8px;
+                   padding:8px 16px; border-radius:8px;
+                   border:1px solid #e2e8f0; background:white; cursor:pointer;
+                   font-size:0.95rem; font-weight:600; color:var(--text-muted);">
+      <i class="fas fa-arrow-left"></i> Back to Shop
+    </button>
+  </div>
+  <div id="product-modal-body"></div>
+</div>
+
 <script>
 (function() {
 
@@ -523,6 +555,88 @@
     btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
     body.style.display = expanded ? 'none' : '';
   });
+
+  /* ── Product detail modal ── */
+  var productModal     = document.getElementById('product-modal');
+  var productModalBody = document.getElementById('product-modal-body');
+  var productModalClose = document.getElementById('product-modal-close');
+
+  function openProductModal(href) {
+    if (!productModal) return;
+    productModalBody.innerHTML =
+      '<div style="padding:100px 0;text-align:center;color:var(--text-muted);">' +
+      '<i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    productModal.style.display = 'block';
+    productModal.scrollTop = 0;
+    document.body.style.overflow = 'hidden';
+
+    fetch(href)
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var doc  = new DOMParser().parseFromString(html, 'text/html');
+        var main = doc.querySelector('main');
+        if (!main) { productModalBody.innerHTML = '<div style="padding:40px;text-align:center;">Could not load item. <a href="' + href + '">Open page instead</a></div>'; return; }
+        productModalBody.innerHTML = main.innerHTML;
+
+        // Hide the "Back to Shop" navigation row — user closes with X
+        var backRow = productModalBody.querySelector('div > a[href^="/shop"]');
+        if (backRow && backRow.parentElement) backRow.parentElement.style.display = 'none';
+        // Hide the store indicator (redundant when already on shop page)
+        var storeIndicator = productModalBody.querySelector('.shop-store-indicator');
+        if (storeIndicator) storeIndicator.style.display = 'none';
+
+        // Re-run inline scripts (gallery, add-to-cart handler, fbq events)
+        productModalBody.querySelectorAll('script').forEach(function(s) {
+          var ns = document.createElement('script');
+          ns.textContent = s.textContent;
+          document.body.appendChild(ns);
+          document.body.removeChild(ns);
+        });
+      })
+      .catch(function() {
+        productModalBody.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">Could not load item. <a href="' + href + '">Open page instead</a></div>';
+      });
+  }
+
+  function closeProductModal() {
+    if (!productModal || productModal.style.display === 'none') return;
+    productModal.style.display = 'none';
+    productModalBody.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  // Intercept item card clicks — open modal instead of navigating
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.item-card-link');
+    if (!link) return;
+    e.preventDefault();
+    openProductModal(link.getAttribute('href'));
+  });
+
+  if (productModalClose) productModalClose.addEventListener('click', closeProductModal);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeProductModal();
+  });
+
+  // Browser back closes modal instead of leaving the page
+  window.addEventListener('popstate', function() { closeProductModal(); });
+
+  /* ── Back to top button ── */
+  var backToTopBtn = document.getElementById('shop-back-to-top');
+  function syncBackToTop() {
+    if (!backToTopBtn) return;
+    var visible = window.scrollY > 400;
+    backToTopBtn.style.opacity = visible ? '1' : '0';
+    backToTopBtn.style.pointerEvents = visible ? 'auto' : 'none';
+  }
+  window.addEventListener('scroll', syncBackToTop, { passive: true });
+  syncBackToTop();
+  if (backToTopBtn) {
+    backToTopBtn.addEventListener('click', function() {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
 
   /* Mobile sheet "Show results" — fetch + close sheet */
   var mobileForm = document.getElementById('filter-form-mobile');

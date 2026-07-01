@@ -1740,8 +1740,8 @@ def meta_catalog_feed():
         lines.append('      <g:brand>Campus Swap</g:brand>')
         lines.append(f'      <g:google_product_category>{google_cat}</g:google_product_category>')
 
-        if item.gallery_photos:
-            first_gallery = item.gallery_photos[0]
+        if item.visible_gallery_photos:
+            first_gallery = item.visible_gallery_photos[0]
             raw_gallery_url = _email_photo_url(first_gallery.photo_url)
             if raw_gallery_url and not raw_gallery_url.startswith('http'):
                 raw_gallery_url = 'https://usecampusswap.com' + raw_gallery_url
@@ -2001,7 +2001,7 @@ def inventory():
                                      active_cat=cat_id)
         return jsonify({'html': cards_html, 'has_next': pagination.has_next, 'page': page})
 
-    return render_template('inventory.html',
+    response = make_response(render_template('inventory.html',
                          commodities=commodities,
                          items=items,
                          pagination=pagination,
@@ -2014,7 +2014,11 @@ def inventory():
                          condition_filters=condition_filters,
                          price_filters=price_filters,
                          sort_val=sort_val,
-                         total_count=total_count)
+                         total_count=total_count))
+    # Prevent the browser back/forward cache from restoring a stale snapshot
+    # after an item is edited (e.g. via Shop Edit Mode) and the shopper navigates back here.
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
@@ -2031,7 +2035,28 @@ def product_detail(item_id):
     store_name = request.args.get('store', get_current_store())
     store_info = get_store_info(store_name)
     is_shareable = _is_item_shareable(item)
-    return render_template('product.html', item=item, current_store=store_name, store_info=store_info, is_shareable=is_shareable)
+    edit_mode_context = {}
+    if current_user.is_authenticated and is_super_admin():
+        gallery_state = []
+        if item.photo_url:
+            gallery_state.append({
+                'id': None, 'url': item.photo_url,
+                'display_url': url_for('uploaded_file', filename=item.photo_url),
+                'is_cover': True,
+            })
+        for p in item.visible_gallery_photos:
+            if p.photo_url != item.photo_url:
+                gallery_state.append({
+                    'id': p.id, 'url': p.photo_url,
+                    'display_url': url_for('uploaded_file', filename=p.photo_url),
+                    'is_cover': False,
+                })
+        edit_mode_context = {
+            'all_categories': InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all(),
+            'edit_gallery_photos': gallery_state,
+        }
+    return render_template('product.html', item=item, current_store=store_name, store_info=store_info,
+                            is_shareable=is_shareable, **edit_mode_context)
 
 # --- SHARE CARD IMAGE GENERATION ---
 def _is_item_shareable(item):
@@ -17130,6 +17155,175 @@ def admin_ai_delete_gallery_photo(item_id):
         logger.error(f"Error deleting photo file {photo_url}: {e}", exc_info=True)
     db.session.commit()
     return jsonify({'success': True})
+
+
+# =============================================================
+# SHOP EDIT MODE — super admin inline editing from /item/<id>
+# =============================================================
+
+@app.route('/admin/item/<int:item_id>/quick-edit', methods=['POST'])
+@login_required
+def admin_item_quick_edit(item_id):
+    """Save all Shop Edit Mode panel fields (visibility, pricing, content, category) atomically."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+
+    # --- Visibility / photo flag ---
+    needs_new_photo = request.form.get('needs_new_photo') == '1'
+    if needs_new_photo and not item.needs_new_photo:
+        item.needs_new_photo = True
+        item.ai_approved = False
+    elif not needs_new_photo:
+        item.needs_new_photo = False
+
+    if item.status != 'sold' and not item.needs_new_photo:
+        visible = request.form.get('visible') == '1'
+        item.ai_approved = visible
+
+    # --- Pricing ---
+    price_raw = request.form.get('price', '').strip()
+    try:
+        price = Decimal(price_raw)
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid price'}), 400
+    if price < Decimal('1'):
+        return jsonify({'success': False, 'error': 'Price must be at least $1'}), 400
+
+    retail_price_raw = request.form.get('retail_price', '').strip()
+    retail_price = None
+    if retail_price_raw:
+        try:
+            retail_price = Decimal(retail_price_raw)
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid retail price'}), 400
+        if retail_price > 0:
+            min_retail = price / Decimal('0.60')  # ensures >=40% savings
+            if retail_price < min_retail:
+                retail_price = min_retail.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    item.price = float(price)
+    item.retail_price = retail_price
+
+    # --- Content ---
+    description = request.form.get('description', '').strip()[:200]
+    long_description = request.form.get('long_description', '').strip()[:2000]
+    if not description:
+        return jsonify({'success': False, 'error': 'Title must not be blank'}), 400
+    item.description = description
+    item.long_description = long_description
+
+    # --- Category ---
+    category_id = request.form.get('category_id', type=int)
+    if category_id:
+        item.category_id = category_id
+        subcategory_id = request.form.get('subcategory_id', type=int)
+        item.subcategory_id = subcategory_id if subcategory_id else None
+
+    db.session.commit()
+
+    savings_pct = None
+    if item.retail_price and item.price and item.retail_price > item.price:
+        savings_pct = round((1 - float(item.price) / float(item.retail_price)) * 100)
+
+    return jsonify({
+        'success': True,
+        'updated_fields': ['visibility', 'price', 'retail_price', 'description', 'long_description', 'category'],
+        'new_price': item.price,
+        'new_retail_price': float(item.retail_price) if item.retail_price else None,
+        'new_description': item.description,
+        'new_long_description': item.long_description,
+        'savings_pct': savings_pct,
+        'ai_approved': item.ai_approved,
+        'needs_new_photo': item.needs_new_photo,
+    })
+
+
+@app.route('/admin/item/<int:item_id>/hide-photo', methods=['POST'])
+@login_required
+def admin_item_hide_photo(item_id):
+    """Hide a gallery photo from the shop (soft-delete via is_hidden). Promotes next photo to cover if needed."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    photo_id = request.form.get('photo_id', type=int)
+    photo = ItemPhoto.query.filter_by(id=photo_id, item_id=item.id).first() if photo_id else None
+    # The cover photo (item.photo_url) doesn't always have its own ItemPhoto row —
+    # allow removing it directly via is_cover=1 when no gallery row backs it.
+    is_cover_only = (not photo) and request.form.get('is_cover') == '1'
+    if not photo and not is_cover_only:
+        return jsonify({'success': False, 'error': 'Photo not found on this item'}), 400
+
+    is_cover = is_cover_only or (photo is not None and photo.photo_url == item.photo_url)
+    if is_cover:
+        replacement = next((p for p in item.visible_gallery_photos if not photo or p.id != photo.id), None)
+        if replacement is None:
+            return jsonify({'success': False, 'error': 'Cannot remove the only photo'}), 400
+        # Promoting replacement to cover — it naturally drops out of the gallery listing
+        # (template/JS filter on photo_url != item.photo_url), so it must stay visible, not hidden.
+        item.photo_url = replacement.photo_url
+
+    if photo:
+        photo.is_hidden = True
+    db.session.commit()
+    return jsonify({'success': True, 'new_cover_url': url_for('uploaded_file', filename=item.photo_url)})
+
+
+@app.route('/admin/item/<int:item_id>/add-gallery-photo', methods=['POST'])
+@login_required
+def admin_item_add_gallery_photo(item_id):
+    """Attach a new gallery photo to the item — from a direct device upload or a
+    QR-uploaded TempUpload filename. Saves immediately; not staged behind the panel Save button."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+
+    photo_file = request.files.get('photo')
+    temp_filename = request.form.get('temp_filename', '').strip()
+    filename = f"item_{item.id}_{int(time.time())}_{secrets.token_hex(4)}.jpg"
+
+    try:
+        if photo_file and photo_file.filename:
+            is_valid, error_msg = validate_file_upload(photo_file)
+            if not is_valid:
+                return jsonify({'success': False, 'error': error_msg}), 400
+            img = Image.open(photo_file)
+        elif temp_filename:
+            photo_bytes = photo_storage.get_photo_bytes(temp_filename)
+            if not photo_bytes:
+                return jsonify({'success': False, 'error': 'Upload not found or expired'}), 400
+            img = Image.open(BytesIO(photo_bytes))
+        else:
+            return jsonify({'success': False, 'error': 'No photo provided'}), 400
+
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        if bg.width > 2000 or bg.height > 2000:
+            if bg.width > bg.height:
+                bg = bg.resize((2000, int(bg.height * 2000 / bg.width)), Image.Resampling.LANCZOS)
+            else:
+                bg = bg.resize((int(bg.width * 2000 / bg.height), 2000), Image.Resampling.LANCZOS)
+        buf = BytesIO()
+        bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
+    except Exception as e:
+        logger.error(f"Error saving new gallery photo for item {item_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Error processing image'}), 500
+
+    new_photo = ItemPhoto(item_id=item.id, photo_url=filename)
+    db.session.add(new_photo)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'photo_id': new_photo.id,
+        'photo_url': filename,
+        'url': url_for('uploaded_file', filename=filename),
+    })
 
 
 # =============================================================

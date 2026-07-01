@@ -259,10 +259,16 @@ class InventoryItem(db.Model):
     # HOMEPAGE PIN — admin-pinned items are guaranteed a homepage slot
     is_featured = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
+    @property
+    def visible_gallery_photos(self):
+        """Gallery photos not hidden via the Shop Edit Mode panel — use for buyer-facing rendering."""
+        return [p for p in self.gallery_photos if not p.is_hidden]
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     photo_url = db.Column(db.String(200), nullable=False)
+    is_hidden = db.Column(db.Boolean, default=False, server_default='0', nullable=False)
 
 
 class ItemReservation(db.Model):

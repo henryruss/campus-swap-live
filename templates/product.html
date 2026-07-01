@@ -123,22 +123,22 @@
                 <video id="mainVideo" controls playsinline style="display:none;width:100%;height:100%;object-fit:contain;"></video>
             </div>
 
-            <div class="thumbnail-grid">
+            <div class="thumbnail-grid" id="thumbnail-grid">
                 {% if item.photo_url %}
-                <div class="thumbnail active" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=item.photo_url) }}')">
+                <div class="thumbnail active" data-photo-url="{{ item.photo_url }}" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=item.photo_url) }}')">
                     <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}">
                 </div>
                 {% endif %}
-                
-                {% for photo in item.gallery_photos %}
+
+                {% for photo in item.visible_gallery_photos %}
                 {% if photo.photo_url != item.photo_url %}
-                <div class="thumbnail" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=photo.photo_url) }}')">
+                <div class="thumbnail" data-photo-url="{{ photo.photo_url }}" onclick="switchPhoto(this, '{{ url_for('uploaded_file', filename=photo.photo_url) }}')">
                     <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}">
                 </div>
                 {% endif %}
                 {% endfor %}
                 {% if item.video_url %}
-                <div class="thumbnail" onclick="playVideo(this, '{{ url_for('uploaded_file', filename=item.video_url) }}')" style="position:relative;">
+                <div class="thumbnail" id="video-thumbnail" onclick="playVideo(this, '{{ url_for('uploaded_file', filename=item.video_url) }}')" style="position:relative;">
                     <video src="{{ url_for('uploaded_file', filename=item.video_url) }}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video>
                     <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);border-radius:8px;">
                         <i class="fas fa-play" style="color:white;font-size:1.2rem;"></i>
@@ -175,18 +175,21 @@
                     {% endif %}
                 </div>
 
-                <h1 style="font-size: 2.5rem; margin-bottom: 10px;">{{ item.description }}</h1>
+                <h1 id="pdp-title" style="font-size: 2.5rem; margin-bottom: 10px;">{{ item.description }}</h1>
                 <div style="margin-bottom: 20px;">
-                  <div style="font-size: 2rem; font-weight: 800; color: var(--primary);">
+                  <div id="pdp-price" style="font-size: 2rem; font-weight: 800; color: var(--primary);">
                     {% if item.price %}${{ "%.2f"|format(item.price) }}{% else %}Price not set{% endif %}
                   </div>
-                  {% if item.retail_price and item.price and item.retail_price > item.price %}
-                  {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
-                  <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;">
-                    <span style="font-size:0.95rem;color:var(--text-muted);text-decoration:line-through;">Retail ~${{ "%.0f"|format(item.retail_price) }}</span>
-                    <span style="background:#d1fae5;color:#065f46;font-size:0.82rem;font-weight:800;padding:3px 10px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+                  <div id="pdp-savings-row" style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;{% if not (item.retail_price and item.price and item.retail_price > item.price) %}display:none;{% endif %}">
+                    {% if item.retail_price and item.price and item.retail_price > item.price %}
+                    {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+                    <span id="pdp-retail" style="font-size:0.95rem;color:var(--text-muted);text-decoration:line-through;">Retail ~${{ "%.0f"|format(item.retail_price) }}</span>
+                    <span id="pdp-savings-pct" style="background:#d1fae5;color:#065f46;font-size:0.82rem;font-weight:800;padding:3px 10px;border-radius:999px;">{{ savings_pct }}% off retail</span>
+                    {% else %}
+                    <span id="pdp-retail" style="font-size:0.95rem;color:var(--text-muted);text-decoration:line-through;"></span>
+                    <span id="pdp-savings-pct" style="background:#d1fae5;color:#065f46;font-size:0.82rem;font-weight:800;padding:3px 10px;border-radius:999px;"></span>
+                    {% endif %}
                   </div>
-                  {% endif %}
                 </div>
 
                 <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-bottom: 20px;">
@@ -195,7 +198,7 @@
                 <p style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">{{ item.quality|quality_label }}</p>
 
                 <h4 style="margin-bottom: 10px;">Description</h4>
-                <p style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.7;">
+                <p id="pdp-long-description" style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.7;">
                     {{ item.long_description or "No detailed description provided." }}
                 </p>
 
@@ -463,4 +466,691 @@ fbq('track', 'ViewContent', {
   currency: 'USD'
 });
 </script>
+
+{% if current_user.is_authenticated and current_user.is_super_admin %}
+<style>
+  #shop-edit-fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1200;
+    background: var(--primary);
+    color: var(--text-light);
+    border: none;
+    border-radius: 999px;
+    padding: 14px 22px;
+    font-weight: 700;
+    font-size: 0.92rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #shop-edit-fab:hover { background: var(--primary-light); }
+
+  #shop-edit-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 1300;
+  }
+  #shop-edit-overlay.open { display: block; }
+
+  #shop-edit-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 420px;
+    max-width: 92vw;
+    background: var(--bg-cream);
+    box-shadow: -8px 0 30px rgba(0,0,0,0.2);
+    z-index: 1301;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+  }
+  #shop-edit-panel.open { transform: translateX(0); }
+
+  .se-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card-bg);
+  }
+  .se-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 20px;
+  }
+  .se-section {
+    background: var(--card-bg);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .se-section h4 {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .se-section label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-main);
+    display: block;
+    margin-bottom: 5px;
+  }
+  .se-input, .se-textarea, .se-select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1.5px solid var(--rule);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.88rem;
+    font-family: inherit;
+    outline: none;
+    background: white;
+  }
+  .se-readonly {
+    background: #f3f2ee;
+    color: var(--text-muted);
+    border: 1px dashed var(--rule);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    min-height: 38px;
+    white-space: pre-wrap;
+  }
+  .se-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .se-col-header { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+  .se-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--rule);
+    background: var(--card-bg);
+  }
+  #se-save-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--primary);
+    color: var(--text-light);
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  #se-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  #se-saved-banner {
+    display: none;
+    background: #d1fae5;
+    color: #065f46;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  #se-error-banner {
+    display: none;
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .se-note {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    margin-top: 5px;
+  }
+  .se-warn {
+    font-size: 0.76rem;
+    color: #b45309;
+    margin-top: 5px;
+  }
+  #se-gallery-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .se-gallery-thumb {
+    position: relative;
+    flex: 0 0 auto;
+    width: 84px;
+    height: 84px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--rule);
+  }
+  .se-gallery-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .se-cover-badge {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.62rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+  .se-thumb-actions {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-around;
+    background: rgba(0,0,0,0.55);
+    padding: 2px 0;
+  }
+  .se-thumb-actions button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 0.78rem;
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+  .se-add-photo-btn {
+    flex: 0 0 auto;
+    width: 84px;
+    height: 84px;
+    border-radius: 8px;
+    border: 2px dashed var(--rule);
+    background: white;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+  }
+  #se-add-photos-subpanel {
+    display: none;
+    margin-top: 12px;
+    border-top: 1px solid var(--rule);
+    padding-top: 12px;
+  }
+  #se-add-photos-subpanel button {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    border: 1.5px solid var(--rule);
+    background: white;
+    color: var(--text-main);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #se-qr-display { text-align: center; margin-top: 10px; }
+  #se-qr-display img { width: 160px; height: 160px; }
+</style>
+
+<button id="shop-edit-fab" type="button" onclick="seToggleEditMode()">
+  <i class="fas fa-pen"></i> <span id="se-fab-label">Edit Mode</span>
+</button>
+
+<div id="se-saved-toast" style="display:none;position:fixed;bottom:80px;right:24px;z-index:1200;background:#d1fae5;color:#065f46;font-size:0.85rem;font-weight:700;padding:10px 16px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.2);"></div>
+
+<div id="shop-edit-overlay" onclick="seCloseEditMode()"></div>
+
+<div id="shop-edit-panel"
+     data-item-id="{{ item.id }}"
+     data-status="{{ item.status }}"
+     data-needs-new-photo="{{ item.needs_new_photo|int }}">
+  <div class="se-header">
+    <strong>Shop Edit Mode</strong>
+    <button type="button" onclick="seCloseEditMode()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+  </div>
+  <div class="se-body">
+    <div id="se-saved-banner">Saved ✓</div>
+    <div id="se-error-banner"></div>
+
+    {# --- Section 1: Visibility --- #}
+    <div class="se-section">
+      <h4>Visibility</h4>
+      {% if item.status == 'sold' %}
+        <div class="se-note">Item is sold — cannot change shop visibility.</div>
+      {% else %}
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="se-visibility-toggle" {% if item.ai_approved %}checked{% endif %}
+                 {% if item.needs_new_photo %}disabled{% endif %}
+                 onchange="seMarkDirty()"
+                 style="width:16px;height:16px;">
+          <span id="se-visibility-label">{{ 'Live in shop' if item.ai_approved else 'Hidden from shop' }}</span>
+        </label>
+        {% if item.needs_new_photo %}
+        <div class="se-note">Hidden pending new photo — clear flag first.</div>
+        {% endif %}
+      {% endif %}
+      <div style="margin-top:12px;border-top:1px solid var(--rule);padding-top:12px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="se-needs-photo" {% if item.needs_new_photo %}checked{% endif %}
+                 onchange="seOnNeedsPhotoChange()"
+                 style="width:16px;height:16px;">
+          <span>Flag for new photo</span>
+        </label>
+      </div>
+    </div>
+
+    {# --- Section 2: Pricing --- #}
+    <div class="se-section">
+      <h4>Pricing</h4>
+      <label for="se-price">Price ($)</label>
+      <input type="number" id="se-price" class="se-input" min="1" step="0.01"
+             value="{{ '%.2f'|format(item.price) if item.price else '' }}"
+             oninput="seMarkDirty(); seUpdateSavingsPreview();" style="margin-bottom:10px;">
+      <label for="se-retail-price">Retail price (optional)</label>
+      <input type="number" id="se-retail-price" class="se-input" min="0" step="0.01"
+             value="{{ '%.2f'|format(item.retail_price) if item.retail_price else '' }}"
+             oninput="seMarkDirty(); seUpdateSavingsPreview();">
+      <div id="se-savings-preview" class="se-note"></div>
+      <div id="se-savings-warning" class="se-warn" style="display:none;">Retail price will be auto-adjusted to maintain ≥40% savings callout on save.</div>
+    </div>
+
+    {# --- Section 3: Content --- #}
+    <div class="se-section">
+      <h4>Content</h4>
+      <div class="se-cols" style="margin-bottom:10px;">
+        <div class="se-col-header">AI Generated</div>
+        <div class="se-col-header">Live</div>
+      </div>
+      <div class="se-cols" style="margin-bottom:12px;">
+        <div class="se-readonly">{{ item.ai_description or 'No AI version available' }}</div>
+        <input type="text" id="se-description" class="se-input" maxlength="200"
+               value="{{ item.description }}" oninput="seMarkDirty()">
+      </div>
+      <div class="se-cols" style="margin-bottom:12px;">
+        <div class="se-readonly">{{ item.ai_long_description or 'No AI version available' }}</div>
+        <textarea id="se-long-description" class="se-textarea" rows="4" maxlength="2000"
+                  oninput="seMarkDirty()">{{ item.long_description or '' }}</textarea>
+      </div>
+      <div class="se-cols">
+        <div class="se-readonly">{{ item.category.name if item.category else '—' }}</div>
+        <div>
+          <select id="se-category-select" class="se-select" onchange="seMarkDirty(); seOnCategoryChange(this.value, null);" style="margin-bottom:6px;">
+            {% for cat in all_categories %}
+            <option value="{{ cat.id }}" {% if item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+          </select>
+          <select id="se-subcategory-select" class="se-select" onchange="seMarkDirty()">
+            <option value="">None</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    {# --- Section 4: Photos --- #}
+    <div class="se-section">
+      <h4>Photos</h4>
+      <div id="se-gallery-strip">
+        {% if item.photo_url %}
+        <div class="se-gallery-thumb" data-cover="1" data-photo-url="{{ item.photo_url }}">
+          <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}">
+          <span class="se-cover-badge">★ Cover</span>
+          <div class="se-thumb-actions">
+            <button type="button" onclick="seRemovePhoto(this)" title="Remove"><i class="fas fa-times"></i></button>
+          </div>
+        </div>
+        {% endif %}
+        {% for photo in item.visible_gallery_photos %}
+        {% if photo.photo_url != item.photo_url %}
+        <div class="se-gallery-thumb" data-photo-id="{{ photo.id }}" data-photo-url="{{ photo.photo_url }}">
+          <img src="{{ url_for('uploaded_file', filename=photo.photo_url) }}">
+          <div class="se-thumb-actions">
+            <button type="button" onclick="seSetCoverPhoto(this)" title="Set as Cover"><i class="fas fa-star"></i></button>
+            <button type="button" onclick="seRemovePhoto(this)" title="Remove"><i class="fas fa-times"></i></button>
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+        <button type="button" class="se-add-photo-btn" onclick="seToggleAddPhotos()"><i class="fas fa-plus"></i></button>
+      </div>
+      <div id="se-add-photos-subpanel">
+        <button type="button" onclick="document.getElementById('se-file-input').click()">Upload from this device</button>
+        <input type="file" id="se-file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none;" onchange="seUploadFromDevice(this.files)">
+        <button type="button" id="se-qr-btn" onclick="seStartQrUpload()">Upload from phone</button>
+        <div id="se-qr-display"></div>
+      </div>
+    </div>
+  </div>
+  <div class="se-footer">
+    <button type="button" id="se-save-btn" onclick="seSave()">Save Changes</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  var _seCsrf = '{{ csrf_token() }}';
+  var _seItemId = {{ item.id }};
+  var _seDirty = false;
+  var _seQrPollTimer = null;
+  var _seQrToken = null;
+  var _seSubcategoryId = {{ item.subcategory_id or 'null' }};
+  var _seCategoryId = {{ item.category_id or 'null' }};
+  var sePhotos = {{ edit_gallery_photos|tojson }};
+
+  window.seMarkDirty = function() { _seDirty = true; };
+
+  window.seToggleEditMode = function() {
+    var panel = document.getElementById('shop-edit-panel');
+    var overlay = document.getElementById('shop-edit-overlay');
+    var label = document.getElementById('se-fab-label');
+    if (panel.classList.contains('open')) {
+      seCloseEditMode();
+    } else {
+      panel.classList.add('open');
+      overlay.classList.add('open');
+      label.textContent = 'Close Edit Mode';
+      if (_seCategoryId) seOnCategoryChange(_seCategoryId, _seSubcategoryId);
+    }
+  };
+
+  function seClosePanelUI() {
+    var panel = document.getElementById('shop-edit-panel');
+    var overlay = document.getElementById('shop-edit-overlay');
+    var label = document.getElementById('se-fab-label');
+    panel.classList.remove('open');
+    overlay.classList.remove('open');
+    label.textContent = 'Edit Mode';
+    _seDirty = false;
+  }
+
+  window.seCloseEditMode = function() {
+    if (_seDirty) {
+      if (!confirm('You have unsaved changes. Close anyway?')) return;
+    }
+    seClosePanelUI();
+  };
+
+  window.seOnNeedsPhotoChange = function() {
+    seMarkDirty();
+    var checked = document.getElementById('se-needs-photo').checked;
+    var visToggle = document.getElementById('se-visibility-toggle');
+    if (visToggle) visToggle.disabled = checked;
+  };
+
+  window.seUpdateSavingsPreview = function() {
+    var price = parseFloat(document.getElementById('se-price').value);
+    var retail = parseFloat(document.getElementById('se-retail-price').value);
+    var preview = document.getElementById('se-savings-preview');
+    var warn = document.getElementById('se-savings-warning');
+    if (!price || !retail || retail <= price) {
+      preview.textContent = '';
+      warn.style.display = 'none';
+      return;
+    }
+    var pct = Math.round((1 - price / retail) * 100);
+    preview.textContent = '~$' + retail.toFixed(0) + ' retail · ' + pct + '% off';
+    warn.style.display = pct < 40 ? 'block' : 'none';
+  };
+  seUpdateSavingsPreview();
+
+  window.seOnCategoryChange = function(categoryId, preselectSubcategoryId) {
+    fetch('/api/subcategories/' + categoryId)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var sel = document.getElementById('se-subcategory-select');
+        sel.innerHTML = '<option value="">None</option>';
+        data.subcategories.forEach(function(sc) {
+          var opt = document.createElement('option');
+          opt.value = sc.id;
+          opt.textContent = sc.name;
+          if (preselectSubcategoryId && String(preselectSubcategoryId) === String(sc.id)) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      });
+  };
+
+  window.seToggleAddPhotos = function() {
+    var sub = document.getElementById('se-add-photos-subpanel');
+    var isMobile = /Mobi|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      document.getElementById('se-file-input').click();
+      return;
+    }
+    sub.style.display = sub.style.display === 'block' ? 'none' : 'block';
+  };
+
+  function seFindPhotoIndexByUrl(url) {
+    for (var i = 0; i < sePhotos.length; i++) if (sePhotos[i].url === url) return i;
+    return -1;
+  }
+
+  function seRenderGalleries() {
+    // Panel gallery strip
+    var strip = document.getElementById('se-gallery-strip');
+    var addBtn = strip.querySelector('.se-add-photo-btn');
+    strip.querySelectorAll('.se-gallery-thumb').forEach(function(el) { el.remove(); });
+    sePhotos.forEach(function(p) {
+      var div = document.createElement('div');
+      div.className = 'se-gallery-thumb';
+      if (p.is_cover) div.setAttribute('data-cover', '1');
+      if (p.id !== null && p.id !== undefined) div.setAttribute('data-photo-id', p.id);
+      div.setAttribute('data-photo-url', p.url);
+      var badge = p.is_cover ? '<span class="se-cover-badge">★ Cover</span>' : '';
+      var actions = '<div class="se-thumb-actions">' +
+        (p.is_cover ? '' : '<button type="button" onclick="seSetCoverPhoto(this)" title="Set as Cover"><i class="fas fa-star"></i></button>') +
+        '<button type="button" onclick="seRemovePhoto(this)" title="Remove"><i class="fas fa-times"></i></button>' +
+        '</div>';
+      div.innerHTML = '<img src="' + p.display_url + '">' + badge + actions;
+      strip.insertBefore(div, addBtn);
+    });
+
+    // Buyer-facing gallery on the product page itself
+    var grid = document.getElementById('thumbnail-grid');
+    if (grid) {
+      grid.querySelectorAll('.thumbnail[data-photo-url]').forEach(function(el) { el.remove(); });
+      var videoThumb = document.getElementById('video-thumbnail');
+      sePhotos.forEach(function(p) {
+        var div = document.createElement('div');
+        div.className = 'thumbnail' + (p.is_cover ? ' active' : '');
+        div.setAttribute('data-photo-url', p.url);
+        div.addEventListener('click', function() { switchPhoto(div, p.display_url); });
+        var img = document.createElement('img');
+        img.src = p.display_url;
+        div.appendChild(img);
+        if (videoThumb) grid.insertBefore(div, videoThumb);
+        else grid.appendChild(div);
+      });
+      var mainImg = document.getElementById('mainImage');
+      var cover = sePhotos.filter(function(p) { return p.is_cover; })[0];
+      if (mainImg && cover) mainImg.src = cover.display_url;
+    }
+  }
+
+  window.seUploadFromDevice = function(files) {
+    Array.prototype.forEach.call(files, function(file) {
+      var fd = new FormData();
+      fd.append('photo', file);
+      fd.append('csrf_token', _seCsrf);
+      fetch('/admin/item/' + _seItemId + '/add-gallery-photo', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.success) {
+            sePhotos.push({ id: data.photo_id, url: data.photo_url, display_url: data.url, is_cover: false });
+            seRenderGalleries();
+          }
+        });
+    });
+  };
+
+  window.seStartQrUpload = function() {
+    var fd = new FormData();
+    fd.append('csrf_token', _seCsrf);
+    fetch('/api/upload_session/create', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _seQrToken = data.session_token;
+        var qrDiv = document.getElementById('se-qr-display');
+        qrDiv.innerHTML = '<img src="data:image/png;base64,' + data.qr_code_base64 + '"><div class="se-note">Scan to upload from your phone</div>';
+        if (_seQrPollTimer) clearInterval(_seQrPollTimer);
+        var seenFilenames = {};
+        _seQrPollTimer = setInterval(function() {
+          fetch('/api/upload_session/status?token=' + encodeURIComponent(_seQrToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              (data.images || []).forEach(function(img) {
+                if (seenFilenames[img.filename]) return;
+                seenFilenames[img.filename] = true;
+                var fd2 = new FormData();
+                fd2.append('temp_filename', img.filename);
+                fd2.append('csrf_token', _seCsrf);
+                fetch('/admin/item/' + _seItemId + '/add-gallery-photo', { method: 'POST', body: fd2 })
+                  .then(function(r) { return r.json(); })
+                  .then(function(res) {
+                    if (res.success) {
+                      sePhotos.push({ id: res.photo_id, url: res.photo_url, display_url: res.url, is_cover: false });
+                      seRenderGalleries();
+                    }
+                  });
+              });
+            });
+        }, 2000);
+      });
+  };
+
+  window.seSetCoverPhoto = function(btn) {
+    var thumb = btn.closest('.se-gallery-thumb');
+    var url = thumb.getAttribute('data-photo-url');
+    var fd = new FormData();
+    fd.append('photo_url', url);
+    fd.append('csrf_token', _seCsrf);
+    btn.disabled = true;
+    fetch('/admin/ai/item/' + _seItemId + '/set-cover-photo', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          sePhotos.forEach(function(p) { p.is_cover = (p.url === url); });
+          seRenderGalleries();
+        } else {
+          btn.disabled = false;
+        }
+      })
+      .catch(function() { btn.disabled = false; });
+  };
+
+  window.seRemovePhoto = function(btn) {
+    var thumb = btn.closest('.se-gallery-thumb');
+    var photoId = thumb.getAttribute('data-photo-id');
+    var photoUrl = thumb.getAttribute('data-photo-url');
+    var isCover = thumb.getAttribute('data-cover') === '1';
+    var fd = new FormData();
+    if (photoId) fd.append('photo_id', photoId);
+    if (isCover) fd.append('is_cover', '1');
+    fd.append('csrf_token', _seCsrf);
+    fetch('/admin/item/' + _seItemId + '/hide-photo', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.success) {
+          alert(data.error || 'Could not remove photo');
+          return;
+        }
+        var idx = seFindPhotoIndexByUrl(photoUrl);
+        if (idx !== -1) sePhotos.splice(idx, 1);
+        if (isCover) {
+          var newCoverFilename = data.new_cover_url.split('/').pop();
+          sePhotos.forEach(function(p) { p.is_cover = (p.url === newCoverFilename); });
+        }
+        seRenderGalleries();
+      });
+  };
+
+  seRenderGalleries();
+
+  window.seSave = function() {
+    var errorBanner = document.getElementById('se-error-banner');
+    var savedBanner = document.getElementById('se-saved-banner');
+    errorBanner.style.display = 'none';
+    savedBanner.style.display = 'none';
+
+    var panel = document.getElementById('shop-edit-panel');
+    var status = panel.getAttribute('data-status');
+    var needsNewPhoto = document.getElementById('se-needs-photo').checked;
+    var visToggle = document.getElementById('se-visibility-toggle');
+    var visible = visToggle ? (visToggle.checked ? '1' : '0') : (status === 'sold' ? '0' : '1');
+
+    var fd = new FormData();
+    fd.append('csrf_token', _seCsrf);
+    fd.append('needs_new_photo', needsNewPhoto ? '1' : '0');
+    fd.append('visible', visible);
+    fd.append('price', document.getElementById('se-price').value);
+    fd.append('retail_price', document.getElementById('se-retail-price').value);
+    fd.append('description', document.getElementById('se-description').value);
+    fd.append('long_description', document.getElementById('se-long-description').value);
+    var catId = document.getElementById('se-category-select').value;
+    var subId = document.getElementById('se-subcategory-select').value;
+    fd.append('category_id', catId);
+    fd.append('subcategory_id', subId);
+
+    var saveBtn = document.getElementById('se-save-btn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    fetch('/admin/item/' + _seItemId + '/quick-edit', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+        if (!data.success) {
+          errorBanner.textContent = data.error || 'Could not save changes.';
+          errorBanner.style.display = 'block';
+          return;
+        }
+        _seDirty = false;
+        var toast = document.getElementById('se-saved-toast');
+        toast.textContent = (!data.ai_approved || data.needs_new_photo) ? 'Item hidden from shop' : 'Saved ✓';
+        toast.style.display = 'block';
+        clearTimeout(window._seToastTimer);
+        window._seToastTimer = setTimeout(function() { toast.style.display = 'none'; }, 2500);
+
+        document.getElementById('pdp-title').textContent = data.new_description;
+        document.getElementById('pdp-price').textContent = '$' + parseFloat(data.new_price).toFixed(2);
+        document.getElementById('pdp-long-description').textContent = data.new_long_description || 'No detailed description provided.';
+
+        var retailEl = document.getElementById('pdp-retail');
+        var pctEl = document.getElementById('pdp-savings-pct');
+        var row = document.getElementById('pdp-savings-row');
+        if (data.new_retail_price && data.savings_pct !== null) {
+          retailEl.textContent = 'Retail ~$' + Math.round(data.new_retail_price);
+          pctEl.textContent = data.savings_pct + '% off retail';
+          row.style.display = 'flex';
+        } else {
+          row.style.display = 'none';
+        }
+
+        if (document.getElementById('se-retail-price').value && data.new_retail_price) {
+          document.getElementById('se-retail-price').value = parseFloat(data.new_retail_price).toFixed(2);
+          seUpdateSavingsPreview();
+        }
+        if (document.getElementById('se-visibility-toggle')) {
+          document.getElementById('se-visibility-toggle').checked = data.ai_approved;
+          document.getElementById('se-visibility-label').textContent = data.ai_approved ? 'Live in shop' : 'Hidden from shop';
+        }
+
+        seClosePanelUI();
+      })
+      .catch(function() {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+        errorBanner.textContent = 'Network error — please try again.';
+        errorBanner.style.display = 'block';
+      });
+  };
+})();
+</script>
+{% endif %}
 {% endblock %}
