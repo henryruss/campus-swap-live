@@ -265,8 +265,18 @@ function whlSave() {
     if (ph) fd.append('new_phone', ph);
   }
 
-  fetch('/admin/warehouse/log-item', { method:'POST', body:fd })
-    .then(function(r){ return r.json(); })
+  var whlHeaders = {};
+  if (csrf) whlHeaders['X-CSRFToken'] = csrf.value;
+
+  fetch('/admin/warehouse/log-item', { method:'POST', body:fd, headers:whlHeaders })
+    .then(function(r) {
+      if (!r.ok) {
+        return r.text().then(function(text) {
+          throw new Error('HTTP ' + r.status + ': ' + text.substring(0, 150));
+        });
+      }
+      return r.json();
+    })
     .then(function(data) {
       if (data.success) {
         closeLogModal();

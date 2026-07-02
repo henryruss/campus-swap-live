@@ -15080,6 +15080,185 @@ def admin_warehouse_routes():
     return render_template('admin/warehouse_routes_partial.html', shift_rows=shift_rows)
 
 
+@app.route('/admin/warehouse/seller-search')
+@login_required
+def admin_warehouse_seller_search():
+    if not _has_warehouse_access():
+        abort(403)
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    sellers = (
+        User.query
+        .filter(
+            User.is_tutorial_user == False,
+            db.or_(
+                User.full_name.ilike(f'%{q}%'),
+                User.email.ilike(f'%{q}%'),
+            ),
+        )
+        .order_by(User.full_name)
+        .limit(15)
+        .all()
+    )
+    results = []
+    for s in sellers:
+        item_count = InventoryItem.query.filter(
+            InventoryItem.seller_id == s.id,
+            InventoryItem.status.notin_(['rejected']),
+        ).count()
+        results.append({
+            'id': s.id,
+            'name': s.full_name,
+            'email': s.email,
+            'item_count': item_count,
+            'payout_rate': s.payout_rate,
+        })
+    return jsonify(results)
+
+
+@app.route('/admin/warehouse/log-item', methods=['POST'])
+@login_required
+def admin_warehouse_log_item():
+    if not _has_warehouse_access():
+        return jsonify({'error': 'Access denied.'}), 403
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return jsonify({'error': 'No photo provided.'}), 400
+    is_valid, error_msg = validate_file_upload(photo)
+    if not is_valid:
+        return jsonify({'error': error_msg}), 400
+
+    category_id = request.form.get('category_id', type=int)
+    if not category_id:
+        return jsonify({'error': 'Category required.'}), 400
+    category = InventoryCategory.query.get(category_id)
+    if not category:
+        return jsonify({'error': 'Invalid category.'}), 400
+
+    loc_id = request.form.get('storage_location_id', '').strip()
+    zone = request.form.get('storage_row', '').strip()
+    storage_location_id = None
+    if loc_id:
+        loc = StorageLocation.query.get(int(loc_id)) if loc_id.isdigit() else None
+        if not loc:
+            return jsonify({'error': 'Invalid storage unit.'}), 400
+        storage_location_id = loc.id
+    ok, err = _validate_storage_zone(zone)
+    if not ok:
+        return jsonify({'error': err}), 400
+
+    seller_mode = request.form.get('seller_mode', 'internal')
+    if seller_mode == 'existing':
+        seller_id = request.form.get('existing_seller_id', type=int)
+        seller = User.query.get(seller_id) if seller_id else None
+        if not seller:
+            return jsonify({'error': 'Invalid seller.'}), 400
+    elif seller_mode == 'new':
+        full_name = (request.form.get('new_name') or '').strip()
+        email_raw = (request.form.get('new_email') or '').strip()
+        phone_raw = (request.form.get('new_phone') or '').strip()
+        if not full_name:
+            return jsonify({'error': 'Name required.'}), 400
+        if not email_raw and not phone_raw:
+            return jsonify({'error': 'At least one of email or phone required.'}), 400
+
+        phone_result = None
+        if phone_raw:
+            phone_valid, phone_result = validate_phone(phone_raw)
+            if not phone_valid:
+                return jsonify({'error': phone_result}), 400
+
+        if email_raw:
+            if not validate_email(email_raw):
+                return jsonify({'error': 'Invalid email address.'}), 400
+            if User.query.filter_by(email=email_raw).first():
+                return jsonify({'error': 'An account with that email already exists.'}), 409
+            email = email_raw
+        else:
+            digits = ''.join(c for c in phone_result if c.isdigit())
+            email = f'proxy+{digits}@usecampusswap.com'
+            if User.query.filter_by(email=email).first():
+                import secrets as _sec
+                email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
+
+        temp_pw = _gen_proxy_temp_password()
+        seller = User(
+            email=email,
+            full_name=full_name,
+            phone=phone_result,
+            password_hash=generate_password_hash(temp_pw),
+            is_seller=True,
+            payout_rate=50,
+            is_proxy_account=True,
+            proxy_temp_password=temp_pw,
+            proxy_note='Word-of-mouth seller — created via warehouse Log Item',
+            referral_code=_gen_referral_code(),
+        )
+        db.session.add(seller)
+        db.session.flush()
+    else:
+        seller = User.query.filter_by(is_internal_account=True).first()
+        if not seller:
+            return jsonify({'error': 'No internal Campus Swap account configured.'}), 500
+
+    filename = f"whl_{int(time.time())}_{uuid.uuid4().hex[:8]}.jpg"
+    try:
+        from io import BytesIO as _BytesIO
+        img = Image.open(photo)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        max_dimension = 2000
+        if bg.width > max_dimension or bg.height > max_dimension:
+            if bg.width > bg.height:
+                new_width = max_dimension
+                new_height = int(bg.height * (max_dimension / bg.width))
+            else:
+                new_height = max_dimension
+                new_width = int(bg.width * (max_dimension / bg.height))
+            bg = bg.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        buf = _BytesIO()
+        bg.save(buf, "JPEG", quality=IMAGE_QUALITY, optimize=True)
+        photo_storage.save_photo_from_bytes(buf.getvalue(), filename)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Warehouse log-item image processing error: {e}", exc_info=True)
+        return jsonify({'error': 'Error processing image.'}), 500
+
+    now = _now_eastern()
+    item = InventoryItem(
+        description='',
+        price=0,
+        status='pending_valuation',
+        category_id=category.id,
+        seller_id=seller.id,
+        photo_url=filename,
+        picked_up_at=now,
+        is_quick_capture=True,
+        captured_by_id=current_user.id,
+        collection_method='free',
+        date_added=now,
+        quality=1,
+        storage_location_id=storage_location_id,
+        storage_row=zone or None,
+    )
+    item.seller_description = item.description
+    item.seller_long_description = item.long_description
+    db.session.add(item)
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Warehouse log-item commit error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to save item. Please try again.'}), 500
+
+    _ai_queue.put((current_app._get_current_object(), item.id))
+    return jsonify({'success': True, 'item_id': item.id, 'unit_id': storage_location_id})
+
+
 # ── end Warehouse Floor ────────────────────────────────────────────────────────
 
 @app.route('/admin/storage/audit')
