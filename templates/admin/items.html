@@ -961,6 +961,23 @@
 <div id="seller-panel-drawer" style="position:fixed;top:0;right:-480px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:1100;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
   <div id="seller-panel-content" style="padding:20px;"></div>
 </div>
+<script>
+(function() {
+  var drawer = document.getElementById('seller-panel-drawer');
+  var overlay = document.getElementById('seller-panel-overlay');
+  if (!drawer) return;
+  var weOpenedIt = false;
+  drawer._markIntentionalOpen = function () { weOpenedIt = true; };
+  var obs = new MutationObserver(function () {
+    if (drawer.style.right !== '-480px' && !weOpenedIt) {
+      drawer.style.right = '-480px';
+      if (overlay) overlay.style.display = 'none';
+    }
+    weOpenedIt = false;
+  });
+  obs.observe(drawer, { attributes: true, attributeFilter: ['style'] });
+})();
+</script>
 
 {# Item detail slide-in panel #}
 <div id="item-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeItemDetail()"></div>
@@ -968,6 +985,32 @@
   <button onclick="closeItemDetail()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.5rem;color:var(--text-muted);cursor:pointer;z-index:10;line-height:1;padding:4px 8px;border-radius:8px;">&times;</button>
   <div id="item-detail-content" style="min-height:100%;"></div>
 </div>
+<script>
+(function() {
+  // Attached immediately (not deferred to the bottom script block) so no
+  // window exists for a spurious open — from any source, at any point during
+  // page load — to go undetected before this observer is live. See
+  // loadItemDetail()/loadSellerPanel() below, which call _markIntentionalOpen()
+  // right before a legitimate open so this doesn't revert real user actions.
+  function guardSlideInPanel(drawerId, overlayId, closedRight) {
+    var drawer = document.getElementById(drawerId);
+    var overlay = document.getElementById(overlayId);
+    if (!drawer) return;
+    var weOpenedIt = false;
+    drawer._markIntentionalOpen = function () { weOpenedIt = true; };
+    var obs = new MutationObserver(function () {
+      if (drawer.style.right !== closedRight && !weOpenedIt) {
+        drawer.style.right = closedRight;
+        if (overlay) overlay.style.display = 'none';
+        document.body.style.overflow = '';
+      }
+      weOpenedIt = false;
+    });
+    obs.observe(drawer, { attributes: true, attributeFilter: ['style'] });
+  }
+  guardSlideInPanel('item-detail-drawer', 'item-detail-overlay', '-500px');
+})();
+</script>
 
 {# AI Autofill modal #}
 {% if current_user.is_super_admin %}
@@ -1171,13 +1214,21 @@
 
   // ── Item Detail Slide-in Panel ──
   var _itemDetailCsrf = '{{ csrf_token() }}';
+  // Guards against a spurious drawer-open on fresh page load (see the
+  // MutationObserver set up right after each drawer's markup, above) — a
+  // timing threshold as a second layer in case a legitimate-looking call
+  // happens to fire in that same early window.
+  var _pageLoadTs = Date.now();
+  function _isGhostClick() { return (Date.now() - _pageLoadTs) < 800; }
 
   function loadItemDetail(itemId) {
+    if (_isGhostClick()) return;
     var overlay = document.getElementById('item-detail-overlay');
     var drawer = document.getElementById('item-detail-drawer');
     var content = document.getElementById('item-detail-content');
     content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
     overlay.style.display = 'block';
+    if (drawer._markIntentionalOpen) drawer._markIntentionalOpen();
     drawer.style.right = '0';
     document.body.style.overflow = 'hidden';
     fetch('/admin/item/' + itemId + '/detail')
@@ -1539,11 +1590,13 @@
   });
 
   function loadSellerPanel(userId) {
+    if (_isGhostClick()) return;
     var overlay = document.getElementById('seller-panel-overlay');
     var drawer = document.getElementById('seller-panel-drawer');
     var content = document.getElementById('seller-panel-content');
     content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
     overlay.style.display = 'block';
+    if (drawer._markIntentionalOpen) drawer._markIntentionalOpen();
     drawer.style.right = '0';
     fetch('/admin/seller/' + userId + '/panel')
       .then(function(r) { return r.text(); })
