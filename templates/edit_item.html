@@ -59,6 +59,24 @@
                 <input type="hidden" name="subcategory_id" id="edit-subcategory-id" value="{{ item.subcategory_id or '' }}">
             </div>
 
+            {% if current_user.is_admin %}
+            <div style="margin-top: 15px;">
+                <label>Seller <span style="font-weight:400; color:var(--text-muted); font-size:0.82rem;">(admin only — reassigning moves this item to that seller&rsquo;s profile; no notification is sent)</span></label>
+                <div id="es-current" style="font-size:0.9rem; color:var(--text-main); background:var(--bg-cream); border:1.5px solid var(--rule); border-radius:9px; padding:10px 12px; margin-bottom:8px;">
+                    Currently: <strong>{{ (item.seller.full_name or item.seller.email) if item.seller else 'No seller' }}</strong>
+                    {% if item.seller and item.seller.is_internal_account %}<span style="color:var(--text-muted);"> (Campus Swap internal)</span>{% endif %}
+                </div>
+                <div id="es-chip" style="display:none; align-items:center; gap:8px; font-size:0.9rem; color:var(--primary); background:#f0f9f0; border:1.5px solid var(--primary); border-radius:9px; padding:10px 12px; margin-bottom:8px;">
+                    <i class="fas fa-arrow-right"></i>
+                    <span style="flex:1;">Will be reassigned to <strong id="es-chip-name"></strong> on save</span>
+                    <button type="button" id="es-clear" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1rem; padding:2px 6px; line-height:1;">&#10005;</button>
+                </div>
+                <input type="text" id="es-search" placeholder="Search sellers by name or email to reassign&hellip;" autocomplete="off">
+                <div id="es-results" style="display:none; background:white; border:1.5px solid var(--rule); border-radius:9px; max-height:200px; overflow-y:auto; margin-top:4px;"></div>
+                <input type="hidden" name="new_seller_id" id="es-new-id" value="">
+            </div>
+            {% endif %}
+
             <div style="margin-top: 15px;">
                 <label>Condition</label>
                 <select name="quality" required>
@@ -309,6 +327,61 @@
         if (initialCat) {
             loadSubcategories(initialCat, currentSubId);
         }
+    })();
+
+    // Admin-only seller reassignment (elements only rendered for admins)
+    (function() {
+        var search = document.getElementById('es-search');
+        if (!search) return;
+        var results = document.getElementById('es-results');
+        var hidden = document.getElementById('es-new-id');
+        var chip = document.getElementById('es-chip');
+        var chipName = document.getElementById('es-chip-name');
+        var timer = null;
+
+        search.addEventListener('input', function() {
+            clearTimeout(timer);
+            var q = this.value;
+            if (q.trim().length < 2) { results.style.display = 'none'; return; }
+            timer = setTimeout(function() {
+                fetch('/admin/warehouse/seller-search?q=' + encodeURIComponent(q.trim()))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        results.innerHTML = '';
+                        if (!data.length) {
+                            results.innerHTML = '<div style="padding:10px 12px; font-size:0.85rem; color:var(--text-muted);">No sellers found</div>';
+                        } else {
+                            data.forEach(function(s) {
+                                var row = document.createElement('div');
+                                row.style.cssText = 'padding:9px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid var(--bg-cream);';
+                                var strong = document.createElement('strong');
+                                strong.textContent = s.name || s.email;
+                                var meta = document.createElement('span');
+                                meta.style.cssText = 'color:var(--text-muted); font-size:0.78rem; margin-left:6px;';
+                                meta.textContent = s.email + ' · ' + s.item_count + ' items · ' + s.payout_rate + '%';
+                                row.appendChild(strong); row.appendChild(meta);
+                                row.addEventListener('mouseenter', function(){ row.style.background = 'var(--bg-cream)'; });
+                                row.addEventListener('mouseleave', function(){ row.style.background = ''; });
+                                row.addEventListener('click', function() {
+                                    hidden.value = s.id;
+                                    chipName.textContent = (s.name || s.email);
+                                    chip.style.display = 'flex';
+                                    results.style.display = 'none';
+                                    search.value = '';
+                                });
+                                results.appendChild(row);
+                            });
+                        }
+                        results.style.display = 'block';
+                    })
+                    .catch(function(){ results.style.display = 'none'; });
+            }, 300);
+        });
+
+        document.getElementById('es-clear').addEventListener('click', function() {
+            hidden.value = '';
+            chip.style.display = 'none';
+        });
     })();
 </script>
 {% endblock %}

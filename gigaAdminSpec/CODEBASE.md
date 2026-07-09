@@ -512,7 +512,7 @@ Relationships: shift → Shift (backref delivery_run, uselist=False), started_by
 | Route | Function | Notes |
 |---|---|---|
 | `GET/POST /add_item` | `add_item` | Upload item (photo + details) |
-| `GET/POST /edit_item/<id>` | `edit_item` | Edit existing item |
+| `GET/POST /edit_item/<id>` | `edit_item` | Edit existing item (owner or admin). Admin extras: seller reassignment via `new_seller_id` (admin-only form section, live search via seller-search endpoint; no notification sent) and post-save redirect to `/admin/items` (not admin_panel). |
 | `GET /delete_photo/<id>` | `delete_photo` | Delete gallery photo (plain link from edit_item.html). Promotes another photo to cover if the cover was deleted. Always redirects back to `edit_item` — the old admin branch that bounced to `admin_panel`/ops was removed 2026-07-09. |
 | `POST /item/<id>/resubmit` | `resubmit_item` | Seller resubmits item after addressing "needs info" feedback |
 | `GET/POST /confirm_pickup` | `confirm_pickup` | **Deprecated** — now redirects to `/dashboard`. Pickup week set via dashboard modal. |
@@ -683,6 +683,7 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/ai/generate` | `admin_ai_generate_page` | Manual AI-autofill control page (counts, model selector, run button, run history). Renders `admin/ai_generate.html`. Standalone page (not linked in nav); the automatic `_ai_queue` worker is the primary path. The companion `/admin/ai/generate/run\|status\|cancel` JSON endpoints are also triggered from the items.html approval modal. |
 | `GET /admin/ai/review` | `admin_ai_review_queue` | AI review queue — card grid of items with ai_review_pending=True. Renders `admin/ai_review.html`. The same review/approve/discard actions are also embedded in the items.html approval modal via the `/admin/ai/item/<id>/*` partials. |
 | `POST /admin/ai/item/<id>/set-cover-photo` | `admin_ai_set_cover_photo` | Swap a gallery photo (ItemPhoto) to become the cover: sets item.photo_url to the gallery photo's URL, moves old cover into an ItemPhoto record. Returns JSON {success, cover_url}. Super admin only. |
+| `GET/POST /admin/item/<id>/delete` | `admin_delete_item_direct` | Standalone item delete (also the items-tab drawer's Delete). POST with `modal=1` returns JSON `{success}` for fetch callers; otherwise flash+redirect. Deletes item + gallery photo rows. **Sends no seller notification** (by design — same for `admin_quick_capture_delete` / `crew_quick_capture_delete`). Admin only. |
 | `POST /admin/item/<id>/delete-gallery-photo` | `admin_ai_delete_gallery_photo` | **EXISTS** (previously documented as phantom/removed). Remove a photo from an item in AI review — works for both seller-uploaded gallery photos and the AI-enhanced cover. Deleting the cover promotes another photo to cover so the listing is never imageless; blocks if it's the only photo; clears `ai_photo_enhanced` when an `ai_enhanced_*` file is removed; deletes the underlying file. Returns JSON {success}. Super admin only. Used by the "Delete" button in the AI review gallery. |
 | `GET /admin/diag` | `admin_diag` | Diagnostic page showing DB table row counts. Super admin only. |
 | `POST /admin/crew/shift/<shift_id>/set-overflow-truck` | `admin_set_overflow_truck` | Toggle overflow truck designation; green badge when active |

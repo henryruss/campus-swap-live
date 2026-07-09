@@ -671,6 +671,104 @@ class TestDeletePhotoRedirect:
 
 
 # ---------------------------------------------------------------------------
+# Admin seller reassignment from the edit-item page
+# ---------------------------------------------------------------------------
+
+class TestAdminSellerReassign:
+    def _admin(self, db):
+        from models import User
+        u = User(email=f'adm_{_uid()}@test.com', full_name='Reassign Test Admin',
+                 password_hash='x', is_admin=True)
+        db.session.add(u)
+        db.session.commit()
+        return u
+
+    def _seller(self, db, name='Reassign Target'):
+        from models import User
+        u = User(email=f'tgt_{_uid()}@test.com', full_name=name, password_hash='x', is_seller=True)
+        db.session.add(u)
+        db.session.commit()
+        return u
+
+    def test_admin_reassigns_seller(self, client, db, internal_account):
+        from models import InventoryItem
+        admin = self._admin(db)
+        target = self._seller(db)
+        item = _make_item(db, description=f'QC reassign probe {_uid()}',
+                          seller_id=internal_account.id, is_quick_capture=True)
+        _login(client, admin)
+        r = client.post(f'/edit_item/{item.id}', data={
+            'description': item.description,
+            'quality': item.quality,
+            'new_seller_id': target.id,
+        })
+        assert r.status_code == 302
+        assert r.headers['Location'].endswith('/admin/items')
+        db.session.expire_all()
+        assert db.session.get(InventoryItem, item.id).seller_id == target.id
+
+    def test_seller_cannot_reassign(self, client, db):
+        from models import InventoryItem
+        owner = self._seller(db, 'Owner Seller')
+        other = self._seller(db, 'Other Seller')
+        item = _make_item(db, description=f'No reassign probe {_uid()}', seller_id=owner.id)
+        _login(client, owner)
+        r = client.post(f'/edit_item/{item.id}', data={
+            'description': item.description,
+            'quality': item.quality,
+            'new_seller_id': other.id,
+        })
+        assert r.status_code == 302
+        db.session.expire_all()
+        assert db.session.get(InventoryItem, item.id).seller_id == owner.id
+
+    def test_invalid_seller_id_ignored(self, client, db, internal_account):
+        from models import InventoryItem
+        admin = self._admin(db)
+        item = _make_item(db, description=f'Bad reassign probe {_uid()}',
+                          seller_id=internal_account.id)
+        _login(client, admin)
+        client.post(f'/edit_item/{item.id}', data={
+            'description': item.description,
+            'quality': item.quality,
+            'new_seller_id': '99999999',
+        })
+        db.session.expire_all()
+        assert db.session.get(InventoryItem, item.id).seller_id == internal_account.id
+
+
+# ---------------------------------------------------------------------------
+# Items-tab drawer delete: modal=1 returns JSON (was a 302 the fetch choked on)
+# ---------------------------------------------------------------------------
+
+class TestModalDelete:
+    def test_modal_delete_returns_json_and_deletes(self, client, db):
+        from models import User, InventoryItem
+        admin = User(email=f'adm_{_uid()}@test.com', full_name='Modal Delete Admin',
+                     password_hash='x', is_admin=True)
+        db.session.add(admin)
+        db.session.commit()
+        item = _make_item(db, description=f'Modal delete probe {_uid()}')
+        _login(client, admin)
+        r = client.post(f'/admin/item/{item.id}/delete', data={'modal': '1'})
+        assert r.status_code == 200
+        assert r.get_json() == {'success': True}
+        assert db.session.get(InventoryItem, item.id) is None
+
+    def test_non_modal_delete_still_redirects(self, client, db):
+        from models import User, InventoryItem
+        admin = User(email=f'adm_{_uid()}@test.com', full_name='Redirect Delete Admin',
+                     password_hash='x', is_admin=True)
+        db.session.add(admin)
+        db.session.commit()
+        item = _make_item(db, description=f'Redirect delete probe {_uid()}')
+        _login(client, admin)
+        r = client.post(f'/admin/item/{item.id}/delete')
+        assert r.status_code == 302
+        assert db.session.get(InventoryItem, item.id) is None
+
+
+# ---------------------------------------------------------------------------
 # Regression: Log Item still works after proxy-helper extraction
 # ---------------------------------------------------------------------------
 

@@ -5089,6 +5089,17 @@ def edit_item(item_id):
             photo_storage.delete_photo(item.video_url)
             item.video_url = None
 
+        # Admin-only: reassign the item to a different seller (e.g. QC items logged to
+        # the internal Campus Swap account). The item appears on the new seller's
+        # dashboard automatically via seller_id. No notification is sent.
+        if current_user.is_admin:
+            new_seller_raw = (request.form.get('new_seller_id') or '').strip()
+            if new_seller_raw.isdigit() and int(new_seller_raw) != item.seller_id:
+                new_seller = User.query.get(int(new_seller_raw))
+                if new_seller:
+                    logger.info(f"Item {item.id} seller reassigned {item.seller_id} -> {new_seller.id} by admin {current_user.id}")
+                    item.seller_id = new_seller.id
+
         # Re-approval: when seller edits pending_logistics, rejected, or picked-up items, send back to approval queue
         # (needs_info items go through the resubmit route instead)
         needs_reapproval = (
@@ -5103,10 +5114,8 @@ def edit_item(item_id):
         flash("Edits submitted for re-approval." if needs_reapproval else "Item updated successfully!", "success")
         
         if current_user.is_admin:
-            # Check if item was pending - if so, redirect to pending section
-            if item.status == 'pending_valuation':
-                return redirect(url_for('admin_panel') + '#pending-items')
-            return redirect(url_for('admin_panel'))
+            # Back to the items tab, not admin_panel (which 302s to /admin/ops)
+            return redirect(url_for('admin_items'))
         return redirect(get_user_dashboard())
         
     return render_template('edit_item.html', item=item, categories=categories,
@@ -8338,6 +8347,7 @@ def admin_delete_item_direct(item_id):
         flash("Item not found.", "error")
         return redirect(url_for('admin_panel'))
     if request.method == 'POST':
+        is_modal = request.form.get('modal') == '1'
         try:
             item_desc = item.description
             if item.status == 'available':
@@ -8348,6 +8358,10 @@ def admin_delete_item_direct(item_id):
                 db.session.delete(photo)
             db.session.delete(item)
             db.session.commit()
+            # Note: deleting an item never notifies the seller — no email/SMS here by design.
+            if is_modal:
+                # fetch() callers (items-tab detail drawer) expect JSON, not a redirect
+                return jsonify({'success': True})
             flash(f"Item '{item_desc}' deleted.", "success")
             ref = request.referrer or ''
             if 'admin/items' in ref:
@@ -8356,6 +8370,8 @@ def admin_delete_item_direct(item_id):
         except Exception as e:
             db.session.rollback()
             logger.error(f"Error deleting item {item_id}: {e}", exc_info=True)
+            if is_modal:
+                return jsonify({'error': 'Could not delete item.'}), 500
             flash(f"Could not delete item: {str(e)}", "error")
     return render_template_string("""
 <!DOCTYPE html><html><head><title>Delete Item</title>
