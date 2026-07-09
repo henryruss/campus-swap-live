@@ -980,8 +980,12 @@
 </script>
 
 {# Item detail slide-in panel #}
-<div id="item-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;" onclick="closeItemDetail()"></div>
-<div id="item-detail-drawer" style="position:fixed;top:0;right:-500px;width:480px;max-width:100vw;height:100vh;background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.12);z-index:1050;overflow-y:auto;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);">
+{# Item detail drawer — positioning/sizing handled by style.css #item-detail-drawer rules.
+   Do NOT position this with inline styles: style.css converts it to a bottom sheet at
+   ≤640px with `right:0 !important`, so an inline right:-500px "closed" state renders as
+   a full-screen white blocker on phones (and the close button can't out-rank !important). #}
+<div id="item-detail-overlay" onclick="closeItemDetail()"></div>
+<div id="item-detail-drawer">
   <button onclick="closeItemDetail()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:1.5rem;color:var(--text-muted);cursor:pointer;z-index:10;line-height:1;padding:4px 8px;border-radius:8px;">&times;</button>
   <div id="item-detail-content" style="min-height:100%;"></div>
 </div>
@@ -990,25 +994,26 @@
   // Attached immediately (not deferred to the bottom script block) so no
   // window exists for a spurious open — from any source, at any point during
   // page load — to go undetected before this observer is live. See
-  // loadItemDetail()/loadSellerPanel() below, which call _markIntentionalOpen()
-  // right before a legitimate open so this doesn't revert real user actions.
-  function guardSlideInPanel(drawerId, overlayId, closedRight) {
+  // loadItemDetail() below, which calls _markIntentionalOpen() right before a
+  // legitimate open so this doesn't revert real user actions.
+  // Open/close is class-based ('open'), matching the style.css drawer rules.
+  function guardSlideInPanel(drawerId, overlayId) {
     var drawer = document.getElementById(drawerId);
     var overlay = document.getElementById(overlayId);
     if (!drawer) return;
     var weOpenedIt = false;
     drawer._markIntentionalOpen = function () { weOpenedIt = true; };
     var obs = new MutationObserver(function () {
-      if (drawer.style.right !== closedRight && !weOpenedIt) {
-        drawer.style.right = closedRight;
+      if (drawer.classList.contains('open') && !weOpenedIt) {
+        drawer.classList.remove('open');
         if (overlay) overlay.style.display = 'none';
         document.body.style.overflow = '';
       }
       weOpenedIt = false;
     });
-    obs.observe(drawer, { attributes: true, attributeFilter: ['style'] });
+    obs.observe(drawer, { attributes: true, attributeFilter: ['class'] });
   }
-  guardSlideInPanel('item-detail-drawer', 'item-detail-overlay', '-500px');
+  guardSlideInPanel('item-detail-drawer', 'item-detail-overlay');
 })();
 </script>
 
@@ -1229,7 +1234,7 @@
     content.innerHTML = '<div style="text-align:center;padding-top:80px;color:var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
     overlay.style.display = 'block';
     if (drawer._markIntentionalOpen) drawer._markIntentionalOpen();
-    drawer.style.right = '0';
+    drawer.classList.add('open');
     document.body.style.overflow = 'hidden';
     fetch('/admin/item/' + itemId + '/detail')
       .then(function(r) { return r.text(); })
@@ -1247,7 +1252,7 @@
 
   function closeItemDetail() {
     document.getElementById('item-detail-overlay').style.display = 'none';
-    document.getElementById('item-detail-drawer').style.right = '-500px';
+    document.getElementById('item-detail-drawer').classList.remove('open');
     document.body.style.overflow = '';
   }
 
@@ -1310,7 +1315,7 @@
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       var drawer = document.getElementById('item-detail-drawer');
-      if (drawer && drawer.style.right === '0px') { closeItemDetail(); return; }
+      if (drawer && drawer.classList.contains('open')) { closeItemDetail(); return; }
     }
   });
 
