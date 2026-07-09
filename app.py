@@ -15117,6 +15117,59 @@ def admin_warehouse_seller_search():
     return jsonify(results)
 
 
+def _create_proxy_seller_from_form(form, proxy_note):
+    """Create a proxy seller User from form fields new_name / new_email / new_phone.
+
+    Shared by the warehouse Log Item modal and the rephoto add-item details step.
+    On success returns (seller, None, None) — the seller is added and flushed but
+    NOT committed (caller commits with the item). On validation failure returns
+    (None, error_message, http_status).
+    """
+    full_name = (form.get('new_name') or '').strip()
+    email_raw = (form.get('new_email') or '').strip()
+    phone_raw = (form.get('new_phone') or '').strip()
+    if not full_name:
+        return None, 'Name required.', 400
+    if not email_raw and not phone_raw:
+        return None, 'At least one of email or phone required.', 400
+
+    phone_result = None
+    if phone_raw:
+        phone_valid, phone_result = validate_phone(phone_raw)
+        if not phone_valid:
+            return None, phone_result, 400
+
+    if email_raw:
+        if not validate_email(email_raw):
+            return None, 'Invalid email address.', 400
+        if User.query.filter_by(email=email_raw).first():
+            return None, 'An account with that email already exists.', 409
+        email = email_raw
+    else:
+        digits = ''.join(c for c in phone_result if c.isdigit())
+        email = f'proxy+{digits}@usecampusswap.com'
+        if User.query.filter_by(email=email).first():
+            import secrets as _sec
+            email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
+
+    temp_pw = _gen_proxy_temp_password()
+    seller = User(
+        email=email,
+        full_name=full_name,
+        phone=phone_result,
+        password_hash=generate_password_hash(temp_pw),
+        is_seller=True,
+        payout_rate=50,
+        is_proxy_account=True,
+        proxy_temp_password=temp_pw,
+        proxy_note=proxy_note,
+        referral_code=_gen_referral_code(),
+    )
+    db.session.add(seller)
+    db.session.flush()
+    return seller, None, None
+
+
 @app.route('/admin/warehouse/log-item', methods=['POST'])
 @login_required
 def admin_warehouse_log_item():
@@ -15156,48 +15209,10 @@ def admin_warehouse_log_item():
         if not seller:
             return jsonify({'error': 'Invalid seller.'}), 400
     elif seller_mode == 'new':
-        full_name = (request.form.get('new_name') or '').strip()
-        email_raw = (request.form.get('new_email') or '').strip()
-        phone_raw = (request.form.get('new_phone') or '').strip()
-        if not full_name:
-            return jsonify({'error': 'Name required.'}), 400
-        if not email_raw and not phone_raw:
-            return jsonify({'error': 'At least one of email or phone required.'}), 400
-
-        phone_result = None
-        if phone_raw:
-            phone_valid, phone_result = validate_phone(phone_raw)
-            if not phone_valid:
-                return jsonify({'error': phone_result}), 400
-
-        if email_raw:
-            if not validate_email(email_raw):
-                return jsonify({'error': 'Invalid email address.'}), 400
-            if User.query.filter_by(email=email_raw).first():
-                return jsonify({'error': 'An account with that email already exists.'}), 409
-            email = email_raw
-        else:
-            digits = ''.join(c for c in phone_result if c.isdigit())
-            email = f'proxy+{digits}@usecampusswap.com'
-            if User.query.filter_by(email=email).first():
-                import secrets as _sec
-                email = f'proxy+{digits}{_sec.token_hex(4)}@usecampusswap.com'
-
-        temp_pw = _gen_proxy_temp_password()
-        seller = User(
-            email=email,
-            full_name=full_name,
-            phone=phone_result,
-            password_hash=generate_password_hash(temp_pw),
-            is_seller=True,
-            payout_rate=50,
-            is_proxy_account=True,
-            proxy_temp_password=temp_pw,
-            proxy_note='Word-of-mouth seller — created via warehouse Log Item',
-            referral_code=_gen_referral_code(),
-        )
-        db.session.add(seller)
-        db.session.flush()
+        seller, err, err_status = _create_proxy_seller_from_form(
+            request.form, 'Word-of-mouth seller — created via warehouse Log Item')
+        if err:
+            return jsonify({'error': err}), err_status
     else:
         seller = User.query.filter_by(is_internal_account=True).first()
         if not seller:
@@ -15257,6 +15272,292 @@ def admin_warehouse_log_item():
 
     _ai_queue.put((current_app._get_current_object(), item.id))
     return jsonify({'success': True, 'item_id': item.id, 'unit_id': storage_location_id})
+
+
+# ── Warehouse Re-Photography (feature_warehouse_rephotography) ────────────────
+
+# Director-expandable synonym map for the rephoto search. One level of expansion,
+# no recursion: a token that is a key becomes an OR-group of its terms; any other
+# token is searched literally.
+REPHOTO_SYNONYMS = {
+    "couch": ["couch", "sofa", "futon", "loveseat", "sectional", "settee"],
+    "sofa": ["couch", "sofa", "futon", "loveseat", "sectional"],
+    "fridge": ["fridge", "mini fridge", "minifridge", "refrigerator", "cooler"],
+    "refrigerator": ["fridge", "mini fridge", "refrigerator"],
+    "microwave": ["microwave", "micro"],
+    "rug": ["rug", "carpet", "mat", "runner"],
+    "headboard": ["headboard", "bed frame", "bedframe", "footboard"],
+    "mattress": ["mattress", "bed", "topper", "futon"],
+    "tv": ["tv", "television", "monitor", "screen"],
+    "heater": ["heater", "space heater", "radiator"],
+    "ac": ["ac", "a/c", "air conditioner", "fan", "cooling"],
+    "lamp": ["lamp", "light", "lighting", "floor lamp", "desk lamp"],
+    "desk": ["desk", "table", "workstation"],
+    "chair": ["chair", "stool", "seat", "recliner"],
+    "shelf": ["shelf", "shelving", "bookcase", "bookshelf", "storage"],
+    "dresser": ["dresser", "drawers", "chest", "nightstand", "bureau"],
+}
+
+
+def _downscale_image(file_obj, max_edge=1600, quality=85):
+    """Defense-in-depth server-side downscale for rephoto uploads.
+
+    Bounds the longest edge to max_edge, re-encodes as JPEG (which strips EXIF —
+    orientation is applied first via exif_transpose). The client already
+    compresses; this covers the fallback file-input path sending a full-res original.
+    Returns JPEG bytes. Raises on unreadable image data.
+    """
+    img = Image.open(file_obj)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGBA")
+    bg = Image.new("RGB", img.size, (255, 255, 255))
+    bg.paste(img, (0, 0), img)
+    if bg.width > max_edge or bg.height > max_edge:
+        if bg.width > bg.height:
+            new_size = (max_edge, int(bg.height * (max_edge / bg.width)))
+        else:
+            new_size = (int(bg.width * (max_edge / bg.height)), max_edge)
+        bg = bg.resize(new_size, Image.Resampling.LANCZOS)
+    buf = BytesIO()
+    bg.save(buf, "JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
+
+
+def _rephoto_campaign_start_utc():
+    """Campaign start (Eastern midnight) as naive UTC, for ItemPhoto.captured_at comparisons."""
+    raw = AppSetting.get('rephoto_campaign_start', '2026-07-08') or '2026-07-08'
+    try:
+        d = datetime.strptime(raw.strip(), '%Y-%m-%d')
+    except ValueError:
+        d = datetime(2026, 7, 8)
+    eastern_midnight = d.replace(tzinfo=_EASTERN)
+    return eastern_midnight.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+
+
+def _rephoto_reshot_item_ids(item_ids):
+    """Subset of item_ids that already have >=1 campaign photo (the ✓ badge). Single query."""
+    if not item_ids:
+        return set()
+    rows = (
+        db.session.query(ItemPhoto.item_id)
+        .filter(
+            ItemPhoto.item_id.in_(item_ids),
+            ItemPhoto.captured_at >= _rephoto_campaign_start_utc(),
+        )
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+@app.route('/admin/warehouse/rephoto')
+@login_required
+def admin_rephoto_page():
+    if not _has_ops_access():
+        abort(403)
+    raw = AppSetting.get('rephoto_campaign_start', '2026-07-08') or '2026-07-08'
+    try:
+        campaign_label = datetime.strptime(raw.strip(), '%Y-%m-%d').strftime('%b %-d, %Y')
+    except ValueError:
+        campaign_label = 'Jul 8, 2026'
+    categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
+    return render_template('admin/rephoto.html', categories=categories, campaign_label=campaign_label)
+
+
+@app.route('/admin/warehouse/rephoto/search')
+@login_required
+def admin_rephoto_search():
+    if not _has_ops_access():
+        abort(403)
+    q = request.args.get('q', '').strip()
+    items = []
+    if q:
+        conds = []
+        for tok in [t for t in q.lower().split() if t][:6]:
+            group = []
+            for term in REPHOTO_SYNONYMS.get(tok, [tok]):
+                like = f'%{term}%'
+                group.append(InventoryItem.description.ilike(like))
+                group.append(InventoryItem.long_description.ilike(like))
+                group.append(InventoryCategory.name.ilike(like))
+            conds.append(db.or_(*group))
+        has_campaign_photo = (
+            db.session.query(ItemPhoto.id)
+            .filter(
+                ItemPhoto.item_id == InventoryItem.id,
+                ItemPhoto.captured_at >= _rephoto_campaign_start_utc(),
+            )
+            .exists()
+        )
+        items = (
+            InventoryItem.query
+            .outerjoin(InventoryCategory, InventoryItem.category_id == InventoryCategory.id)
+            .outerjoin(User, InventoryItem.seller_id == User.id)
+            .filter(
+                InventoryItem.status != 'sold',
+                db.or_(User.id.is_(None), User.is_tutorial_user == False),
+                *conds,
+            )
+            # Un-reshot items surface first, then most recent
+            .order_by(has_campaign_photo, InventoryItem.date_added.desc())
+            .limit(40)
+            .all()
+        )
+    reshot_ids = _rephoto_reshot_item_ids([i.id for i in items])
+    return render_template('admin/rephoto_search_results.html', items=items, reshot_ids=reshot_ids, q=q)
+
+
+@app.route('/admin/warehouse/rephoto/add-item', methods=['POST'])
+@login_required
+def admin_rephoto_create_stub():
+    if not _has_ops_access():
+        return jsonify({'error': 'Access denied.'}), 403
+    internal = User.query.filter_by(is_internal_account=True).first()
+    if not internal:
+        return jsonify({'error': 'No internal Campus Swap account configured.'}), 500
+    item = InventoryItem(
+        description='',
+        price=0,
+        quality=1,
+        status='pending_valuation',
+        is_quick_capture=True,
+        captured_by_id=current_user.id,
+        seller_id=internal.id,
+        category_id=None,
+        date_added=datetime.utcnow(),
+    )
+    item.seller_description = item.description
+    item.seller_long_description = item.long_description
+    db.session.add(item)
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Rephoto stub creation error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to create item. Please try again.'}), 500
+    return jsonify({'success': True, 'item_id': item.id})
+
+
+@app.route('/admin/warehouse/rephoto/<int:item_id>/photo', methods=['POST'])
+@login_required
+def admin_rephoto_add_photo(item_id):
+    if not _has_ops_access():
+        return jsonify({'error': 'Access denied.'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return jsonify({'error': 'No photo provided.'}), 400
+    is_valid, error_msg = validate_file_upload(photo)
+    if not is_valid:
+        return jsonify({'error': error_msg}), 400
+    view = (request.form.get('view') or '').strip().lower()
+    if view not in ('front', 'side', 'back'):
+        return jsonify({'error': 'Invalid view — must be front, side, or back.'}), 400
+
+    try:
+        jpeg_bytes = _downscale_image(photo)
+    except Exception as e:
+        logger.error(f"Rephoto image processing error (item {item_id}): {e}", exc_info=True)
+        return jsonify({'error': 'Error processing image.'}), 400
+
+    # Filename convention identifies this batch for the later background-removal pass
+    filename = f"rephoto_{item.id}_{view}_{uuid.uuid4().hex[:8]}.jpg"
+    try:
+        photo_storage.save_photo_from_bytes(jpeg_bytes, filename)
+    except Exception as e:
+        logger.error(f"Rephoto photo save error (item {item_id}): {e}", exc_info=True)
+        return jsonify({'error': 'Error saving photo.'}), 500
+
+    max_sort = db.session.query(func.max(ItemPhoto.sort_order)).filter(
+        ItemPhoto.item_id == item.id).scalar()
+    photo_row = ItemPhoto(
+        item_id=item.id,
+        photo_url=filename,
+        captured_at=datetime.utcnow(),
+        view=view,
+        is_hidden=False,
+        sort_order=(max_sort if max_sort is not None else -1) + 1,
+    )
+    db.session.add(photo_row)
+    # item.photo_url (cover), item.status, and item.ai_generated_at are never touched here.
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        photo_storage.delete_photo(filename)
+        logger.error(f"Rephoto photo commit error (item {item_id}): {e}", exc_info=True)
+        return jsonify({'error': 'Failed to save photo. Please try again.'}), 500
+    return jsonify({
+        'success': True,
+        'photo_id': photo_row.id,
+        'photo_url': url_for('uploaded_file', filename=filename),
+    })
+
+
+@app.route('/admin/warehouse/rephoto/<int:item_id>/details', methods=['POST'])
+@login_required
+def admin_rephoto_set_details(item_id):
+    if not _has_ops_access():
+        return jsonify({'error': 'Access denied.'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    if not item.is_quick_capture:
+        # Details step is add-path only — never rewrite the seller of a normal item
+        return jsonify({'error': 'Details can only be set on add-path items.'}), 400
+
+    category_id = request.form.get('category_id', type=int)
+    if not category_id:
+        return jsonify({'error': 'Category required.'}), 400
+    category = InventoryCategory.query.get(category_id)
+    if not category:
+        return jsonify({'error': 'Invalid category.'}), 400
+
+    seller_mode = request.form.get('seller_mode', 'internal')
+    if seller_mode == 'existing':
+        seller_id = request.form.get('existing_seller_id', type=int)
+        seller = User.query.get(seller_id) if seller_id else None
+        if not seller:
+            return jsonify({'error': 'Invalid seller.'}), 400
+    elif seller_mode == 'new':
+        seller, err, err_status = _create_proxy_seller_from_form(
+            request.form, 'Word-of-mouth seller — created via warehouse re-photography')
+        if err:
+            return jsonify({'error': err}), err_status
+    else:
+        seller = User.query.filter_by(is_internal_account=True).first()
+        if not seller:
+            return jsonify({'error': 'No internal Campus Swap account configured.'}), 500
+
+    item.category_id = category.id
+    item.seller_id = seller.id
+    # storage_location_id stays NULL — units are being batch-reorganized separately
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Rephoto details commit error (item {item_id}): {e}", exc_info=True)
+        return jsonify({'error': 'Failed to save details. Please try again.'}), 500
+
+    # Stubs have no cover photo, so the startup requeue (which filters on photo_url)
+    # won't see them — enqueue directly; the AI text phase reads gallery photos.
+    if item.gallery_photos:
+        _ai_queue.put((current_app._get_current_object(), item.id))
+    return jsonify({'success': True})
+
+
+@app.route('/admin/warehouse/rephoto/photo/<int:photo_id>/delete', methods=['POST'])
+@login_required
+def admin_rephoto_delete_photo(photo_id):
+    if not _has_ops_access():
+        return jsonify({'error': 'Access denied.'}), 403
+    photo_row = ItemPhoto.query.get_or_404(photo_id)
+    if photo_row.captured_at is None:
+        # Guard: this endpoint only removes campaign captures, never legacy gallery photos
+        return jsonify({'error': 'Only rephoto campaign photos can be removed here.'}), 400
+    photo_storage.delete_photo(photo_row.photo_url)
+    db.session.delete(photo_row)
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 # ── end Warehouse Floor ────────────────────────────────────────────────────────

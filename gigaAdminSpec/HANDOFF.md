@@ -9,11 +9,44 @@
 
 ## Current State
 
-**Last updated:** 2026-06-28
-**Active spec:** None
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Route count is now 263.
+**Last updated:** 2026-07-08
+**Active spec:** feature_warehouse_rephotography.md — built this session, ready to deploy
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Warehouse Re-Photography (2026-07-08) adds a search-first guided three-shot capture flow for the UNC re-shoot campaign. URL rule count is now 278.
 
 ---
+
+## Features Built This Session (2026-07-08) — Warehouse Re-Photography
+
+**Status:** Built + tested locally (33/33 new tests passing), ready to deploy
+**Spec:** `feature_warehouse_rephotography.md` (project root)
+**Migration:** `4091b1a0e9c8` — `item_photo` gains `captured_at` (DateTime NULL), `sort_order` (Integer NOT NULL server_default 0), `view` (String(10) NULL). Chained onto `195e2dc3e376` (the is_hidden migration). **No backfill** — all pre-existing rows keep `captured_at`/`view` NULL ("legacy / pre-campaign") and `sort_order` 0. Downgrade drops the three columns cleanly (verified both directions locally, and upgrade verified against a restored copy of the 2026-07-02 prod snapshot: all 400 legacy photo rows untouched).
+
+### What shipped
+- Six routes under `/admin/warehouse/rephoto/*` (all `_has_ops_access()`): page, search partial, add-item stub, per-photo upload, add-path details, per-photo delete. See CODEBASE.md route map for the full contracts.
+- Three new templates: `admin/rephoto.html`, `admin/rephoto_search_results.html`, `admin/rephoto_capture_modal.html` (purpose-built capture modal — `_qc_camera_block.html`, `crew_quick_capture`, `replace_photo`, and the needs_new_photo / needs_photo_verification queues are untouched).
+- `templates/admin/warehouse.html`: header gains a "Re-Photograph Items" button. No other changes.
+- `models.py`: `ItemPhoto` declares the three new columns; `InventoryItem.gallery_photos` relationship now orders by `(sort_order, id)` (legacy rows all 0 → id order preserved).
+- `app.py` helpers: `REPHOTO_SYNONYMS`, `_downscale_image()`, `_rephoto_campaign_start_utc()`, `_rephoto_reshot_item_ids()`, and `_create_proxy_seller_from_form()` (extracted from `admin_warehouse_log_item` — log-item behavior unchanged, covered by regression tests).
+- AppSetting `rephoto_campaign_start` (default `'2026-07-08'`) — ✓-badge boundary; adjustable without deploy. Not seeded — the code default applies until the key is set.
+- Reliability core: client canvas compression (≤1600px, JPEG q0.82), one POST per photo the instant it's shot, 3× retry with 0.5s/1.5s/3s backoff, red tap-to-retry dot, Done gated on all uploads settled; server-side `_downscale_image()` bounds the fallback file-input path.
+
+### Deviations from spec
+1. **`is_hidden` already existed** — migration `195e2dc3e376` (and the Shop Edit Mode feature consuming it via `visible_gallery_photos`) landed before this build, so the new migration adds only the other three columns. `is_hidden` is set `False` explicitly on rephoto captures; this feature does not read it.
+2. **AI enqueue on details save** — the spec assumed stubs are AI-eligible via `ai_generated_at IS NULL`, but the real pipeline sentinel filters on `photo_url` being set (startup requeue), and stubs deliberately never get a cover. `admin_rephoto_set_details` therefore enqueues `_ai_queue` directly when the item has ≥1 gallery photo (the AI text phase reads gallery photos; the photo-enhancement phase is skipped without a cover). Consequence: an **abandoned** stub (photos taken but details never saved) is NOT picked up by AI until details are completed or the post-process pass handles it.
+3. **Delete guard** — `admin_rephoto_delete_photo` refuses rows with `captured_at IS NULL` (legacy gallery photos), a guard the spec implied but didn't state.
+4. **Reshoot abandon** — "✕ back to search" in reshoot mode deletes the photos already uploaded this session (spec: "abandons without saving"); in add mode the stub and its photos are kept (spec: accepted).
+5. **Optional sitewide upload-hardening** — skipped per instruction; will be specced separately.
+
+### Deploy steps
+1. Push; Render auto-deploys.
+2. Render shell: `flask db upgrade` (applies `4091b1a0e9c8`).
+3. Optional: set AppSetting `rephoto_campaign_start` if the campaign date shifts.
+
+### Testing / infra notes
+- `test_warehouse_rephotography.py` (project root) — 33 tests, all passing. Runs against `campusswap_prod` with unique-tagged data; intentionally avoids the root-conftest `app` fixture (see next bullet).
+- ⚠️ **Pre-existing test-infra footgun discovered:** the root `conftest.py` `app` fixture's SQLite override never takes effect — the SQLAlchemy engine is already bound to `campusswap_prod` at import time (startup `db.create_all()`), so that fixture's per-test `create_all()`/`drop_all()` actually **wipes campusswap_prod**. `test_unified_item_submission.py` uses it and empties the snapshot DB every run, which then breaks `test_cart_bundle.py`/`test_delivery_fees.py` until the DB is restored (`dropdb campusswap_prod && createdb campusswap_prod && psql -q campusswap_prod < prod_snapshot.sql`, then `DATABASE_URL=...campusswap_prod flask db upgrade`). Not fixed this session — out of scope, flagged for a cleanup pass.
+- `test_cart_bundle.py` has 4 pre-existing failures against the current (2026-07-02) prod snapshot (verified identical on clean HEAD — data-dependent, e.g. flexible-coupon AppSetting state; unrelated to this feature).
+- Manual checks still owed on a real phone (can't be automated): rear camera opens on HTTPS, HEIC capture normalizes to JPEG, file-input fallback on camera-deny, retry dots under a simulated network drop.
 
 ## Features Built This Session (2026-06-28) — Meta Catalog Feed + GA4 Conversion Events
 

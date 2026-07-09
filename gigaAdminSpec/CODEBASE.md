@@ -144,6 +144,15 @@ Relationships: parent → InventoryCategory (backref subcategories), items → [
 ### ItemPhoto
 ```
 id, item_id, photo_url
+is_hidden (Boolean, default False, server_default='0') — hides photo from buyer-facing gallery via
+  InventoryItem.visible_gallery_photos (Shop Edit Mode); also scaffolding for the rephoto post-process pass
+captured_at (DateTime, nullable) — UTC; set ONLY by the warehouse rephoto capture flow.
+  NULL = legacy / pre-campaign photo (no backfill by design)
+sort_order (Integer, default 0, server_default='0') — gallery ordering; gallery_photos relationship
+  orders by (sort_order, id) so legacy rows (all 0) keep their id order
+view (String 10, nullable) — 'front' | 'side' | 'back' | NULL (legacy); lets the rephoto post-process
+  pass pick the front shot deterministically
+Migration: 4091b1a0e9c8 (captured_at/sort_order/view), 195e2dc3e376 (is_hidden)
 ```
 
 ### ItemReservation
@@ -204,6 +213,8 @@ Delivery / pricing keys (Spec A): 'warehouse_lat', 'warehouse_lng' (now editable
 Cart / bundle keys (Spec B): 'checkout_hold_minutes' (default 15 — active-checkout hold window; replaces the
   membership-based use of 'cart_hold_minutes'), 'bundle_min_items' (default 2 → bundle free delivery)
 AI autofill keys: 'ai_autofill_model', 'ai_autofill_run_log'
+Rephoto key: 'rephoto_campaign_start' (date string, default '2026-07-08') — ✓-badge boundary for the
+  warehouse re-photography campaign; parsed as Eastern midnight → UTC by _rephoto_campaign_start_utc()
 Route planning keys: 'truck_raw_capacity', 'truck_capacity_buffer_pct',
   'route_am_window', 'route_pm_window', 'maps_static_api_key'
 Rescheduling keys: 'reschedule_token_ttl_days', 'reschedule_urgent_alert_days'
@@ -456,7 +467,7 @@ Relationships: shift → Shift (backref delivery_run, uselist=False), started_by
 
 ---
 
-## Route Map (`app.py` — ~17,000 lines, 263 routes)
+## Route Map (`app.py` — ~18,000 lines, 278 URL rules)
 
 ### Public
 | Route | Function | Notes |
@@ -651,6 +662,14 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 | `GET /admin/warehouse/search` | `admin_warehouse_search` | HTML partial. Params: q (text search), unit_id (scope to one unit). Returns item rows with inline "Select Unit" location picker and camera button for needs_new_photo items. `shift_id` param: when present, returns all items from sellers on that shift (no status filter); uses `warehouse_route_results.html` partial instead of `warehouse_search_results.html`. _has_ops_access(). |
 | `GET /admin/warehouse/routes` | `admin_warehouse_routes` | HTML partial — shift chip list sorted most-recent-first, omitting shifts with zero seller items. `_has_ops_access()`. |
 | `POST /admin/warehouse/bulk-move` | `admin_warehouse_bulk_move` | Bulk-move items between storage units. _has_ops_access(). |
+| `GET /admin/warehouse/seller-search` | `admin_warehouse_seller_search` | JSON live seller search (name/email, min 2 chars, 15 rows) used by Log Item and rephoto seller pickers. `_has_warehouse_access()`. |
+| `POST /admin/warehouse/log-item` | `admin_warehouse_log_item` | Log Item modal submit: photo + category (+ optional unit/zone) + seller (internal / existing / new proxy via `_create_proxy_seller_from_form`). Creates QC item, enqueues AI autofill. `_has_warehouse_access()`. |
+| `GET /admin/warehouse/rephoto` | `admin_rephoto_page` | Re-photography main page: campaign banner, debounced search, Add-item button, capture modal. `_has_ops_access()`. |
+| `GET /admin/warehouse/rephoto/search` | `admin_rephoto_search` | HTML partial. Param `q` — synonym-expanded (`REPHOTO_SYNONYMS`) ILIKE over description/long_description/category name. Excludes `sold` + tutorial sellers; un-reshot items first, then date_added desc; cap 40. `_has_ops_access()`. |
+| `POST /admin/warehouse/rephoto/add-item` | `admin_rephoto_create_stub` | Add path: create stub item (internal seller, `is_quick_capture=True`, `pending_valuation`, category NULL). Returns JSON {success, item_id}. `_has_ops_access()`. |
+| `POST /admin/warehouse/rephoto/<item_id>/photo` | `admin_rephoto_add_photo` | Accept ONE compressed photo (fields: photo, view=front\|side\|back). Server `_downscale_image()` (≤1600px, JPEG q85, EXIF stripped) → `photo_storage`, filename `rephoto_<item_id>_<view>_<uuid8>.jpg`. Creates ItemPhoto with captured_at/view/sort_order; never touches cover, status, or ai_generated_at. Returns JSON {success, photo_id, photo_url}. `_has_ops_access()`. |
+| `POST /admin/warehouse/rephoto/<item_id>/details` | `admin_rephoto_set_details` | Add path only (`is_quick_capture` guard): required category + seller (internal / existing / new proxy at payout_rate=50). Storage stays NULL. Enqueues AI autofill if the item has gallery photos. `_has_ops_access()`. |
+| `POST /admin/warehouse/rephoto/photo/<photo_id>/delete` | `admin_rephoto_delete_photo` | Remove a just-captured photo (per-slot retake/remove). Guarded: only rows with `captured_at` set (campaign photos) — legacy photos 400. Deletes file via `photo_storage.delete_photo()`. `_has_ops_access()`. |
 | `POST /admin/item/<id>/verify-photo` | `admin_item_verify_photo` | Clear needs_photo_verification flag. Returns JSON {success}. _has_ops_access(). |
 | `GET /admin/ai/generate` | `admin_ai_generate_page` | AI autofill generation page. Stats (eligible count, last run), model selector, run form, live progress bar, history. Super admin only. |
 | `POST /admin/ai/generate/run` | `admin_ai_generate_run` | Start background AI generation job (threading). Returns JSON {job_id}. Super admin only. |
@@ -841,12 +860,15 @@ crew/quick_capture_modal.html  — Quick Capture modal partial (included in crew
 crew/shift_placement_partial.html — HTML partial (no layout): placement items list for driver's truck; modal with zone diagram for assigning unit + zone; "Not picked up" button; status chips (Placed / Not picked up / Needs location); Select Unit dropdown prefilled from truck_unit_plan; loaded via fetch into crew/shift.html after #placement-section becomes visible
 admin/storage_audit.html       — **Replaced by warehouse.html.** Route 302-redirects to `/admin/warehouse`.
 admin/storage_audit_results.html — **Replaced by warehouse_search_results.html.**
-admin/warehouse.html           — Warehouse Floor main page. Unit card grid (battery bars, item counts, Full badges). Needs New Photo section (amber, collapsible, collapsed by default). Photo Verification Queue section (indigo, open by default). Global debounced search (300ms). "Search Items / Browse by Route" tab pills; #search-mode and #route-mode containers; lazy route fetch on tab switch. Extends admin_layout.html.
+admin/warehouse.html           — Warehouse Floor main page. Unit card grid (battery bars, item counts, Full badges). Needs New Photo section (amber, collapsible, collapsed by default). Photo Verification Queue section (indigo, open by default). Global debounced search (300ms). "Search Items / Browse by Route" tab pills; #search-mode and #route-mode containers; lazy route fetch on tab switch. Header has "Re-Photograph Items" button (btn-outline) linking to /admin/warehouse/rephoto next to Log Item. Extends admin_layout.html.
 admin/warehouse_unit_partial.html — Unit drawer partial (no layout). Item list with inline storage row autosave, toggle-full button, Log Item Here button. Battery bar macro included.
 admin/ops_unit_picker_partial.html  — Unit picker card grid (no layout). Active StorageLocations with item counts, battery bars, full badges. Loaded lazily via fetch into ops unit picker modal.
 admin/warehouse_routes_partial.html — Warehouse route browse shift chip list (no layout). Each chip: shift label, item count, data-shift-id.
 admin/warehouse_route_results.html  — Warehouse route browse item results (no layout). Same structure as warehouse_search_results.html but shows all items from shift sellers (no status filter); green unit chip if already placed.
 admin/warehouse_log_modal.html — Log Item 4-step modal partial (photo → category → location → seller). Three seller modes: Campus Swap internal, existing seller (live search via seller-search endpoint), new proxy seller (name + email/phone).
+admin/rephoto.html             — Re-photography main page (extends admin_layout.html). Campaign banner ("started <date>"), autofocused debounced (300ms) search box fetching the search partial into #rp-results (stale-response guard), "+ Add an item that isn't listed" button (creates stub → opens capture modal in add mode). Includes rephoto_capture_modal.html.
+admin/rephoto_search_results.html — Search results partial (no layout). Rows: cover thumbnail (placeholder tile if photo_url NULL), description, category, ✓ "Re-shot today" badge (item has ItemPhoto captured_at >= campaign start), Reshoot button with data-item-id / data-item-label / data-cover-url. Empty state: "Don't see it? Add it".
+admin/rephoto_capture_modal.html — Full-screen guided three-shot capture modal (no layout; included by rephoto.html). Purpose-built — deliberately separate from _qc_camera_block.html. FRONT→SIDE→BACK state machine with auto-advance; per-photo canvas compression (≤1600px longest edge, JPEG q0.82); each shot uploads the instant it's taken as its own POST with 3× retry (0.5s/1.5s/3s backoff); per-slot status dots (grey/pulsing/green/red tap-to-retry) + retake/remove; Done blocked while uploading/failed, disabled at 0, nudge under 3; ✕ back-to-search deletes uploaded photos in reshoot mode; add-path trailing details step (category grid + 3-mode seller picker reusing seller-search endpoint). getUserMedia rear camera with file-input capture=environment fallback; HEIC normalized via canvas.
 admin/warehouse_search_results.html — Search results partial (no layout). Item rows with "Select Unit" inline picker that expands below the row, camera button for needs_new_photo items. Location autosave via existing POST /admin/item/<id>/set_location. Green unit chip shown when item already has storage_location_id set (instead of showing nothing).
 admin/ai_generate.html         — Manual AI-autofill control page: eligible count, last-run stats, model selector, Run button, live progress, run history. Standalone (not nav-linked); the automatic _ai_queue worker is the primary generation path.
 admin/ai_review.html           — AI review queue: card grid of items with ai_review_pending=True; opens the AI review modal. Same actions are embedded in the items.html approval modal.
@@ -948,6 +970,36 @@ Category is now collected at crew quick capture (required in UI, null-safe on ba
 Delete: mover can hard-delete own captures (photo + DB) while status is `pending_valuation` or `needs_info`. Admin can hard-delete any QC item via standard item delete.
 
 QC items are excluded from: standard approval queue, approval digest email, pending-items counts in admin stats bar.
+
+### Warehouse Re-Photography (rephoto)
+Search-first guided three-shot (front/side/back) capture flow for campus directors walking the
+warehouse — `/admin/warehouse/rephoto`, all routes `_has_ops_access()`.
+
+- **Why search-first:** the crew reorganized every storage unit (grouped by category), so the
+  warehouse tab's unit→item mapping is stale — browsing by unit can't find the item in hand.
+- `REPHOTO_SYNONYMS` (module-level dict in `app.py`) — one-level synonym expansion per query token
+  (couch → sofa/futon/loveseat/…); non-key tokens searched literally. ILIKE over
+  `description`, `long_description`, and joined `InventoryCategory.name`.
+- `_downscale_image(file_obj, max_edge=1600, quality=85)` — server-side Pillow bound (resize longest
+  edge, re-encode JPEG, strips EXIF via re-encode after exif_transpose). Defense-in-depth behind the
+  client's canvas compression (≤1600px, JPEG q0.82); covers the file-input fallback path.
+- `_rephoto_campaign_start_utc()` / `_rephoto_reshot_item_ids(item_ids)` — campaign boundary +
+  single-query ✓-badge set for a result page.
+- `_create_proxy_seller_from_form(form, proxy_note)` — extracted from `admin_warehouse_log_item`;
+  shared proxy-seller creation (payout_rate=50, `is_proxy_account=True`, flushed not committed) used
+  by both Log Item and the rephoto details step.
+- Reliability contract: each photo uploads the instant it is taken as its own multipart POST
+  (never batched), client retries 3× (0.5s/1.5s/3s), red tap-to-retry dot on final failure, Done
+  blocked while any upload is pending/failed.
+- Photos land as `ItemPhoto(captured_at=utcnow, view, sort_order=max+1, is_hidden=False)` with
+  filename `rephoto_<item_id>_<view>_<uuid8>.jpg` — the dated batch a later post-process pass
+  (background removal, hide pre-campaign photos, promote front to cover) will operate on. This flow
+  itself NEVER touches `item.photo_url` (cover), `item.status`, or `item.ai_generated_at`.
+- Add path: stub created immediately (internal seller, `is_quick_capture=True`,
+  `pending_valuation`, category NULL) → capture 3 → details step (category required + seller).
+  Details save enqueues `_ai_queue` directly — stubs have no cover so the startup requeue
+  (which filters on `photo_url`) would never see them; the AI text phase reads gallery photos.
+  Abandoned stubs stay internal-owned pending items (accepted).
 
 ### AI Autofill Pipeline
 When an item is submitted, its id is enqueued to an in-process `_ai_queue` (`queue.Queue`) drained by a single daemon thread (`_ai_queue_worker`) — items process one at a time to avoid the multi-item crash that the old batch run caused. The seller never waits on it.

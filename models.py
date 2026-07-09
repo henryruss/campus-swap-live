@@ -201,7 +201,8 @@ class InventoryItem(db.Model):
     
     photo_url = db.Column(db.String(200), nullable=True)
     video_url = db.Column(db.String(200), nullable=True)  # Demo video filename (electronics required, others optional)
-    gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True, cascade='all, delete-orphan')
+    gallery_photos = db.relationship('ItemPhoto', backref='item', lazy=True, cascade='all, delete-orphan',
+                                     order_by='ItemPhoto.sort_order, ItemPhoto.id')
 
     # Price transparency: True when seller has acknowledged that we changed their suggested price
     price_changed_acknowledged = db.Column(db.Boolean, default=False)
@@ -269,6 +270,10 @@ class ItemPhoto(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     photo_url = db.Column(db.String(200), nullable=False)
     is_hidden = db.Column(db.Boolean, default=False, server_default='0', nullable=False)
+    # Warehouse re-photography campaign fields. NULL captured_at/view = legacy pre-campaign photo.
+    captured_at = db.Column(db.DateTime, nullable=True)  # UTC; set only by the rephoto capture flow
+    sort_order = db.Column(db.Integer, default=0, server_default='0', nullable=False)
+    view = db.Column(db.String(10), nullable=True)  # 'front' | 'side' | 'back' | NULL (legacy)
 
 
 class ItemReservation(db.Model):

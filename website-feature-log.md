@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-06-18 (Spec B — Cart, Multi-Item Checkout & Bundle & Save)
+> **Last updated:** 2026-07-08 (Warehouse Re-Photography)
 
 ---
 
@@ -1132,3 +1132,9 @@ Grouped by area for on-campus pickup dropdown:
 - `purchase` event on `/item_success` (cart-order flow only, when `order` and `order.total_paid` are set): `transaction_id`, `value`, `currency: 'USD'`, `tax`, `items` array (one per BuyerOrder line, using `item_price_paid`).
 - `begin_checkout` event on `/checkout/delivery`.
 - `view_cart` event on `/cart`.
+
+---
+
+## Warehouse Re-Photography (2026-07-08)
+
+Search-first guided three-shot (front/side/back) capture flow for campus directors re-photographing every warehouse item — per-photo instant compressed upload with retry, ✓ "Re-shot today" badge, add-missing-item path. Routes: `GET /admin/warehouse/rephoto`, `GET /admin/warehouse/rephoto/search`, `POST /admin/warehouse/rephoto/add-item`, `POST /admin/warehouse/rephoto/<item_id>/photo`, `POST /admin/warehouse/rephoto/<item_id>/details`, `POST /admin/warehouse/rephoto/photo/<photo_id>/delete` (all `_has_ops_access()`).

@@ -1,0 +1,608 @@
+{# Full-screen guided three-shot capture modal (no layout — included by rephoto.html).
+   Purpose-built for the re-photography campaign: front/side/back state machine,
+   per-photo instant upload with retry, per-slot retake/remove, add-path details step.
+   Deliberately separate from _qc_camera_block.html so QC / Log Item / replace-photo
+   flows are untouched. #}
+<style>
+  #rp-capture-overlay {
+    display:none; position:fixed; inset:0; background:var(--primary); z-index:2000;
+    flex-direction:column;
+  }
+  #rp-capture-overlay.open { display:flex; }
+
+  .rpc-header {
+    display:flex; align-items:center; gap:12px; padding:12px 16px;
+    background:rgba(0,0,0,0.25); flex-shrink:0;
+  }
+  .rpc-header-thumb { width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--bg-cream); flex-shrink:0; }
+  .rpc-header-thumb--empty { display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
+  .rpc-header-meta { flex:1; min-width:0; color:var(--text-light); }
+  .rpc-header-title { font-weight:700; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rpc-header-sub { font-size:0.72rem; opacity:0.75; }
+  .rpc-close-btn {
+    flex-shrink:0; background:none; border:1.5px solid rgba(255,255,255,0.4); color:var(--text-light);
+    border-radius:999px; padding:7px 14px; font-size:0.8rem; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+
+  .rpc-body { flex:1; overflow-y:auto; display:flex; flex-direction:column; padding:14px 16px 20px; }
+
+  .rpc-prompt { text-align:center; color:var(--text-light); margin-bottom:10px; }
+  .rpc-prompt .rpc-prompt-view { font-size:1.5rem; font-weight:800; letter-spacing:0.14em; }
+  .rpc-prompt .rpc-prompt-sub { font-size:0.8rem; opacity:0.75; margin-top:2px; }
+
+  .rpc-camera-area { position:relative; border-radius:14px; overflow:hidden; background:#000; aspect-ratio:3/4; max-height:52vh; margin:0 auto; width:100%; max-width:440px; }
+  #rpc-video { width:100%; height:100%; object-fit:cover; display:block; }
+  #rpc-snap-btn {
+    position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+    width:66px; height:66px; border-radius:50%; background:white; border:4px solid rgba(255,255,255,0.5);
+    cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,0.35);
+  }
+  #rpc-fileinput-wrap {
+    display:none; border-radius:14px; border:2px dashed rgba(255,255,255,0.5); color:var(--text-light);
+    aspect-ratio:3/4; max-height:52vh; margin:0 auto; width:100%; max-width:440px; cursor:pointer;
+    align-items:center; justify-content:center; flex-direction:column; gap:12px; box-sizing:border-box;
+  }
+
+  .rpc-slots { display:flex; gap:10px; justify-content:center; margin-top:14px; }
+  .rpc-slot {
+    width:88px; text-align:center; cursor:pointer; border:2px solid transparent; border-radius:12px; padding:6px;
+  }
+  .rpc-slot.current { border-color:var(--accent); }
+  .rpc-slot-thumb {
+    width:100%; aspect-ratio:1; border-radius:8px; background:rgba(255,255,255,0.12); object-fit:cover; display:block;
+  }
+  .rpc-slot-thumb--empty { display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,0.55); font-size:1.1rem; }
+  .rpc-slot-label { font-size:0.68rem; font-weight:800; color:var(--text-light); letter-spacing:0.08em; margin-top:5px; display:flex; align-items:center; justify-content:center; gap:5px; }
+  .rpc-dot { width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,0.35); flex-shrink:0; }
+  .rpc-dot--uploading { background:var(--accent); animation:rpc-pulse 0.9s ease-in-out infinite; }
+  .rpc-dot--done { background:var(--sage); }
+  .rpc-dot--failed { background:#dc2626; }
+  @keyframes rpc-pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  .rpc-slot-action { font-size:0.64rem; color:rgba(255,255,255,0.7); margin-top:3px; text-decoration:underline; }
+
+  .rpc-footer { display:flex; gap:10px; justify-content:center; margin-top:16px; flex-shrink:0; }
+  #rpc-done-btn {
+    background:var(--accent); color:white; border:none; border-radius:12px; padding:13px 42px;
+    font-size:1rem; font-weight:800; cursor:pointer; font-family:inherit;
+  }
+  #rpc-done-btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .rpc-error { display:none; background:#fee2e2; border:1px solid #fca5a5; border-radius:8px; padding:10px 14px; font-size:0.85rem; color:#991b1b; margin:10px auto 0; max-width:440px; }
+
+  /* Details step (add path) */
+  #rpc-details-step { display:none; flex:1; overflow-y:auto; }
+  .rpc-details-card { background:white; border-radius:16px; padding:18px; max-width:480px; margin:0 auto; width:100%; box-sizing:border-box; }
+  .rpc-label { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); display:block; margin-bottom:8px; }
+  .rpc-cat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
+  .rpc-cat-btn { border:1.5px solid var(--rule); border-radius:10px; background:white; padding:10px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:0.72rem; font-weight:600; color:var(--text-muted); font-family:inherit; }
+  .rpc-cat-btn.selected { border-color:var(--primary); background:var(--bg-cream); color:var(--primary); }
+  .rpc-radio-option { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; border:1.5px solid var(--rule); border-radius:10px; cursor:pointer; margin-bottom:8px; }
+  .rpc-radio-option.selected { border-color:var(--primary); background:var(--bg-cream); }
+  .rpc-radio-option input[type=radio] { flex-shrink:0; margin-top:3px; accent-color:var(--primary); }
+  .rpc-radio-title { font-weight:700; font-size:0.88rem; color:var(--text-main); }
+  .rpc-radio-sub { font-size:0.76rem; color:var(--text-muted); }
+  .rpc-input { width:100%; padding:9px 12px; border:1.5px solid var(--rule); border-radius:9px; font-size:0.88rem; outline:none; box-sizing:border-box; margin-bottom:8px; font-family:inherit; }
+  .rpc-input:focus { border-color:var(--primary); }
+  .rpc-seller-results { background:white; border:1.5px solid var(--rule); border-radius:9px; max-height:170px; overflow-y:auto; display:none; margin-bottom:8px; }
+  .rpc-seller-row { padding:8px 12px; cursor:pointer; font-size:0.84rem; border-bottom:1px solid var(--bg-cream); }
+  .rpc-seller-row:hover { background:var(--bg-cream); }
+  #rpc-save-btn { width:100%; background:var(--accent); color:white; border:none; border-radius:12px; padding:13px; font-size:1rem; font-weight:800; cursor:pointer; font-family:inherit; margin-top:6px; }
+  #rpc-save-btn:disabled { opacity:0.4; cursor:not-allowed; }
+</style>
+
+<div id="rp-capture-overlay">
+  <div class="rpc-header">
+    <img id="rpc-header-thumb" class="rpc-header-thumb" src="" alt="" style="display:none;">
+    <div id="rpc-header-thumb-empty" class="rpc-header-thumb rpc-header-thumb--empty" style="display:none;"><i class="fas fa-image"></i></div>
+    <div class="rpc-header-meta">
+      <div class="rpc-header-title" id="rpc-header-title"></div>
+      <div class="rpc-header-sub" id="rpc-header-sub">Not this one? Close to go back to search.</div>
+    </div>
+    <button type="button" class="rpc-close-btn" onclick="rpAbandon()">&#10005; back to search</button>
+  </div>
+
+  {# ── Capture step ── #}
+  <div class="rpc-body" id="rpc-capture-step">
+    <div class="rpc-prompt">
+      <div class="rpc-prompt-view" id="rpc-prompt-view">FRONT</div>
+      <div class="rpc-prompt-sub" id="rpc-prompt-sub">Line up the item and shoot</div>
+    </div>
+
+    <div class="rpc-camera-area" id="rpc-camera-area">
+      <video id="rpc-video" autoplay playsinline muted></video>
+      <button type="button" id="rpc-snap-btn" aria-label="Take photo"></button>
+    </div>
+    <div id="rpc-fileinput-wrap" onclick="document.getElementById('rpc-file-input').click()">
+      <i class="fas fa-camera" style="font-size:2.2rem;"></i>
+      <span style="font-weight:700;">Tap to take photo</span>
+      <span style="font-size:0.78rem; opacity:0.75;">Camera unavailable in-page — opens your camera app</span>
+    </div>
+    <input id="rpc-file-input" type="file" accept="image/*" capture="environment" style="display:none;">
+    <canvas id="rpc-canvas" style="display:none;"></canvas>
+
+    <div id="rpc-error" class="rpc-error"></div>
+
+    <div class="rpc-slots" id="rpc-slots"></div>
+
+    <div class="rpc-footer">
+      <button type="button" id="rpc-done-btn" onclick="rpDone()" disabled>Done</button>
+    </div>
+  </div>
+
+  {# ── Details step (add path only) ── #}
+  <div class="rpc-body" id="rpc-details-step">
+    <div class="rpc-details-card">
+      <label class="rpc-label">Category <span style="color:#dc2626;">*</span></label>
+      <div class="rpc-cat-grid">
+        {% for cat in categories %}
+        <button type="button" class="rpc-cat-btn" data-cat-id="{{ cat.id }}">
+          <i class="fas {{ cat.icon or cat.image_url or 'fa-box' }}" style="font-size:1rem;"></i>
+          {{ cat.name }}
+        </button>
+        {% endfor %}
+      </div>
+
+      <label class="rpc-label">Seller</label>
+      <div class="rpc-radio-option selected" data-mode="internal">
+        <input type="radio" name="rpc_seller_mode" value="internal" checked>
+        <div>
+          <div class="rpc-radio-title">Campus Swap owns it</div>
+          <div class="rpc-radio-sub">No payout owed</div>
+        </div>
+      </div>
+      <div class="rpc-radio-option" data-mode="existing">
+        <input type="radio" name="rpc_seller_mode" value="existing">
+        <div style="flex:1; min-width:0;">
+          <div class="rpc-radio-title">Existing seller</div>
+          <div id="rpc-existing-wrap" style="display:none; margin-top:8px;">
+            <input type="text" id="rpc-seller-search" class="rpc-input" placeholder="Search by name or email&hellip;" autocomplete="off">
+            <div id="rpc-seller-results" class="rpc-seller-results"></div>
+          </div>
+        </div>
+      </div>
+      <div class="rpc-radio-option" data-mode="new">
+        <input type="radio" name="rpc_seller_mode" value="new">
+        <div style="flex:1; min-width:0;">
+          <div class="rpc-radio-title">New word-of-mouth seller</div>
+          <div class="rpc-radio-sub">50% payout &middot; proxy account created</div>
+          <div id="rpc-new-wrap" style="display:none; margin-top:8px;">
+            <input type="text" id="rpc-new-name" class="rpc-input" placeholder="Full name *" autocomplete="off">
+            <input type="email" id="rpc-new-email" class="rpc-input" placeholder="Email (required if no phone)" autocomplete="off">
+            <input type="tel" id="rpc-new-phone" class="rpc-input" placeholder="Phone (required if no email)" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div id="rpc-details-error" class="rpc-error" style="margin-top:8px;"></div>
+      <button type="button" id="rpc-save-btn" onclick="rpSaveDetails()">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var VIEWS = ['front', 'side', 'back'];
+  var RETRY_DELAYS = [500, 1500, 3000];
+  var MAX_EDGE = 1600;
+  var JPEG_QUALITY = 0.82;
+
+  var _rp = null;        // active session state
+  var _rpStream = null;  // getUserMedia stream
+  var _rpUseFile = false;
+
+  function csrf() { return (typeof _rpCsrf !== 'undefined') ? _rpCsrf : ''; }
+
+  function freshSlots() {
+    var s = {};
+    VIEWS.forEach(function(v) { s[v] = { status: 'empty', photoId: null, blob: null, thumbUrl: null }; });
+    return s;
+  }
+
+  // ── Open / close ──
+  window.rpOpenCapture = function(opts) {
+    _rp = {
+      mode: opts.mode,               // 'reshoot' | 'add'
+      itemId: opts.itemId,
+      label: opts.label,
+      coverUrl: opts.coverUrl,
+      slots: freshSlots(),
+      current: 'front',
+      catId: null,
+      selectedSellerId: null
+    };
+    var thumb = document.getElementById('rpc-header-thumb');
+    var thumbEmpty = document.getElementById('rpc-header-thumb-empty');
+    if (opts.coverUrl) {
+      thumb.src = opts.coverUrl; thumb.style.display = 'block'; thumbEmpty.style.display = 'none';
+    } else {
+      thumb.style.display = 'none'; thumbEmpty.style.display = 'flex';
+    }
+    document.getElementById('rpc-header-title').textContent =
+      (opts.mode === 'add' ? 'New item: ' : 'Reshooting: ') + opts.label;
+    document.getElementById('rpc-capture-step').style.display = 'flex';
+    document.getElementById('rpc-details-step').style.display = 'none';
+    clearError();
+    clearDetailsError();
+    resetDetailsUI();
+    renderSlots();
+    updatePrompt();
+    updateDone();
+    document.getElementById('rp-capture-overlay').classList.add('open');
+    startCamera();
+  };
+
+  function closeOverlay() {
+    stopCamera();
+    document.getElementById('rp-capture-overlay').classList.remove('open');
+    VIEWS.forEach(function(v) {
+      var s = _rp && _rp.slots[v];
+      if (s && s.thumbUrl) URL.revokeObjectURL(s.thumbUrl);
+    });
+    _rp = null;
+    if (typeof rpRefreshSearch === 'function') rpRefreshSearch();
+  }
+
+  window.rpAbandon = function() {
+    if (!_rp) return;
+    var uploaded = VIEWS.filter(function(v){ return _rp.slots[v].photoId; });
+    if (_rp.mode === 'reshoot' && uploaded.length) {
+      if (!confirm('Leave without saving? The ' + uploaded.length + ' photo(s) taken here will be discarded.')) return;
+      uploaded.forEach(function(v) { deleteServerPhoto(_rp.slots[v].photoId); });
+    } else if (_rp.mode === 'add') {
+      if (!confirm('Leave this item unfinished? It will stay in the queue as a Campus Swap item.')) return;
+    }
+    closeOverlay();
+  };
+
+  // ── Camera ──
+  function startCamera() {
+    _rpUseFile = false;
+    var cameraArea = document.getElementById('rpc-camera-area');
+    var fileWrap = document.getElementById('rpc-fileinput-wrap');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      _rpUseFile = true;
+      cameraArea.style.display = 'none';
+      fileWrap.style.display = 'flex';
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+      .then(function(s) {
+        _rpStream = s;
+        document.getElementById('rpc-video').srcObject = s;
+        cameraArea.style.display = 'block';
+        fileWrap.style.display = 'none';
+      })
+      .catch(function() {
+        _rpUseFile = true;
+        cameraArea.style.display = 'none';
+        fileWrap.style.display = 'flex';
+      });
+  }
+
+  function stopCamera() {
+    if (_rpStream) { _rpStream.getTracks().forEach(function(t){ t.stop(); }); _rpStream = null; }
+    var v = document.getElementById('rpc-video');
+    if (v) v.srcObject = null;
+  }
+
+  document.getElementById('rpc-snap-btn').addEventListener('click', function() {
+    var v = document.getElementById('rpc-video');
+    if (!_rpStream || !v.videoWidth || !_rp) return;
+    compressToBlob(v, v.videoWidth, v.videoHeight, function(blob) {
+      captureIntoSlot(_rp.current, blob);
+    });
+  });
+
+  document.getElementById('rpc-file-input').addEventListener('change', function() {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f || !_rp) return;
+    // Draw through a canvas: normalizes HEIC → JPEG and applies compression
+    var url = URL.createObjectURL(f);
+    var img = new Image();
+    img.onload = function() {
+      compressToBlob(img, img.naturalWidth, img.naturalHeight, function(blob) {
+        URL.revokeObjectURL(url);
+        captureIntoSlot(_rp.current, blob);
+      });
+    };
+    img.onerror = function() {
+      URL.revokeObjectURL(url);
+      showError('Could not read that image — try again.');
+    };
+    img.src = url;
+  });
+
+  function compressToBlob(source, srcW, srcH, cb) {
+    var scale = Math.min(1, MAX_EDGE / Math.max(srcW, srcH));
+    var c = document.getElementById('rpc-canvas');
+    c.width = Math.round(srcW * scale);
+    c.height = Math.round(srcH * scale);
+    c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+    c.toBlob(function(blob) {
+      if (blob) cb(blob);
+      else showError('Could not process the photo — try again.');
+    }, 'image/jpeg', JPEG_QUALITY);
+  }
+
+  // ── Slots + state machine ──
+  function captureIntoSlot(view, blob) {
+    clearError();
+    var slot = _rp.slots[view];
+    if (slot.photoId) {
+      // Retake of an already-uploaded slot: remove the old server photo first
+      deleteServerPhoto(slot.photoId);
+      slot.photoId = null;
+    }
+    if (slot.thumbUrl) URL.revokeObjectURL(slot.thumbUrl);
+    slot.blob = blob;
+    slot.thumbUrl = URL.createObjectURL(blob);
+    slot.status = 'uploading';
+    renderSlots();
+    updateDone();
+    uploadSlot(view, 0);
+    advanceCurrent();
+  }
+
+  function uploadSlot(view, attempt) {
+    var session = _rp;
+    var slot = session.slots[view];
+    var fd = new FormData();
+    fd.append('csrf_token', csrf());
+    fd.append('view', view);
+    fd.append('photo', slot.blob, 'rephoto_' + view + '.jpg');
+    fetch('/admin/warehouse/rephoto/' + session.itemId + '/photo',
+          { method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf() } })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (!data.success) throw new Error(data.error || 'Upload failed');
+        if (_rp !== session) return;   // modal was closed/reopened mid-flight
+        slot.photoId = data.photo_id;
+        slot.status = 'done';
+        renderSlots();
+        updateDone();
+      })
+      .catch(function() {
+        if (_rp !== session) return;
+        if (attempt < RETRY_DELAYS.length) {
+          setTimeout(function() {
+            if (_rp === session && slot.status === 'uploading') uploadSlot(view, attempt + 1);
+          }, RETRY_DELAYS[attempt]);
+        } else {
+          slot.status = 'failed';
+          renderSlots();
+          updateDone();
+        }
+      });
+  }
+
+  function advanceCurrent() {
+    for (var i = 0; i < VIEWS.length; i++) {
+      if (_rp.slots[VIEWS[i]].status === 'empty') { _rp.current = VIEWS[i]; updatePrompt(); renderSlots(); return; }
+    }
+    updatePrompt();
+    renderSlots();
+  }
+
+  function updatePrompt() {
+    var allShot = VIEWS.every(function(v){ return _rp.slots[v].status !== 'empty'; });
+    document.getElementById('rpc-prompt-view').textContent = allShot ? '✓ ALL 3' : _rp.current.toUpperCase();
+    document.getElementById('rpc-prompt-sub').textContent = allShot
+      ? 'Tap a shot below to retake, or hit Done'
+      : 'Line up the ' + _rp.current + ' of the item and shoot';
+  }
+
+  function renderSlots() {
+    var wrap = document.getElementById('rpc-slots');
+    wrap.innerHTML = '';
+    VIEWS.forEach(function(v) {
+      var slot = _rp.slots[v];
+      var el = document.createElement('div');
+      el.className = 'rpc-slot' + (v === _rp.current && slot.status === 'empty' ? ' current' : '');
+      var thumbHtml = slot.thumbUrl
+        ? '<img class="rpc-slot-thumb" src="' + slot.thumbUrl + '" alt="">'
+        : '<div class="rpc-slot-thumb rpc-slot-thumb--empty"><i class="fas fa-camera"></i></div>';
+      var dotClass = { uploading: 'rpc-dot--uploading', done: 'rpc-dot--done', failed: 'rpc-dot--failed' }[slot.status] || '';
+      var action = '';
+      if (slot.status === 'failed') action = '<div class="rpc-slot-action">tap to retry &middot; or remove</div>';
+      else if (slot.status === 'done') action = '<div class="rpc-slot-action">retake</div>';
+      el.innerHTML = thumbHtml +
+        '<div class="rpc-slot-label"><span class="rpc-dot ' + dotClass + '"></span>' + v.toUpperCase() + '</div>' + action;
+      el.addEventListener('click', function(e) { onSlotTap(v, e); });
+      wrap.appendChild(el);
+    });
+  }
+
+  function onSlotTap(view, e) {
+    var slot = _rp.slots[view];
+    if (slot.status === 'failed') {
+      // Alt-action: remove the failed shot entirely (long tap not needed — offer via confirm)
+      if (e.target.closest('.rpc-slot-action') && confirm('Remove this failed shot instead of retrying?')) {
+        if (slot.thumbUrl) URL.revokeObjectURL(slot.thumbUrl);
+        _rp.slots[view] = { status: 'empty', photoId: null, blob: null, thumbUrl: null };
+        _rp.current = view;
+        updatePrompt(); renderSlots(); updateDone();
+        return;
+      }
+      slot.status = 'uploading';
+      renderSlots(); updateDone();
+      uploadSlot(view, 0);
+    } else if (slot.status === 'done') {
+      // Retake: point the camera at this slot; next shot replaces it
+      _rp.current = view;
+      updatePrompt(); renderSlots();
+    } else if (slot.status === 'empty') {
+      _rp.current = view;
+      updatePrompt(); renderSlots();
+    }
+  }
+
+  function updateDone() {
+    var doneCount = 0, busy = false;
+    VIEWS.forEach(function(v) {
+      var st = _rp.slots[v].status;
+      if (st === 'done') doneCount++;
+      if (st === 'uploading' || st === 'failed') busy = true;
+    });
+    document.getElementById('rpc-done-btn').disabled = (doneCount === 0 || busy);
+  }
+
+  window.rpDone = function() {
+    if (!_rp) return;
+    var doneCount = VIEWS.filter(function(v){ return _rp.slots[v].status === 'done'; }).length;
+    if (doneCount < 3) {
+      if (!confirm('Only ' + doneCount + ' of 3 — front / side / back recommended. Save anyway?')) return;
+    }
+    if (_rp.mode === 'add') {
+      stopCamera();
+      document.getElementById('rpc-capture-step').style.display = 'none';
+      document.getElementById('rpc-details-step').style.display = 'flex';
+    } else {
+      closeOverlay();
+    }
+  };
+
+  function deleteServerPhoto(photoId) {
+    var fd = new FormData();
+    fd.append('csrf_token', csrf());
+    fetch('/admin/warehouse/rephoto/photo/' + photoId + '/delete',
+          { method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf() } })
+      .catch(function(){ /* best-effort cleanup */ });
+  }
+
+  function showError(msg) {
+    var el = document.getElementById('rpc-error');
+    el.textContent = msg; el.style.display = 'block';
+  }
+  function clearError() {
+    var el = document.getElementById('rpc-error');
+    el.style.display = 'none'; el.textContent = '';
+  }
+
+  // ── Details step (add path) ──
+  function resetDetailsUI() {
+    document.querySelectorAll('.rpc-cat-btn').forEach(function(b){ b.classList.remove('selected'); });
+    setSellerMode('internal');
+    document.getElementById('rpc-seller-search').value = '';
+    document.getElementById('rpc-seller-results').style.display = 'none';
+    document.getElementById('rpc-new-name').value = '';
+    document.getElementById('rpc-new-email').value = '';
+    document.getElementById('rpc-new-phone').value = '';
+    var saveBtn = document.getElementById('rpc-save-btn');
+    saveBtn.disabled = false; saveBtn.textContent = 'Save Item';
+  }
+
+  document.querySelectorAll('.rpc-cat-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.rpc-cat-btn').forEach(function(b){ b.classList.remove('selected'); });
+      btn.classList.add('selected');
+      if (_rp) _rp.catId = parseInt(btn.dataset.catId, 10);
+    });
+  });
+
+  function setSellerMode(mode) {
+    document.querySelectorAll('.rpc-radio-option').forEach(function(opt) {
+      var isIt = opt.dataset.mode === mode;
+      opt.classList.toggle('selected', isIt);
+      opt.querySelector('input[type=radio]').checked = isIt;
+    });
+    document.getElementById('rpc-existing-wrap').style.display = mode === 'existing' ? 'block' : 'none';
+    document.getElementById('rpc-new-wrap').style.display = mode === 'new' ? 'block' : 'none';
+    if (mode !== 'existing' && _rp) _rp.selectedSellerId = null;
+  }
+
+  document.querySelectorAll('.rpc-radio-option').forEach(function(opt) {
+    opt.addEventListener('click', function() { setSellerMode(opt.dataset.mode); });
+  });
+
+  var _rpcSellerTimer = null;
+  document.getElementById('rpc-seller-search').addEventListener('input', function() {
+    var q = this.value;
+    clearTimeout(_rpcSellerTimer);
+    var res = document.getElementById('rpc-seller-results');
+    if (q.trim().length < 2) { res.style.display = 'none'; return; }
+    _rpcSellerTimer = setTimeout(function() {
+      fetch('/admin/warehouse/seller-search?q=' + encodeURIComponent(q.trim()))
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+          res.innerHTML = '';
+          if (!data.length) {
+            res.innerHTML = '<div style="padding:10px 12px;font-size:0.8rem;color:var(--text-muted);">No sellers found</div>';
+          } else {
+            data.forEach(function(s) {
+              var row = document.createElement('div');
+              row.className = 'rpc-seller-row';
+              row.innerHTML = '<strong></strong> <span style="color:var(--text-muted);font-size:0.75rem;"></span>';
+              row.querySelector('strong').textContent = s.name || '';
+              row.querySelector('span').textContent = s.email + ' · ' + s.item_count + ' items · ' + s.payout_rate + '%';
+              row.addEventListener('click', function() {
+                if (_rp) _rp.selectedSellerId = s.id;
+                document.getElementById('rpc-seller-search').value = (s.name || s.email);
+                res.style.display = 'none';
+              });
+              res.appendChild(row);
+            });
+          }
+          res.style.display = 'block';
+        });
+    }, 300);
+  });
+
+  function showDetailsError(msg) {
+    var el = document.getElementById('rpc-details-error');
+    el.textContent = msg; el.style.display = 'block';
+  }
+  function clearDetailsError() {
+    var el = document.getElementById('rpc-details-error');
+    el.style.display = 'none'; el.textContent = '';
+  }
+
+  window.rpSaveDetails = function() {
+    if (!_rp) return;
+    clearDetailsError();
+    if (!_rp.catId) { showDetailsError('Pick a category first.'); return; }
+
+    var mode = 'internal';
+    var checked = document.querySelector('input[name="rpc_seller_mode"]:checked');
+    if (checked) mode = checked.value;
+
+    var fd = new FormData();
+    fd.append('csrf_token', csrf());
+    fd.append('category_id', _rp.catId);
+    fd.append('seller_mode', mode);
+    if (mode === 'existing') {
+      if (!_rp.selectedSellerId) { showDetailsError('Select a seller from the search results.'); return; }
+      fd.append('existing_seller_id', _rp.selectedSellerId);
+    } else if (mode === 'new') {
+      var nm = document.getElementById('rpc-new-name').value.trim();
+      var em = document.getElementById('rpc-new-email').value.trim();
+      var ph = document.getElementById('rpc-new-phone').value.trim();
+      if (!nm) { showDetailsError('Name required.'); return; }
+      if (!em && !ph) { showDetailsError('At least one of email or phone required.'); return; }
+      fd.append('new_name', nm);
+      if (em) fd.append('new_email', em);
+      if (ph) fd.append('new_phone', ph);
+    }
+
+    var saveBtn = document.getElementById('rpc-save-btn');
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    fetch('/admin/warehouse/rephoto/' + _rp.itemId + '/details',
+          { method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf() } })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.success) {
+          closeOverlay();
+        } else {
+          showDetailsError(res.data.error || 'Something went wrong.');
+          saveBtn.disabled = false; saveBtn.textContent = 'Save Item';
+        }
+      })
+      .catch(function() {
+        showDetailsError('Network error — try again.');
+        saveBtn.disabled = false; saveBtn.textContent = 'Save Item';
+      });
+  };
+})();
+</script>

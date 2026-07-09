@@ -7,6 +7,37 @@
 
 ---
 
+## Warehouse Re-Photography (2026-07-08)
+
+### Decision: Search-first, not unit-first
+**Reasoning:** The crew reorganized every storage unit (now grouped by category), so the warehouse tab's unit→item mapping no longer matches physical reality — browsing by unit cannot find the item a director is holding. The rephoto flow is a debounced, synonym-expanded search (`REPHOTO_SYNONYMS`) with the current cover thumbnail in every result row so a lookalike mini-fridge can be eyeball-matched before shooting.
+
+### Decision: `captured_at IS NULL` means "legacy / pre-campaign" — no backfill
+**Reasoning:** Backfilling thousands of production `ItemPhoto` rows adds migration risk and buys nothing: NULL already reads unambiguously as "not taken in this campaign" everywhere it matters (✓ badge, the later post-process pass). Migration `4091b1a0e9c8` only adds columns.
+
+### Decision: `is_hidden` is scaffolding — added (earlier) but not consumed by this feature
+**Reasoning:** The post-process spec (background removal + hiding pre-campaign photos + promoting a front shot to cover) will consume it. Note: `is_hidden` actually pre-dated this build (migration `195e2dc3e376`, used by Shop Edit Mode's `visible_gallery_photos`); rephoto captures just set it `False` explicitly and never read it.
+
+### Decision: Upload each photo the instant it's taken — never batch the three shots
+**Reasoning:** This is the exact failure mode the feature kills: batching three full-size photos into one request over flaky warehouse wifi is how the old edit-page flow lost work. One small (client-compressed ≤1600px / q0.82) POST per shot + 3× backoff retry + per-slot red tap-to-retry dot means one dead zone costs one photo's retry, not the whole session. Done is blocked until every upload settles.
+
+### Decision: Dual compression — client canvas AND server `_downscale_image()`
+**Reasoning:** The canvas path (≤1600px, JPEG q0.82) is the primary bound and also normalizes iOS HEIC to JPEG for free. The server-side Pillow pass (≤1600px, q85, EXIF stripped) is defense-in-depth for the file-input fallback, which can hand over a full-res original when getUserMedia is denied.
+
+### Decision: Add-path stub defaults to the internal Campus Swap account; abandonment leaves the stub
+**Reasoning:** Creating the stub before capture means photos always have an item to attach to (no client-side orphan state). Internal ownership + `pending_valuation` + `is_quick_capture=True` puts abandoned stubs in the existing QC cleanup surface instead of inventing a new one. Proxy sellers created from the details step get `payout_rate=50`, same as Log Item (shared `_create_proxy_seller_from_form()` — extracted, not forked).
+
+### Decision: Details save enqueues `_ai_queue` directly (deviation from spec's eligibility note)
+**Reasoning:** The spec said stubs are AI-eligible "because `ai_generated_at IS NULL`", but the actual pipeline sentinel is `ai_description IS NULL` and the startup requeue filters on `photo_url` being set — and rephoto never sets a cover (hard constraint). Direct enqueue after details save is the minimal path that keeps both the never-touch-cover rule and the "picked up by AI autofill" requirement; the AI text phase already reads gallery photos.
+
+### Decision: `admin_rephoto_delete_photo` refuses legacy photos (`captured_at IS NULL`)
+**Reasoning:** The endpoint exists for per-slot retake/remove during a capture session. Guarding on `captured_at` means a bad client call can never delete a seller's original gallery photo.
+
+### Decision: Purpose-built capture modal; `_qc_camera_block.html` untouched
+**Reasoning:** The QC block is shared by crew quick capture, Log Item, and replace-photo. The rephoto modal needs a three-slot state machine, per-photo upload status, and a details step — overloading the shared block would put all three existing flows at regression risk during an active campaign.
+
+---
+
 ## Meta Catalog Feed + GA4 Events (2026-06-28)
 
 ### Decision: `/catalog.xml` is intentionally public (no auth)

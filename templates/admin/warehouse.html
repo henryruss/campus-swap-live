@@ -59,10 +59,16 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="wh-top">
     <h1><i class="fas fa-warehouse" style="margin-right:10px;color:var(--sage);"></i>Warehouse Floor</h1>
-    <button class="btn-primary" onclick="openLogModal(null)"
-            style="padding:10px 20px; font-size:0.92rem;">
-      <i class="fas fa-plus"></i> Log Item
-    </button>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a href="{{ url_for('admin_rephoto_page') }}" class="btn-outline"
+         style="padding:10px 20px; font-size:0.92rem; text-decoration:none;">
+        <i class="fas fa-camera"></i> Re-Photograph Items
+      </a>
+      <button class="btn-primary" onclick="openLogModal(null)"
+              style="padding:10px 20px; font-size:0.92rem;">
+        <i class="fas fa-plus"></i> Log Item
+      </button>
+    </div>
   </div>
 
   {# Search / Route Browse tabs #}

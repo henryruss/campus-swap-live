@@ -1,0 +1,38 @@
+{# HTML partial (no layout) — rephoto search result rows. Injected into #rp-results by rephoto.html. #}
+{% if items %}
+  {% for item in items %}
+  {% set label = item.description or ('Untitled item #' ~ item.id) %}
+  <div class="rp-row{% if item.id in reshot_ids %} rp-row--done{% endif %}">
+    {% if item.photo_url %}
+      <img class="rp-row-thumb" src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" loading="lazy">
+    {% else %}
+      <div class="rp-row-thumb rp-row-thumb--empty"><i class="fas fa-image"></i></div>
+    {% endif %}
+    <div class="rp-row-meta">
+      <div class="rp-row-title">
+        {{ label }}
+        {% if item.id in reshot_ids %}
+          <span class="rp-badge-done"><i class="fas fa-check"></i> Re-shot today</span>
+        {% endif %}
+      </div>
+      <div class="rp-row-sub">
+        #{{ item.id }}{% if item.category %} · {{ item.category.name }}{% endif %}
+      </div>
+    </div>
+    <button type="button" class="rp-reshoot-btn"
+            data-item-id="{{ item.id }}"
+            data-item-label="{{ label }}"
+            data-cover-url="{% if item.photo_url %}{{ url_for('uploaded_file', filename=item.photo_url) }}{% endif %}">
+      <i class="fas fa-camera"></i> Reshoot
+    </button>
+  </div>
+  {% endfor %}
+{% elif q %}
+  <div class="rp-empty">
+    <i class="fas fa-search" style="font-size:1.6rem; color:var(--text-muted);"></i>
+    <p>No items match &ldquo;{{ q }}&rdquo;.</p>
+    <button type="button" class="rp-add-item-btn btn-primary" style="padding:10px 20px; font-size:0.9rem;">
+      Don&rsquo;t see it? Add it
+    </button>
+  </div>
+{% endif %}
