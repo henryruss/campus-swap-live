@@ -5135,8 +5135,8 @@ def delete_photo(photo_id):
 
     db.session.delete(photo)
     db.session.commit()
-    if current_user.is_admin:
-        return redirect(url_for('admin_panel'))
+    # Only linked from the edit-item page — stay there for admins and sellers alike
+    # (the old admin_panel redirect bounced admins to /admin/ops mid-edit)
     return redirect(url_for('edit_item', item_id=item.id))
 
 
@@ -15514,6 +15514,17 @@ def admin_rephoto_set_details(item_id):
     if not category:
         return jsonify({'error': 'Invalid category.'}), 400
 
+    # Optional subcategory — must be a child of the chosen category (same rule as edit_item)
+    subcategory_id = None
+    sub_id_raw = (request.form.get('subcategory_id') or '').strip()
+    if sub_id_raw:
+        try:
+            sub_cat = InventoryCategory.query.get(int(sub_id_raw))
+            if sub_cat and sub_cat.parent_id == category.id:
+                subcategory_id = sub_cat.id
+        except (ValueError, TypeError):
+            subcategory_id = None
+
     # Optional storage unit + zone (tap-through picker in the details step)
     loc_id = (request.form.get('storage_location_id') or '').strip()
     zone = (request.form.get('storage_row') or '').strip()
@@ -15543,6 +15554,7 @@ def admin_rephoto_set_details(item_id):
             return jsonify({'error': 'No internal Campus Swap account configured.'}), 500
 
     item.category_id = category.id
+    item.subcategory_id = subcategory_id
     item.seller_id = seller.id
     if storage_location:
         item.storage_location_id = storage_location.id

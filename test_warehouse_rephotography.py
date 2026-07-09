@@ -549,6 +549,46 @@ class TestSetDetails:
                               'storage_location_id': '99999999'})
         assert r.status_code == 400
 
+    def test_subcategory_saved_when_child_of_category(self, client, db, director,
+                                                      internal_account, ai_queue_stub):
+        from models import InventoryItem, InventoryCategory
+        _login(client, director)
+        parent = InventoryCategory(name=f'Parent Cat {_uid()}')
+        db.session.add(parent)
+        db.session.flush()
+        child_a = InventoryCategory(name=f'Child A {_uid()}', parent_id=parent.id)
+        child_b = InventoryCategory(name=f'Child B {_uid()}', parent_id=parent.id)
+        db.session.add_all([child_a, child_b])
+        db.session.commit()
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': parent.id, 'seller_mode': 'internal',
+                              'subcategory_id': child_a.id})
+        assert r.status_code == 200
+        db.session.expire_all()
+        fresh = db.session.get(InventoryItem, item.id)
+        assert fresh.category_id == parent.id
+        assert fresh.subcategory_id == child_a.id
+
+    def test_subcategory_ignored_when_wrong_parent(self, client, db, director,
+                                                   internal_account, ai_queue_stub):
+        from models import InventoryItem, InventoryCategory
+        _login(client, director)
+        parent = InventoryCategory(name=f'Parent Cat {_uid()}')
+        other = InventoryCategory(name=f'Other Cat {_uid()}')
+        db.session.add_all([parent, other])
+        db.session.flush()
+        stray = InventoryCategory(name=f'Stray Child {_uid()}', parent_id=other.id)
+        db.session.add(stray)
+        db.session.commit()
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': parent.id, 'seller_mode': 'internal',
+                              'subcategory_id': stray.id})
+        assert r.status_code == 200
+        db.session.expire_all()
+        assert db.session.get(InventoryItem, item.id).subcategory_id is None
+
     def test_non_quick_capture_item_rejected(self, client, db, director, internal_account):
         _login(client, director)
         normal = _make_item(db, description=f'Normal seller item {_uid()}')
@@ -589,6 +629,45 @@ class TestDeletePhoto:
         assert r.status_code == 400
         assert db.session.get(ItemPhoto, pid) is not None
         assert storage_stub.deleted == []
+
+
+# ---------------------------------------------------------------------------
+# Fix: delete_photo keeps admins on the edit page (was bouncing to /admin → ops)
+# ---------------------------------------------------------------------------
+
+class TestDeletePhotoRedirect:
+    def test_admin_stays_on_edit_page(self, client, db, storage_stub):
+        from models import User, ItemPhoto
+        admin = User(email=f'adm_{_uid()}@test.com', full_name='Rephoto Test Admin',
+                     password_hash='x', is_admin=True)
+        db.session.add(admin)
+        db.session.commit()
+        _login(client, admin)
+        item = _make_item(db, description=f'Redirect probe {_uid()}', photo_url='cover.jpg')
+        p = ItemPhoto(item_id=item.id, photo_url='gallery.jpg')
+        db.session.add(p)
+        db.session.commit()
+        pid = p.id
+        r = client.get(f'/delete_photo/{pid}')
+        assert r.status_code == 302
+        assert r.headers['Location'].endswith(f'/edit_item/{item.id}')
+        assert db.session.get(ItemPhoto, pid) is None
+
+    def test_seller_still_returns_to_edit_page(self, client, db, storage_stub):
+        from models import User, ItemPhoto
+        seller = User(email=f'sel_{_uid()}@test.com', full_name='Rephoto Test Seller',
+                      password_hash='x', is_seller=True)
+        db.session.add(seller)
+        db.session.commit()
+        _login(client, seller)
+        item = _make_item(db, description=f'Seller redirect probe {_uid()}',
+                          photo_url='cover.jpg', seller_id=seller.id)
+        p = ItemPhoto(item_id=item.id, photo_url='gallery.jpg')
+        db.session.add(p)
+        db.session.commit()
+        r = client.get(f'/delete_photo/{p.id}')
+        assert r.status_code == 302
+        assert r.headers['Location'].endswith(f'/edit_item/{item.id}')
 
 
 # ---------------------------------------------------------------------------

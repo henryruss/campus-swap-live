@@ -75,6 +75,11 @@
   .rpc-cat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
   .rpc-cat-btn { border:1.5px solid var(--rule); border-radius:10px; background:white; padding:10px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:0.72rem; font-weight:600; color:var(--text-muted); font-family:inherit; }
   .rpc-cat-btn.selected { border-color:var(--primary); background:var(--bg-cream); color:var(--primary); }
+  #rpc-sub-wrap { display:none; margin:-6px 0 16px; }
+  #rpc-sub-wrap .rpc-sub-label { font-size:0.72rem; font-weight:700; color:var(--text-muted); margin-bottom:6px; }
+  #rpc-sub-pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .rpc-sub-pill { border:1.5px solid var(--rule); border-radius:999px; background:white; padding:7px 14px; cursor:pointer; font-size:0.78rem; font-weight:600; color:var(--text-muted); font-family:inherit; }
+  .rpc-sub-pill.selected { border-color:var(--primary); background:var(--bg-cream); color:var(--primary); }
   .rpc-radio-option { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; border:1.5px solid var(--rule); border-radius:10px; cursor:pointer; margin-bottom:8px; }
   .rpc-radio-option.selected { border-color:var(--primary); background:var(--bg-cream); }
   /* style.css sets input {width:100%; padding:12px 16px} globally — pin the radio back down */
@@ -178,6 +183,11 @@
           {{ cat.name }}
         </button>
         {% endfor %}
+      </div>
+
+      <div id="rpc-sub-wrap">
+        <div class="rpc-sub-label">Pick a type:</div>
+        <div id="rpc-sub-pills"></div>
       </div>
 
       <label class="rpc-label">Location <span style="font-weight:400; text-transform:none;">(optional)</span></label>
@@ -291,6 +301,7 @@
       slots: freshSlots(),
       current: 'front',
       catId: null,
+      subId: null,
       selectedSellerId: null,
       unitId: null,
       unitName: '',
@@ -571,6 +582,7 @@
   // ── Details step (add path) ──
   function resetDetailsUI() {
     document.querySelectorAll('.rpc-cat-btn').forEach(function(b){ b.classList.remove('selected'); });
+    hideSubPills();
     setSellerMode('internal');
     document.getElementById('rpc-seller-search').value = '';
     document.getElementById('rpc-seller-results').style.display = 'none';
@@ -663,9 +675,46 @@
     btn.addEventListener('click', function() {
       document.querySelectorAll('.rpc-cat-btn').forEach(function(b){ b.classList.remove('selected'); });
       btn.classList.add('selected');
-      if (_rp) _rp.catId = parseInt(btn.dataset.catId, 10);
+      if (!_rp) return;
+      _rp.catId = parseInt(btn.dataset.catId, 10);
+      loadSubcategories(_rp.catId);
     });
   });
+
+  function hideSubPills() {
+    document.getElementById('rpc-sub-wrap').style.display = 'none';
+    document.getElementById('rpc-sub-pills').innerHTML = '';
+  }
+
+  function loadSubcategories(catId) {
+    var session = _rp;
+    session.subId = null;
+    hideSubPills();
+    fetch('/api/subcategories/' + catId)
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (_rp !== session || _rp.catId !== catId) return;  // stale response
+        if (data.skip_subcategory) {
+          if (data.auto_select_id) _rp.subId = data.auto_select_id;
+          return;
+        }
+        var pills = document.getElementById('rpc-sub-pills');
+        data.subcategories.forEach(function(sub) {
+          var pill = document.createElement('button');
+          pill.type = 'button';
+          pill.className = 'rpc-sub-pill';
+          pill.textContent = sub.name;
+          pill.addEventListener('click', function() {
+            pills.querySelectorAll('.rpc-sub-pill').forEach(function(p){ p.classList.remove('selected'); });
+            pill.classList.add('selected');
+            if (_rp) _rp.subId = sub.id;
+          });
+          pills.appendChild(pill);
+        });
+        document.getElementById('rpc-sub-wrap').style.display = 'block';
+      })
+      .catch(function(){ /* subcategory is optional — fail open */ });
+  }
 
   function setSellerMode(mode) {
     document.querySelectorAll('.rpc-radio-option').forEach(function(opt) {
@@ -736,6 +785,7 @@
     var fd = new FormData();
     fd.append('csrf_token', csrf());
     fd.append('category_id', _rp.catId);
+    if (_rp.subId) fd.append('subcategory_id', _rp.subId);
     if (_rp.unitId) {
       fd.append('storage_location_id', _rp.unitId);
       if (_rp.zone) fd.append('storage_row', _rp.zone);
