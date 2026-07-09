@@ -17,7 +17,12 @@
   .rpc-header-thumb { width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--bg-cream); flex-shrink:0; }
   .rpc-header-thumb--empty { display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
   .rpc-header-meta { flex:1; min-width:0; color:var(--text-light); }
-  .rpc-header-title { font-weight:700; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rpc-header-title {
+    font-weight:700; font-size:0.9rem;
+    /* wrap instead of ellipsis so the item # is always visible on phones; cap at 2 lines */
+    overflow-wrap:anywhere; overflow:hidden;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  }
   .rpc-header-sub { font-size:0.72rem; opacity:0.75; }
   .rpc-close-btn {
     flex-shrink:0; background:none; border:1.5px solid rgba(255,255,255,0.4); color:var(--text-light);
@@ -314,8 +319,9 @@
     } else {
       thumb.style.display = 'none'; thumbEmpty.style.display = 'flex';
     }
+    // Add-mode labels already read "New item #507" — no prefix, so the # fits on phones
     document.getElementById('rpc-header-title').textContent =
-      (opts.mode === 'add' ? 'New item: ' : 'Reshooting: ') + opts.label;
+      (opts.mode === 'add' ? '' : 'Reshooting: ') + opts.label;
     document.getElementById('rpc-capture-step').style.display = 'flex';
     document.getElementById('rpc-details-step').style.display = 'none';
     clearError();
