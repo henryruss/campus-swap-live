@@ -37,6 +37,10 @@
 4. **Reshoot abandon** — "✕ back to search" in reshoot mode deletes the photos already uploaded this session (spec: "abandons without saving"); in add mode the stub and its photos are kept (spec: accepted).
 5. **Optional sitewide upload-hardening** — skipped per instruction; will be specced separately.
 
+### Post-review revisions (2026-07-09)
+1. **Mobile layout fix:** the details-step seller radios rendered full-width (global `style.css` rule `input {width:100%; padding:12px 16px}`), pushing label text outside the cards on phones. Radios now pin `flex:0 0 16px; width:16px; height:16px; padding:0` — same fix `warehouse_log_modal.html` already carries. Watch for this on ANY new modal with radios/checkboxes.
+2. **Location picker added to the add-path details step (spec reversal, Henry 2026-07-09):** the spec's "storage stays NULL" decision is reversed. The details card now has an optional tap-through picker: "Select unit & spot" chip → bottom-sheet grid of active storage units (full units tappable but tagged "Full") → spatial 6-zone grid (back/middle/front × left/right) with "Skip — just the unit". `admin_rephoto_set_details` accepts optional `storage_location_id` + `storage_row` (validated via `_validate_storage_zone`); both stay NULL when not provided. `admin_rephoto_page` now passes `storage_locations` to the template. Tests: 37/37.
+
 ### Deploy steps
 1. Push; Render auto-deploys.
 2. Render shell: `flask db upgrade` (applies `4091b1a0e9c8`).

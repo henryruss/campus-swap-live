@@ -15361,7 +15361,9 @@ def admin_rephoto_page():
     except ValueError:
         campaign_label = 'Jul 8, 2026'
     categories = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
-    return render_template('admin/rephoto.html', categories=categories, campaign_label=campaign_label)
+    storage_locations = StorageLocation.query.filter_by(is_active=True).order_by(StorageLocation.name).all()
+    return render_template('admin/rephoto.html', categories=categories,
+                           storage_locations=storage_locations, campaign_label=campaign_label)
 
 
 @app.route('/admin/warehouse/rephoto/search')
@@ -15512,6 +15514,18 @@ def admin_rephoto_set_details(item_id):
     if not category:
         return jsonify({'error': 'Invalid category.'}), 400
 
+    # Optional storage unit + zone (tap-through picker in the details step)
+    loc_id = (request.form.get('storage_location_id') or '').strip()
+    zone = (request.form.get('storage_row') or '').strip()
+    storage_location = None
+    if loc_id:
+        storage_location = StorageLocation.query.get(int(loc_id)) if loc_id.isdigit() else None
+        if not storage_location:
+            return jsonify({'error': 'Invalid storage unit.'}), 400
+    ok, err = _validate_storage_zone(zone)
+    if not ok:
+        return jsonify({'error': err}), 400
+
     seller_mode = request.form.get('seller_mode', 'internal')
     if seller_mode == 'existing':
         seller_id = request.form.get('existing_seller_id', type=int)
@@ -15530,7 +15544,9 @@ def admin_rephoto_set_details(item_id):
 
     item.category_id = category.id
     item.seller_id = seller.id
-    # storage_location_id stays NULL — units are being batch-reorganized separately
+    if storage_location:
+        item.storage_location_id = storage_location.id
+        item.storage_row = zone or None
     try:
         db.session.commit()
     except Exception as e:

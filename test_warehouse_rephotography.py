@@ -495,6 +495,60 @@ class TestSetDetails:
                               'new_name': 'No Contact'})
         assert r.status_code == 400
 
+    def test_unit_and_zone_saved(self, client, db, director, internal_account, ai_queue_stub):
+        from models import InventoryItem, StorageLocation
+        _login(client, director)
+        loc = StorageLocation(name=f'Rephoto Unit {_uid()}', address='x')
+        db.session.add(loc)
+        db.session.commit()
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': self._cat(db).id, 'seller_mode': 'internal',
+                              'storage_location_id': loc.id, 'storage_row': 'back_left'})
+        assert r.status_code == 200
+        db.session.expire_all()
+        fresh = db.session.get(InventoryItem, item.id)
+        assert fresh.storage_location_id == loc.id
+        assert fresh.storage_row == 'back_left'
+
+    def test_unit_without_zone_saved(self, client, db, director, internal_account, ai_queue_stub):
+        from models import InventoryItem, StorageLocation
+        _login(client, director)
+        loc = StorageLocation(name=f'Rephoto Unit {_uid()}', address='x')
+        db.session.add(loc)
+        db.session.commit()
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': self._cat(db).id, 'seller_mode': 'internal',
+                              'storage_location_id': loc.id})
+        assert r.status_code == 200
+        db.session.expire_all()
+        fresh = db.session.get(InventoryItem, item.id)
+        assert fresh.storage_location_id == loc.id
+        assert fresh.storage_row is None
+
+    def test_invalid_zone_rejected(self, client, db, director, internal_account):
+        from models import InventoryItem, StorageLocation
+        _login(client, director)
+        loc = StorageLocation(name=f'Rephoto Unit {_uid()}', address='x')
+        db.session.add(loc)
+        db.session.commit()
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': self._cat(db).id, 'seller_mode': 'internal',
+                              'storage_location_id': loc.id, 'storage_row': 'top_shelf'})
+        assert r.status_code == 400
+        db.session.expire_all()
+        assert db.session.get(InventoryItem, item.id).storage_location_id is None
+
+    def test_invalid_unit_rejected(self, client, db, director, internal_account):
+        _login(client, director)
+        item = self._stub(client, db)
+        r = client.post(f'/admin/warehouse/rephoto/{item.id}/details',
+                        data={'category_id': self._cat(db).id, 'seller_mode': 'internal',
+                              'storage_location_id': '99999999'})
+        assert r.status_code == 400
+
     def test_non_quick_capture_item_rejected(self, client, db, director, internal_account):
         _login(client, director)
         normal = _make_item(db, description=f'Normal seller item {_uid()}')

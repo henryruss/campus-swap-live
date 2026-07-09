@@ -30,6 +30,9 @@
 ### Decision: Details save enqueues `_ai_queue` directly (deviation from spec's eligibility note)
 **Reasoning:** The spec said stubs are AI-eligible "because `ai_generated_at IS NULL`", but the actual pipeline sentinel is `ai_description IS NULL` and the startup requeue filters on `photo_url` being set — and rephoto never sets a cover (hard constraint). Direct enqueue after details save is the minimal path that keeps both the never-touch-cover rule and the "picked up by AI autofill" requirement; the AI text phase already reads gallery photos.
 
+### Decision (REVERSED 2026-07-09): storage assignment IS part of the add-item flow
+**Reasoning:** The original spec left `storage_location_id` NULL because units were being batch-reorganized separately. Henry reversed this after using the flow on the warehouse floor: since the director is standing at the item's physical location anyway, capturing it there is nearly free. To keep it fast it's a tap-through picker (bottom-sheet unit grid → spatial 6-zone grid with skip), not a dropdown. It stays optional — Save works without it — and full units remain tappable (tagged "Full") because `is_full` flags may be stale mid-reorganization.
+
 ### Decision: `admin_rephoto_delete_photo` refuses legacy photos (`captured_at IS NULL`)
 **Reasoning:** The endpoint exists for per-slot retake/remove during a capture session. Guarding on `captured_at` means a bad client call can never delete a seller's original gallery photo.
 
