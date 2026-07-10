@@ -53,7 +53,8 @@
 
     {# Meta row #}
     <div class="approval-modal-meta" style="margin-bottom:14px;">
-      {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
+      <span style="font-weight:700; color:var(--primary);">#{{ item.id }}</span>
+      {% if item.category %} &middot; <span>{{ item.category.name }}</span>{% endif %}
       {% if item.subcategory %} / <span>{{ item.subcategory.name }}</span>{% endif %}
       {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
       {% if item.date_added %} &middot; Added {{ item.date_added.strftime('%b %-d, %Y') }}{% endif %}
