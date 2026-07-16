@@ -9,13 +9,34 @@
 
 ## Current State
 
-**Last updated:** 2026-07-08
-**Active spec:** feature_warehouse_rephotography.md — built this session, ready to deploy
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Warehouse Re-Photography (2026-07-08) adds a search-first guided three-shot capture flow for the UNC re-shoot campaign. URL rule count is now 278.
+**Last updated:** 2026-07-16
+**Active spec:** feature_route_photo_report.md — built this session
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Warehouse Re-Photography (2026-07-08) adds a search-first guided three-shot capture flow for the UNC re-shoot campaign. Route Photo Report (2026-07-16) adds read-only, printable photo audit pages — one per route AND one covering every route on a single page. URL rule count is now 281.
 
 ---
 
-## Features Built This Session (2026-07-08) — Warehouse Re-Photography
+## Features Built This Session (2026-07-16) — Route Photo Report
+
+**Status:** Built + verified locally (drove ordered / unordered / 404 / 403 paths via test client), no new tests file (read-only reporting view, no business logic)
+**Spec:** `feature_route_photo_report.md` (project root)
+**Migration:** none — read-only, no model changes.
+
+### What shipped
+- Shared helper `_build_route_photo_report(shift)` — loads all `ShiftPickup` for a shift, splits ordered (by `stop_order`) vs NULL-order (alpha by seller, rendered last under "Unordered stops"), loads each seller's items with **no status filter** (`InventoryItem.query.filter_by(seller_id=...).order_by(id)`), omits sellers with zero items, returns a dict (`shift`, `date_str`, `ordered_stops`, `unordered_stops`, `total_item_count`, `has_unordered`). Used by both report routes. No writes, no CSRF.
+- **Per-route:** `GET /admin/warehouse/routes/<int:shift_id>/photo-report` → `admin_warehouse_route_photo_report`. `Shift.get_or_404` + helper. Template `admin/warehouse_route_photo_report.html`.
+- **All-routes:** `GET /admin/warehouse/routes/photo-report` → `admin_warehouse_route_photo_report_all`. Same shift set as the route chip list (items, non-tutorial week, most-recent-first), one block per route, skips routes where every seller had zero items. Template `admin/warehouse_route_photo_report_all.html` — page header (route count + item count), then a `.rpr-routes-flow` flex-wrap of `.rpr-route` blocks. NOTE: URL ordering is fine — `/routes/photo-report` (one segment) does not collide with `/routes/<int:shift_id>/photo-report` (int-constrained two segments).
+- **All-routes density (this iteration, per Henry's "make it tighter"):** each route renders as ONE packed grid of all its items in stop order via `render_route_packed(route)` — no per-stop "Stop N — seller" headers (seller is on every card) and no amber notice. Grid columns pinned inline to `min(total_items, 7)` (auto-fill collapses to 1 col inside a shrink-to-fit flex item, so the count must be explicit), card width `--rpr-card` (116px). Routes are content-sized and capped at 7 cards wide, so small routes pack onto shared rows; wide wrap `.rpr-wrap--wide` (1500px). Verified via Playwright screenshot at 1600px: 24 routes, up to 7 cards/row, multiple routes/row, ~45% shorter than the un-packed version. The single-route report is unchanged (keeps per-stop headers + amber notice).
+- Standalone templates do NOT extend admin_layout; own `<head>`, link `style.css` for CSS vars. Shared via three partials: `admin/_photo_report_styles.html` (`<style>`), `admin/_photo_report_stops.html` (`card` / `render_stop` / `render_route_stops` / `render_route_packed` macros). `@media print` hides buttons; single-route forces a 5-col grid + one route per sheet; all-routes keeps the packed flow with `break-inside:avoid` on routes and cards.
+- **Original photos, not AI (this iteration):** both reports show `item.original_photo_url` — a new `InventoryItem` property that returns the seller's original photo (`photo_url` unless it's an `ai_enhanced_*` file, in which case the preserved non-AI gallery photo). Per Henry: a physical truck audit must match the real item, not the AI-retouched background. Verified all AI-enhanced sample items resolve to their `item_*` original and those objects return HTTP 200 on S3.
+- Entry points: "📋 Photo Report" link atop `admin/warehouse_route_results.html` (single route, shown when `shift_id` in context) and "📋 All Routes Photo Report" button atop the route-browse panel in `admin/warehouse.html`. Both open in a new tab.
+- Modified `admin_warehouse_search` — now passes `shift_id` into the render context (was not passed before; the spec assumed it was already available — it wasn't).
+
+### Deviation from spec
+- **Guard:** spec said `_has_ops_access()`; used `_has_warehouse_access()` instead to match every sibling warehouse route (the actual code — CODEBASE.md's `_has_ops_access()` annotations on those rows are imprecise) and because the entry-point "Photo Report" button lives on a `_has_warehouse_access()` page, so approved crew would otherwise see a button that 403s. `_has_warehouse_access()` is a superset of `_has_ops_access()`. See DECISIONS.md.
+
+---
+
+## Features Built (2026-07-08) — Warehouse Re-Photography
 
 **Status:** Built + tested locally (33/33 new tests passing), ready to deploy
 **Spec:** `feature_warehouse_rephotography.md` (project root)

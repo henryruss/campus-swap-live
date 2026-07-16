@@ -1,0 +1,62 @@
+{# Shared rendering macros for the route photo reports. #}
+
+{# One item card: seller's ORIGINAL (non-AI) photo (or #id placeholder) + #id + title + seller. #}
+{% macro card(item, seller) %}
+{% set photo = item.original_photo_url %}
+<div class="photo-card" data-item-id="{{ item.id }}">
+  {% if photo %}
+  <img loading="lazy" src="{{ url_for('uploaded_file', filename=photo) }}" alt="#{{ item.id }}">
+  {% else %}
+  <div class="photo-placeholder">#{{ item.id }}</div>
+  {% endif %}
+  <div class="card-body">
+    <p class="item-id">#{{ item.id }}</p>
+    <p class="item-title">{{ item.description or 'Untitled' }}</p>
+    <p class="item-seller">{{ (seller.full_name or seller.email) if seller else '' }}</p>
+  </div>
+</div>
+{% endmacro %}
+
+{# --- Single-route report: one section per stop, each with its own grid. --- #}
+{% macro render_stop(stop, number) %}
+<section class="rpr-stop">
+  <h2>
+    {% if number %}Stop {{ number }} — {% endif %}{{ (stop.seller.full_name or stop.seller.email) if stop.seller else 'Unknown seller' }}
+    <span class="rpr-stop-count">({{ stop['items']|length }} item{{ '' if stop['items']|length == 1 else 's' }})</span>
+  </h2>
+  <div class="photo-grid">
+    {% for item in stop['items'] %}{{ card(item, stop.seller) }}{% endfor %}
+  </div>
+</section>
+{% endmacro %}
+
+{% macro render_route_stops(route, show_notice=true) %}
+  {% if show_notice and route.has_unordered %}
+    <div class="rpr-notice">⚠️ Route order not finalized — some stops are shown unordered.</div>
+  {% endif %}
+  {% for stop in route.ordered_stops %}
+    {{ render_stop(stop, loop.index) }}
+  {% endfor %}
+  {% if route.unordered_stops %}
+    <div class="rpr-section-label">Unordered stops</div>
+    {% for stop in route.unordered_stops %}
+      {{ render_stop(stop, None) }}
+    {% endfor %}
+  {% endif %}
+{% endmacro %}
+
+{# --- All-routes report: one dense grid per route, all items in stop order. ---
+   Columns pinned to min(total items, 7) so small routes stay narrow and pack
+   onto shared rows while big routes fill 7 across and wrap. No per-stop headers —
+   each card carries its seller, and items are already in stop order. #}
+{% macro render_route_packed(route) %}
+<div class="photo-grid photo-grid--packed"
+     style="grid-template-columns: repeat({{ [route.total_item_count, 7]|min }}, var(--rpr-card));">
+  {% for stop in route.ordered_stops %}
+    {% for item in stop['items'] %}{{ card(item, stop.seller) }}{% endfor %}
+  {% endfor %}
+  {% for stop in route.unordered_stops %}
+    {% for item in stop['items'] %}{{ card(item, stop.seller) }}{% endfor %}
+  {% endfor %}
+</div>
+{% endmacro %}

@@ -22,7 +22,7 @@ import os
 import boto3
 import psycopg2
 import requests
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -120,7 +120,16 @@ def remove_background(image_bytes: bytes) -> bytes:
 def composite_on_white(cutout_png_bytes: bytes, canvas_size: int = 1600, fill_ratio: float = 0.8) -> Image.Image:
     cutout = Image.open(io.BytesIO(cutout_png_bytes)).convert("RGBA")
 
-    # Scale item to fit fill_ratio of canvas, preserving aspect ratio
+    # remove.bg returns an image the same pixel dimensions as the original,
+    # with the item placed somewhere inside a mostly-transparent canvas — it
+    # does NOT crop tightly to the subject. If we scale that padded canvas
+    # directly, the item ends up much smaller than fill_ratio implies. Crop
+    # to real content first.
+    bbox = cutout.getbbox()
+    if bbox:
+        cutout = cutout.crop(bbox)
+
+    # Scale the tightly-cropped item to fit fill_ratio of canvas, preserving aspect ratio
     target_dim = int(canvas_size * fill_ratio)
     scale = min(target_dim / cutout.width, target_dim / cutout.height)
     new_w, new_h = int(cutout.width * scale), int(cutout.height * scale)
@@ -132,17 +141,11 @@ def composite_on_white(cutout_png_bytes: bytes, canvas_size: int = 1600, fill_ra
     x = (canvas_size - new_w) // 2
     y = int((canvas_size - new_h) * 0.55)
 
-    # Soft drop shadow beneath the item
-    shadow = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow)
-    shadow_box = [
-        x + new_w * 0.1, y + new_h * 0.92,
-        x + new_w * 0.9, y + new_h * 1.02,
-    ]
-    shadow_draw.ellipse(shadow_box, fill=(0, 0, 0, 60))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(canvas_size * 0.015))
-    canvas.paste(shadow, (0, 0), shadow)
-
+    # No drop shadow: a bounding-box-based shadow can't reliably match true
+    # ground-contact points across varied furniture shapes (thin legs vs.
+    # flush bases vs. sectionals), and a wrong guess reads as "floating"
+    # more often than it reads as depth. Flat white, no shadow, matches the
+    # site's existing product-photo style anyway.
     canvas.paste(cutout, (x, y), cutout)
     return canvas
 
@@ -162,12 +165,24 @@ def process_one_photo(label: str, filename: str, item_id: int, dry_run: bool, ca
         print("Dry run: stopping before remove.bg call.")
         return "dry-run (no API call made)"
 
-    try:
-        print("Calling remove.bg (uses one paid API credit)...")
-        cutout_bytes = remove_background(original_bytes)
-    except RuntimeError as e:
-        print(f"FAILED: {e}")
-        return f"failed — {e}"
+    # Cache the raw remove.bg cutout locally — lets you retune the composite
+    # (shadow, sizing, padding) as many times as you want without spending
+    # another credit. Delete this file if you actually want a fresh cutout.
+    cutout_path = os.path.join(OUTPUT_DIR, f"{item_id}_{label}_cutout.png")
+    if os.path.exists(cutout_path):
+        print(f"Using cached cutout -> {cutout_path} (delete this file to force a fresh remove.bg call)")
+        with open(cutout_path, "rb") as f:
+            cutout_bytes = f.read()
+    else:
+        try:
+            print("Calling remove.bg (uses one paid API credit)...")
+            cutout_bytes = remove_background(original_bytes)
+        except RuntimeError as e:
+            print(f"FAILED: {e}")
+            return f"failed — {e}"
+        with open(cutout_path, "wb") as f:
+            f.write(cutout_bytes)
+        print(f"Saved cutout -> {cutout_path}")
 
     print("Compositing onto white background...")
     final_image = composite_on_white(cutout_bytes, canvas_size, fill_ratio)

@@ -7,6 +7,40 @@
 
 ---
 
+## Route Photo Report (2026-07-16)
+
+### Decision: Guard with `_has_warehouse_access()`, not `_has_ops_access()` (spec deviation)
+**Reasoning:** The spec's routes table and constraints called for `_has_ops_access()`, but every actual sibling warehouse route (`admin_warehouse`, `admin_warehouse_search`, `admin_warehouse_routes`, etc.) guards with `_has_warehouse_access()` — ops staff OR approved crew. The entry-point "📋 Photo Report" button is rendered inside `warehouse_route_results.html`, which is served by `admin_warehouse_search` under `_has_warehouse_access()`. Using the narrower `_has_ops_access()` would show approved crew a button that 403s. `_has_warehouse_access()` is a strict superset of `_has_ops_access()`, so no ops user loses access; it just also lets the same crew who can Browse-by-Route open the report. The spec's edge-case text ("same guard as the rest of warehouse tooling") supports this; the `_has_ops_access()` in the routes table matched CODEBASE.md's (imprecise) annotations rather than the code.
+
+### Decision: Pass `shift_id` into the route-results partial instead of re-deriving
+**Reasoning:** The spec assumed `shift_id` was already in `warehouse_route_results.html`'s context — it was not (`admin_warehouse_search` only passed `items`, `storage_locations`, `current_unit_id`). Rather than re-deriving the shift from the item set (fragile — items are seller-scoped, not shift-scoped), added `shift_id` to that route's `render_template` call. The button only renders when `shift_id` is truthy, so the shared partial stays correct for the non-route search mode (which never sets it).
+
+### Decision: All-routes report shares the single-route pipeline (helper + Jinja macros), not a copy
+**Reasoning:** Henry asked for a second report showing every route's items on one page, "keep exactly what you have but have a new row for every route." Rather than duplicate the query/template, extracted the per-route assembly into `_build_route_photo_report(shift)` and the stop markup + CSS into two shared partials (`_photo_report_stops.html` macros, `_photo_report_styles.html`). The all-routes route loops the same shift set as the route chip list, calls the helper per shift, and renders each as a `.rpr-route` block. The single-route page's output is byte-for-byte equivalent (verified: 9 stops / 10 cards on shift 35, all header markers present) so nothing Henry already liked changed.
+
+### Decision: All-routes URL is `/admin/warehouse/routes/photo-report` (no shift_id)
+**Reasoning:** Sits alongside the existing per-route `/routes/<int:shift_id>/photo-report`. No routing collision: the all-routes path is one segment after `/routes`, the per-route path is an int-constrained two segments, so Flask never confuses "photo-report" for a `shift_id`. Same `_has_warehouse_access()` guard.
+
+### Decision: All-routes report is a dense packed grid per route — no per-stop headers, no amber notice
+**Reasoning:** Henry asked to make the all-routes page "tighter": 7 items per row, multiple routes per row, and remove the "route order not finalized" banners. The first cut kept the single-route structure (one grid per stop) inside each route, which left the page very sparse — routes became tall narrow columns and flex-wrap left large vertical gaps. Switched the all-routes view to `render_route_packed(route)`: one grid of all a route's items in stop order, dropping the per-stop "Stop N — seller" sub-headers (the seller name is already on every card and items stay in stop order, so grouping is implicit) and the amber notice. This roughly halved page height. The single-route report keeps both the per-stop headers and the amber notice (still useful when auditing one route) — the divergence is intentional, driven by the `show_notice` flag being dropped and a separate packed macro, not shared code drift. If Henry wants stop labels back in the combined view, re-add them as full-width grid separators (`grid-column: 1 / -1`).
+
+### Decision: Pin all-routes grid columns to min(items, 7) inline, not `auto-fill`
+**Reasoning:** `repeat(auto-fill, <fixed>)` collapses to a single column when its container has an indefinite (shrink-to-fit) width — which is exactly the case inside a `flex: 0 1 auto` route block. A Playwright check confirmed `gridTemplateColumns` resolved to 1 track, making every route 1 card wide. Fixed the column count explicitly per route as `min(total_items, 7)` via an inline style in the macro, which also gives the route block a definite width so flex-wrap can size and pack it. Verified: max 7 columns, multiple routes sharing rows.
+
+### Decision: Verified the layout with a real browser (Playwright), not just the test client
+**Reasoning:** The requirements ("7 per row", "routes share a row") are layout outcomes the Flask test client can't observe — it only sees HTML, not computed CSS. Minted a flask-login session cookie with the app's real SECRET_KEY, set it in a Playwright context, and screenshotted the running dev server at 1600px. That's how the `auto-fill`-collapses-to-1-column bug was caught and the fix confirmed.
+
+### Decision: Print CSS starts each route on a new page in the single-route report only
+**Reasoning:** A single route already fits the paper flow. For the combined report, `break-before: page` on `.rpr-route` (with `:first-of-type` reset) keeps each truck's items on its own sheet, so a printed stack can be split per-route on the warehouse floor. Card-level `break-inside: avoid` from the shared styles still prevents a photo card splitting across a page.
+
+### Decision: Photo reports show the seller's original photo, not the AI-enhanced cover
+**Reasoning:** Henry: "don't show the AI photo in this view. Show the seller's original photo." The reports are for auditing physical trucks/warehouse stock, so the image must match the real item — the AI background-replacement cover (`ai_enhanced_*`) can look materially different. Added `InventoryItem.original_photo_url`: returns `photo_url` when it isn't an `ai_enhanced_*` file, else the first non-AI photo from the gallery (the AI pipeline preserves the pre-enhancement original there — app.py ~17264), else falls back to the cover. Applied to the shared `card` macro, so BOTH reports (single + all-routes) use it — the whole photo-report feature is a physical-audit tool, so consistency is correct. Verified: all sampled `ai_photo_enhanced` items resolve to their `item_*` original, and those S3 objects return HTTP 200 (no broken images). Note: the extra `gallery_photos` access only fires for AI-enhanced items (cover check short-circuits otherwise), so the added query load is bounded and fine at report scale.
+
+### Decision: No new tests file for this feature
+**Reasoning:** Read-only reporting view — no model changes, no writes, no business-logic branches beyond ordered/unordered grouping and empty-seller omission. Verified end-to-end via the Flask test client (ordered shift → no notice; NULL-order shift → amber notice; nonexistent shift → 404; non-privileged user → 403; button present with correct href in Route Browse). Consistent with the codebase convention of not adding test files for pure view/report routes.
+
+---
+
 ## Warehouse Re-Photography (2026-07-08)
 
 ### Decision: Search-first, not unit-first

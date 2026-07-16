@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-07-08 (Warehouse Re-Photography)
+> **Last updated:** 2026-07-16 (Route Photo Report)
 
 ---
 
@@ -1138,3 +1138,14 @@ Grouped by area for on-campus pickup dropdown:
 ## Warehouse Re-Photography (2026-07-08)
 
 Search-first guided three-shot (front/side/back) capture flow for campus directors re-photographing every warehouse item — per-photo instant compressed upload with retry, ✓ "Re-shot today" badge, add-missing-item path (details step: category + subcategory pills + optional tap-through storage unit/zone picker + seller). Routes: `GET /admin/warehouse/rephoto`, `GET /admin/warehouse/rephoto/search`, `POST /admin/warehouse/rephoto/add-item`, `POST /admin/warehouse/rephoto/<item_id>/photo`, `POST /admin/warehouse/rephoto/<item_id>/details`, `POST /admin/warehouse/rephoto/photo/<photo_id>/delete` (all `_has_ops_access()`).
+
+---
+
+## Route Photo Report (2026-07-16)
+
+Read-only, printable at-a-glance photo audit so Henry can visually check items against physical trucks without clicking item-by-item. Two flavors, both `_has_warehouse_access()`, both standalone (do not extend admin_layout), both open in a new tab:
+
+- **Single route** — `GET /admin/warehouse/routes/<int:shift_id>/photo-report` → `admin_warehouse_route_photo_report` (404 if shift missing). Reached from Warehouse → Browse by Route → expand a shift → "📋 Photo Report".
+- **All routes** — `GET /admin/warehouse/routes/photo-report` → `admin_warehouse_route_photo_report_all`. Every route on one page (same shift set as the chip list, most-recent-first). Reached from Warehouse → Browse by Route → "📋 All Routes Photo Report" button atop the panel. Tuned for density: each route is a compact block (label + item count) + ONE packed grid of all its items in stop order, up to 7 cards per row; routes are content-sized and pack onto shared rows. No per-stop headers and no amber notice here (kept only on the single-route report).
+
+Both share `_build_route_photo_report(shift)`. Common data: no status filter (all items regardless of state, matching Route Browse); sellers with zero items omitted; items ordered by `ShiftPickup.stop_order` (NULL-order stops last, alpha by seller). Single-route report shows one section per stop (Stop N — seller (count)) with an optional amber "route not finalized" notice; each card is the seller's ORIGINAL photo (`InventoryItem.original_photo_url` — the non-AI photo, not the `ai_enhanced_*` cover, so a physical audit matches the real item) or an #id placeholder, + #id + 2-line title + seller. No model changes, no writes, no CSRF. `@media print` hides buttons; single-route forces a 5-column grid and one route per sheet; all-routes keeps the packed flow and avoids splitting a route or card across pages. Shared partials: `admin/_photo_report_styles.html`, `admin/_photo_report_stops.html`.

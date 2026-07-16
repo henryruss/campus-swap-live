@@ -265,6 +265,22 @@ class InventoryItem(db.Model):
         """Gallery photos not hidden via the Shop Edit Mode panel — use for buyer-facing rendering."""
         return [p for p in self.gallery_photos if not p.is_hidden]
 
+    @property
+    def original_photo_url(self):
+        """Seller's original (pre-AI-enhancement) photo, for warehouse audit views.
+
+        AI background replacement rewrites the cover to an `ai_enhanced_*` file and
+        preserves the pre-enhancement original in the gallery. Return that original so a
+        physical audit matches what's on the truck, not the retouched image. Falls back to
+        the current cover if no non-AI photo exists.
+        """
+        if self.photo_url and not self.photo_url.startswith('ai_enhanced_'):
+            return self.photo_url
+        for p in self.gallery_photos:
+            if p.photo_url and not p.photo_url.startswith('ai_enhanced_'):
+                return p.photo_url
+        return self.photo_url or None
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

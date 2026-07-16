@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Report — All Routes</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&display=swap" rel="stylesheet">
+  {% include 'admin/_photo_report_styles.html' %}
+</head>
+<body>
+  {% import 'admin/_photo_report_stops.html' as stops %}
+  <div class="rpr-wrap rpr-wrap--wide">
+    <div class="rpr-header">
+      <div>
+        <h1>All Routes — Photo Report</h1>
+        <div class="rpr-meta">
+          <strong>{{ route_count }}</strong> route{{ '' if route_count == 1 else 's' }}
+          · <strong>{{ total_item_count }}</strong> item{{ '' if total_item_count == 1 else 's' }}
+          · Generated {{ generated_at.strftime('%b %-d, %Y %-I:%M %p') }} ET
+        </div>
+      </div>
+      <div class="rpr-actions">
+        <button type="button" class="rpr-btn rpr-btn--solid" onclick="window.print()">🖨️ Print</button>
+        <a href="{{ url_for('admin_warehouse') }}" class="rpr-btn rpr-btn--ghost">← Back</a>
+      </div>
+    </div>
+
+    {% if not routes %}
+      <div class="rpr-empty">No routes with items yet.</div>
+    {% else %}
+      <div class="rpr-routes-flow">
+        {% for route in routes %}
+        <div class="rpr-route">
+          <div class="rpr-route-header">
+            <h2>{{ route.shift.label }}{% if route.date_str %} · {{ route.date_str }}{% endif %}</h2>
+            <span class="rpr-route-meta">{{ route.total_item_count }} item{{ '' if route.total_item_count == 1 else 's' }}</span>
+          </div>
+          {{ stops.render_route_packed(route) }}
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

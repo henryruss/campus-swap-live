@@ -15006,6 +15006,7 @@ def admin_warehouse_search():
         items=items,
         storage_locations=storage_locations,
         current_unit_id=unit_id,
+        shift_id=shift_id,
     )
 
 
@@ -15094,6 +15095,110 @@ def admin_warehouse_routes():
             'date_str': date_str,
         })
     return render_template('admin/warehouse_routes_partial.html', shift_rows=shift_rows)
+
+
+def _build_route_photo_report(shift):
+    """Assemble the ordered/unordered stop data for one route's photo report.
+
+    Read-only. No status filter (matches Route Browse). Stops with a NULL stop_order
+    are grouped last, alphabetically by seller name. Sellers with zero items omitted.
+    """
+    pickups = ShiftPickup.query.filter_by(shift_id=shift.id).all()
+
+    def _seller_sort_key(p):
+        seller = p.seller
+        name = (seller.full_name or seller.email or '') if seller else ''
+        return name.lower()
+
+    ordered_pickups = sorted(
+        [p for p in pickups if p.stop_order is not None],
+        key=lambda p: p.stop_order,
+    )
+    unordered_pickups = sorted(
+        [p for p in pickups if p.stop_order is None],
+        key=_seller_sort_key,
+    )
+
+    def _build_stops(pickup_list):
+        stops = []
+        for p in pickup_list:
+            items = (
+                InventoryItem.query
+                .filter_by(seller_id=p.seller_id)
+                .order_by(InventoryItem.id)
+                .all()
+            )
+            if not items:
+                continue  # omit empty stops (item-driven, mirrors Route Browse)
+            stops.append({'pickup': p, 'seller': p.seller, 'items': items})
+        return stops
+
+    ordered_stops = _build_stops(ordered_pickups)
+    unordered_stops = _build_stops(unordered_pickups)
+
+    return {
+        'shift': shift,
+        'date_str': shift.week.week_start.strftime('%b %-d') if shift.week else '',
+        'ordered_stops': ordered_stops,
+        'unordered_stops': unordered_stops,
+        'total_item_count': sum(len(s['items']) for s in ordered_stops + unordered_stops),
+        'has_unordered': bool(unordered_stops),
+    }
+
+
+@app.route('/admin/warehouse/routes/photo-report')
+@login_required
+def admin_warehouse_route_photo_report_all():
+    """Standalone, printable photo report covering EVERY route on one page.
+
+    One section per route (most-recent-first, same shift set as the route chip list),
+    each rendering the same stop grid as the single-route report.
+    """
+    if not _has_warehouse_access():
+        abort(403)
+
+    rows = (
+        db.session.query(Shift, func.count(InventoryItem.id).label('item_count'))
+        .join(ShiftPickup, ShiftPickup.shift_id == Shift.id)
+        .join(InventoryItem, InventoryItem.seller_id == ShiftPickup.seller_id)
+        .join(ShiftWeek, ShiftWeek.id == Shift.week_id)
+        .filter(ShiftWeek.is_tutorial == False)
+        .group_by(Shift.id)
+        .having(func.count(InventoryItem.id) > 0)
+        .order_by(Shift.id.desc())
+        .all()
+    )
+
+    routes = []
+    for shift, _ in rows:
+        report = _build_route_photo_report(shift)
+        if not report['ordered_stops'] and not report['unordered_stops']:
+            continue  # every seller on this route had zero items
+        routes.append(report)
+
+    return render_template(
+        'admin/warehouse_route_photo_report_all.html',
+        routes=routes,
+        route_count=len(routes),
+        total_item_count=sum(r['total_item_count'] for r in routes),
+        has_unordered=any(r['has_unordered'] for r in routes),
+        generated_at=_now_eastern(),
+    )
+
+
+@app.route('/admin/warehouse/routes/<int:shift_id>/photo-report')
+@login_required
+def admin_warehouse_route_photo_report(shift_id):
+    """Standalone, printable photo grid of every item on a single route, grouped by stop."""
+    if not _has_warehouse_access():
+        abort(403)
+
+    shift = Shift.query.get_or_404(shift_id)
+    return render_template(
+        'admin/warehouse_route_photo_report.html',
+        generated_at=_now_eastern(),
+        **_build_route_photo_report(shift),
+    )
 
 
 @app.route('/admin/warehouse/seller-search')

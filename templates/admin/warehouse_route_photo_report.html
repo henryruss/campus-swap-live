@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Report — {{ shift.label }}{% if date_str %} · {{ date_str }}{% endif %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&display=swap" rel="stylesheet">
+  {% include 'admin/_photo_report_styles.html' %}
+</head>
+<body>
+  {% import 'admin/_photo_report_stops.html' as stops %}
+  <div class="rpr-wrap">
+    <div class="rpr-header">
+      <div>
+        <h1>{{ shift.label }}{% if date_str %} · {{ date_str }}{% endif %}</h1>
+        <div class="rpr-meta">
+          <strong>{{ total_item_count }}</strong> item{{ '' if total_item_count == 1 else 's' }}
+          · Route Photo Report
+          · Generated {{ generated_at.strftime('%b %-d, %Y %-I:%M %p') }} ET
+        </div>
+      </div>
+      <div class="rpr-actions">
+        <button type="button" class="rpr-btn rpr-btn--solid" onclick="window.print()">🖨️ Print</button>
+        <a href="{{ url_for('admin_warehouse') }}" class="rpr-btn rpr-btn--ghost">← Back</a>
+      </div>
+    </div>
+
+    {% if not ordered_stops and not unordered_stops %}
+      <div class="rpr-empty">No sellers assigned to this route yet.</div>
+    {% else %}
+      {{ stops.render_route_stops({
+        'has_unordered': has_unordered,
+        'ordered_stops': ordered_stops,
+        'unordered_stops': unordered_stops,
+      }) }}
+    {% endif %}
+  </div>
+</body>
+</html>
