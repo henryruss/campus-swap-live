@@ -7,6 +7,12 @@
 
 ---
 
+## Item Dimensions (2026-07-17)
+
+- Dimensions (`length_in`/`width_in`/`height_in`, `Numeric(5,1)` nullable) are fully optional with no validation — a shared `_parse_dimension` helper maps blank/invalid input to NULL so a partially-filled or empty dimensions field never blocks a save, matching the old free-text-description behavior. Migration written as plain `op.add_column` (not `batch_alter_table`, per CLAUDE.md Postgres rule). No backfill from existing descriptions — deliberately left as a future data-cleanup task.
+
+---
+
 ## Route Photo Report (2026-07-16)
 
 ### Decision: Guard with `_has_warehouse_access()`, not `_has_ops_access()` (spec deviation)

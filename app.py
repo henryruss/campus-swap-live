@@ -1167,6 +1167,23 @@ def validate_quality(quality):
         return False, "Invalid quality value"
 
 
+def _parse_dimension(raw):
+    """Parse an optional dimension input (inches, decimals allowed).
+
+    Blank -> None. Non-numeric -> None. Never raises: dimensions are an optional
+    field and must never block a save (matches the description-embedded behavior).
+    """
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def quality_to_label(quality):
     """Map numeric quality (1-5) to rubric label."""
     if quality is None:
@@ -5016,7 +5033,12 @@ def edit_item(item_id):
             return render_template('edit_item.html', item=item, categories=categories,
                                item_alert=SellerAlert.query.filter_by(item_id=item.id, resolved=False).order_by(SellerAlert.created_at.desc()).first() if item.status == 'needs_info' else None)
         item.long_description = long_description
-        
+
+        # Dimensions (inches) — optional, each independently blank-safe
+        item.length_in = _parse_dimension(request.form.get('length_in'))
+        item.width_in = _parse_dimension(request.form.get('width_in'))
+        item.height_in = _parse_dimension(request.form.get('height_in'))
+
         if request.form.get('category_id'):
             try:
                 item.category_id = int(request.form['category_id'])
@@ -7743,6 +7765,11 @@ def add_item():
             except (ValueError, TypeError):
                 subcategory_id = None
 
+        # Dimensions (inches) — optional, each independently blank-safe
+        length_in = _parse_dimension(request.form.get('length_in'))
+        width_in = _parse_dimension(request.form.get('width_in'))
+        height_in = _parse_dimension(request.form.get('height_in'))
+
         # Use same collection method as user's other items (from onboarding choice)
         existing = [i.collection_method for i in current_user.items if i.collection_method]
         collection_method = existing[-1] if existing else 'online'
@@ -7752,6 +7779,7 @@ def add_item():
             collection_method=collection_method,
             suggested_price=suggested_price,
             subcategory_id=subcategory_id,
+            length_in=length_in, width_in=width_in, height_in=height_in,
         )
         new_item.seller_description = new_item.description
         new_item.seller_long_description = new_item.long_description

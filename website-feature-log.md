@@ -2,7 +2,7 @@
 
 > **Purpose:** Complete audit of every page, form, data flow, and feature on usecampusswap.com. Use this to identify metrics gaps, suggest features, and understand the full product without reading code.
 >
-> **Last updated:** 2026-07-16 (Route Photo Report)
+> **Last updated:** 2026-07-17 (Item Dimensions)
 
 ---
 
@@ -1149,3 +1149,9 @@ Read-only, printable at-a-glance photo audit so Henry can visually check items a
 - **All routes** — `GET /admin/warehouse/routes/photo-report` → `admin_warehouse_route_photo_report_all`. Every route on one page (same shift set as the chip list, most-recent-first). Reached from Warehouse → Browse by Route → "📋 All Routes Photo Report" button atop the panel. Tuned for density: each route is a compact block (label + item count) + ONE packed grid of all its items in stop order, up to 7 cards per row; routes are content-sized and pack onto shared rows. No per-stop headers and no amber notice here (kept only on the single-route report).
 
 Both share `_build_route_photo_report(shift)`. Common data: no status filter (all items regardless of state, matching Route Browse); sellers with zero items omitted; items ordered by `ShiftPickup.stop_order` (NULL-order stops last, alpha by seller). Single-route report shows one section per stop (Stop N — seller (count)) with an optional amber "route not finalized" notice; each card is the seller's ORIGINAL photo (`InventoryItem.original_photo_url` — the non-AI photo, not the `ai_enhanced_*` cover, so a physical audit matches the real item) or an #id placeholder, + #id + 2-line title + seller. No model changes, no writes, no CSRF. `@media print` hides buttons; single-route forces a 5-column grid and one route per sheet; all-routes keeps the packed flow and avoids splitting a route or card across pages. Shared partials: `admin/_photo_report_styles.html`, `admin/_photo_report_stops.html`.
+
+---
+
+## Item Dimensions (2026-07-17)
+
+Optional L × W × H dimensions (inches, one decimal) on `InventoryItem` — `length_in`, `width_in`, `height_in`, `Numeric(5,1)` nullable (migration `74fd31ce2f07`). Replaces sellers stuffing dimensions into the free-text description. Set on the Add Item wizard (step 5, "Anything we should know?") and the Edit Item form (next to Condition) via three side-by-side number inputs (`step="0.1"`); parsed by the `_parse_dimension` helper (blank/invalid → NULL, never blocks save). Fully optional — no required validation anywhere; partial input (e.g. length only) is allowed. Shown to buyers on the product page (`/item/<id>`) as a `L" × W" × H"` row when at least one is set, with `—` for any missing value; hidden entirely when all three are blank. Decimals preserved (e.g. 24.5). No data backfill from existing descriptions.

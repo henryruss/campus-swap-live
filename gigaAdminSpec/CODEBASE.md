@@ -95,6 +95,7 @@ Properties: has_pickup_location, pickup_display, is_guest_account
 ```
 id, description, long_description
 price, suggested_price, quality (1-5 int)
+length_in, width_in, height_in (Numeric(5,1), nullable) — item dimensions in inches, decimals allowed. Optional, no validation; blank saves NULL. Set in add_item/edit_item (via _parse_dimension helper), shown to buyers on the product page when ≥1 is set (missing ones render as —). Migration 74fd31ce2f07.
 status: 'pending_valuation' | 'needs_info' | 'approved' | 'available' | 'sold' | 'rejected'
 date_added
 collection_method: 'online' (Pro) | 'free' (Free)

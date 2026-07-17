@@ -197,6 +197,13 @@
                 <h4 style="margin-bottom: 10px;">Condition</h4>
                 <p style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">{{ item.quality|quality_label }}</p>
 
+                {% if item.length_in or item.width_in or item.height_in %}
+                <h4 style="margin-bottom: 10px;">Dimensions</h4>
+                <p class="item-dimensions" style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">
+                    {{ item.length_in|default('—', true) }}" L &times; {{ item.width_in|default('—', true) }}" W &times; {{ item.height_in|default('—', true) }}" H
+                </p>
+                {% endif %}
+
                 <h4 style="margin-bottom: 10px;">Description</h4>
                 <p id="pdp-long-description" style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.7;">
                     {{ item.long_description or "No detailed description provided." }}

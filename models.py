@@ -174,6 +174,11 @@ class InventoryItem(db.Model):
     price = db.Column(db.Float, nullable=True)
     suggested_price = db.Column(db.Float, nullable=True)
     quality = db.Column(db.Integer, nullable=False, default=1)
+
+    # DIMENSIONS (inches, one decimal) — optional; sellers used to embed these in the description
+    length_in = db.Column(db.Numeric(5, 1), nullable=True)
+    width_in = db.Column(db.Numeric(5, 1), nullable=True)
+    height_in = db.Column(db.Numeric(5, 1), nullable=True)
     status = db.Column(db.String(20), default='pending_valuation')
     date_added = db.Column(db.DateTime, default=datetime.utcnow)
     
