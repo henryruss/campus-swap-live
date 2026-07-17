@@ -382,7 +382,7 @@
     </a>
     <a href="{{ url_for('admin_items', view='ai_review') }}"
        class="subtab-pill {% if view == 'ai_review' %}active{% endif %}">
-      AI Review
+      Background Removal Review
       {% if ai_review_pending_count > 0 %}
       <span style="background:var(--accent);color:white;border-radius:10px;padding:0 6px;font-size:0.68rem;margin-left:4px;" data-ai-badge>{{ ai_review_pending_count }}</span>
       {% endif %}
@@ -528,11 +528,11 @@
   {% if not ai_review_items %}
   <div class="air-empty">
     <i class="fas fa-check-circle"></i>
-    <p>All caught up — no items pending AI review.</p>
+    <p>All caught up — no items pending background removal review.</p>
   </div>
   {% else %}
   <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:20px;">
-    Review AI-generated titles, descriptions, and prices before they go live. Click a card to open.
+    Review background-removed photos (with before/after), plus the AI title, description, and price, before they go live. Click a card to open.
   </p>
   <div class="air-card-grid" id="card-grid">
     {% for item in ai_review_items %}
@@ -1026,12 +1026,22 @@
       <button onclick="closeAIGenModal()" style="background:none;border:none;font-size:1.4rem;color:var(--text-muted);cursor:pointer;padding:4px 8px;border-radius:8px;line-height:1;">&times;</button>
     </div>
     <div class="ai-gen-modal-body">
+      <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 16px;line-height:1.5;">
+        Generates a title, a short 1&ndash;2 sentence description, and a category-anchored price for each
+        item, and runs every carousel photo through background removal onto a clean white background.
+        <strong>Eligible items</strong> are those that have been rephotographed and don&rsquo;t already have AI Autofill set.
+      </p>
       {% if not api_key_present %}
       <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:9px;padding:12px 16px;margin-bottom:16px;font-size:0.88rem;color:#92400e;font-weight:600;">
         <i class="fas fa-exclamation-triangle" style="margin-right:6px;"></i>
         <strong>ANTHROPIC_API_KEY is not set.</strong> Add it to Render environment variables before running.
       </div>
       {% endif %}
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:10px 14px;margin-bottom:16px;font-size:0.82rem;color:#1e40af;line-height:1.5;">
+        <i class="fas fa-image" style="margin-right:6px;"></i>
+        Photo processing uses <strong>remove.bg</strong> (1 credit per photo, full resolution). Ensure
+        <code>REMOVEBG_API_KEY</code> is set in Render. Originals stay recoverable in storage (same filename without the <code>_nobg</code> suffix).
+      </div>
       <div class="ai-stats-row">
         <div class="ai-stat-card">
           <div class="stat-val">{{ eligible_count }}</div>
@@ -1055,6 +1065,15 @@
             {% endfor %}
           </select>
         </div>
+        {# TEMP preview-quality toggle — free local remove.bg testing. Delete this block (and the photo_size append in JS) once quality is signed off. #}
+        <div class="ai-run-field">
+          <label for="ai-gen-preview" style="cursor:pointer;">Photo quality</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;font-weight:600;cursor:pointer;padding-top:2px;">
+            <input type="checkbox" id="ai-gen-preview" style="width:16px;height:16px;padding:0;margin:0;flex:0 0 auto;">
+            Preview (free, low-res)
+          </label>
+        </div>
+        {# END TEMP preview-quality toggle #}
         <button class="btn-run-ai" id="ai-gen-run-btn" {% if not api_key_present %}disabled{% endif %}>
           Queue All for AI Processing
         </button>
@@ -2176,6 +2195,9 @@
         body.append('csrf_token', csrf);
         body.append('model', model);
         if (limit) body.append('limit', limit);
+        // TEMP preview-quality toggle — remove alongside the checkbox in the modal.
+        var previewEl = document.getElementById('ai-gen-preview');
+        if (previewEl && previewEl.checked) body.append('photo_size', 'preview');
         fetch('/admin/ai/generate/run', {
           method: 'POST',
           headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -2191,7 +2213,7 @@
           }
           var doneEl = document.getElementById('ai-gen-done-banner');
           doneEl.innerHTML = 'Queued <strong>' + data.enqueued + '</strong> item' + (data.enqueued !== 1 ? 's' : '') +
-            '. Check the <a href="{{ url_for("admin_items", view="approve") }}" style="color:inherit;font-weight:800;">approval queue</a> in a few minutes.';
+            '. They appear in the <a href="{{ url_for("admin_items", view="ai_review") }}" style="color:inherit;font-weight:800;">AI Review</a> tab as they finish (refresh to update).';
           doneEl.classList.add('visible');
           btn.disabled = false; btn.textContent = 'Queue All for AI Processing';
         })

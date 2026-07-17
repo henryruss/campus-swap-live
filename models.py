@@ -162,6 +162,10 @@ class InventoryCategory(db.Model):
     icon = db.Column(db.String(64), nullable=True)  # e.g. 'fa-couch'
     count_in_stock = db.Column(db.Integer, default=0)
     default_unit_size = db.Column(db.Float, default=1.0, nullable=True)
+    # AI Autofill anchor: the typical secondhand price for this (sub)category. The AI
+    # autofill flow adjusts up/down from this by a bounded condition multiplier.
+    # Set per-subcategory where possible; top-level categories carry a fallback.
+    baseline_price = db.Column(db.Numeric(10, 2), nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey('inventory_category.id'), nullable=True)
 
     parent = db.relationship('InventoryCategory', remote_side='InventoryCategory.id', backref='subcategories')

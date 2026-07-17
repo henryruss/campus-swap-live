@@ -8,7 +8,7 @@ READ-ONLY: does not write to the database or upload anything to S3.
 Safe to point directly at production.
 
 Usage:
-    python test_background_removal.py --item-id 4821
+    python3 test_background_removal.py --item-id 525 --full-size
     python test_background_removal.py --item-id 4821 --canvas-size 1600 --fill-ratio 0.8
 
 Requires:
@@ -102,11 +102,15 @@ def download_from_s3(filename: str) -> bytes:
         raise
 
 
-def remove_background(image_bytes: bytes) -> bytes:
+def remove_background(image_bytes: bytes, size: str = "preview") -> bytes:
+    # "preview" (~0.25 credit, low-res, and free up to 50/month) is fine for
+    # tuning compositing logic. Production and backfill need "full" (1 credit,
+    # full resolution) — switch explicitly, don't rely on remove.bg's "auto"
+    # default, which can silently choose a lower tier depending on account state.
     response = requests.post(
         "https://api.remove.bg/v1.0/removebg",
         files={"image_file": image_bytes},
-        data={"size": "auto", "format": "png"},
+        data={"size": size, "format": "png"},
         headers={"X-Api-Key": REMOVEBG_API_KEY},
         timeout=60,
     )
@@ -150,7 +154,7 @@ def composite_on_white(cutout_png_bytes: bytes, canvas_size: int = 1600, fill_ra
     return canvas
 
 
-def process_one_photo(label: str, filename: str, item_id: int, dry_run: bool, canvas_size: int, fill_ratio: float) -> str:
+def process_one_photo(label: str, filename: str, item_id: int, dry_run: bool, canvas_size: int, fill_ratio: float, full_size: bool) -> str:
     """Returns a short status string for the summary at the end."""
     print(f"\n--- {label}: {filename} ---")
 
@@ -165,18 +169,22 @@ def process_one_photo(label: str, filename: str, item_id: int, dry_run: bool, ca
         print("Dry run: stopping before remove.bg call.")
         return "dry-run (no API call made)"
 
+    size = "full" if full_size else "preview"
+
     # Cache the raw remove.bg cutout locally — lets you retune the composite
-    # (shadow, sizing, padding) as many times as you want without spending
-    # another credit. Delete this file if you actually want a fresh cutout.
-    cutout_path = os.path.join(OUTPUT_DIR, f"{item_id}_{label}_cutout.png")
+    # (sizing, padding) as many times as you want without spending another
+    # credit. Cache is keyed by size so a preview cutout never gets silently
+    # reused for a full-size check. Delete the file to force a fresh call.
+    cutout_path = os.path.join(OUTPUT_DIR, f"{item_id}_{label}_cutout_{size}.png")
     if os.path.exists(cutout_path):
-        print(f"Using cached cutout -> {cutout_path} (delete this file to force a fresh remove.bg call)")
+        print(f"Using cached {size} cutout -> {cutout_path} (delete this file to force a fresh remove.bg call)")
         with open(cutout_path, "rb") as f:
             cutout_bytes = f.read()
     else:
         try:
-            print("Calling remove.bg (uses one paid API credit)...")
-            cutout_bytes = remove_background(original_bytes)
+            credit_note = "1 full credit" if full_size else "0.25 preview credit (free up to 50/month)"
+            print(f"Calling remove.bg at size='{size}' (uses {credit_note})...")
+            cutout_bytes = remove_background(original_bytes, size=size)
         except RuntimeError as e:
             print(f"FAILED: {e}")
             return f"failed — {e}"
@@ -187,7 +195,7 @@ def process_one_photo(label: str, filename: str, item_id: int, dry_run: bool, ca
     print("Compositing onto white background...")
     final_image = composite_on_white(cutout_bytes, canvas_size, fill_ratio)
 
-    after_path = os.path.join(OUTPUT_DIR, f"{item_id}_{label}_after.jpg")
+    after_path = os.path.join(OUTPUT_DIR, f"{item_id}_{label}_after_{size}.jpg")
     final_image.save(after_path, "JPEG", quality=88)
     print(f"Saved processed -> {after_path}")
     return "success"
@@ -204,6 +212,14 @@ def main():
         help="Look up the item and download its photos locally, but do NOT call remove.bg. "
              "Use this first to confirm you've got the right item before spending credits.",
     )
+    parser.add_argument(
+        "--full-size",
+        action="store_true",
+        help="Use remove.bg's 'full' size (1 real credit, full resolution) instead of the "
+             "default 'preview' size (0.25 credit, free up to 50/month, lower resolution). "
+             "Use this for a final quality check before committing to a credit package — "
+             "preview is fine for ordinary compositing/tuning iterations.",
+    )
     args = parser.parse_args()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -215,9 +231,20 @@ def main():
 
     # Build an ordered label -> filename map, then dedupe identical filenames
     # (cover and gallery[0] are frequently the same underlying file by design).
-    labeled_photos = [("cover", photos["cover"])]
+    # Rephotographed / quick-capture items keep photo_url (the cover) NULL by
+    # design — their photos live only in the gallery — so skip a missing cover
+    # instead of trying to download "uploads/None".
+    labeled_photos = []
+    if photos["cover"]:
+        labeled_photos.append(("cover", photos["cover"]))
+    else:
+        print("No cover photo (photo_url is NULL) — processing gallery photos only.")
     for i, filename in enumerate(photos["gallery"]):
-        labeled_photos.append((f"gallery{i}", filename))
+        if filename:
+            labeled_photos.append((f"gallery{i}", filename))
+
+    if not labeled_photos:
+        raise SystemExit(f"Item {args.item_id} has no photos to process.")
 
     seen_filenames = {}  # filename -> label that already claimed it
     results = {}
@@ -230,7 +257,7 @@ def main():
             continue
         seen_filenames[filename] = label
         results[label] = process_one_photo(
-            label, filename, args.item_id, args.dry_run, args.canvas_size, args.fill_ratio
+            label, filename, args.item_id, args.dry_run, args.canvas_size, args.fill_ratio, args.full_size
         )
 
     print("\n=== Summary ===")

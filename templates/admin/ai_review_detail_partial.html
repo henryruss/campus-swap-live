@@ -4,51 +4,29 @@
      data-ai-price="{{ '%.2f'|format(ai_price) }}"
      data-suggested-price="{{ '%.2f'|format(seller_price) if seller_price else '' }}">
 
-  {# Photo gallery — same pattern as approval_detail_partial.html #}
-  <div class="approval-modal-gallery">
-    {% if all_photos %}
-    <div class="approval-gallery-track-wrap" style="position:relative;">
-      {% if item.ai_photo_enhanced %}
-      <div style="position:absolute;top:10px;left:10px;z-index:10;background:rgba(16,185,129,0.9);color:white;font-size:0.7rem;font-weight:700;padding:3px 9px;border-radius:999px;backdrop-filter:blur(2px);pointer-events:none;">✨ Enhanced</div>
-      {% endif %}
-      <div class="approval-gallery-track" id="approval-gallery-track">
-        {% for photo in all_photos %}
-        <img src="{{ url_for('uploaded_file', filename=photo) }}"
-             alt="{{ item.ai_description or item.description }}"
-             class="approval-gallery-slide"
-             data-photo="{{ photo }}">
-        {% endfor %}
-      </div>
-      {% if all_photos|length > 1 %}
-      <button class="approval-gallery-btn approval-gallery-prev" onclick="approvalGalleryMove(-1)" type="button">&#8249;</button>
-      <button class="approval-gallery-btn approval-gallery-next" onclick="approvalGalleryMove(1)" type="button">&#8250;</button>
-      <div class="approval-gallery-counter" id="gallery-counter">1 / {{ all_photos|length }}</div>
-      {# "Set as cover" button — hidden on slide 0 (already cover), visible on others #}
-      <button id="set-cover-btn" type="button"
-              style="display:none; position:absolute; bottom:44px; left:50%; transform:translateX(-50%);
-                     background:rgba(0,0,0,0.65); color:white; border:none; border-radius:999px;
-                     padding:6px 16px; font-size:0.78rem; font-weight:700; cursor:pointer;
-                     white-space:nowrap; backdrop-filter:blur(2px);"
-              onclick="setCoverPhoto()">
-        ★ Set as cover
-      </button>
-      {# Delete photo button — visible on every slide, including the AI-enhanced cover #}
-      <button id="delete-photo-btn" type="button"
-              style="display:block; position:absolute; top:10px; right:10px;
-                     background:rgba(220,38,38,0.85); color:white; border:none; border-radius:999px;
-                     padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer;
-                     white-space:nowrap; backdrop-filter:blur(2px);"
-              onclick="deleteGalleryPhoto()">
-        <i class="fas fa-trash"></i> Delete
-      </button>
-      {% endif %}
+  {# Background-removal review: the three processed photos, one horizontal row. #}
+  <div class="bgr-photos">
+    {% if photo_pairs %}
+    {% for pair in photo_pairs %}
+    <div class="bgr-cell">
+      <div class="bgr-cap">{{ pair.view or 'photo' }}</div>
+      <img src="{{ url_for('uploaded_file', filename=pair.processed) }}"
+           alt="processed {{ pair.view or '' }}" class="bgr-img"
+           onerror="this.parentNode.classList.add('bgr-missing');this.remove();">
     </div>
+    {% endfor %}
     {% else %}
-    <div class="approval-gallery-track-wrap approval-gallery-placeholder">
-      <i class="fas fa-image" style="font-size:3rem;color:var(--text-muted);"></i>
-    </div>
+    <div class="bgr-na" style="width:100%;">No photos on this item.</div>
     {% endif %}
   </div>
+  <style>
+    .bgr-photos { display:flex; flex-direction:row; gap:10px; margin-bottom:8px; }
+    .bgr-cell { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:5px; }
+    .bgr-cap { font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); }
+    .bgr-img { width:100%; aspect-ratio:1/1; object-fit:contain; border:1px solid var(--rule); border-radius:10px; background:var(--bg-cream); }
+    .bgr-na, .bgr-missing { aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
+      border:1px dashed var(--rule); border-radius:10px; color:var(--text-muted); font-size:0.78rem; background:var(--bg-cream); text-align:center; padding:8px; }
+  </style>
 
   {# Editable fields #}
   <div class="approval-modal-info-body">
@@ -171,116 +149,6 @@
 </div>
 
 <script>
-if (typeof window._galleryIdx === 'undefined') window._galleryIdx = 0;
-function approvalGalleryMove(dir) {
-  var track = document.getElementById('approval-gallery-track');
-  var counter = document.getElementById('gallery-counter');
-  var coverBtn = document.getElementById('set-cover-btn');
-  if (!track) return;
-  var slides = track.querySelectorAll('.approval-gallery-slide');
-  var total = slides.length;
-  if (total < 2) return;
-  window._galleryIdx = (window._galleryIdx + dir + total) % total;
-  track.style.transform = 'translateX(-' + (window._galleryIdx * 100) + '%)';
-  if (counter) counter.textContent = (window._galleryIdx + 1) + ' / ' + total;
-  if (coverBtn) coverBtn.style.display = window._galleryIdx === 0 ? 'none' : 'block';
-  var deleteBtn = document.getElementById('delete-photo-btn');
-  if (deleteBtn) deleteBtn.style.display = 'block';
-}
-
-function setCoverPhoto() {
-  var track = document.getElementById('approval-gallery-track');
-  if (!track) return;
-  var slides = track.querySelectorAll('.approval-gallery-slide');
-  var slide = slides[window._galleryIdx];
-  if (!slide) return;
-  var photoUrl = slide.dataset.photo;
-  var wrap = document.querySelector('.approval-detail-wrap');
-  var itemId = wrap ? wrap.dataset.itemId : null;
-  if (!itemId || !photoUrl) return;
-
-  var btn = document.getElementById('set-cover-btn');
-  btn.textContent = 'Saving…';
-  btn.disabled = true;
-
-  var body = new URLSearchParams({ photo_url: photoUrl });
-  body.append('csrf_token', _aiCsrf);
-
-  fetch('/admin/ai/item/' + itemId + '/set-cover-photo', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': _aiCsrf
-    },
-    body: body.toString(),
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.success) {
-      window._galleryIdx = 0;
-      fetch('/admin/ai/item/' + itemId + '/detail')
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-          var modalBody = document.getElementById('ai-modal-body');
-          if (modalBody) modalBody.innerHTML = html;
-        });
-    } else {
-      btn.textContent = '★ Set as cover';
-      btn.disabled = false;
-    }
-  })
-  .catch(function() {
-    btn.textContent = '★ Set as cover';
-    btn.disabled = false;
-  });
-}
-
-function deleteGalleryPhoto() {
-  var track = document.getElementById('approval-gallery-track');
-  if (!track) return;
-  var slides = track.querySelectorAll('.approval-gallery-slide');
-  var slide = slides[window._galleryIdx];
-  if (!slide) return;
-  var photoUrl = slide.dataset.photo;
-  var wrap = document.querySelector('.approval-detail-wrap');
-  var itemId = wrap ? wrap.dataset.itemId : null;
-  if (!itemId || !photoUrl) return;
-
-  if (!confirm('Delete this photo? This cannot be undone.')) return;
-
-  var deleteBtn = document.getElementById('delete-photo-btn');
-  deleteBtn.disabled = true;
-
-  var body = new URLSearchParams({ photo_url: photoUrl });
-  body.append('csrf_token', _aiCsrf);
-
-  fetch('/admin/item/' + itemId + '/delete-gallery-photo', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': _aiCsrf
-    },
-    body: body.toString(),
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.success) {
-      window._galleryIdx = 0;
-      fetch('/admin/ai/item/' + itemId + '/detail')
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-          var modalBody = document.getElementById('ai-modal-body');
-          if (modalBody) modalBody.innerHTML = html;
-        });
-    } else {
-      deleteBtn.disabled = false;
-    }
-  })
-  .catch(function() {
-    deleteBtn.disabled = false;
-  });
-}
-
 function updateCounter(id, len, max) {
   var el = document.getElementById(id);
   if (el) el.textContent = len + ' / ' + max;

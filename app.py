@@ -514,9 +514,7 @@ def inject_qc_pending_count():
     except Exception:
         qc_count = 0
     try:
-        ai_count = InventoryItem.query.filter(
-            InventoryItem.ai_review_pending == True,
-        ).count()
+        ai_count = _background_removal_review_query().count()
     except Exception:
         ai_count = 0
     try:
@@ -16208,15 +16206,10 @@ def admin_items():
     }
     filter_stage_label = STAGE_LABELS.get(filter_stage, None)
 
-    # AI review queue
+    # Background Removal Review queue — the remove.bg batch only (see helper).
     ai_review_items = []
     if current_user.is_super_admin:
-        ai_review_items = (
-            InventoryItem.query
-            .filter(InventoryItem.ai_review_pending == True)
-            .order_by(InventoryItem.ai_generated_at.asc())
-            .all()
-        )
+        ai_review_items = _background_removal_review_query().all()
 
     # Photo verification queue
     photo_verification_items = []
@@ -16289,12 +16282,7 @@ def admin_items():
             ('claude-opus-4-7', 'Opus 4.7 — Most Capable'),
         ],
         current_model=AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6'),
-        eligible_count=InventoryItem.query.filter(
-            InventoryItem.status.notin_(['rejected', 'sold']),
-            InventoryItem.ai_generated_at.is_(None),
-            InventoryItem.photo_url.isnot(None),
-            InventoryItem.photo_url != '',
-        ).count(),
+        eligible_count=_ai_autofill_eligible_query().count(),
         pending_review_count=InventoryItem.query.filter(
             InventoryItem.ai_review_pending == True,
         ).count(),
@@ -17244,6 +17232,46 @@ def _load_ai_run_log():
 _AI_JOBS = {}
 
 
+def _ai_autofill_eligible_query():
+    """Base query for items eligible for AI Autofill.
+
+    Eligible = rephotographed (has at least one ItemPhoto with captured_at set)
+    AND not yet AI-processed (ai_generated_at IS NULL) AND not rejected/sold.
+
+    Rephotographed items keep photo_url (the cover) NULL by design, so we
+    deliberately do NOT require a cover here — the rephoto ItemPhoto guarantees
+    real photos exist. The AI flow sets the cover from the processed front photo.
+    """
+    rephotographed = ItemPhoto.query.filter(
+        ItemPhoto.item_id == InventoryItem.id,
+        ItemPhoto.captured_at.isnot(None),
+    ).exists()
+    return InventoryItem.query.filter(
+        InventoryItem.status.notin_(['rejected', 'sold']),
+        InventoryItem.ai_generated_at.is_(None),
+        rephotographed,
+    )
+
+
+def _background_removal_review_query():
+    """Items awaiting Background Removal Review: the remove.bg batch only — i.e.
+    rephotographed (a captured ItemPhoto exists) AND ai_review_pending.
+
+    Deliberately NOT keyed on ai_photo_enhanced: the legacy OpenAI enhancement
+    flow set that same flag, so it would pull in old non-rephoto items. Ordered
+    oldest-first by ai_generated_at.
+    """
+    rephotographed = ItemPhoto.query.filter(
+        ItemPhoto.item_id == InventoryItem.id,
+        ItemPhoto.captured_at.isnot(None),
+    ).exists()
+    return (
+        InventoryItem.query
+        .filter(InventoryItem.ai_review_pending == True, rephotographed)
+        .order_by(InventoryItem.ai_generated_at.asc())
+    )
+
+
 @app.route('/admin/ai/generate')
 @login_required
 def admin_ai_generate_page():
@@ -17252,12 +17280,7 @@ def admin_ai_generate_page():
     if guard:
         return guard
     api_key_present = bool(os.environ.get('ANTHROPIC_API_KEY'))
-    eligible_count = InventoryItem.query.filter(
-        InventoryItem.status.notin_(['rejected', 'sold']),
-        InventoryItem.ai_generated_at.is_(None),
-        InventoryItem.photo_url.isnot(None),
-        InventoryItem.photo_url != '',
-    ).count()
+    eligible_count = _ai_autofill_eligible_query().count()
     pending_review_count = InventoryItem.query.filter(
         InventoryItem.ai_review_pending == True,
     ).count()
@@ -17297,14 +17320,13 @@ def admin_ai_generate_run():
     model_form = request.form.get('model', '').strip()
     if model_form in model_choices:
         AppSetting.set('ai_autofill_model', model_form)
+    # Persist remove.bg size for this run: 'preview' (free, low-res, local quality
+    # check) vs 'full' (1 credit, production). Defaults to 'full' when unchecked.
+    photo_size = request.form.get('photo_size', '').strip()
+    AppSetting.set('ai_removebg_size', 'preview' if photo_size == 'preview' else 'full')
     limit_raw = request.form.get('limit', '').strip()
     limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
-    q = InventoryItem.query.filter(
-        InventoryItem.status.notin_(['rejected', 'sold']),
-        InventoryItem.ai_generated_at.is_(None),
-        InventoryItem.photo_url.isnot(None),
-        InventoryItem.photo_url != '',
-    ).order_by(InventoryItem.date_added.asc())
+    q = _ai_autofill_eligible_query().order_by(InventoryItem.date_added.asc())
     if limit:
         q = q.limit(limit)
     items = q.all()
@@ -17313,6 +17335,146 @@ def admin_ai_generate_run():
         _ai_queue.put((app_obj, item.id))
     app.logger.info(f'[AI worker] enqueued {len(items)} items (limit={limit})')
     return jsonify({'enqueued': len(items)})
+
+
+# --- remove.bg photo processing (AI Autofill) -------------------------------
+# Ported from test_background_removal.py. Pulls each carousel photo, removes the
+# background via remove.bg (full size = 1 credit/photo), and composites onto a
+# clean light-gray canvas — giving rephotographed items marketplace-ready photos.
+_REMOVEBG_CANVAS_SIZE = 1600
+_REMOVEBG_FILL_RATIO = 0.8
+_REMOVEBG_BG_COLOR = (240, 240, 240)  # light gray composite background (#F0F0F0)
+_REMOVEBG_VIEW_ORDER = {'front': 0, 'side': 1, 'back': 2}
+
+
+def _removebg_cutout(image_bytes, size='full'):
+    """Call remove.bg and return transparent-PNG cutout bytes. Raises on error.
+
+    size='full' is 1 real credit at full resolution (production). 'preview' is
+    ~0.25 credit / lower-res, for testing only.
+    """
+    import requests as _requests
+    api_key = os.environ.get('REMOVEBG_API_KEY')
+    if not api_key:
+        raise RuntimeError('REMOVEBG_API_KEY not set')
+    resp = _requests.post(
+        'https://api.remove.bg/v1.0/removebg',
+        files={'image_file': image_bytes},
+        data={'size': size, 'format': 'png'},
+        headers={'X-Api-Key': api_key},
+        timeout=60,
+    )
+    if resp.status_code == 402:
+        raise RuntimeError('remove.bg: out of credits (402 Payment Required)')
+    if resp.status_code != 200:
+        raise RuntimeError(f'remove.bg error {resp.status_code}: {resp.text[:200]}')
+    return resp.content
+
+
+def _composite_on_background(cutout_png_bytes, canvas_size=_REMOVEBG_CANVAS_SIZE, fill_ratio=_REMOVEBG_FILL_RATIO):
+    """Composite a remove.bg cutout onto a centered light-gray canvas. Returns JPEG bytes."""
+    from PIL import Image
+    import io as _io
+    cutout = Image.open(_io.BytesIO(cutout_png_bytes)).convert('RGBA')
+    # remove.bg returns a padded canvas, not a tight crop — crop to real content
+    # first so fill_ratio is honored.
+    bbox = cutout.getbbox()
+    if bbox:
+        cutout = cutout.crop(bbox)
+    target_dim = int(canvas_size * fill_ratio)
+    scale = min(target_dim / cutout.width, target_dim / cutout.height)
+    new_w, new_h = int(cutout.width * scale), int(cutout.height * scale)
+    cutout = cutout.resize((new_w, new_h), Image.LANCZOS)
+    canvas = Image.new('RGB', (canvas_size, canvas_size), _REMOVEBG_BG_COLOR)
+    x = (canvas_size - new_w) // 2
+    y = int((canvas_size - new_h) * 0.55)  # slightly more headroom above than below
+    canvas.paste(cutout, (x, y), cutout)
+    out = _io.BytesIO()
+    canvas.save(out, 'JPEG', quality=88)
+    return out.getvalue()
+
+
+def _process_item_photos_removebg(item, storage, on_phase=None):
+    """Run remove.bg + white composite on every carousel photo, replacing in place.
+
+    Order: front → side → back → others. Each result is saved as
+    '<original_stem>_nobg.jpg' so the raw captured photo stays recoverable in S3
+    by dropping the '_nobg' suffix. Each ItemPhoto.photo_url is updated in place,
+    and item.photo_url (the cover) is set to the processed front photo.
+
+    Best-effort per photo: a single photo failure is logged and skipped, not
+    fatal. Sets ai_photo_enhanced=True and commits when at least one succeeds.
+    """
+    item_id = item.id
+    if item.ai_photo_enhanced:
+        logging.warning(f'[AI photo] item={item_id}: already enhanced — skipping remove.bg')
+        return
+    # remove.bg is PAID (per photo). Only ever run it for rephotographed items
+    # (the AI-Autofill campaign) — never for auto-on-submission seller items or
+    # quick-capture, which would silently burn credits on every new listing.
+    if not any(p.captured_at is not None for p in item.gallery_photos):
+        logging.info(f'[AI photo] item={item_id}: not rephotographed — skipping remove.bg (text only)')
+        return
+    if not os.environ.get('REMOVEBG_API_KEY'):
+        logging.warning(f'[AI photo] item={item_id}: REMOVEBG_API_KEY not set — skipping photo step')
+        return
+    if on_phase:
+        on_phase('photo')
+
+    # 'full' (1 credit, full-res) is production. 'preview' (~0.25 credit, free up
+    # to 50/mo, lower-res) is a local quality-check toggle — see the modal option.
+    size = AppSetting.get('ai_removebg_size', 'full')
+    if size not in ('full', 'preview'):
+        size = 'full'
+
+    def _order_key(p):
+        return (_REMOVEBG_VIEW_ORDER.get(p.view, 9), p.sort_order, p.id)
+
+    photos = sorted(list(item.gallery_photos), key=_order_key)
+    front_new_url = None
+    processed = 0
+    for p in photos:
+        try:
+            raw = storage.get_photo_bytes(p.photo_url)
+            if not raw:
+                logging.warning(f'[AI photo] item={item_id}: no bytes for {p.photo_url!r} — skipping')
+                continue
+            cutout = _removebg_cutout(raw, size=size)
+            composited = _composite_on_background(cutout)
+            stem = p.photo_url.rsplit('.', 1)[0]
+            new_key = f'{stem}_nobg.jpg'
+            photo_storage.save_photo_from_bytes(composited, new_key)
+            p.photo_url = new_key
+            processed += 1
+            if front_new_url is None:
+                front_new_url = new_key
+        except Exception as e:
+            logging.error(f'[AI photo] item={item_id}: remove.bg failed for {p.photo_url!r} '
+                          f'({type(e).__name__}) — {e}', exc_info=True)
+
+    if processed and front_new_url:
+        item.photo_url = front_new_url  # cover = processed front photo
+        item.ai_photo_enhanced = True
+        db.session.commit()
+        logging.warning(f'[AI photo] item={item_id}: processed {processed} photo(s) at size={size!r}; cover → {front_new_url!r}')
+    else:
+        logging.warning(f'[AI photo] item={item_id}: no photos processed')
+
+
+def _ai_baseline_price(item):
+    """Baseline anchor price for AI pricing: subcategory → category → global default.
+
+    Returns (baseline_float, source_str) where source describes which level was used.
+    """
+    if item.subcategory is not None and item.subcategory.baseline_price is not None:
+        return float(item.subcategory.baseline_price), f'subcategory:{item.subcategory.name}'
+    if item.category is not None and item.category.baseline_price is not None:
+        return float(item.category.baseline_price), f'category:{item.category.name}'
+    default = AppSetting.get('ai_baseline_default', '40')
+    try:
+        return float(default), 'global-default'
+    except (TypeError, ValueError):
+        return 40.0, 'global-default'
 
 
 def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase=None):
@@ -17331,101 +17493,23 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
 
     item_id = item.id
 
-    # --- Photo enhancement (optional) ---
-    openai_key = os.environ.get('OPENAI_API_KEY')
-    logging.warning(
-        f'[AI photo] item={item_id} photo_url={item.photo_url!r} '
-        f'ai_photo_enhanced={item.ai_photo_enhanced} '
-        f'enhance_photos={enhance_photos} '
-        f'openai_key_set={bool(openai_key)}'
-    )
-
-    if enhance_photos and not item.ai_photo_enhanced and item.photo_url:
-        if on_phase:
-            on_phase('photo')
-        if not openai_key:
-            logging.warning(f'[AI photo] item={item_id}: skipping — OPENAI_API_KEY not set')
-        else:
+    # --- Photo processing: remove.bg white-background composite on every photo ---
+    if enhance_photos:
+        try:
+            _process_item_photos_removebg(item, storage, on_phase=on_phase)
+        except Exception as e:
+            logging.error(f'[AI photo] item={item_id}: photo step aborted ({type(e).__name__}) — {e}', exc_info=True)
             try:
-                import openai as _openai
-                photo_bytes = storage.get_photo_bytes(item.photo_url)
-                logging.warning(
-                    f'[AI photo] item={item_id}: fetched photo_bytes '
-                    f'len={len(photo_bytes) if photo_bytes else None} '
-                    f'key={item.photo_url!r}'
-                )
-                if not photo_bytes:
-                    logging.warning(f'[AI photo] item={item_id}: photo_bytes is None — storage returned nothing')
-                else:
-                    client = _openai.OpenAI(api_key=openai_key)
-                    # Detect actual image format from magic bytes
-                    if photo_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-                        _img_mime, _img_ext = 'image/png', 'cover.png'
-                    elif photo_bytes[:4] in (b'RIFF', b'WEBP') or photo_bytes[8:12] == b'WEBP':
-                        _img_mime, _img_ext = 'image/webp', 'cover.webp'
-                    else:
-                        _img_mime, _img_ext = 'image/jpeg', 'cover.jpg'
-                    logging.warning(f'[AI photo] item={item_id}: detected mime={_img_mime}, calling OpenAI images.edit (gpt-image-1)')
-                    # gpt-image-1 does not accept response_format — always returns b64_json
-                    response = client.images.edit(
-                        model='gpt-image-1',
-                        image=(_img_ext, _io.BytesIO(photo_bytes), _img_mime),
-                        prompt=(
-                            'Professional product photography of this item only. Pure white background, '
-                            'white floor seamlessly meeting the wall, soft even studio lighting with no '
-                            'harsh shadows. The item should be centered and fill most of the frame. '
-                            'Remove any power cords, cables, or background clutter not part of the item itself. '
-                            'Do not add any text, watermarks, or props. Neutral, clean, marketplace-ready.'
-                        ),
-                        size='1024x1024',
-                    )
-                    logging.warning(
-                        f'[AI photo] item={item_id}: OpenAI response received '
-                        f'data_len={len(response.data)} '
-                        f'has_b64_json={bool(response.data[0].b64_json if response.data else None)}'
-                    )
-                    raw_b64 = response.data[0].b64_json
-                    # gpt-image-1 may return a data URI ("data:image/png;base64,...") or raw base64
-                    if raw_b64 and raw_b64.startswith('data:'):
-                        raw_b64 = raw_b64.split(',', 1)[1]
-                    enhanced_bytes = base64.b64decode(raw_b64)
-                    logging.warning(f'[AI photo] item={item_id}: decoded enhanced_bytes len={len(enhanced_bytes)}')
-                    # Preserve original photo in gallery if not already there
-                    existing_gallery_urls = {p.photo_url for p in item.gallery_photos}
-                    if item.photo_url not in existing_gallery_urls:
-                        db.session.add(ItemPhoto(item_id=item_id, photo_url=item.photo_url))
-                    old_url = item.photo_url
-                    new_filename = f'ai_enhanced_{item_id}_{int(_time.time())}.jpg'
-                    photo_storage.save_photo_from_bytes(enhanced_bytes, new_filename)
-                    del enhanced_bytes, raw_b64, photo_bytes
-                    logging.warning(f'[AI photo] item={item_id}: saved enhanced photo → {new_filename!r}')
-                    item.photo_url = new_filename
-                    item.ai_photo_enhanced = True
-                    db.session.commit()
-                    logging.warning(
-                        f'[AI photo] item={item_id}: committed — '
-                        f'photo_url {old_url!r} → {new_filename!r}'
-                    )
-            except Exception as e:
-                # Log the full error type + message so Render logs show exactly what went wrong
-                # (common causes: OpenAI content policy refusal, rate limit 429, unsupported image format)
-                err_type = type(e).__name__
-                logging.error(f'[AI photo] item={item_id}: FAILED ({err_type}) — {e}', exc_info=True)
-                try:
-                    db.session.rollback()
-                except Exception:
-                    pass
-                # Re-fetch item after rollback so text generation sees clean DB state
-                item = InventoryItem.query.get(item_id)
-                if item is None:
-                    logging.error(f'[AI photo] item={item_id}: item vanished after rollback — aborting pipeline')
-                    return False
+                db.session.rollback()
+            except Exception:
+                pass
+            # Re-fetch item after rollback so text generation sees clean DB state
+            item = InventoryItem.query.get(item_id)
+            if item is None:
+                logging.error(f'[AI photo] item={item_id}: item vanished after rollback — aborting pipeline')
+                return False
     else:
-        logging.warning(
-            f'[AI photo] item={item_id}: photo step skipped '
-            f'(enhance_photos={enhance_photos}, ai_photo_enhanced={item.ai_photo_enhanced}, '
-            f'photo_url={bool(item.photo_url)})'
-        )
+        logging.warning(f'[AI photo] item={item_id}: photo step skipped (enhance_photos=False)')
 
     # --- Text generation ---
     if on_phase:
@@ -17458,6 +17542,8 @@ def _process_single_item_ai(app, item, enhance_photos=True, model=None, on_phase
         return False
 
     seller_title = item.seller_description if item.seller_description else item.description
+    baseline, baseline_source = _ai_baseline_price(item)
+    logging.warning(f'[AI text] item={item_id}: baseline=${baseline:.0f} ({baseline_source})')
     prompt = f"""You are writing product listings for a secondhand marketplace. Buyers are general consumers — not specifically college students. Never mention dorms, dorm rooms, college, campus, or students.
 
 You are looking at a photo of a secondhand item being sold. The seller has titled this item: "{seller_title}". Use that title as the authoritative source for what is being sold. Do not add, invent, or describe any other objects visible in the photo that are not the primary item described in the seller's title.
@@ -17466,16 +17552,16 @@ Generate a product listing with:
 
 TITLE: A clean, factual title (max 60 chars). Use the seller's title as your primary input. Include brand name if visible. No punctuation at the end.
 
-DESCRIPTION: 2-3 sentences. Describe the item's key features, condition, and what makes it worth buying. Write for a general buyer. Do not mention dorms, college, or campus. Do not describe objects that are not the item being sold.
+DESCRIPTION: One to two short sentences (roughly 15-30 words total). State the item's most important features and its condition, written for a general buyer. Be factual and specific — no marketing fluff, no filler like "perfect for any space". Do not mention dorms, college, campus, or students. Do not describe objects that are not the item being sold. Do not restate the title word-for-word or mention the price.
 
-PRICE: Suggest a fair secondhand price in USD as a number only (no $ sign). Base it on condition and typical resale value.
+PRICE_MULTIPLIER: The typical baseline price for this category of item is ${baseline:.0f}. Assess the item's brand, condition, and quality from the photos, then choose a multiplier between 0.6 and 1.6 to apply to that baseline: use about 1.0 for a typical example in good used condition; lower for visible wear, damage, or a generic/budget brand; higher for a premium brand, like-new condition, or a clearly high-end piece. Respond with the multiplier as a number only (e.g. 1.0, 0.75, 1.4).
 
-RETAIL: Estimate the original retail price as a number only. This should be the typical new retail price for this type of item.
+RETAIL: Estimate the original retail price as a number only (no $ sign). This should be the typical new retail price for this type of item.
 
 Respond ONLY in this exact format with no other text:
 TITLE: ...
 DESCRIPTION: ...
-PRICE: ...
+PRICE_MULTIPLIER: ...
 RETAIL: ..."""
 
     media_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
@@ -17510,24 +17596,35 @@ RETAIL: ..."""
     def _strip_dashes(s):
         return str(s).replace('—', ' ').replace(' – ', ' ').replace('–', ' ').replace('  ', ' ').strip()
 
-    parsed_title = parsed_desc = parsed_price = parsed_retail = None
+    parsed_title = parsed_desc = parsed_multiplier = parsed_retail = None
     for line in raw.split('\n'):
         line = line.strip()
         if line.startswith('TITLE:'):
             parsed_title = line[6:].strip()
         elif line.startswith('DESCRIPTION:'):
             parsed_desc = line[12:].strip()
-        elif line.startswith('PRICE:'):
-            parsed_price = line[6:].strip()
+        elif line.startswith('PRICE_MULTIPLIER:'):
+            parsed_multiplier = line[17:].strip()
         elif line.startswith('RETAIL:'):
             parsed_retail = line[7:].strip()
 
-    if not parsed_title or not parsed_price:
+    if not parsed_title or not parsed_multiplier:
         raise Exception(f'Failed to parse AI response: {raw[:200]}')
 
     item.ai_description = _strip_dashes(parsed_title)[:200]
     item.ai_long_description = _strip_dashes(parsed_desc or '')[:2000]
-    raw_price = round(float(parsed_price), 2)
+
+    # Price = baseline × condition multiplier, clamped to ±40% and rounded to $5.
+    try:
+        multiplier = float(parsed_multiplier)
+    except (TypeError, ValueError):
+        multiplier = 1.0
+    multiplier = max(0.6, min(1.6, multiplier))
+    raw_price = round((baseline * multiplier) / 5.0) * 5.0
+    if raw_price < 5:
+        raw_price = 5.0
+    logging.warning(f'[AI text] item={item_id}: baseline=${baseline:.0f} × {multiplier:.2f} → ${raw_price:.0f}')
+
     raw_retail = round(float(parsed_retail), 2) if parsed_retail else None
     if raw_price > 0:
         min_retail = round(raw_price / 0.60, 2)
@@ -17548,8 +17645,14 @@ def _run_ai_generation_single(app, item_id):
     """Fire-and-forget: run AI pipeline for one newly submitted item."""
     with app.app_context():
         item = InventoryItem.query.get(item_id)
-        if not item or not item.photo_url:
-            app.logger.info(f'[AI worker] item {item_id}: skipped (not found or missing photo)')
+        if not item:
+            app.logger.info(f'[AI worker] item {item_id}: skipped (not found)')
+            return
+        # Rephotographed items keep photo_url (cover) NULL by design — their photos
+        # live only in the gallery. Skip only when there are NO photos at all, not
+        # merely no cover; _process_single_item_ai handles the no-cover case.
+        if not item.photo_url and not item.gallery_photos:
+            app.logger.info(f'[AI worker] item {item_id}: skipped (no photos)')
             return
         # Already succeeded — ai_description is the source of truth
         if item.ai_description is not None:
@@ -17599,13 +17702,16 @@ _ai_worker_thread.start()
 
 
 def _ai_startup_requeue():
-    """On startup, re-enqueue items that need AI processing.
+    """On startup, resume interrupted AI *text* generation for seller-submitted
+    items (which have a cover photo). This is the cheap, auto-on-submission flow.
 
-    Picks up two categories:
-    - Never-attempted: ai_description IS NULL and ai_generated_at IS NULL
-    - Failed-but-retryable: ai_description IS NULL and ai_retry_count < _AI_MAX_RETRIES
-      (ai_generated_at is reset to NULL by the error handler when retries remain)
-    Both collapse to: ai_description IS NULL AND ai_retry_count < _AI_MAX_RETRIES AND photo_url set.
+    Deliberately EXCLUDES AI-Autofill rephoto items (photo_url NULL): those run
+    remove.bg (paid, per-photo) and must only ever be processed via the explicit,
+    Limit-controlled "Queue All" button — never auto-enqueued on boot, or a
+    restart would silently spend credits on the whole backlog.
+
+    Picks up: ai_description IS NULL AND ai_retry_count < _AI_MAX_RETRIES AND a
+    cover photo is set.
     """
     import time
     time.sleep(5)  # wait for gunicorn to finish binding and app to be fully ready
@@ -17621,7 +17727,7 @@ def _ai_startup_requeue():
             for item in orphans:
                 _ai_queue.put((app, item.id))
             if orphans:
-                app.logger.info(f'[AI startup] re-queued {len(orphans)} items (never-attempted + retryable failures)')
+                app.logger.info(f'[AI startup] re-queued {len(orphans)} seller items (interrupted text generation)')
         except Exception as e:
             app.logger.error(f'[AI startup] re-queue error: {e}')
 
@@ -17736,9 +17842,7 @@ def admin_ai_review_queue():
     guard = require_super_admin()
     if guard:
         return guard
-    items = InventoryItem.query.filter(
-        InventoryItem.ai_review_pending == True,
-    ).order_by(InventoryItem.ai_generated_at.asc()).all()
+    items = _background_removal_review_query().all()
     return render_template('admin/ai_review.html', items=items)
 
 
@@ -17759,12 +17863,31 @@ def admin_ai_review_detail(item_id):
     for gp in item.gallery_photos:
         if gp.photo_url not in all_photos:
             all_photos.append(gp.photo_url)
+
+    # Before/after pairs for background-removal review: each processed photo
+    # ('<stem>_nobg.jpg') alongside its raw original ('<stem>.jpg'), derived by
+    # dropping the '_nobg' suffix. Ordered front → side → back → others.
+    _view_order = {'front': 0, 'side': 1, 'back': 2}
+    ordered_gallery = sorted(
+        item.gallery_photos,
+        key=lambda p: (_view_order.get(p.view, 9), p.sort_order, p.id),
+    )
+    photo_pairs = []
+    for gp in ordered_gallery:
+        url = gp.photo_url or ''
+        original = None
+        stem, dot, ext = url.rpartition('.')
+        if dot and stem.endswith('_nobg'):
+            original = stem[:-len('_nobg')] + '.' + ext
+        photo_pairs.append({'processed': url, 'original': original, 'view': gp.view})
+
     retail_price = float(item.ai_retail_price) if item.ai_retail_price else None
     savings_pct = round((1 - ai_price / retail_price) * 100) if retail_price and retail_price > 0 and ai_price > 0 else None
     return render_template(
         'admin/ai_review_detail_partial.html',
         item=item,
         all_photos=all_photos,
+        photo_pairs=photo_pairs,
         final_price=final_price,
         ai_price=ai_price,
         seller_price=seller_price,
