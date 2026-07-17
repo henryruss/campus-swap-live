@@ -15533,7 +15533,23 @@ def admin_rephoto_match_report():
     reshot = _rephoto_reshot_item_ids([i.id for i in candidates])
     items = [i for i in candidates if i.id in reshot]
 
-    return render_template('admin/rephoto_report.html', items=items, scope=scope)
+    # Reverse map: rephoto item id -> the original listing it already replaces
+    # (originals carry replaced_by_item_id). Lets the match modal pre-select it.
+    replaced_map = {}
+    item_ids = [i.id for i in items]
+    if item_ids:
+        for orig in InventoryItem.query.filter(
+                InventoryItem.replaced_by_item_id.in_(item_ids)).all():
+            replaced_map[orig.replaced_by_item_id] = {
+                'id': orig.id,
+                'title': orig.description or 'Untitled',
+            }
+
+    storage_units = (StorageLocation.query
+                     .filter_by(is_active=True)
+                     .order_by(StorageLocation.name).all())
+    return render_template('admin/rephoto_report.html', items=items, scope=scope,
+                           storage_units=storage_units, replaced_map=replaced_map)
 
 
 @app.route('/admin/warehouse/seller-items')
@@ -15560,6 +15576,34 @@ def admin_warehouse_seller_items():
         {'id': i.id, 'title': i.description or 'Untitled', 'status': (i.status or '').replace('_', ' ')}
         for i in items
     ])
+
+
+def _publish_rephoto_if_ready(item):
+    """Promote a rephotographed item to the shop (status='available') once it is
+    fully ready. Order-independent: whichever of the two human steps finishes
+    last — Background Removal Review approval or Match-Seller — triggers publish.
+
+    Ready = pending_valuation AND ai_approved (title/desc/price live) AND a real
+    seller AND a storage location AND price>0 AND a cover photo AND not flagged
+    for a new photo. Mirrors the /shop visibility filter so nothing publishes
+    that the shop would then hide. Returns True if it published.
+    """
+    if item is None or item.status != 'pending_valuation':
+        return False
+    ready = (
+        item.ai_approved
+        and item.seller_id is not None
+        and item.storage_location_id is not None
+        and item.price is not None and float(item.price) > 0
+        and bool(item.photo_url)
+        and not item.needs_new_photo
+    )
+    if not ready:
+        return False
+    item.status = 'available'
+    logger.info(f'[rephoto publish] item {item.id} → available (seller={item.seller_id}, '
+                f'storage={item.storage_location_id})')
+    return True
 
 
 @app.route('/admin/warehouse/rephoto/match/<int:item_id>', methods=['POST'])
@@ -15589,29 +15633,45 @@ def admin_rephoto_match_save(item_id):
         if original.id == item.id:
             return jsonify({'success': False, 'error': 'An item cannot replace itself.'}), 400
 
-    # Editable title (optional — blank keeps the current title)
-    title = (request.form.get('title') or '').strip()
-    if title:
-        item.description = title[:200]
+    # Title is NOT collected here — AI Autofill generates it from the photo and it
+    # is written live on Background Removal Review approval. Collecting it at match
+    # time would only get overwritten by the AI title, so we leave it to the AI.
 
-    # Assign the real seller + dimensions to the rephotographed item.
+    # Storage location (required to publish) + optional zone within the unit.
+    loc_id = (request.form.get('storage_location_id') or '').strip()
+    zone = (request.form.get('storage_row') or '').strip()
+    if not loc_id or not loc_id.isdigit():
+        return jsonify({'success': False, 'error': 'Select a storage location.'}), 400
+    storage_location = StorageLocation.query.get(int(loc_id))
+    if not storage_location or not storage_location.is_active:
+        return jsonify({'success': False, 'error': 'Invalid storage unit.'}), 400
+    ok, err = _validate_storage_zone(zone)
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
+
+    # Assign the real seller + dimensions + storage to the rephotographed item.
     item.seller_id = seller.id
     item.length_in = _parse_dimension(request.form.get('length_in'))
     item.width_in = _parse_dimension(request.form.get('width_in'))
     item.height_in = _parse_dimension(request.form.get('height_in'))
+    item.storage_location_id = storage_location.id
+    item.storage_row = zone or None
 
     # Hide the original listing from the shop and link it to its replacement.
     if original is not None:
         original.ai_approved = False
         original.replaced_by_item_id = item.id
 
+    published = _publish_rephoto_if_ready(item)
     db.session.commit()
     logger.info(
         f"Rephoto match: item {item.id} -> seller {seller.id}"
         + (f", replaces original {original.id}" if original else "")
+        + (", PUBLISHED" if published else " (awaiting bg-review approval to publish)")
     )
     return jsonify({'success': True, 'item_id': item.id,
-                    'replaced_item_id': original.id if original else None})
+                    'replaced_item_id': original.id if original else None,
+                    'published': published})
 
 
 @app.route('/admin/warehouse/rephoto/search')
@@ -17928,8 +17988,11 @@ def admin_ai_approve(item_id):
         item.retail_price = item.ai_retail_price
     item.ai_review_pending = False
     item.ai_approved = True
+    # Order-independent publish: if the item was already matched to a seller with
+    # storage, approving here is the last step → send it to the shop.
+    published = _publish_rephoto_if_ready(item)
     db.session.commit()
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'published': published})
 
 
 @app.route('/admin/ai/item/<int:item_id>/discard', methods=['POST'])

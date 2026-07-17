@@ -419,3 +419,74 @@ def test_pipeline_originals_recoverable_naming(db, factory, cats, monkeypatch):
     _process_single_item_ai(_app, item)
     refreshed = InventoryItem.query.get(item_id)
     assert refreshed.gallery_photos[0].photo_url == f'{original_stem}_nobg.jpg'
+
+
+# ---------------------------------------------------------------------------
+# Publish (rephoto item → shop) — order-independent go-live
+# ---------------------------------------------------------------------------
+
+def _make_publishable(db, factory, cats):
+    """A rephoto item detached from the session with every shop-ready field set.
+    Detached (expunged) so we can assign placeholder FK ids without autoflush
+    tripping FK constraints during teardown."""
+    item = factory.make_item(category=cats['furniture'], subcategory=cats['desk'])
+    db.session.expunge(item)
+    item.status = 'pending_valuation'
+    item.ai_approved = True
+    item.seller_id = 999001
+    item.storage_location_id = 888001
+    item.price = 40
+    item.photo_url = 'rephoto_front_nobg.jpg'
+    item.needs_new_photo = False
+    return item
+
+
+def test_publish_when_all_ready(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    assert _publish_rephoto_if_ready(item) is True
+    assert item.status == 'available'
+
+
+def test_no_publish_without_storage(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.storage_location_id = None
+    assert _publish_rephoto_if_ready(item) is False
+    assert item.status == 'pending_valuation'
+
+
+def test_no_publish_without_seller(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.seller_id = None
+    assert _publish_rephoto_if_ready(item) is False
+
+
+def test_no_publish_when_not_ai_approved(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.ai_approved = False
+    assert _publish_rephoto_if_ready(item) is False
+
+
+def test_no_publish_without_price(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.price = 0
+    assert _publish_rephoto_if_ready(item) is False
+
+
+def test_no_publish_when_needs_new_photo(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.needs_new_photo = True
+    assert _publish_rephoto_if_ready(item) is False
+
+
+def test_no_publish_when_already_sold(db, factory, cats):
+    from app import _publish_rephoto_if_ready
+    item = _make_publishable(db, factory, cats)
+    item.status = 'sold'
+    assert _publish_rephoto_if_ready(item) is False
+    assert item.status == 'sold'  # untouched
