@@ -421,7 +421,7 @@ try:
     limiter = Limiter(
         app=app,
         key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
+        default_limits=["20000 per day", "2000 per hour"],
         storage_uri="memory://"
     )
     logger.info("Rate limiting enabled")
@@ -2218,7 +2218,12 @@ def share_card_image(item_id):
 
 
 # --- IMAGE SERVING ROUTE ---
+# Exempt from rate limiting: a single page (e.g. the photo report or shop grid)
+# loads many images at once, which would otherwise blow the default per-IP limit
+# ("50 per hour") and return 429 → broken images. Serving images must never be
+# rate-limited. (Local dev has no limiter, which is why this only bit in prod.)
 @app.route('/uploads/<filename>')
+@(limiter.exempt if limiter else (lambda f: f))
 def uploaded_file(filename):
     # Temp files: guest/draft are always on disk; QR mobile (temp_) may be in S3
     if filename.startswith('guest_temp_') or filename.startswith('draft_temp_'):

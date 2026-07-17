@@ -5,7 +5,7 @@
 {% set photo = item.original_photo_url %}
 <div class="photo-card" data-item-id="{{ item.id }}">
   {% if photo %}
-  <img loading="lazy" src="{{ url_for('uploaded_file', filename=photo) }}" alt="#{{ item.id }}">
+  <img loading="lazy" class="rpr-zoom" src="{{ url_for('uploaded_file', filename=photo) }}" alt="#{{ item.id }}">
   {% else %}
   <div class="photo-placeholder">#{{ item.id }}</div>
   {% endif %}

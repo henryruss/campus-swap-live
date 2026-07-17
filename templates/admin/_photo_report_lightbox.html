@@ -1,0 +1,27 @@
+{# Click-to-enlarge lightbox for the route photo reports. Include before </body>. #}
+<div class="rpr-lightbox" id="rpr-lightbox"><img src="" alt=""></div>
+<script>
+(function () {
+  var box = document.getElementById('rpr-lightbox');
+  if (!box) return;
+  var img = box.querySelector('img');
+  // Delegated so it covers every .rpr-zoom, including any added later.
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && t.classList && t.classList.contains('rpr-zoom') && t.getAttribute('src')) {
+      img.src = t.getAttribute('src');
+      box.classList.add('open');
+    }
+  });
+  box.addEventListener('click', function () {
+    box.classList.remove('open');
+    img.src = '';
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && box.classList.contains('open')) {
+      box.classList.remove('open');
+      img.src = '';
+    }
+  });
+})();
+</script>

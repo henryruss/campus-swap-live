@@ -139,5 +139,19 @@
     /* All-routes report: keep the packed flow on paper, don't page-break per route.
        Column count stays as the inline min(items, 7). */
     .rpr-routes-flow .rpr-route { break-before: auto; break-inside: avoid; }
+    .rpr-lightbox { display: none !important; }
+  }
+
+  /* Click-to-enlarge lightbox (screen only) */
+  .rpr-zoom { cursor: zoom-in; }
+  .rpr-lightbox {
+    display: none; position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0, 0, 0, 0.85); align-items: center; justify-content: center;
+    padding: 24px; cursor: zoom-out;
+  }
+  .rpr-lightbox.open { display: flex; }
+  .rpr-lightbox img {
+    max-width: 95vw; max-height: 95vh; object-fit: contain;
+    border-radius: 8px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
   }
 </style>
