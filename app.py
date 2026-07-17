@@ -15515,6 +15515,107 @@ def admin_rephoto_page():
                            storage_locations=storage_locations, campaign_label=campaign_label)
 
 
+@app.route('/admin/warehouse/rephoto/report')
+@login_required
+def admin_rephoto_match_report():
+    """Matching report: rephotographed items (default: Campus-Swap-owned backlog) as a
+    clickable grid. Clicking a card opens a modal to assign the real seller, pick which
+    of that seller's original listings it replaces, edit the title, and set dimensions.
+    """
+    if not _has_ops_access():
+        abort(403)
+    scope = request.args.get('scope', 'internal')  # 'internal' (backlog) | 'all'
+    internal_user = User.query.filter_by(is_internal_account=True).first()
+
+    base = InventoryItem.query.filter(InventoryItem.status.notin_(['rejected', 'sold']))
+    if scope != 'all':
+        # No internal account → nothing to match; return empty rather than all items.
+        base = base.filter(InventoryItem.seller_id == internal_user.id) if internal_user else base.filter(db.false())
+    candidates = base.order_by(InventoryItem.id.desc()).all()
+    reshot = _rephoto_reshot_item_ids([i.id for i in candidates])
+    items = [i for i in candidates if i.id in reshot]
+
+    return render_template('admin/rephoto_report.html', items=items, scope=scope)
+
+
+@app.route('/admin/warehouse/seller-items')
+@login_required
+def admin_warehouse_seller_items():
+    """JSON: a seller's own listings (candidates for the 'original to replace' dropdown).
+    Excludes rejected items and listings already superseded by a rephoto match."""
+    if not _has_ops_access():
+        abort(403)
+    seller_id = request.args.get('seller_id', type=int)
+    if not seller_id:
+        return jsonify([])
+    items = (
+        InventoryItem.query
+        .filter(
+            InventoryItem.seller_id == seller_id,
+            InventoryItem.status.notin_(['rejected']),
+            InventoryItem.replaced_by_item_id.is_(None),
+        )
+        .order_by(InventoryItem.id.desc())
+        .all()
+    )
+    return jsonify([
+        {'id': i.id, 'title': i.description or 'Untitled', 'status': (i.status or '').replace('_', ' ')}
+        for i in items
+    ])
+
+
+@app.route('/admin/warehouse/rephoto/match/<int:item_id>', methods=['POST'])
+@login_required
+def admin_rephoto_match_save(item_id):
+    """Assign a rephotographed item (B) to its real seller, optionally hiding+linking the
+    seller's original listing (A) that it replaces. Fetch endpoint returning JSON."""
+    if not _has_ops_access():
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)  # B — the rephotographed item
+
+    seller = User.query.get(request.form.get('seller_id', type=int) or 0)
+    if not seller:
+        return jsonify({'success': False, 'error': 'Select a seller.'}), 400
+    if seller.is_internal_account:
+        return jsonify({'success': False, 'error': 'Choose a real seller, not the Campus Swap account.'}), 400
+
+    # Optional original listing to replace — must belong to the chosen seller
+    original = None
+    orig_raw = (request.form.get('original_item_id') or '').strip()
+    if orig_raw:
+        if not orig_raw.isdigit():
+            return jsonify({'success': False, 'error': 'Invalid original item.'}), 400
+        original = InventoryItem.query.get(int(orig_raw))
+        if not original or original.seller_id != seller.id:
+            return jsonify({'success': False, 'error': "That original listing doesn't belong to the selected seller."}), 400
+        if original.id == item.id:
+            return jsonify({'success': False, 'error': 'An item cannot replace itself.'}), 400
+
+    # Editable title (optional — blank keeps the current title)
+    title = (request.form.get('title') or '').strip()
+    if title:
+        item.description = title[:200]
+
+    # Assign the real seller + dimensions to the rephotographed item.
+    item.seller_id = seller.id
+    item.length_in = _parse_dimension(request.form.get('length_in'))
+    item.width_in = _parse_dimension(request.form.get('width_in'))
+    item.height_in = _parse_dimension(request.form.get('height_in'))
+
+    # Hide the original listing from the shop and link it to its replacement.
+    if original is not None:
+        original.ai_approved = False
+        original.replaced_by_item_id = item.id
+
+    db.session.commit()
+    logger.info(
+        f"Rephoto match: item {item.id} -> seller {seller.id}"
+        + (f", replaces original {original.id}" if original else "")
+    )
+    return jsonify({'success': True, 'item_id': item.id,
+                    'replaced_item_id': original.id if original else None})
+
+
 @app.route('/admin/warehouse/rephoto/search')
 @login_required
 def admin_rephoto_search():

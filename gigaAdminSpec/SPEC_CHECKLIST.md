@@ -1833,6 +1833,6 @@
 - `product.html` cart badge reveals on first add (0→1). `static/style.css` removed the `.card`
   hover lift (translateY) and `.item-card` image hover zoom.
 - Migrations remain a single linear head (`c3d4e5f6a7b8`) — no multiple-heads/merge issue.
-- App is now ~263 routes.
+- App is now ~281 routes (as of 2026-07-17).
 
 **Sign-off date:** Shipped to production; no formal checklist sign-off recorded.

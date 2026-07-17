@@ -10,12 +10,26 @@
 ## Current State
 
 **Last updated:** 2026-07-17
-**Active spec:** feature_route_photo_report.md (built) + Item Dimensions (small additive change, built 2026-07-17)
-**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Warehouse Re-Photography (2026-07-08) adds a search-first guided three-shot capture flow for the UNC re-shoot campaign. Route Photo Report (2026-07-16) adds read-only, printable photo audit pages — one per route AND one covering every route on a single page. URL rule count is now 281. Item Dimensions (2026-07-17): optional L/W/H inches (`length_in`/`width_in`/`height_in`, `Numeric(5,1)` nullable, migration `74fd31ce2f07` — **run `flask db upgrade` on Render**) on add/edit item forms + buyer product page.
+**Active spec:** feature_route_photo_report.md (built) + Item Dimensions + Rephoto Matching (built 2026-07-17)
+**Overall status:** Specs #1–9 + Admin UI Redesign + all previous features in production. Buyer side now has a full cart + bundle flow: Spec D1 (Delivery Routes, 2026-05-29), Spec A (Delivery Fees / zone pricing + sales tax, 2026-06-14), and Spec B (Cart / Bundle & Save, 2026-06-18) are all built and in production. AI autofill runs through a background `_ai_queue` worker with bounded retries (`ai_retry_count`, hard stop at 3) and a startup requeue (2026-06-21). A shop + delivery ops pass (2026-06-22) hardened the buyer checkout (Google Maps address autocomplete + in-range confirmation, two-radio Standard/Flexible picker, concrete delivery date ranges, warehouse-origin fail-open default), replaced the cart-membership hold with a checkout-based hold, added buyer-notification tooling on the admin delivery side, and fixed email rendering (idempotent template, PNG logo, item photos). Warehouse Re-Photography (2026-07-08) adds a search-first guided three-shot capture flow for the UNC re-shoot campaign. Route Photo Report (2026-07-16) adds read-only, printable photo audit pages — one per route AND one covering every route on a single page. URL rule count is now 281. Item Dimensions (2026-07-17): optional L/W/H inches (`length_in`/`width_in`/`height_in`, `Numeric(5,1)` nullable, migration `74fd31ce2f07`) on add/edit item forms + buyer product page. Rephoto Matching (2026-07-17): matching-game tool at `/admin/warehouse/rephoto/report` — reassign Campus-Swap-owned rephotographed items to their real sellers and hide the seller's original listing (`replaced_by_item_id`, migration `454f7f6bc046`). **Run `flask db upgrade` on Render** to apply both migrations (head is now `454f7f6bc046`).
 
 ---
 
-## Features Built This Session (2026-07-16) — Route Photo Report
+## Features Built This Session (2026-07-17) — Item Dimensions + Rephoto Matching
+
+**Item Dimensions:** see the Current State line — `length_in`/`width_in`/`height_in` `Numeric(5,1)` nullable (migration `74fd31ce2f07`), optional, on add/edit forms + product page, `_parse_dimension` helper.
+
+**Rephoto Matching — the "matching game":** tool to clear the backlog of rephotographed items that are listed under the internal Campus Swap account but actually belong to real sellers.
+- Page `GET /admin/warehouse/rephoto/report` (`_has_ops_access()`; guard is stricter than the read-only photo reports because this mutates seller assignments + shop visibility). Clickable grid of rephotographed items (`_rephoto_reshot_item_ids`), default scope = Campus-Swap-owned backlog, toggle for all. Reached via a "Match to Sellers" button on the rephoto page.
+- Click a card → modal: editable title, seller type-ahead (`/admin/warehouse/seller-search`), "original listing this replaces" dropdown (`/admin/warehouse/seller-items?seller_id=`, shows `#id — title (status)`), and L×W×H.
+- Save (`POST /admin/warehouse/rephoto/match/<item_id>`): sets the rephotographed item's `seller_id` + title + dimensions; if an original was chosen, sets that original's `ai_approved=False` (hides it from the shop — no buyer-query changes needed) and `replaced_by_item_id` = the new item (link/undo/grouping). Card is removed live; it drops off the backlog because it's no longer internal-owned.
+- Model: `InventoryItem.replaced_by_item_id` (FK, migration `454f7f6bc046`) + `rephoto_photo_url` property (campaign photo, front preferred).
+- Verified end-to-end (page render, seller-items JSON, match save reassigns + hides + links, card disappears) and visually via Playwright (grid + modal); test mutation reverted.
+- **Deferred (confirmed with Henry):** AI description re-run is NOT triggered by matching (he'll re-run after a prompt change, via a separate action to be built); seller-dashboard grouping of replaced items is a follow-up (the `replaced_by_item_id` link makes it cosmetic).
+
+---
+
+## Features Built (2026-07-16) — Route Photo Report
 
 **Status:** Built + verified locally (drove ordered / unordered / 404 / 403 paths via test client), no new tests file (read-only reporting view, no business logic)
 **Spec:** `feature_route_photo_report.md` (project root)

@@ -7,6 +7,17 @@
 
 ---
 
+## Rephoto Matching (2026-07-17)
+
+- **Hide-and-link, not merge.** When a rephotographed item (B, internal) is matched to a seller, the seller's original listing (A) is *hidden from the shop and linked*, not merged into B. Merge would mean reconciling conflicting fields and is destructive/irreversible; hide+link is reversible, needs no field reconciliation, and lets B (already a `pending_valuation` quick-capture item) flow through the AI pipeline for a fresh short description. Chosen over Route 1 (merge) and Route 2 (dashboard-split alone, which doesn't fix the shop duplicate).
+- **Hide via `ai_approved=False`, semantics via `replaced_by_item_id`.** Shop visibility is gated by `status='available' AND ai_approved=True`, so flipping `ai_approved` off removes A from every buyer query with zero changes to those queries (same mechanism as Shop Edit Mode's visibility toggle). A new `replaced_by_item_id` link field carries the real meaning ("replaced", not merely "unapproved") for future dashboard grouping + undo. One field does double duty (link + hide marker); avoids touching ~5 critical buyer-facing queries.
+- **`_has_ops_access()` guard (stricter than the read-only photo reports' `_has_warehouse_access()`).** This tool reassigns sellers and changes shop visibility — an ops-level action, matching the rephoto capture page — so approved crew workers are intentionally excluded.
+- **Editable title in the modal (Henry's add).** Many rephoto stubs have blank titles; the modal lets the operator name the item while matching. Blank title on save keeps the current value (never blanks it).
+- **Original-to-replace is optional and seller-scoped.** The dropdown only lists the chosen seller's own listings, and the save re-validates ownership server-side. Optional because some backlog items have no original listing (dropped off / never listed) — those just become the seller's listing with nothing hidden.
+- **Deferred (confirmed):** matching does NOT trigger AI (Henry re-runs descriptions after a prompt change, via a separate sweep to be built); seller-dashboard grouping of replaced items is a follow-up.
+
+---
+
 ## Item Dimensions (2026-07-17)
 
 - Dimensions (`length_in`/`width_in`/`height_in`, `Numeric(5,1)` nullable) are fully optional with no validation — a shared `_parse_dimension` helper maps blank/invalid input to NULL so a partially-filled or empty dimensions field never blocks a save, matching the old free-text-description behavior. Migration written as plain `op.add_column` (not `batch_alter_table`, per CLAUDE.md Postgres rule). No backfill from existing descriptions — deliberately left as a future data-cleanup task.

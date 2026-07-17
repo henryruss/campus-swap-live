@@ -54,9 +54,14 @@
 
   <div class="rp-top">
     <h1><i class="fas fa-camera" style="margin-right:10px;color:var(--sage);"></i>Re-Photograph Items</h1>
-    <a href="{{ url_for('admin_warehouse') }}" class="btn-outline" style="padding:8px 16px; font-size:0.85rem; text-decoration:none;">
-      &larr; Warehouse Floor
-    </a>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a href="{{ url_for('admin_rephoto_match_report') }}" class="btn-outline" style="padding:8px 16px; font-size:0.85rem; text-decoration:none;">
+        <i class="fas fa-people-arrows" style="margin-right:6px;"></i>Match to Sellers
+      </a>
+      <a href="{{ url_for('admin_warehouse') }}" class="btn-outline" style="padding:8px 16px; font-size:0.85rem; text-decoration:none;">
+        &larr; Warehouse Floor
+      </a>
+    </div>
   </div>
 
   <div class="rp-banner">

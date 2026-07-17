@@ -265,6 +265,10 @@ class InventoryItem(db.Model):
     # HOMEPAGE PIN — admin-pinned items are guaranteed a homepage slot
     is_featured = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
+    # REPHOTO MATCHING — set when a rephotographed item replaces this (original) seller listing.
+    # The original is hidden from the shop (ai_approved=False) and linked here for grouping/undo.
+    replaced_by_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=True)
+
     @property
     def visible_gallery_photos(self):
         """Gallery photos not hidden via the Shop Edit Mode panel — use for buyer-facing rendering."""
@@ -285,6 +289,19 @@ class InventoryItem(db.Model):
             if p.photo_url and not p.photo_url.startswith('ai_enhanced_'):
                 return p.photo_url
         return self.photo_url or None
+
+    @property
+    def rephoto_photo_url(self):
+        """The warehouse re-photography shot for this item, for the matching report.
+
+        Prefers a campaign photo (ItemPhoto.captured_at set), front view first, in
+        gallery order. Falls back to the seller's original photo when none exists.
+        """
+        captured = [p for p in self.gallery_photos if p.captured_at is not None and p.photo_url]
+        if captured:
+            front = [p for p in captured if p.view == 'front']
+            return (front or captured)[0].photo_url
+        return self.original_photo_url
 
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
