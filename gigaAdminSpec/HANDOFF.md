@@ -15,6 +15,22 @@
 
 ---
 
+## Bug Fix (2026-07-17) — Item Detail Drawer Shows No Image for Rephoto / QC Items
+
+**Symptom:** On `/admin/items` (view=all), clicking an item opens the detail drawer (`admin/item_detail_partial.html`). Rephoto / quick-capture items rendered the empty placeholder icon even though they have photos (which show fine on the Edit Item page).
+
+**Root cause:** The rephoto / QC capture flow intentionally NEVER sets `InventoryItem.photo_url` (the cover) — captured photos live only as `ItemPhoto` rows in `gallery_photos`. So these items have `photo_url = NULL` but ≥1 gallery photo. The drawer built its gallery gated on `item.photo_url`, so a NULL cover meant an empty gallery → placeholder.
+
+**Fix — display fallback only, NOT a cover write** (respects the never-touch-cover constraint and avoids colliding with the deferred post-process cover-promotion pass; pure read-path change, no migration / no routes / no columns):
+- `models.py`: added read-only `@property InventoryItem.display_cover_url` — returns `photo_url` if set, else the first `visible_gallery_photos` (or `gallery_photos`) photo, else None. Mirrors the existing `original_photo_url` / `rephoto_photo_url` property pattern.
+- `admin/item_detail_partial.html`: the drawer is a multi-photo **gallery**, not a single thumbnail, so instead of collapsing to one cover it now falls back to the full `gallery_photos` list when `photo_url` is NULL (same NULL-cover→gallery principle, but shows every captured photo). Placeholder branch preserved for items with no photos at all.
+- Switched four single-thumbnail internal admin surfaces to `item.display_cover_url`: QC needs-info queue (`needs_info.html`), warehouse search rows (`warehouse_search_results.html`), rephoto search rows (`rephoto_search_results.html`), storage-audit collapsed rows (`storage_audit_results.html`).
+- **Deliberately left untouched:** the replace-photo / reshoot write-flow inputs that pass the *actual* cover URL into a capture modal (warehouse `openReplacePhotoModal` arg, rephoto `data-cover-url`, storage-audit "Replace Photo" section + its Replace/Add-Photo label) — those must reflect the real cover state, not a gallery fallback. Buyer-facing shop/product templates untouched (gated by `ai_approved`, out of scope). The `all_items` list itself has no thumbnail column (text table), so no change there.
+
+**Verified** against the real DB: real-cover item → `display_cover_url` = `photo_url` (unchanged); NULL-cover item with gallery → first gallery photo; item with no photos → None (placeholder, no crash). All five edited templates parse.
+
+---
+
 ## Features Built This Session (2026-07-17) — Item Dimensions + Rephoto Matching
 
 **Item Dimensions:** see the Current State line — `length_in`/`width_in`/`height_in` `Numeric(5,1)` nullable (migration `74fd31ce2f07`), optional, on add/edit forms + product page, `_parse_dimension` helper.

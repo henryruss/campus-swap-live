@@ -303,6 +303,19 @@ class InventoryItem(db.Model):
             return (front or captured)[0].photo_url
         return self.original_photo_url
 
+    @property
+    def display_cover_url(self):
+        """Cover for admin/internal thumbnails. Prefers the real cover; falls back
+        to the first gallery photo for items whose cover was never set (rephoto /
+        quick-capture items keep photo_url NULL by design). Read-only — never a
+        substitute for writing photo_url."""
+        if self.photo_url:
+            return self.photo_url
+        photos = self.visible_gallery_photos or self.gallery_photos
+        if photos:
+            return photos[0].photo_url
+        return None
+
 class ItemPhoto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)

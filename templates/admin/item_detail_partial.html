@@ -4,7 +4,12 @@
   {# Gallery #}
   <div class="approval-modal-gallery">
     {% set all_photos = [] %}
-    {% if item.photo_url %}{% set all_photos = [item.photo_url] + (item.gallery_photos | map(attribute='photo_url') | list) %}{% endif %}
+    {% if item.photo_url %}
+      {% set all_photos = [item.photo_url] + (item.gallery_photos | map(attribute='photo_url') | list) %}
+    {% else %}
+      {# Rephoto / quick-capture items keep photo_url NULL by design — fall back to their gallery photos so the drawer shows a photo, not the placeholder. #}
+      {% set all_photos = item.gallery_photos | map(attribute='photo_url') | list %}
+    {% endif %}
     {% if all_photos %}
     <div class="approval-gallery-track-wrap" style="position:relative;">
       <div class="approval-gallery-track" id="item-detail-gallery-track">

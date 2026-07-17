@@ -79,8 +79,9 @@
 <div class="audit-card" data-item-id="{{ item.id }}">
   <div class="audit-collapsed">
     <span class="audit-id-badge">#{{ item.id }}</span>
-    {% if item.photo_url %}
-    <img src="{{ item.photo_url if item.photo_url.startswith('http') else url_for('uploaded_file', filename=item.photo_url) }}"
+    {% set cover_url = item.display_cover_url %}
+    {% if cover_url %}
+    <img src="{{ cover_url if cover_url.startswith('http') else url_for('uploaded_file', filename=cover_url) }}"
          alt="" style="width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0; cursor:zoom-in;"
          onclick="loadItemDetail({{ item.id }})">
     {% else %}

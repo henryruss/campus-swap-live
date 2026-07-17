@@ -3,8 +3,8 @@
   {% for item in items %}
   {% set label = item.description or ('Untitled item #' ~ item.id) %}
   <div class="rp-row{% if item.id in reshot_ids %} rp-row--done{% endif %}">
-    {% if item.photo_url %}
-      <img class="rp-row-thumb" src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" loading="lazy">
+    {% if item.display_cover_url %}
+      <img class="rp-row-thumb" src="{{ url_for('uploaded_file', filename=item.display_cover_url) }}" alt="" loading="lazy">
     {% else %}
       <div class="rp-row-thumb rp-row-thumb--empty"><i class="fas fa-image"></i></div>
     {% endif %}

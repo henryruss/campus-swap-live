@@ -5,8 +5,8 @@
 <div style="background:white;border:var(--card-border);border-radius:12px;overflow:hidden;">
   {% for item in items %}
   <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:0.83rem;flex-wrap:wrap;">
-    {% if item.photo_url %}
-    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+    {% if item.display_cover_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.display_cover_url) }}"
          style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:zoom-in;" loading="lazy" alt=""
          onclick="loadItemDetail({{ item.id }})" >
     {% else %}

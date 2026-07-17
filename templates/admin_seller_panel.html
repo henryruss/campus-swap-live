@@ -218,9 +218,11 @@
         {% if seller_items %}
         <div style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
             {% for item in seller_items %}
+            {# Rephoto / quick-capture items keep photo_url NULL by design — display_cover_url falls back to a gallery photo so the thumbnail isn't a placeholder. #}
+            {% set cover_url = item.display_cover_url %}
             <div style="display: flex; gap: 10px; align-items: center; padding: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
-                {% if item.photo_url %}
-                <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="" class="lightbox-trigger" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">
+                {% if cover_url %}
+                <img src="{{ cover_url if cover_url.startswith('http') else url_for('uploaded_file', filename=cover_url) }}" alt="" class="lightbox-trigger" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">
                 {% else %}
                 <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><i class="fas fa-image" style="color: #cbd5e1;"></i></div>
                 {% endif %}
