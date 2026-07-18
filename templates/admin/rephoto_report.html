@@ -159,13 +159,15 @@
           </select>
         </div>
         <div class="rpm-field">
-          <label>Dimensions <span class="rpm-hint">(inches, optional)</span></label>
-          <div class="rpm-dims">
-            <input type="number" step="0.1" min="0" id="rpm-l" placeholder="L">
+          <label>Dimensions <span class="rpm-hint">(inches — Length × Height × Width)</span></label>
+          <input type="text" id="rpm-dims-paste" autocomplete="off"
+                 placeholder='Paste & auto-fill — e.g. 30.30.30, 12 36 12, 39" x 17" x 22"'>
+          <div class="rpm-dims" style="margin-top:6px;">
+            <input type="number" step="0.1" min="0" id="rpm-l" placeholder="Length">
             <span>&times;</span>
-            <input type="number" step="0.1" min="0" id="rpm-w" placeholder="W">
+            <input type="number" step="0.1" min="0" id="rpm-h" placeholder="Height">
             <span>&times;</span>
-            <input type="number" step="0.1" min="0" id="rpm-h" placeholder="H">
+            <input type="number" step="0.1" min="0" id="rpm-w" placeholder="Width">
           </div>
         </div>
       </div>
@@ -191,6 +193,47 @@
     card.addEventListener('click', function() { rpmOpen(card); });
   });
 
+  // Parse a pasted dimension string into [length, height, width]. Handles
+  // "30.30.30", "12 36 12", and '39" x 17" x 22"' styles. Returns null if it
+  // can't find exactly three numbers.
+  function rpmParseDims(raw) {
+    var s = (raw || '').trim();
+    if (!s) return null;
+    // Normalize quotes / x / × / commas to spaces, collapse whitespace.
+    s = s.replace(/["'”“]/g, ' ').replace(/[xX×]/g, ' ').replace(/,/g, ' ')
+         .replace(/\s+/g, ' ').trim();
+    var parts = s.split(' ').filter(Boolean);
+    // "30.30.30" style: one token of dot-separated integers.
+    if (parts.length !== 3) {
+      var m = s.match(/^(\d+)\.(\d+)\.(\d+)$/);
+      if (m) parts = [m[1], m[2], m[3]];
+    }
+    // Fallback: any three numbers (supports decimals like 30.5).
+    if (parts.length !== 3) {
+      var nums = s.match(/\d+(?:\.\d+)?/g);
+      if (nums && nums.length === 3) parts = nums;
+    }
+    if (parts.length !== 3) return null;
+    var vals = parts.map(parseFloat);
+    if (vals.some(function(v) { return isNaN(v) || v < 0; })) return null;
+    return vals;
+  }
+
+  var pasteEl = document.getElementById('rpm-dims-paste');
+  if (pasteEl) {
+    pasteEl.addEventListener('input', function() {
+      var dims = rpmParseDims(this.value);
+      this.style.borderColor = '';
+      if (dims) {
+        $('rpm-l').value = dims[0];  // Length
+        $('rpm-h').value = dims[1];  // Height
+        $('rpm-w').value = dims[2];  // Width
+      } else if (this.value.trim()) {
+        this.style.borderColor = '#dc2626';  // couldn't parse yet
+      }
+    });
+  }
+
   window.rpmOpen = function(card) {
     state.itemId = card.dataset.itemId;
     state.sellerId = null;
@@ -203,6 +246,7 @@
     $('rpm-l').value = card.dataset.l || '';
     $('rpm-w').value = card.dataset.w || '';
     $('rpm-h').value = card.dataset.h || '';
+    $('rpm-dims-paste').value = '';
     $('rpm-storage-loc').value = card.dataset.storageLoc || '';
     $('rpm-storage-zone').value = card.dataset.storageZone || '';
     rpmClearSeller();
