@@ -295,6 +295,26 @@ class InventoryItem(db.Model):
         return self.photo_url or None
 
     @property
+    def original_photo_urls(self):
+        """All of the seller's original (pre-AI) photo filenames, in gallery order.
+
+        Same original-vs-AI rule as `original_photo_url` (filename not prefixed
+        `ai_enhanced_`), but the full ordered list for a lightbox carousel: the cover
+        first (when it's an original), then the gallery photos by (sort_order, id),
+        de-duplicated. The first element equals `original_photo_url`.
+        """
+        urls = []
+        if self.photo_url and not self.photo_url.startswith('ai_enhanced_'):
+            urls.append(self.photo_url)
+        for p in self.gallery_photos:
+            if p.photo_url and not p.photo_url.startswith('ai_enhanced_') and p.photo_url not in urls:
+                urls.append(p.photo_url)
+        # Fall back to the cover so a card always has at least its one visible photo.
+        if not urls and self.photo_url:
+            urls.append(self.photo_url)
+        return urls
+
+    @property
     def rephoto_photo_url(self):
         """The warehouse re-photography shot for this item, for the matching report.
 

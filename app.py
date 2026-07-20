@@ -15156,13 +15156,26 @@ def _build_route_photo_report(shift, unmatched_only=False):
         key=_seller_sort_key,
     )
 
+    # A completed rephoto match produces TWO rows we must hide from the "not yet matched"
+    # view: the superseded original (its own replaced_by_item_id is set) AND the
+    # rephotographed replacement it was matched to (the replacement's replaced_by_item_id
+    # stays NULL, but some original now points at it). Hiding only the former leaves the
+    # replacement showing under the seller's stop, so the list looked unchanged after a
+    # match. Precompute the set of replacement-target ids once (subquery reused per stop).
+    replacement_target_ids = (
+        db.session.query(InventoryItem.replaced_by_item_id)
+        .filter(InventoryItem.replaced_by_item_id.isnot(None))
+    )
+
     def _build_stops(pickup_list):
         stops = []
         for p in pickup_list:
             q = InventoryItem.query.filter_by(seller_id=p.seller_id)
             if unmatched_only:
-                # Drop items already matched (replaced by a rephoto item).
-                q = q.filter(InventoryItem.replaced_by_item_id.is_(None))
+                q = q.filter(
+                    InventoryItem.replaced_by_item_id.is_(None),        # not a superseded original
+                    InventoryItem.id.notin_(replacement_target_ids),    # not a match's replacement
+                )
             items = q.order_by(InventoryItem.id).all()
             if not items:
                 continue  # omit empty stops (item-driven, mirrors Route Browse)

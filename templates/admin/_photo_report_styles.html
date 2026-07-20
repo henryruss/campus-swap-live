@@ -155,4 +155,24 @@
     max-width: 95vw; max-height: 95vh; object-fit: contain;
     border-radius: 8px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
   }
+  /* Carousel controls — overlay chrome on the dark backdrop (raw rgba, matches lightbox idiom) */
+  .rpr-lb-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 52px; height: 52px; border-radius: 50%; border: none;
+    background: rgba(255, 255, 255, 0.9); color: rgba(0, 0, 0, 0.8);
+    font-size: 1.6rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  }
+  .rpr-lb-nav:hover { background: rgba(255, 255, 255, 1); }
+  .rpr-lb-prev { left: 20px; }
+  .rpr-lb-next { right: 20px; }
+  .rpr-lb-counter {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6); color: #fff;
+    padding: 6px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+  }
+  /* Single-photo items: hide the carousel chrome entirely. */
+  .rpr-lightbox.single .rpr-lb-nav,
+  .rpr-lightbox.single .rpr-lb-counter { display: none; }
 </style>

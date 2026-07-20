@@ -1,27 +1,69 @@
-{# Click-to-enlarge lightbox for the route photo reports. Include before </body>. #}
-<div class="rpr-lightbox" id="rpr-lightbox"><img src="" alt=""></div>
+{# Click-to-enlarge lightbox + carousel for the route photo reports. Include before </body>. #}
+<div class="rpr-lightbox" id="rpr-lightbox">
+  <button type="button" class="rpr-lb-nav rpr-lb-prev" data-dir="-1" aria-label="Previous photo">‹</button>
+  <img src="" alt="">
+  <button type="button" class="rpr-lb-nav rpr-lb-next" data-dir="1" aria-label="Next photo">›</button>
+  <div class="rpr-lb-counter"></div>
+</div>
 <script>
 (function () {
   var box = document.getElementById('rpr-lightbox');
   if (!box) return;
   var img = box.querySelector('img');
+  var counter = box.querySelector('.rpr-lb-counter');
+  var photos = [];
+  var idx = 0;
+
+  function render() {
+    img.src = photos[idx] || '';
+    counter.textContent = (idx + 1) + ' / ' + photos.length;
+    box.classList.toggle('single', photos.length <= 1);
+  }
+  function open(list, start) {
+    photos = list;
+    idx = start;
+    render();
+    box.classList.add('open');
+  }
+  function close() {
+    box.classList.remove('open');
+    img.src = '';
+    photos = [];
+  }
+  function step(dir) {
+    if (photos.length <= 1) return;
+    idx = (idx + dir + photos.length) % photos.length;
+    render();
+  }
+
   // Delegated so it covers every .rpr-zoom, including any added later.
   document.addEventListener('click', function (e) {
     var t = e.target;
-    if (t && t.classList && t.classList.contains('rpr-zoom') && t.getAttribute('src')) {
-      img.src = t.getAttribute('src');
-      box.classList.add('open');
-    }
+    if (!(t && t.classList && t.classList.contains('rpr-zoom') && t.getAttribute('src'))) return;
+    var list;
+    try { list = JSON.parse(t.getAttribute('data-photos') || '[]'); } catch (err) { list = []; }
+    if (!list.length) list = [t.getAttribute('src')];
+    // Start on the photo that was clicked (usually the first / cover).
+    var start = list.indexOf(t.getAttribute('src'));
+    open(list, start < 0 ? 0 : start);
   });
-  box.addEventListener('click', function () {
-    box.classList.remove('open');
-    img.src = '';
+
+  // Arrow buttons: advance without closing the box.
+  box.querySelectorAll('.rpr-lb-nav').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      step(parseInt(btn.getAttribute('data-dir'), 10));
+    });
   });
+  // Clicking the image itself steps forward; clicking the backdrop closes.
+  img.addEventListener('click', function (e) { e.stopPropagation(); step(1); });
+  box.addEventListener('click', close);
+
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && box.classList.contains('open')) {
-      box.classList.remove('open');
-      img.src = '';
-    }
+    if (!box.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowRight') step(1);
+    else if (e.key === 'ArrowLeft') step(-1);
   });
 })();
 </script>
