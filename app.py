@@ -15128,11 +15128,17 @@ def admin_warehouse_routes():
     return render_template('admin/warehouse_routes_partial.html', shift_rows=shift_rows)
 
 
-def _build_route_photo_report(shift):
+def _build_route_photo_report(shift, unmatched_only=False):
     """Assemble the ordered/unordered stop data for one route's photo report.
 
     Read-only. No status filter (matches Route Browse). Stops with a NULL stop_order
     are grouped last, alphabetically by seller name. Sellers with zero items omitted.
+
+    When ``unmatched_only`` is True, items already matched via the rephoto match feature
+    are excluded, keeping the same stop layout. "Matched" means the original listing has
+    been superseded by a rephotographed replacement, recorded by ``replaced_by_item_id``
+    being set on it (see admin_rephoto_match_save). So "not yet matched" ==
+    ``replaced_by_item_id IS NULL``. Stops left with zero unmatched items are omitted.
     """
     pickups = ShiftPickup.query.filter_by(shift_id=shift.id).all()
 
@@ -15153,12 +15159,11 @@ def _build_route_photo_report(shift):
     def _build_stops(pickup_list):
         stops = []
         for p in pickup_list:
-            items = (
-                InventoryItem.query
-                .filter_by(seller_id=p.seller_id)
-                .order_by(InventoryItem.id)
-                .all()
-            )
+            q = InventoryItem.query.filter_by(seller_id=p.seller_id)
+            if unmatched_only:
+                # Drop items already matched (replaced by a rephoto item).
+                q = q.filter(InventoryItem.replaced_by_item_id.is_(None))
+            items = q.order_by(InventoryItem.id).all()
             if not items:
                 continue  # omit empty stops (item-driven, mirrors Route Browse)
             stops.append({'pickup': p, 'seller': p.seller, 'items': items})
@@ -15188,6 +15193,10 @@ def admin_warehouse_route_photo_report_all():
     if not _has_warehouse_access():
         abort(403)
 
+    unmatched_only = request.args.get('unmatched') == '1'
+
+    # Same candidate shift set for both modes (report is stop-driven either way). In
+    # unmatched mode, routes whose items are all matched drop out via the empty-stop check.
     rows = (
         db.session.query(Shift, func.count(InventoryItem.id).label('item_count'))
         .join(ShiftPickup, ShiftPickup.shift_id == Shift.id)
@@ -15202,9 +15211,9 @@ def admin_warehouse_route_photo_report_all():
 
     routes = []
     for shift, _ in rows:
-        report = _build_route_photo_report(shift)
+        report = _build_route_photo_report(shift, unmatched_only=unmatched_only)
         if not report['ordered_stops'] and not report['unordered_stops']:
-            continue  # every seller on this route had zero items
+            continue  # nothing to show for this route in the current view
         routes.append(report)
 
     return render_template(
@@ -15213,6 +15222,7 @@ def admin_warehouse_route_photo_report_all():
         route_count=len(routes),
         total_item_count=sum(r['total_item_count'] for r in routes),
         has_unordered=any(r['has_unordered'] for r in routes),
+        unmatched_only=unmatched_only,
         generated_at=_now_eastern(),
     )
 

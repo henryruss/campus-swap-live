@@ -15,11 +15,18 @@
   <div class="rpr-wrap rpr-wrap--wide">
     <div class="rpr-header">
       <div>
-        <h1>All Routes — Photo Report</h1>
+        <h1>All Routes — Photo Report{% if unmatched_only %} · Not Yet Matched{% endif %}</h1>
         <div class="rpr-meta">
           <strong>{{ route_count }}</strong> route{{ '' if route_count == 1 else 's' }}
           · <strong>{{ total_item_count }}</strong> item{{ '' if total_item_count == 1 else 's' }}
+          {% if unmatched_only %} not yet matched{% endif %}
           · Generated {{ generated_at.strftime('%b %-d, %Y %-I:%M %p') }} ET
+        </div>
+        <div class="rpr-actions rpr-toggle" role="group" aria-label="Filter items">
+          <a href="{{ url_for('admin_warehouse_route_photo_report_all') }}"
+             class="rpr-btn {{ 'rpr-btn--solid' if not unmatched_only else 'rpr-btn--ghost' }}">All items</a>
+          <a href="{{ url_for('admin_warehouse_route_photo_report_all', unmatched=1) }}"
+             class="rpr-btn {{ 'rpr-btn--solid' if unmatched_only else 'rpr-btn--ghost' }}">Not yet matched</a>
         </div>
       </div>
       <div class="rpr-actions">
@@ -29,7 +36,9 @@
     </div>
 
     {% if not routes %}
-      <div class="rpr-empty">No routes with items yet.</div>
+      <div class="rpr-empty">
+        {% if unmatched_only %}No unmatched items on any route — every item has been matched to its replacement.{% else %}No routes with items yet.{% endif %}
+      </div>
     {% else %}
       <div class="rpr-routes-flow">
         {% for route in routes %}
