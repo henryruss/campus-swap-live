@@ -197,10 +197,15 @@
                 <h4 style="margin-bottom: 10px;">Condition</h4>
                 <p style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">{{ item.quality|quality_label }}</p>
 
-                {% if item.length_in or item.width_in or item.height_in %}
+                {% if item.mattress_size_label %}
+                <h4 style="margin-bottom: 10px;">Size</h4>
+                <p class="item-dimensions" style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">
+                    {{ item.mattress_size_label }} mattress{% if item.length_in or item.width_in %} &middot; {{ item.width_in|dim }}" W &times; {{ item.length_in|dim }}" L{% if item.height_in %} &times; {{ item.height_in|dim }}" H{% endif %}{% endif %}
+                </p>
+                {% elif item.length_in or item.width_in or item.height_in %}
                 <h4 style="margin-bottom: 10px;">Dimensions</h4>
                 <p class="item-dimensions" style="color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">
-                    {{ item.length_in|default('—', true) }}" L &times; {{ item.width_in|default('—', true) }}" W &times; {{ item.height_in|default('—', true) }}" H
+                    {{ item.length_in|dim }}" L &times; {{ item.width_in|dim }}" W &times; {{ item.height_in|dim }}" H
                 </p>
                 {% endif %}
 

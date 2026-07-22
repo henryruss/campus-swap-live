@@ -106,6 +106,7 @@
               data-storage-loc="{{ item.storage_location_id or '' }}"
               data-storage-zone="{{ item.storage_row or '' }}"
               data-disposition="{{ item.rephoto_disposition or '' }}"
+              data-mattress-size="{{ item.mattress_size or '' }}"
               data-internal="{{ '1' if (item.seller and item.seller.is_internal_account) else '0' }}"
               {% set _orig = replaced_map.get(item.id) %}
               data-original-id="{{ _orig.id if _orig else '' }}"
@@ -176,6 +177,15 @@
         <div class="rpm-field">
           <label>Quantity <span class="rpm-hint">(identical units Campus Swap owns — used by "Keep &amp; list", e.g. 37)</span></label>
           <input type="number" min="1" max="500" step="1" id="rpm-qty" value="1">
+        </div>
+        <div class="rpm-field">
+          <label>Mattress size <span class="rpm-hint">(optional — auto-fills dimensions and shows the size in the shop)</span></label>
+          <select id="rpm-mattress">
+            <option value="">— Not a mattress —</option>
+            {% for key, spec in mattress_sizes.items() %}
+            <option value="{{ key }}" data-l="{{ spec.length }}" data-w="{{ spec.width }}">{{ spec.label }} ({{ spec.width }}" W × {{ spec.length }}" L)</option>
+            {% endfor %}
+          </select>
         </div>
         <div class="rpm-field">
           <label>Dimensions <span class="rpm-hint">(inches — Length × Height × Width)</span></label>
@@ -262,6 +272,18 @@
     });
   }
 
+  // Mattress size → auto-fill Length & Width from the picked size (height/thickness left as-is).
+  var mattressEl = document.getElementById('rpm-mattress');
+  if (mattressEl) {
+    mattressEl.addEventListener('change', function() {
+      var opt = this.options[this.selectedIndex];
+      if (opt && opt.value) {
+        $('rpm-l').value = opt.getAttribute('data-l') || '';
+        $('rpm-w').value = opt.getAttribute('data-w') || '';
+      }
+    });
+  }
+
   window.rpmOpen = function(card) {
     state.itemId = card.dataset.itemId;
     state.sellerId = null;
@@ -276,6 +298,7 @@
     $('rpm-h').value = card.dataset.h || '';
     $('rpm-dims-paste').value = '';
     $('rpm-qty').value = '1';
+    $('rpm-mattress').value = card.dataset.mattressSize || '';
     $('rpm-storage-loc').value = card.dataset.storageLoc || '';
     $('rpm-storage-zone').value = card.dataset.storageZone || '';
     rpmClearSeller();
@@ -407,6 +430,7 @@
     fd.append('length_in', $('rpm-l').value);
     fd.append('width_in', $('rpm-w').value);
     fd.append('height_in', $('rpm-h').value);
+    fd.append('mattress_size', $('rpm-mattress').value);
     fetch('/admin/warehouse/rephoto/match/' + state.itemId, {
       method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }
     })
@@ -485,6 +509,7 @@
       fd.append('width_in', $('rpm-w').value);
       fd.append('height_in', $('rpm-h').value);
       fd.append('quantity', $('rpm-qty').value || '1');
+      fd.append('mattress_size', $('rpm-mattress').value);
     }
     fetch('/admin/warehouse/rephoto/dispose/' + state.itemId, {
       method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }

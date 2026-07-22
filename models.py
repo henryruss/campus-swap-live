@@ -171,6 +171,19 @@ class InventoryCategory(db.Model):
     parent = db.relationship('InventoryCategory', remote_side='InventoryCategory.id', backref='subcategories')
     items = db.relationship('InventoryItem', backref='category', lazy=True, foreign_keys='InventoryItem.category_id')
 
+# Standard US mattress sizes. length = long side (in), width = short side (in). Height
+# (thickness) is not standard, so it's left for the operator. Single source of truth for the
+# entry-dropdown autofill and the shop's nominal-size display.
+MATTRESS_SIZES = {
+    'twin':     {'label': 'Twin',             'length': 75, 'width': 38},
+    'twin_xl':  {'label': 'Twin XL',          'length': 80, 'width': 38},
+    'full':     {'label': 'Full',             'length': 75, 'width': 54},
+    'queen':    {'label': 'Queen',            'length': 80, 'width': 60},
+    'king':     {'label': 'King',             'length': 80, 'width': 76},
+    'cal_king': {'label': 'California King',   'length': 84, 'width': 72},
+}
+
+
 class InventoryItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(200), nullable=False)
@@ -183,6 +196,9 @@ class InventoryItem(db.Model):
     length_in = db.Column(db.Numeric(5, 1), nullable=True)
     width_in = db.Column(db.Numeric(5, 1), nullable=True)
     height_in = db.Column(db.Numeric(5, 1), nullable=True)
+    # NOMINAL MATTRESS SIZE — one of MATTRESS_SIZES keys (twin/queen/king/…). When set, the
+    # shop shows the size name alongside the numeric dimensions. NULL for non-mattress items.
+    mattress_size = db.Column(db.String(20), nullable=True)
     status = db.Column(db.String(20), default='pending_valuation')
     date_added = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -290,6 +306,12 @@ class InventoryItem(db.Model):
     # carries stock_quantity=1. NULL/absent group == an ordinary single item.
     stock_quantity = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     stock_group_id = db.Column(db.String(36), nullable=True, index=True)
+
+    @property
+    def mattress_size_label(self):
+        """Human label for the nominal mattress size (e.g. 'Queen'), or None if not set."""
+        m = MATTRESS_SIZES.get(self.mattress_size or '')
+        return m['label'] if m else None
 
     @property
     def stock_available_count(self):

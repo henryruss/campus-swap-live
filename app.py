@@ -72,7 +72,7 @@ from sqlalchemy.exc import IntegrityError
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, Order, Cart, CartItem
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, Order, Cart, CartItem, MATTRESS_SIZES
 
 # Import Constants
 from constants import (
@@ -1221,6 +1221,19 @@ def quality_to_label(quality):
 def quality_label_filter(quality):
     """Jinja filter: map numeric quality to rubric label."""
     return quality_to_label(quality)
+
+
+@app.template_filter('dim')
+def dim_filter(value):
+    """Jinja filter: format a dimension (Numeric/float) without a trailing '.0' — 60.0 -> '60',
+    12.5 -> '12.5'. None/blank -> em dash."""
+    if value is None or value == '':
+        return '—'
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(f)) if f == int(f) else ('%.1f' % f)
 
 
 @app.template_filter('pickup_week_range')
@@ -15630,7 +15643,8 @@ def admin_rephoto_match_report():
                      .filter_by(is_active=True)
                      .order_by(StorageLocation.name).all())
     return render_template('admin/rephoto_report.html', items=items, scope=scope,
-                           storage_units=storage_units, replaced_map=replaced_map)
+                           storage_units=storage_units, replaced_map=replaced_map,
+                           mattress_sizes=MATTRESS_SIZES)
 
 
 @app.route('/admin/warehouse/seller-items')
@@ -15657,6 +15671,26 @@ def admin_warehouse_seller_items():
         {'id': i.id, 'title': i.description or 'Untitled', 'status': (i.status or '').replace('_', ' ')}
         for i in items
     ])
+
+
+def _apply_mattress_size_from_form(item, form):
+    """If the form carries a mattress_size, store it and set the canonical length/width for
+    that size (height/thickness is left to the operator). A blank value clears it. Returns
+    (ok, error_message). No-op if the form doesn't include the field at all.
+    """
+    if 'mattress_size' not in form:
+        return True, None
+    raw = (form.get('mattress_size') or '').strip()
+    if not raw:
+        item.mattress_size = None
+        return True, None
+    spec = MATTRESS_SIZES.get(raw)
+    if not spec:
+        return False, 'Invalid mattress size.'
+    item.mattress_size = raw
+    item.length_in = spec['length']
+    item.width_in = spec['width']
+    return True, None
 
 
 def _expand_stock_group(item):
@@ -15686,6 +15720,7 @@ def _expand_stock_group(item):
         'ai_generated_at', 'ai_approved', 'ai_photo_enhanced', 'was_previously_approved',
         'seller_description', 'seller_long_description', 'rephoto_disposition',
         'needs_new_photo', 'needs_photo_verification', 'needs_photo_refresh',
+        'mattress_size',
     )
     for _ in range(total - 1):
         clone = InventoryItem(status='available', stock_quantity=1, stock_group_id=group_id)
@@ -15787,6 +15822,9 @@ def admin_rephoto_match_save(item_id):
     item.height_in = _parse_dimension(request.form.get('height_in'))
     item.storage_location_id = storage_location.id
     item.storage_row = zone or None
+    ok, err = _apply_mattress_size_from_form(item, request.form)  # overrides L/W if a size chosen
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
 
     # Hide the original listing from the shop and link it to its replacement.
     if original is not None:
@@ -15873,6 +15911,9 @@ def admin_rephoto_dispose(item_id):
             val = _parse_dimension(request.form.get(field))
             if val is not None:
                 setattr(item, field, val)
+        ok, err = _apply_mattress_size_from_form(item, request.form)  # overrides L/W if a size chosen
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
         # Stock: how many identical units Campus Swap owns (e.g. 37 matching dressers). Drives
         # a clone-expansion when the listing publishes. Only settable while not yet expanded.
         qty_raw = (request.form.get('quantity') or '').strip()
