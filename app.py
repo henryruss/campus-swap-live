@@ -1878,6 +1878,8 @@ def inventory():
     if AppSetting.get('shop_teaser_mode', 'false') == 'true' and not store_is_open():
         preview_items_raw = InventoryItem.query.filter_by(
             status='available'
+        ).filter(
+            InventoryItem.rephoto_disposition.is_distinct_from('discarded')
         ).order_by(func.random()).limit(16).all()
         # Cycle real items to fill 20 tiles so the grid always looks full
         if preview_items_raw:
@@ -1928,6 +1930,8 @@ def inventory():
         InventoryItem.price.isnot(None),
         InventoryItem.price > 0,
         InventoryItem.storage_location_id.isnot(None),
+        # Never surface a discarded (junk/duplicate) rephoto item, even if otherwise sellable.
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
     )
     # FUTURE: add location/store filter here as one more .filter(...) clause
 
@@ -3965,8 +3969,15 @@ def admin_panel():
     crew_pending_applications.sort(key=lambda x: x['application'].applied_at)
     crew_approved_workers = User.query.filter_by(is_worker=True, worker_status='approved').order_by(User.full_name).all()
 
-    # Payout summary for admin panel banner
-    unpaid_sold_items = InventoryItem.query.filter_by(payout_sent=False).filter(InventoryItem.status == 'sold').all()
+    # Payout summary for admin panel banner. Exclude Campus-Swap-owned (internal) house
+    # sales — they owe no payout, matching the payout reconciliation queues.
+    unpaid_sold_items = (InventoryItem.query
+                         .join(InventoryItem.seller, isouter=True)
+                         .filter(InventoryItem.payout_sent == False)
+                         .filter(InventoryItem.status == 'sold')
+                         .filter(db.or_(User.is_internal_account == False,
+                                        User.is_internal_account.is_(None)))
+                         .all())
     unpaid_items_count = len(unpaid_sold_items)
     unpaid_total = round(sum(
         (i.price or 0) * _get_payout_percentage(i) for i in unpaid_sold_items
@@ -15555,6 +15566,9 @@ def admin_rephoto_match_report():
 
     base = InventoryItem.query.filter(InventoryItem.status.notin_(['rejected', 'sold']))
     if scope != 'all':
+        # Backlog: Campus-Swap-owned and not yet dispositioned. Discarded/kept items have
+        # been cleared from the backlog but stay visible under scope=all.
+        base = base.filter(InventoryItem.rephoto_disposition.is_(None))
         # No internal account → nothing to match; return empty rather than all items.
         base = base.filter(InventoryItem.seller_id == internal_user.id) if internal_user else base.filter(db.false())
     candidates = base.order_by(InventoryItem.id.desc()).all()
@@ -15700,6 +15714,72 @@ def admin_rephoto_match_save(item_id):
     return jsonify({'success': True, 'item_id': item.id,
                     'replaced_item_id': original.id if original else None,
                     'published': published})
+
+
+@app.route('/admin/warehouse/rephoto/dispose/<int:item_id>', methods=['POST'])
+@login_required
+def admin_rephoto_dispose(item_id):
+    """Clear a Campus-Swap-owned rephoto item from the matching backlog, three ways:
+
+      action='discard' — junk/duplicate. Sets rephoto_disposition='discarded'; barred from
+                         the shop. Leaves the backlog, stays under scope=all.
+      action='keep'    — Campus Swap keeps & lists it. Requires storage + dimensions (the
+                         worker's signal that it's a real keeper, not junk). Saves those,
+                         sets rephoto_disposition='kept', keeps the internal seller, and
+                         publishes now if ready — otherwise auto-lists on later AI approval.
+      action='restore' — undo: clears disposition back to NULL (returns to the backlog). If
+                         the item had been listed as a keeper, revert it to pending_valuation
+                         so it isn't left for sale while back in the backlog.
+
+    JSON endpoint (fetch), so returns JSON — not abort() — on auth failure.
+    """
+    if not _has_ops_access():
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    action = request.form.get('action', 'discard')
+
+    if action == 'discard':
+        item.rephoto_disposition = 'discarded'
+
+    elif action == 'keep':
+        # Storage is the worker's signal that this is a real keeper, not junk (and it's the
+        # only field the shop actually gates on). Dimensions are optional — saved if given.
+        loc_id = (request.form.get('storage_location_id') or '').strip()
+        zone = (request.form.get('storage_row') or '').strip()
+        if not loc_id or not loc_id.isdigit():
+            return jsonify({'success': False, 'error': 'Select a storage location to keep & list this item.'}), 400
+        storage_location = StorageLocation.query.get(int(loc_id))
+        if not storage_location or not storage_location.is_active:
+            return jsonify({'success': False, 'error': 'Invalid storage unit.'}), 400
+        ok, err = _validate_storage_zone(zone)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
+        item.storage_location_id = storage_location.id
+        item.storage_row = zone or None
+        # Dimensions optional: only overwrite when the worker actually entered a value.
+        for field in ('length_in', 'width_in', 'height_in'):
+            val = _parse_dimension(request.form.get(field))
+            if val is not None:
+                setattr(item, field, val)
+        item.rephoto_disposition = 'kept'
+        published = _publish_rephoto_if_ready(item)  # lists now if ready, else auto-lists on AI approval
+        db.session.commit()
+        logger.info(f"Rephoto keep: item {item.id} kept for Campus Swap"
+                    + (", PUBLISHED" if published else " (awaiting AI approval to publish)"))
+        return jsonify({'success': True, 'item_id': item.id, 'disposition': 'kept', 'published': published})
+
+    elif action == 'restore':
+        item.rephoto_disposition = None
+        # Pull a previously-listed keeper back out of the shop when it returns to the backlog.
+        if item.seller and item.seller.is_internal_account and item.status == 'available':
+            item.status = 'pending_valuation'
+
+    else:
+        return jsonify({'success': False, 'error': 'Unknown action.'}), 400
+
+    db.session.commit()
+    logger.info(f"Rephoto dispose ({action}): item {item.id} -> disposition={item.rephoto_disposition}")
+    return jsonify({'success': True, 'item_id': item.id, 'disposition': item.rephoto_disposition})
 
 
 @app.route('/admin/warehouse/rephoto/search')

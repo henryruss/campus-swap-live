@@ -273,6 +273,15 @@ class InventoryItem(db.Model):
     # The original is hidden from the shop (ai_approved=False) and linked here for grouping/undo.
     replaced_by_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=True)
 
+    # REPHOTO BACKLOG DISPOSITION — how a Campus-Swap-owned rephoto item was cleared from the
+    # matching backlog when it wasn't matched to a real seller. NULL = still in the backlog.
+    #   'discarded' = junk/duplicate: leaves the backlog and is barred from the shop.
+    #   'kept'      = Campus Swap keeps & lists it: leaves the backlog, publishes to the shop
+    #                 when ready (auto-lists on AI approval via _publish_rephoto_if_ready).
+    # Either value leaves the item visible under scope=all ("All rephotographed"). Reversible
+    # via Restore (clears back to NULL). Does not change seller_id.
+    rephoto_disposition = db.Column(db.String(20), nullable=True)
+
     @property
     def visible_gallery_photos(self):
         """Gallery photos not hidden via the Shop Edit Mode panel — use for buyer-facing rendering."""

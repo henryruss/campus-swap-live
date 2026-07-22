@@ -12,9 +12,16 @@
 
   .rpm-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; }
   .rpm-card {
+    position:relative;
     background:var(--card-bg); border:var(--card-border); border-radius:12px; overflow:hidden;
     cursor:pointer; text-align:left; padding:0; font-family:inherit; transition:box-shadow .15s, transform .15s;
   }
+  .rpm-badge {
+    position:absolute; top:8px; left:8px; z-index:2;
+    padding:3px 9px; border-radius:999px; font-size:0.7rem; font-weight:700; letter-spacing:.02em;
+    color:var(--text-light); background:var(--primary);
+  }
+  .rpm-badge[data-disp="discarded"] { background:#b91c1c; }
   .rpm-card:hover { box-shadow:var(--glass-shadow); transform:translateY(-2px); }
   .rpm-card img, .rpm-card .rpm-ph {
     display:block; width:100%; aspect-ratio:1/1; object-fit:cover; background:#EEE9E0;
@@ -61,6 +68,9 @@
   .rpm-btn--ghost { background:white; color:var(--primary); }
   .rpm-btn--solid { background:var(--primary); color:var(--text-light); }
   .rpm-btn--solid:disabled { opacity:.5; cursor:not-allowed; }
+  .rpm-btn--danger { background:white; color:#b91c1c; border-color:#b91c1c; }
+  .rpm-mfoot--split { justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  .rpm-mfoot--split .rpm-foot-left, .rpm-mfoot--split .rpm-foot-right { display:flex; gap:10px; flex-wrap:wrap; }
 </style>
 
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -95,9 +105,14 @@
               data-seller-email="{{ (matched_seller.email or '')|e if matched_seller else '' }}"
               data-storage-loc="{{ item.storage_location_id or '' }}"
               data-storage-zone="{{ item.storage_row or '' }}"
+              data-disposition="{{ item.rephoto_disposition or '' }}"
+              data-internal="{{ '1' if (item.seller and item.seller.is_internal_account) else '0' }}"
               {% set _orig = replaced_map.get(item.id) %}
               data-original-id="{{ _orig.id if _orig else '' }}"
               data-original-title="{{ (_orig.title)|e if _orig else '' }}">
+        {% if item.rephoto_disposition %}
+        <span class="rpm-badge" data-disp="{{ item.rephoto_disposition }}">{{ 'Kept' if item.rephoto_disposition == 'kept' else 'Discarded' }}</span>
+        {% endif %}
         {% if photo %}
         <img loading="lazy" src="{{ url_for('uploaded_file', filename=photo) }}" alt="#{{ item.id }}">
         {% else %}
@@ -173,9 +188,16 @@
       </div>
     </div>
     <p class="rpm-error" id="rpm-error"></p>
-    <div class="rpm-mfoot">
-      <button type="button" class="rpm-btn rpm-btn--ghost" onclick="rpmClose()">Cancel</button>
-      <button type="button" class="rpm-btn rpm-btn--solid" id="rpm-save" onclick="rpmSave()" disabled>Save match</button>
+    <div class="rpm-mfoot rpm-mfoot--split">
+      <div class="rpm-foot-left">
+        <button type="button" class="rpm-btn rpm-btn--danger" id="rpm-discard" onclick="rpmDispose('discard')" style="display:none;">Discard duplicate</button>
+        <button type="button" class="rpm-btn rpm-btn--ghost" id="rpm-keep" onclick="rpmDispose('keep')" style="display:none;">Keep &amp; list for Campus Swap</button>
+        <button type="button" class="rpm-btn rpm-btn--ghost" id="rpm-restore" onclick="rpmDispose('restore')" style="display:none;">Restore to backlog</button>
+      </div>
+      <div class="rpm-foot-right">
+        <button type="button" class="rpm-btn rpm-btn--ghost" onclick="rpmClose()">Cancel</button>
+        <button type="button" class="rpm-btn rpm-btn--solid" id="rpm-save" onclick="rpmSave()" disabled>Save match</button>
+      </div>
     </div>
   </div>
 </div>
@@ -183,6 +205,7 @@
 <script>
 (function() {
   var csrf = document.querySelector('input[name="csrf_token"]').value;
+  var RPM_SCOPE = {{ ('all' if scope == 'all' else 'internal') | tojson }};
   var overlay = document.getElementById('rpm-overlay');
   var state = { itemId: null, sellerId: null, preselectOriginal: '', preselectOriginalTitle: '' };
   var searchTimer = null;
@@ -262,6 +285,13 @@
         email: card.dataset.sellerEmail,
       });
     }
+    // Backlog disposition buttons: Discard/Keep for undecided Campus-Swap items;
+    // Restore for items already discarded/kept (shown under "All rephotographed").
+    var disp = card.dataset.disposition || '';
+    var isInternal = card.dataset.internal === '1';
+    $('rpm-discard').style.display = (isInternal && !disp) ? '' : 'none';
+    $('rpm-keep').style.display = (isInternal && !disp) ? '' : 'none';
+    $('rpm-restore').style.display = disp ? '' : 'none';
     overlay.classList.add('open');
   };
 
@@ -374,6 +404,61 @@
         rpmClose();
       })
       .catch(function() { err.textContent = 'Network error.'; err.style.display = 'block'; btn.disabled = false; });
+  };
+
+  // Update the grid after a backlog disposition. In the backlog view the item leaves the
+  // list; in "All rephotographed" it stays with a badge reflecting its new state.
+  function rpmAfterDispose(disp) {
+    var card = document.getElementById('rpm-card-' + state.itemId);
+    if (RPM_SCOPE === 'internal') {
+      if (card) card.remove();
+      var countEl = $('rpm-count');
+      if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent, 10) - 1);
+    } else if (card) {
+      card.dataset.disposition = disp || '';
+      var badge = card.querySelector('.rpm-badge');
+      if (disp) {
+        if (!badge) { badge = document.createElement('span'); badge.className = 'rpm-badge'; card.insertBefore(badge, card.firstChild); }
+        badge.setAttribute('data-disp', disp);
+        badge.textContent = disp === 'kept' ? 'Kept' : 'Discarded';
+      } else if (badge) {
+        badge.remove();
+      }
+    }
+    rpmClose();
+  }
+
+  window.rpmDispose = function(action) {
+    var err = $('rpm-error'); err.style.display = 'none';
+    if (action === 'discard' && !confirm('Discard #' + state.itemId + ' as a duplicate? It will leave the backlog and will NOT be listed for sale.')) return;
+    if (action === 'keep') {
+      // Storage is the only requirement; server re-validates. Dimensions are optional.
+      if (!$('rpm-storage-loc').value) { err.textContent = 'Select a storage location to keep & list this item.'; err.style.display = 'block'; return; }
+      if (!confirm('Keep #' + state.itemId + ' for Campus Swap and list it for sale?')) return;
+    }
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('action', action);
+    if (action === 'keep') {
+      fd.append('storage_location_id', $('rpm-storage-loc').value);
+      fd.append('storage_row', $('rpm-storage-zone').value);
+      fd.append('length_in', $('rpm-l').value);
+      fd.append('width_in', $('rpm-w').value);
+      fd.append('height_in', $('rpm-h').value);
+    }
+    fetch('/admin/warehouse/rephoto/dispose/' + state.itemId, {
+      method: 'POST', body: fd, headers: { 'X-CSRFToken': csrf }
+    })
+      .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
+      .then(function(res) {
+        if (!res.ok || !res.j.success) {
+          err.textContent = (res.j && res.j.error) || 'Action failed.';
+          err.style.display = 'block';
+          return;
+        }
+        rpmAfterDispose(res.j.disposition || '');
+      })
+      .catch(function() { err.textContent = 'Network error.'; err.style.display = 'block'; });
   };
 })();
 </script>
