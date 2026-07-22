@@ -48,9 +48,27 @@ def factory(db):
 
     Cleanup deletes ItemPhoto -> InventoryItem -> InventoryCategory in FK order.
     """
-    from models import InventoryItem, ItemPhoto, InventoryCategory
+    from models import InventoryItem, ItemPhoto, InventoryCategory, StorageLocation, User
     created_items = []
     created_categories = []
+    created_users = []
+
+    # A real storage unit so eligible items can carry a valid storage_location_id FK.
+    _loc = StorageLocation(name=f'Test Unit {_uid()}')
+    db.session.add(_loc)
+    db.session.commit()
+    default_storage_id = _loc.id
+
+    # A real (non-internal) seller so items are "matched to a seller" by default.
+    _seller = User(email=f'seller_{_uid()}@test.com')  # is_internal_account defaults False
+    db.session.add(_seller)
+    # The internal Campus Swap account, for "kept" / "unmatched backlog" cases.
+    _internal = User(email=f'campusswap_{_uid()}@test.com', is_internal_account=True)
+    db.session.add(_internal)
+    db.session.commit()
+    default_seller_id = _seller.id
+    internal_seller_id = _internal.id
+    created_users = [_seller.id, _internal.id]
 
     def make_category(name, baseline=None, parent=None):
         cat = InventoryCategory(
@@ -65,7 +83,9 @@ def factory(db):
 
     def make_item(category=None, subcategory=None, rephotographed=True,
                   ai_generated_at=None, status='pending_valuation',
-                  views=('front', 'side', 'back')):
+                  views=('front', 'side', 'back'),
+                  storage_location_id='__default__', rephoto_disposition=None,
+                  seller_id='__default__'):
         item = InventoryItem(
             description='Seller Title Desk',
             seller_description='Seller Title Desk',
@@ -73,6 +93,10 @@ def factory(db):
             category_id=category.id if category else None,
             subcategory_id=subcategory.id if subcategory else None,
             ai_generated_at=ai_generated_at,
+            storage_location_id=(default_storage_id if storage_location_id == '__default__'
+                                 else storage_location_id),
+            rephoto_disposition=rephoto_disposition,
+            seller_id=(default_seller_id if seller_id == '__default__' else seller_id),
         )
         db.session.add(item)
         db.session.flush()
@@ -89,7 +113,8 @@ def factory(db):
         return item
 
     yield type('F', (), {'make_category': staticmethod(make_category),
-                         'make_item': staticmethod(make_item)})
+                         'make_item': staticmethod(make_item),
+                         'internal_seller_id': internal_seller_id})
 
     for item_id in created_items:
         ItemPhoto.query.filter_by(item_id=item_id).delete()
@@ -97,6 +122,9 @@ def factory(db):
     # Reverse order so child (sub)categories are removed before their parents.
     for cat_id in reversed(created_categories):
         InventoryCategory.query.filter_by(id=cat_id).delete()
+    StorageLocation.query.filter_by(id=default_storage_id).delete()
+    for user_id in created_users:
+        User.query.filter_by(id=user_id).delete()
     db.session.commit()
 
 
@@ -137,12 +165,15 @@ def test_already_ai_filled_item_excluded(db, factory, cats):
     assert item.id not in ids
 
 
-@pytest.mark.parametrize('status', ['rejected', 'sold'])
-def test_rejected_and_sold_excluded(db, factory, cats, status):
+@pytest.mark.parametrize('status', ['rejected', 'sold', 'pending_valuation'])
+def test_status_does_not_affect_eligibility(db, factory, cats, status):
+    """Status is NOT a factor. A rephotographed, stored, matched item is eligible
+    regardless of status — including 'rejected'. The three requirements are:
+    rephotographed + has storage + matched-or-kept."""
     from app import _ai_autofill_eligible_query
     item = factory.make_item(category=cats['furniture'], status=status)
     ids = [i.id for i in _ai_autofill_eligible_query().all()]
-    assert item.id not in ids
+    assert item.id in ids
 
 
 def test_eligible_with_null_cover(db, factory, cats):
@@ -152,6 +183,55 @@ def test_eligible_with_null_cover(db, factory, cats):
     assert item.photo_url is None
     ids = [i.id for i in _ai_autofill_eligible_query().all()]
     assert item.id in ids
+
+
+def test_item_without_storage_excluded(db, factory, cats):
+    """Rephotographed but no storage unit -> not eligible (can't reach the shop, so
+    never spend a remove.bg credit on it). Guards against crew test items."""
+    from app import _ai_autofill_eligible_query
+    item = factory.make_item(category=cats['furniture'], storage_location_id=None)
+    ids = [i.id for i in _ai_autofill_eligible_query().all()]
+    assert item.id not in ids
+
+
+def test_discarded_item_excluded(db, factory, cats):
+    """Rephotographed + has storage but discarded from matching -> not eligible.
+    Regression: a discarded crew test item (water bottle, paper towels) must never
+    be eligible for background removal even though it was rephotographed."""
+    from app import _ai_autofill_eligible_query
+    item = factory.make_item(category=cats['furniture'], rephoto_disposition='discarded')
+    ids = [i.id for i in _ai_autofill_eligible_query().all()]
+    assert item.id not in ids
+
+
+def test_kept_by_campus_swap_is_eligible(db, factory, cats):
+    """Kept by Campus Swap (internal seller + rephoto_disposition='kept') is
+    matched-or-kept, so it IS eligible."""
+    from app import _ai_autofill_eligible_query
+    item = factory.make_item(category=cats['furniture'],
+                             seller_id=factory.internal_seller_id,
+                             rephoto_disposition='kept')
+    ids = [i.id for i in _ai_autofill_eligible_query().all()]
+    assert item.id in ids
+
+
+def test_unmatched_backlog_excluded(db, factory, cats):
+    """Still on the internal Campus Swap account with no disposition = unmatched
+    backlog. Not matched, not kept -> not eligible (must be matched first)."""
+    from app import _ai_autofill_eligible_query
+    item = factory.make_item(category=cats['furniture'],
+                             seller_id=factory.internal_seller_id,
+                             rephoto_disposition=None)
+    ids = [i.id for i in _ai_autofill_eligible_query().all()]
+    assert item.id not in ids
+
+
+def test_no_seller_excluded(db, factory, cats):
+    """No seller at all and not kept -> not eligible."""
+    from app import _ai_autofill_eligible_query
+    item = factory.make_item(category=cats['furniture'], seller_id=None)
+    ids = [i.id for i in _ai_autofill_eligible_query().all()]
+    assert item.id not in ids
 
 
 # ---------------------------------------------------------------------------

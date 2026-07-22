@@ -40,6 +40,12 @@ codebase at `/crew/*` (worker-facing) and `/admin/crew/*` (admin-facing).
 | **Campus Director (CD)** | A privileged seller account (`is_campus_director=True`) that can access the admin ops panel via a role switcher in the nav. CDs are not `is_admin` or `is_super_admin`. They see a subset of admin functionality (ops, crew, schedule) intended for on-the-ground coordinators at a campus location. |
 | **CD view** | Session state (`session['cd_view']`) set to `'seller'` by `/switch-role/seller` or `'admin'` by `/switch-role/admin`. Controls which context a campus director sees. When set to `'seller'`, the CD sees the normal seller dashboard. |
 | **TutorialSession** | DB model tracking a campus director's tutorial progress (`step` 0–7, `started_at`, `completed_at`, `tutorial_week_id`, `is_retaking`). Step advances via POST; seed fixtures are re-applied on each restart. |
+| **Rephoto matching backlog** | The queue of Campus-Swap-owned, re-photographed items awaiting a decision, at `/admin/warehouse/rephoto/report?scope=internal`. An item leaves the backlog when matched to a real seller, discarded, or kept (see below). `scope=all` shows every re-photographed item regardless. |
+| **Backlog disposition** | `InventoryItem.rephoto_disposition` — how a backlog item was cleared without matching a real seller: **discarded** (junk/duplicate — leaves the backlog, barred from the shop) or **kept** (Campus Swap keeps and lists it for sale as a house item). NULL = still in the backlog. Reversible via **Restore**. |
+| **Revert (to Campus Swap)** | Undo a match — move a real-seller item back to the Campus Swap account and the backlog, pull it from the shop, and un-hide the original listing it had replaced. |
+| **Kept / house item** | A Campus-Swap-owned item listed for sale (`rephoto_disposition='kept'`). Sells like any listing but owes no seller payout (internal accounts are excluded from payout queues). |
+| **Stock group / multi-unit listing** | N identical units Campus Swap owns (e.g. 37 matching dressers). Implemented as N individual `InventoryItem` rows sharing a `stock_group_id` (Design B); the shop shows one card labeled "N available" and each purchase consumes one unit. Quantity is entered in the "Keep & list" flow. |
+| **Mattress size** | `InventoryItem.mattress_size` (twin/twin_xl/full/queen/king/cal_king). A dropdown in the match modal autofills canonical length/width; the shop shows the nominal size name alongside the numeric dimensions. |
 
 ---
 

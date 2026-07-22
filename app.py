@@ -1466,6 +1466,43 @@ def _select_featured_grid(eligible, limit):
     return pinned_sel + _round_robin_category(unpinned, remaining)
 
 
+def _rephotographed_clause():
+    """Buyer-facing visibility gate: the item has at least one warehouse
+    re-photography campaign photo (an ItemPhoto with captured_at set).
+
+    This is the definition of a 're-photographed' item, and it is the single
+    criterion that purges legacy pre-campaign listings (every ItemPhoto.captured_at
+    NULL) from all buyer-facing surfaces — /shop, the teaser, the homepage, the
+    Meta catalog feed, and the sitemap.
+
+    'Re-photographed' already implies 'matched': a rephoto item only reaches
+    status='available' through _publish_rephoto_if_ready, which requires a real
+    seller (or kept-for-Campus-Swap) + storage + AI approval. Fully reversible —
+    delete this clause from the query filters to restore legacy items.
+    """
+    return InventoryItem.id.in_(
+        db.session.query(ItemPhoto.item_id)
+        .filter(ItemPhoto.captured_at.isnot(None))
+        .distinct()
+    )
+
+
+def _matched_or_kept_clause():
+    """Ownership gate: the item is either matched to a real seller (a non-internal
+    account) OR kept by Campus Swap (rephoto_disposition == 'kept').
+
+    This excludes unmatched backlog items (still on the internal Campus Swap
+    account with no disposition) and discarded items. Together with
+    _rephotographed_clause() and a storage location, this is the full definition
+    of a shop-ready item: rephotographed + has storage + matched-or-kept.
+    """
+    real_seller = db.session.query(User.id).filter(
+        User.id == InventoryItem.seller_id,
+        User.is_internal_account == False,  # noqa: E712
+    ).exists()
+    return or_(real_seller, InventoryItem.rephoto_disposition == 'kept')
+
+
 @app.route('/')
 def index():
     if request.args.get('source'):
@@ -1484,6 +1521,10 @@ def index():
             ai_photo_enhanced=True,
             needs_new_photo=False,
             needs_photo_verification=False,
+        ).filter(
+            _rephotographed_clause(),  # purge legacy non-rephotographed listings
+            _matched_or_kept_clause(),
+            InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
         ).all()
         hero_tiles = _select_hero_tiles(eligible, HOMEPAGE_HERO_TILE_LIMIT)
         featured_items = _select_featured_grid(eligible, HOMEPAGE_FEATURED_LIMIT)
@@ -1692,6 +1733,9 @@ def sitemap():
     # Add all available (live) product pages - same visibility as inventory
     available_items = InventoryItem.query.join(InventoryItem.seller, isouter=True).filter(
         InventoryItem.status == 'available',
+        _rephotographed_clause(),  # don't advertise purged legacy listings to search engines
+        _matched_or_kept_clause(),
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
         or_(
             InventoryItem.seller_id.is_(None),
             and_(
@@ -1749,6 +1793,9 @@ def meta_catalog_feed():
         InventoryItem.price > 0,
         InventoryItem.photo_url.isnot(None),
         InventoryItem.storage_location_id.isnot(None),
+        _rephotographed_clause(),  # never push legacy non-rephotographed items to Meta
+        _matched_or_kept_clause(),
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
     ).all()
 
     lines = [
@@ -1824,6 +1871,9 @@ def admin_catalog_preview():
         InventoryItem.price > 0,
         InventoryItem.photo_url.isnot(None),
         InventoryItem.storage_location_id.isnot(None),
+        _rephotographed_clause(),  # mirror the live feed: shop-ready only
+        _matched_or_kept_clause(),
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
     ).limit(10).all()
 
     rows = []
@@ -1855,7 +1905,7 @@ th,td{{border:1px solid #ccc;padding:8px;text-align:left}}th{{background:#f0f0f0
   <thead><tr><th>ID</th><th>Title</th><th>Price</th><th>Category</th><th>Image</th><th>Link</th></tr></thead>
   <tbody>{table_html}</tbody>
 </table>
-<p><small>Total shown: {len(items)}. Filter: status=available, ai_approved=True, needs_new_photo=False, price&gt;0, photo_url set, storage_location_id set.</small></p>
+<p><small>Total shown: {len(items)}. Filter: status=available, ai_approved=True, needs_new_photo=False, price&gt;0, photo_url set, storage_location_id set, re-photographed (has a campaign photo).</small></p>
 </body>
 </html>"""
 
@@ -1912,7 +1962,9 @@ def inventory():
         preview_items_raw = InventoryItem.query.filter_by(
             status='available'
         ).filter(
-            InventoryItem.rephoto_disposition.is_distinct_from('discarded')
+            InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+            _rephotographed_clause(),  # teaser mosaic shows shop-ready items only
+            _matched_or_kept_clause(),
         ).order_by(func.random()).limit(16).all()
         # Cycle real items to fill 20 tiles so the grid always looks full
         if preview_items_raw:
@@ -1965,6 +2017,10 @@ def inventory():
         InventoryItem.storage_location_id.isnot(None),
         # Never surface a discarded (junk/duplicate) rephoto item, even if otherwise sellable.
         InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+        # Shop the Drop shows ONLY shop-ready items: re-photographed + has storage
+        # (enforced above) + matched to a real seller or kept by Campus Swap.
+        _rephotographed_clause(),
+        _matched_or_kept_clause(),
     )
     # Multi-unit stock (Design B): collapse each stock_group_id to ONE card — the
     # lowest-id still-available unit. Ungrouped items (NULL group) are always shown.
@@ -16618,9 +16674,7 @@ def admin_items():
         ],
         current_model=AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6'),
         eligible_count=_ai_autofill_eligible_query().count(),
-        pending_review_count=InventoryItem.query.filter(
-            InventoryItem.ai_review_pending == True,
-        ).count(),
+        pending_review_count=_background_removal_review_query().count(),
         run_log=_load_ai_run_log(),
     )
 
@@ -17570,8 +17624,18 @@ _AI_JOBS = {}
 def _ai_autofill_eligible_query():
     """Base query for items eligible for AI Autofill.
 
-    Eligible = rephotographed (has at least one ItemPhoto with captured_at set)
-    AND not yet AI-processed (ai_generated_at IS NULL) AND not rejected/sold.
+    Eligible = only shop-ready items, so remove.bg (PAID) is never spent on junk.
+    The shop-ready rule (rephotographed + has storage + matched-or-kept) plus a
+    "not yet processed" guard:
+      - rephotographed (has at least one ItemPhoto with captured_at set)
+      - has a storage location (storage_location_id IS NOT NULL)
+      - matched to a real seller OR kept by Campus Swap (_matched_or_kept_clause)
+      - not yet AI-processed (ai_generated_at IS NULL)
+
+    Status is deliberately NOT a factor — a rejected item that is rephotographed,
+    stored, and matched is still eligible. matched-or-kept excludes both unmatched
+    backlog items and discarded crew test items (e.g. a water bottle rephotographed
+    while trying the feature, then discarded with no storage unit).
 
     Rephotographed items keep photo_url (the cover) NULL by design, so we
     deliberately do NOT require a cover here — the rephoto ItemPhoto guarantees
@@ -17582,15 +17646,22 @@ def _ai_autofill_eligible_query():
         ItemPhoto.captured_at.isnot(None),
     ).exists()
     return InventoryItem.query.filter(
-        InventoryItem.status.notin_(['rejected', 'sold']),
         InventoryItem.ai_generated_at.is_(None),
+        InventoryItem.storage_location_id.isnot(None),
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+        _matched_or_kept_clause(),
         rephotographed,
     )
 
 
 def _background_removal_review_query():
     """Items awaiting Background Removal Review: the remove.bg batch only — i.e.
-    rephotographed (a captured ItemPhoto exists) AND ai_review_pending.
+    rephotographed (a captured ItemPhoto exists) AND ai_review_pending, restricted
+    to shop-ready items (has storage AND matched-or-kept).
+
+    The storage + matched-or-kept gates mirror _ai_autofill_eligible_query so a
+    discarded / storage-less / unmatched test item that slipped through and got
+    processed (before those gates existed) does not linger in the review queue.
 
     Deliberately NOT keyed on ai_photo_enhanced: the legacy OpenAI enhancement
     flow set that same flag, so it would pull in old non-rephoto items. Ordered
@@ -17602,7 +17673,13 @@ def _background_removal_review_query():
     ).exists()
     return (
         InventoryItem.query
-        .filter(InventoryItem.ai_review_pending == True, rephotographed)
+        .filter(
+            InventoryItem.ai_review_pending == True,
+            InventoryItem.storage_location_id.isnot(None),
+            InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+            _matched_or_kept_clause(),
+            rephotographed,
+        )
         .order_by(InventoryItem.ai_generated_at.asc())
     )
 
@@ -17616,9 +17693,7 @@ def admin_ai_generate_page():
         return guard
     api_key_present = bool(os.environ.get('ANTHROPIC_API_KEY'))
     eligible_count = _ai_autofill_eligible_query().count()
-    pending_review_count = InventoryItem.query.filter(
-        InventoryItem.ai_review_pending == True,
-    ).count()
+    pending_review_count = _background_removal_review_query().count()
     run_log_raw = AppSetting.get('ai_autofill_run_log', '[]')
     try:
         run_log = json.loads(run_log_raw)
@@ -17675,10 +17750,13 @@ def admin_ai_generate_run():
 # --- remove.bg photo processing (AI Autofill) -------------------------------
 # Ported from test_background_removal.py. Pulls each carousel photo, removes the
 # background via remove.bg (full size = 1 credit/photo), and composites onto a
-# clean light-gray canvas — giving rephotographed items marketplace-ready photos.
+# clean cream canvas — giving rephotographed items marketplace-ready photos.
 _REMOVEBG_CANVAS_SIZE = 1600
 _REMOVEBG_FILL_RATIO = 0.8
-_REMOVEBG_BG_COLOR = (240, 240, 240)  # light gray composite background (#F0F0F0)
+# Warm cream composite background (AptDeco-style). This RGB is baked into the
+# output JPEG, so the shop card's image-tile CSS background MUST use the same hex
+# (#F4F0E8) or a seam shows where the tile meets the photo.
+_REMOVEBG_BG_COLOR = (244, 240, 232)  # cream #F4F0E8
 _REMOVEBG_VIEW_ORDER = {'front': 0, 'side': 1, 'back': 2}
 
 
@@ -17707,7 +17785,7 @@ def _removebg_cutout(image_bytes, size='full'):
 
 
 def _composite_on_background(cutout_png_bytes, canvas_size=_REMOVEBG_CANVAS_SIZE, fill_ratio=_REMOVEBG_FILL_RATIO):
-    """Composite a remove.bg cutout onto a centered light-gray canvas. Returns JPEG bytes."""
+    """Composite a remove.bg cutout onto a centered cream canvas. Returns JPEG bytes."""
     from PIL import Image
     import io as _io
     cutout = Image.open(_io.BytesIO(cutout_png_bytes)).convert('RGBA')
@@ -17885,7 +17963,14 @@ You are looking at a photo of a secondhand item being sold. The seller has title
 
 Generate a product listing with:
 
-TITLE: A clean, factual title (max 60 chars). Use the seller's title as your primary input. Include brand name if visible. No punctuation at the end.
+TITLE: A short title in the format "[Brand] [adjective] [category]" — where the adjective is usually the color or material. Describe what the item is and stop there; do NOT go further. Rules:
+- Include the brand name ONLY if it is clearly identifiable (from the photo or the seller's title); otherwise omit it entirely.
+- Use at most ONE adjective (prefer color; material is fine, e.g. "wooden", "leather").
+- Do NOT add style words, features, sizes, or condition (no "swivel", "reclining", "with chrome base", "like new", "faux", "compact", etc.).
+- Aim for 2-4 words total (plus the brand). Max 40 chars.
+- Sentence case: capitalize only the first word and any brand name. No punctuation at the end.
+Good examples: "Whirlpool black mini-fridge", "Brown wooden table", "Green leather couch", "IKEA white bookshelf".
+Bad (too descriptive): "White Faux Leather Swivel Desk Chair with Chrome Base", "Whirlpool Compact Mini Fridge with Freezer Compartment".
 
 DESCRIPTION: One to two short sentences (roughly 15-30 words total). State the item's most important features and its condition, written for a general buyer. Be factual and specific — no marketing fluff, no filler like "perfect for any space". Do not mention dorms, college, campus, or students. Do not describe objects that are not the item being sold. Do not restate the title word-for-word or mention the price.
 

@@ -1836,3 +1836,36 @@
 - App is now ~281 routes (as of 2026-07-17).
 
 **Sign-off date:** Shipped to production; no formal checklist sign-off recorded.
+
+---
+
+## Rephoto follow-ons + Stock + Mattress (2026-07-21/22)
+
+**Sign-off status:** ⬜ Not started — code in production, **⚠️ `flask db upgrade` still pending on Render** (migrations `46f98d884eeb` → `c2554b94906c` → `700635cb195e`). Run it first, or every check below will error on missing columns.
+
+### Route Photo Report — "Not yet matched" toggle
+- [ ] `/admin/warehouse/routes/photo-report` shows an "All items / Not yet matched" toggle
+- [ ] Match an item (rephoto), refresh with the toggle ON — the matched item AND its replacement are BOTH gone from the list
+- [ ] A genuinely unmatched item still shows; routes with nothing unmatched drop out
+
+### Route Photo Report — lightbox carousel
+- [ ] Click a photo with multiple originals — arrows + `N/M` counter appear; ←/→ keys and image-click page through; Escape/backdrop closes
+- [ ] A single-photo item opens with no arrows/counter
+
+### Rephoto dispositions (discard / keep / restore)
+- [ ] In the matching modal, "Discard duplicate" removes an item from the backlog; it still appears under "All rephotographed" with a Discarded badge and is NOT in the shop
+- [ ] "Keep & list for Campus Swap" requires a storage location (dimensions optional); the item leaves the backlog with a Kept badge and appears in the shop once approved+priced
+- [ ] "Restore to backlog" on a discarded/kept item returns it to the backlog (a listed keeper is pulled from the shop)
+
+### Revert to Campus Swap
+- [ ] "Revert to Campus Swap" on a matched item (or picking Campus Swap in the seller search) moves it back to the backlog, pulls it from the shop, and un-hides the original it had replaced
+
+### Multi-unit stock
+- [ ] "Keep & list" with Quantity = N shows ONE shop card labeled "N available"
+- [ ] Buying one unit drops the count to N-1; the card disappears only when the last sells
+- [ ] Two simultaneous buyers get different units (no oversell of the same unit)
+
+### Mattress size
+- [ ] The match modal has a "Mattress size" dropdown; picking Queen/King/etc. autofills Length & Width
+- [ ] The product page shows e.g. "Queen mattress · 60" W × 80" L" (nominal size + dimensions), numbers with no trailing `.0`
+- [ ] A multi-unit mattress listing carries the size onto every unit

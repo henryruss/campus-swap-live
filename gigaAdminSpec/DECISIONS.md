@@ -7,6 +7,31 @@
 
 ---
 
+## Rephoto follow-ons, Stock & Mattress (2026-07-21/22)
+
+### Route report "Not yet matched" = exclude BOTH sides of a completed match
+**Reasoning:** First cut filtered only `replaced_by_item_id IS NULL` (hide the superseded original). But a match writes the seller onto the *replacement* item (its own `replaced_by_item_id` stays NULL), so after a match the original dropped off while the replacement took its place under the seller's stop — the "not yet matched" list looked unchanged (the exact symptom Henry reported after pushing to prod). Correct criterion: an item still needs matching iff it is **neither** superseded (`replaced_by_item_id` set) **nor** the target of another row's `replaced_by_item_id` (a `NOT IN replacement_target_ids` subquery). Rejected Henry's suggested ID-threshold heuristic (~520): a magic number that rots — every genuinely new seller listing gets a higher id, so it would wrongly hide real unmatched items and break entirely at multi-school scale. The relationship-based test is exact and self-maintaining.
+
+### Backlog dispositions: `discarded` vs `kept` (one nullable string, not booleans)
+**Reasoning:** A Campus-Swap-owned rephoto item leaves the backlog three ways: matched to a real seller (seller changes), discarded (junk/duplicate), or kept (Campus Swap lists it). Discard and keep are mutually exclusive states, so one `rephoto_disposition` column (NULL | 'discarded' | 'kept') models it cleanly rather than two booleans. Both leave the item in `scope=all` (with a badge) so nothing is ever truly lost; `restore` is the undo. Discarded items are also explicitly barred from the shop (NULL-safe `is_distinct_from('discarded')`) so a junk duplicate can never sell even if it somehow becomes otherwise-listable.
+
+### "Keep" lists the item for sale as Campus Swap (house item, no payout)
+**Reasoning:** Henry: discarding-with-dimensions-and-storage means "Campus Swap owns this, list it." Investigated the whole sale path — the shop has NO seller filter, `_publish_rephoto_if_ready` only requires `seller_id` present (internal qualifies), and payout reconciliation queues already exclude internal accounts — so an internal-owned item sells with no seller payout and nothing breaks. Corrected Henry's mental model that *dimensions* gate the shop: they don't (only storage + ai_approved + price + cover). So "keep" requires **storage only**; dimensions are optional. Also fixed the one place that over-counted internal sales: the admin "payout owed" banner. A not-yet-ready keeper auto-lists later via the existing `admin_ai_approve` → `_publish_rephoto_if_ready` path (no new machinery).
+
+### Revert restores the original it replaced (full undo)
+**Reasoning:** Reverting a matched item back to Campus Swap must not orphan the original it had hidden. So `_revert_rephoto_item_to_campus_swap` clears the original's `replaced_by_item_id` and sets `ai_approved=True` (un-hides it) — the intuitive "undo the whole match." Also allowed picking the Campus Swap account in the match seller-search to *trigger* the revert (the old hard block "Choose a real seller" was a dead end); the search JSON now returns `is_internal` so the client can relabel Save → "Revert" and skip the storage requirement.
+
+### Stock: Design B (clone into N one-unit rows), NOT a quantity column
+**Reasoning:** For 37 identical Campus-Swap dressers, a `quantity` column would require surgery on the money/delivery core — dropping the `BuyerOrder.item_id` unique constraint, moving the per-row `sold_at`/`payout_sent` scalars off the item, rewriting the payout-reconciliation queries, and adding atomic decrement + pre-Stripe reservation. Design B makes each unit its own `InventoryItem` row sharing a `stock_group_id`, so the entire sale/payout/delivery chain works per-unit **unchanged** — and it models reality (37 sales = 37 deliveries to 37 buyers). Cost is duplicate rows + a shop-grouping layer (collapse each group to the lowest-id available card via a pagination-safe `NOT EXISTS` filter; `cart_add` picks a free unit so concurrent buyers don't collide). Cloning happens on publish (`_expand_stock_group` hooked into `_publish_rephoto_if_ready`) so clones are born fully-formed and available.
+
+### Mattress display keyed off `mattress_size`, not category; canonical L/W autofill
+**Reasoning:** The dual "Queen mattress · 60" W × 80" L" display triggers on the `mattress_size` field being set, not on category name — simpler and category-independent (rephoto items may not have a category yet). Length/width are set canonically from `MATTRESS_SIZES` server-side (`_apply_mattress_size_from_form`) so the shown dimensions always match the named size; height/thickness (non-standard) stays operator-entered. Added a `dim` Jinja filter to drop trailing `.0` (Numeric renders `60.0`) — applied to both the mattress line and the regular dimensions line.
+
+### Migrations rewritten as plain `op.add_column` (not `batch_alter_table`)
+**Reasoning:** Flask-Migrate autogen emitted `batch_alter_table` (a SQLite-ism CLAUDE.md forbids). Rewrote all three (`46f98d884eeb`, `c2554b94906c`, `700635cb195e`) as standard Postgres `op.add_column` / `op.create_index`.
+
+---
+
 ## Rephoto Matching (2026-07-17)
 
 - **Hide-and-link, not merge.** When a rephotographed item (B, internal) is matched to a seller, the seller's original listing (A) is *hidden from the shop and linked*, not merged into B. Merge would mean reconciling conflicting fields and is destructive/irreversible; hide+link is reversible, needs no field reconciliation, and lets B (already a `pending_valuation` quick-capture item) flow through the AI pipeline for a fresh short description. Chosen over Route 1 (merge) and Route 2 (dashboard-split alone, which doesn't fix the shop duplicate).
