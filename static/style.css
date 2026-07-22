@@ -27,6 +27,12 @@
     --rule: #D8D0C4;
     --slate: #3D4F5C;
     --glass-shadow: 0 20px 40px -10px rgba(0,0,0,0.1);
+
+    /* Shop cards (AptDeco-style) */
+    --card-ink: #1A1A1A;          /* charcoal title/price */
+    --card-ink-muted: #6B7280;    /* neutral gray secondary text */
+    --card-ink-faint: #9CA3AF;    /* faint gray separators */
+    --tile-cream: #F4F0E8;        /* image tile bg — MUST match _REMOVEBG_BG_COLOR in app.py */
 }
 
 * { box-sizing: border-box; }
@@ -2439,128 +2445,148 @@ body.teaser-page footer { display: none; }
 /* ── Item grid ── */
 .shop-grid {
   display: grid;
-  gap: 14px;
+  gap: 28px 20px;                    /* comfortable, airy */
   grid-template-columns: repeat(4, 1fr);
 }
 @media (max-width: 1279px) {
-  .shop-grid { grid-template-columns: repeat(3, 1fr); }
+  .shop-grid { grid-template-columns: repeat(3, 1fr); gap: 24px 18px; }
 }
 @media (max-width: 1023px) {
-  .shop-grid { grid-template-columns: repeat(2, 1fr); }
+  .shop-grid { grid-template-columns: repeat(2, 1fr); gap: 20px 14px; }
 }
 
-/* ── Item card ── */
-.item-card-link {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-}
+/* ── Item card (flat, AptDeco-style: cream tile + carousel, text on page) ── */
 .item-card {
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--card-bg);
-  border: 1px solid var(--rule);
-  transition: box-shadow 0.2s;
+  display: block;
+  background: transparent;          /* no bubble: no border, no shadow, no box */
 }
-.item-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10);
-}
-.item-card-img-wrap {
+
+/* Image tile — square, cream, softly rounded; holds the photo carousel */
+.item-card-media {
   position: relative;
   aspect-ratio: 1 / 1;
+  background: var(--tile-cream);    /* matches remove.bg baked-in background */
+  border-radius: 8px;
   overflow: hidden;
-  background: var(--bg-cream);
 }
-.item-card-img-wrap img {
+.item-card-track-link {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: transform 0.4s;
-  display: block;
+  text-decoration: none;
 }
-.item-card:hover .item-card-img-wrap img {
-  transform: none;
+.item-card-track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.35s ease;
+}
+.item-card-slide {
+  min-width: 100%;
+  height: 100%;
+}
+.item-card-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;              /* whole item, never cropped */
+  display: block;
 }
 .item-card-img-placeholder {
   width: 100%;
   height: 100%;
-  background: var(--bg-cream);
+  background: var(--tile-cream);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
   font-size: 2.5rem;
 }
-.item-card-body {
-  padding: 10px 12px 12px;
-}
-.item-card-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text-main);
-  margin: 0 0 4px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.4;
-}
-.item-card-price {
-  font-size: 1.1rem;
-  font-weight: 800;
-  color: var(--accent);
-  line-height: 1.2;
-}
-.item-card-retail-row {
+
+/* Carousel arrows — fade in on hover (desktop only) */
+.item-card-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--card-ink);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 0.78rem;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 4;
 }
-.item-card-retail-orig {
-  font-size: 0.76rem;
-  color: var(--text-muted);
-  text-decoration: line-through;
-}
-.item-card-off-pill {
-  background: var(--amber-lt);
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 999px;
+.item-card-arrow.prev { left: 8px; }
+.item-card-arrow.next { right: 8px; }
+.item-card-media:hover .item-card-arrow { opacity: 1; }
+@media (hover: none) {
+  .item-card-arrow { display: none; }   /* touch: rely on swipe + dots */
 }
 
-/* ── Condition badge ── */
-.item-card-condition {
+/* Carousel dots */
+.item-card-dots {
   position: absolute;
   bottom: 8px;
-  left: 8px;
-  background: rgba(26, 61, 26, 0.82);
-  color: #fff;
-  font-size: 0.68rem;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  z-index: 4;
+}
+.item-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.item-card-dot.active { background: var(--accent); }
+
+/* Body — text sits directly on the page background */
+.item-card-body {
+  display: block;
+  padding: 10px 2px 0;
+  text-decoration: none;
+}
+.item-card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--card-ink);
+  margin: 0 0 4px;
+  white-space: nowrap;              /* one line, ellipsis */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+.item-card:hover .item-card-title { color: var(--accent); }
+.item-card-price {
+  font-size: 1.05rem;
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 999px;
-  z-index: 5;
-  letter-spacing: 0.02em;
+  color: var(--card-ink);
+  line-height: 1.2;
 }
-
-/* ── Video badge ── */
-.item-card-video-badge {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  background: rgba(0, 0, 0, 0.60);
-  color: #fff;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 0.75rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  z-index: 5;
+.item-card-retail {
+  font-size: 0.8rem;
+  color: var(--card-ink-muted);
+  margin-top: 3px;
+}
+.item-card-retail-sep { color: var(--card-ink-faint); }
+.item-card-off { color: var(--accent); font-weight: 700; }
+.item-card-stock {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-top: 3px;
 }
 
 /* ── SOLD / RESERVED overlay ── */
@@ -2713,10 +2739,11 @@ body.teaser-page footer { display: none; }
 
 /* ── Small mobile ── */
 @media (max-width: 599px) {
-  .shop-grid { gap: 8px; }
-  .item-card-body { padding: 8px; }
-  .item-card-title { font-size: 0.82rem; }
+  .shop-grid { gap: 18px 12px; }
+  .item-card-body { padding: 8px 2px 0; }
+  .item-card-title { font-size: 0.84rem; }
   .item-card-price { font-size: 1rem; }
+  .item-card-retail { font-size: 0.76rem; }
 }
 
 /* ── Item Detail Partial — shared classes used by item_detail_partial.html ── */

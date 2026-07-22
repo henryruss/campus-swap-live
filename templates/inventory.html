@@ -652,4 +652,63 @@
 })();
 </script>
 
+{# ── Item-card photo carousel (delegated so it works for AJAX-appended + filter-swapped cards) ── #}
+<script>
+(function () {
+  function slideCount(media) { return media.querySelectorAll('.item-card-slide').length; }
+  function go(media, idx) {
+    var n = slideCount(media);
+    if (!n) return;
+    idx = ((idx % n) + n) % n;
+    media.dataset.index = idx;
+    var track = media.querySelector('.item-card-track');
+    if (track) track.style.transform = 'translateX(' + (-idx * 100) + '%)';
+    media.querySelectorAll('.item-card-dot').forEach(function (d, i) {
+      d.classList.toggle('active', i === idx);
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var arrow = e.target.closest('.item-card-arrow');
+    var dot = e.target.closest('.item-card-dot');
+    if (arrow || dot) {
+      e.preventDefault();
+      e.stopPropagation();
+      var media = e.target.closest('.item-card-media');
+      if (!media) return;
+      var cur = parseInt(media.dataset.index || '0', 10);
+      go(media, arrow ? cur + parseInt(arrow.dataset.dir, 10) : parseInt(dot.dataset.dot, 10));
+      return;
+    }
+    // Suppress the navigation click that follows a swipe
+    var link = e.target.closest('.item-card-track-link');
+    if (link) {
+      var m = link.closest('.item-card-media');
+      if (m && m._swiped) { e.preventDefault(); m._swiped = false; }
+    }
+  });
+
+  // Touch swipe
+  var startX = null, startMedia = null;
+  document.addEventListener('touchstart', function (e) {
+    var media = e.target.closest('.item-card-media[data-carousel]');
+    if (!media) return;
+    startMedia = media;
+    startX = e.touches[0].clientX;
+    media._swiped = false;
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (!startMedia || startX === null) return;
+    var dx = e.changedTouches[0].clientX - startX;
+    if (Math.abs(dx) > 40) {
+      var cur = parseInt(startMedia.dataset.index || '0', 10);
+      go(startMedia, cur + (dx < 0 ? 1 : -1));
+      startMedia._swiped = true;
+    }
+    startX = null;
+    startMedia = null;
+  }, { passive: true });
+})();
+</script>
+
 {% endblock %}

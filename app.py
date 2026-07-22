@@ -1495,12 +1495,18 @@ def _matched_or_kept_clause():
     account with no disposition) and discarded items. Together with
     _rephotographed_clause() and a storage location, this is the full definition
     of a shop-ready item: rephotographed + has storage + matched-or-kept.
+
+    Uses a non-correlated IN subquery (not a correlated EXISTS): a correlated
+    EXISTS loses its FROM clause when SQLAlchemy wraps the query for .count(),
+    raising "no FROM clauses due to auto-correlation".
     """
-    real_seller = db.session.query(User.id).filter(
-        User.id == InventoryItem.seller_id,
+    real_seller_ids = db.session.query(User.id).filter(
         User.is_internal_account == False,  # noqa: E712
-    ).exists()
-    return or_(real_seller, InventoryItem.rephoto_disposition == 'kept')
+    )
+    return or_(
+        InventoryItem.seller_id.in_(real_seller_ids),
+        InventoryItem.rephoto_disposition == 'kept',
+    )
 
 
 @app.route('/')

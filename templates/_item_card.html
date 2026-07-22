@@ -1,60 +1,74 @@
-{# _item_card.html — single item card; caller loops over items #}
+{# _item_card.html — single item card (flat AptDeco style w/ photo carousel); caller loops over items #}
 {% for item in items %}
-<a href="/item/{{ item.id }}?store={{ current_store }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if active_cat %}&category_id={{ active_cat }}{% endif %}" class="item-card-link">
-  <div class="item-card">
+{# Build the photo list: cover first, then other visible gallery photos, capped at 6. #}
+{% set _urls = [] %}
+{% if item.photo_url %}{% set _ = _urls.append(item.photo_url) %}{% endif %}
+{% for p in item.visible_gallery_photos %}
+  {% if p.photo_url and p.photo_url not in _urls %}{% set _ = _urls.append(p.photo_url) %}{% endif %}
+{% endfor %}
+{% set photo_urls = _urls[:6] %}
+{% set item_link = "/item/" ~ item.id ~ "?store=" ~ current_store ~ (("&search=" ~ (search_query|urlencode)) if search_query else "") ~ (("&category_id=" ~ active_cat) if active_cat else "") %}
+<div class="item-card">
 
-    <div class="item-card-img-wrap">
-      {% if item.photo_url %}
-      <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
-           loading="lazy"
-           alt="{{ item.description }}">
+  <div class="item-card-media"{% if photo_urls|length > 1 %} data-carousel data-index="0"{% endif %}>
+    <a class="item-card-track-link" href="{{ item_link }}">
+      {% if photo_urls %}
+      <div class="item-card-track">
+        {% for url in photo_urls %}
+        <div class="item-card-slide">
+          <img src="{{ url_for('uploaded_file', filename=url) }}" loading="lazy" alt="{{ item.description }}">
+        </div>
+        {% endfor %}
+      </div>
       {% else %}
-      <div class="item-card-img-placeholder">
-        <i class="fas fa-image"></i>
-      </div>
+      <div class="item-card-img-placeholder"><i class="fas fa-image"></i></div>
       {% endif %}
+    </a>
 
-      {# SOLD overlay — only for non-available items #}
-      {% if item.status == 'sold' %}
-      <div class="item-card-sold-overlay">
-        <div class="item-card-sold-label">SOLD</div>
-      </div>
-      {% elif item.status == 'reserved' %}
-      <div class="item-card-sold-overlay">
-        <div class="item-card-sold-label" style="color: var(--accent); border-color: var(--accent);">RESERVED</div>
-      </div>
-      {% endif %}
-
-      {# Condition badge — bottom-left #}
-      {% if item.quality %}
-      <span class="item-card-condition">{{ item.quality | quality_label }}</span>
-      {% endif %}
-
-      {# Video badge — bottom-right #}
-      {% if item.video_url %}
-      <span class="item-card-video-badge">
-        <i class="fas fa-play" style="font-size: 0.6rem;"></i> Video
-      </span>
-      {% endif %}
+    {% if photo_urls|length > 1 %}
+    <button type="button" class="item-card-arrow prev" data-dir="-1" aria-label="Previous photo">
+      <i class="fas fa-chevron-left"></i>
+    </button>
+    <button type="button" class="item-card-arrow next" data-dir="1" aria-label="Next photo">
+      <i class="fas fa-chevron-right"></i>
+    </button>
+    <div class="item-card-dots">
+      {% for url in photo_urls %}
+      <span class="item-card-dot{% if loop.first %} active{% endif %}" data-dot="{{ loop.index0 }}"></span>
+      {% endfor %}
     </div>
+    {% endif %}
 
-    <div class="item-card-body">
-      <p class="item-card-title">{{ item.description }}</p>
-      <div class="item-card-price">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</div>
-      {% if item.stock_available_count > 1 %}
-      <div style="font-size: 0.78rem; font-weight: 600; color: var(--primary); margin-top: 2px;">{{ item.stock_available_count }} available</div>
-      {% endif %}
-
-      {# Retail strikethrough + % off pill — only when retail_price is present and higher than price #}
-      {% if item.retail_price and item.price and item.retail_price > item.price %}
-      {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
-      <div class="item-card-retail-row">
-        <span class="item-card-retail-orig">~${{ "%.0f"|format(item.retail_price) }} retail</span>
-        <span class="item-card-off-pill">{{ savings_pct }}% off</span>
-      </div>
-      {% endif %}
+    {# SOLD / RESERVED overlay — only for non-available items #}
+    {% if item.status == 'sold' %}
+    <div class="item-card-sold-overlay">
+      <div class="item-card-sold-label">SOLD</div>
     </div>
-
+    {% elif item.status == 'reserved' %}
+    <div class="item-card-sold-overlay">
+      <div class="item-card-sold-label" style="color: var(--accent); border-color: var(--accent);">RESERVED</div>
+    </div>
+    {% endif %}
   </div>
-</a>
+
+  <a class="item-card-body" href="{{ item_link }}">
+    <p class="item-card-title">{{ item.description }}</p>
+    <div class="item-card-price">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</div>
+
+    {# Est retail + % off — only when retail_price is present and higher than price #}
+    {% if item.retail_price and item.price and item.retail_price > item.price %}
+    {% set savings_pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+    <div class="item-card-retail">
+      Est retail ${{ "%.0f"|format(item.retail_price) }}
+      <span class="item-card-retail-sep">&middot;</span>
+      <span class="item-card-off">{{ savings_pct }}% off</span>
+    </div>
+    {% endif %}
+
+    {% if item.stock_available_count > 1 %}
+    <div class="item-card-stock">{{ item.stock_available_count }} available</div>
+    {% endif %}
+  </a>
+
+</div>
 {% endfor %}

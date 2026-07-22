@@ -234,6 +234,18 @@ def test_no_seller_excluded(db, factory, cats):
     assert item.id not in ids
 
 
+def test_eligibility_and_review_count_compile(db, factory, cats):
+    """Regression: .count() wraps the query in a subquery. The matched-or-kept
+    clause must be a non-correlated IN subquery, not a correlated EXISTS, or
+    .count() raises 'no FROM clauses due to auto-correlation' (this is what the
+    /shop route and admin nav badges call)."""
+    from app import _ai_autofill_eligible_query, _background_removal_review_query
+    factory.make_item(category=cats['furniture'])
+    # Both must compile & execute without raising.
+    assert _ai_autofill_eligible_query().count() >= 1
+    assert _background_removal_review_query().count() >= 0
+
+
 # ---------------------------------------------------------------------------
 # Baseline lookup
 # ---------------------------------------------------------------------------
