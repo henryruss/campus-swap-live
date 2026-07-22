@@ -15299,6 +15299,7 @@ def admin_warehouse_seller_search():
             'email': s.email,
             'item_count': item_count,
             'payout_rate': s.payout_rate,
+            'is_internal': bool(s.is_internal_account),
         })
     return jsonify(results)
 
@@ -15661,7 +15662,13 @@ def admin_rephoto_match_save(item_id):
     if not seller:
         return jsonify({'success': False, 'error': 'Select a seller.'}), 400
     if seller.is_internal_account:
-        return jsonify({'success': False, 'error': 'Choose a real seller, not the Campus Swap account.'}), 400
+        # Choosing Campus Swap here means "revert this item back to the backlog", not a match.
+        ok, err = _revert_rephoto_item_to_campus_swap(item)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
+        db.session.commit()
+        logger.info(f"Rephoto revert (via seller pick): item {item.id} back to Campus Swap")
+        return jsonify({'success': True, 'item_id': item.id, 'reverted': True})
 
     # Optional original listing to replace — must belong to the chosen seller
     original = None
@@ -15716,20 +15723,43 @@ def admin_rephoto_match_save(item_id):
                     'published': published})
 
 
+def _revert_rephoto_item_to_campus_swap(item):
+    """Undo a rephoto match: move the item back to the Campus Swap account and the backlog.
+
+    Restores any original listing this item had replaced (clears the link and un-hides it),
+    clears the backlog disposition, and pulls the item from the shop if it was live. Returns
+    (ok, error_message).
+    """
+    internal_user = User.query.filter_by(is_internal_account=True).first()
+    if not internal_user:
+        return False, 'No Campus Swap account is configured.'
+    # Un-supersede any original this item had replaced, so it isn't orphaned/hidden.
+    for orig in InventoryItem.query.filter_by(replaced_by_item_id=item.id).all():
+        orig.replaced_by_item_id = None
+        orig.ai_approved = True
+    item.seller_id = internal_user.id
+    item.rephoto_disposition = None          # returns to the backlog
+    if item.status == 'available':
+        item.status = 'pending_valuation'    # pull from shop — it's unmatched again
+    return True, None
+
+
 @app.route('/admin/warehouse/rephoto/dispose/<int:item_id>', methods=['POST'])
 @login_required
 def admin_rephoto_dispose(item_id):
-    """Clear a Campus-Swap-owned rephoto item from the matching backlog, three ways:
+    """Clear a Campus-Swap-owned rephoto item from the matching backlog, four ways:
 
       action='discard' — junk/duplicate. Sets rephoto_disposition='discarded'; barred from
                          the shop. Leaves the backlog, stays under scope=all.
-      action='keep'    — Campus Swap keeps & lists it. Requires storage + dimensions (the
-                         worker's signal that it's a real keeper, not junk). Saves those,
-                         sets rephoto_disposition='kept', keeps the internal seller, and
-                         publishes now if ready — otherwise auto-lists on later AI approval.
-      action='restore' — undo: clears disposition back to NULL (returns to the backlog). If
-                         the item had been listed as a keeper, revert it to pending_valuation
-                         so it isn't left for sale while back in the backlog.
+      action='keep'    — Campus Swap keeps & lists it. Requires storage (the worker's signal
+                         that it's a real keeper, not junk; dimensions optional). Sets
+                         rephoto_disposition='kept', keeps the internal seller, and publishes
+                         now if ready — otherwise auto-lists on later AI approval.
+      action='restore' — undo a discard/keep: clears disposition back to NULL (returns to the
+                         backlog). If it had been listed as a keeper, revert it to
+                         pending_valuation so it isn't left for sale while back in the backlog.
+      action='revert'  — undo a match: move a real-seller item back to Campus Swap and the
+                         backlog (restores any original it replaced). See helper above.
 
     JSON endpoint (fetch), so returns JSON — not abort() — on auth failure.
     """
@@ -15773,6 +15803,11 @@ def admin_rephoto_dispose(item_id):
         # Pull a previously-listed keeper back out of the shop when it returns to the backlog.
         if item.seller and item.seller.is_internal_account and item.status == 'available':
             item.status = 'pending_valuation'
+
+    elif action == 'revert':
+        ok, err = _revert_rephoto_item_to_campus_swap(item)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
 
     else:
         return jsonify({'success': False, 'error': 'Unknown action.'}), 400

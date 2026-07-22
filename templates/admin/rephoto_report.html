@@ -193,6 +193,7 @@
         <button type="button" class="rpm-btn rpm-btn--danger" id="rpm-discard" onclick="rpmDispose('discard')" style="display:none;">Discard duplicate</button>
         <button type="button" class="rpm-btn rpm-btn--ghost" id="rpm-keep" onclick="rpmDispose('keep')" style="display:none;">Keep &amp; list for Campus Swap</button>
         <button type="button" class="rpm-btn rpm-btn--ghost" id="rpm-restore" onclick="rpmDispose('restore')" style="display:none;">Restore to backlog</button>
+        <button type="button" class="rpm-btn rpm-btn--ghost" id="rpm-revert" onclick="rpmDispose('revert')" style="display:none;">Revert to Campus Swap</button>
       </div>
       <div class="rpm-foot-right">
         <button type="button" class="rpm-btn rpm-btn--ghost" onclick="rpmClose()">Cancel</button>
@@ -289,9 +290,11 @@
     // Restore for items already discarded/kept (shown under "All rephotographed").
     var disp = card.dataset.disposition || '';
     var isInternal = card.dataset.internal === '1';
+    var hasRealSeller = !isInternal && !!card.dataset.sellerId;
     $('rpm-discard').style.display = (isInternal && !disp) ? '' : 'none';
     $('rpm-keep').style.display = (isInternal && !disp) ? '' : 'none';
     $('rpm-restore').style.display = disp ? '' : 'none';
+    $('rpm-revert').style.display = hasRealSeller ? '' : 'none';  // undo a match → back to Campus Swap
     overlay.classList.add('open');
   };
 
@@ -300,11 +303,13 @@
 
   window.rpmClearSeller = function() {
     state.sellerId = null;
+    state.sellerInternal = false;
     $('rpm-chosen').classList.remove('open');
     $('rpm-seller-search').style.display = '';
     $('rpm-original-wrap').style.display = 'none';
     $('rpm-original').innerHTML = '<option value="">— None —</option>';
     $('rpm-save').disabled = true;
+    $('rpm-save').textContent = 'Save match';
   };
 
   $('rpm-seller-search').addEventListener('input', function() {
@@ -333,11 +338,20 @@
 
   function rpmPickSeller(s) {
     state.sellerId = s.id;
+    state.sellerInternal = !!s.is_internal;
     $('rpm-seller-results').classList.remove('open');
     $('rpm-seller-search').style.display = 'none';
     $('rpm-chosen-name').innerHTML = '<strong>' + (s.name || '(no name)') + '</strong> · ' + (s.email || '');
     $('rpm-chosen').classList.add('open');
     $('rpm-save').disabled = false;
+    // Picking Campus Swap = revert to backlog: no "original to replace", no storage needed.
+    if (state.sellerInternal) {
+      $('rpm-save').textContent = 'Revert to Campus Swap';
+      $('rpm-original-wrap').style.display = 'none';
+      $('rpm-original').innerHTML = '<option value="">— None —</option>';
+      return;
+    }
+    $('rpm-save').textContent = 'Save match';
     // load this seller's listings for the "original to replace" dropdown
     var sel = $('rpm-original');
     sel.innerHTML = '<option value="">— None —</option>';
@@ -371,6 +385,8 @@
 
   window.rpmSave = function() {
     if (!state.sellerId) return;
+    // Campus Swap chosen as the "seller" means revert to backlog, not a match.
+    if (state.sellerInternal) { rpmDispose('revert'); return; }
     var err = $('rpm-error'); err.style.display = 'none';
     if (!$('rpm-storage-loc').value) {
       err.textContent = 'Select a storage location.'; err.style.display = 'block';
@@ -406,15 +422,28 @@
       .catch(function() { err.textContent = 'Network error.'; err.style.display = 'block'; btn.disabled = false; });
   };
 
-  // Update the grid after a backlog disposition. In the backlog view the item leaves the
-  // list; in "All rephotographed" it stays with a badge reflecting its new state.
-  function rpmAfterDispose(disp) {
+  // Update the grid after a backlog action. Discard/keep in the backlog view remove the
+  // card; in "All rephotographed" the item stays, its badge/state refreshed. A revert
+  // returns the item to Campus Swap + the backlog, so it stays visible under scope=all.
+  function rpmAfterDispose(action, disp) {
     var card = document.getElementById('rpm-card-' + state.itemId);
+    if (!card) { rpmClose(); return; }
+    if (action === 'revert') {
+      // Now Campus-Swap-owned and back in the backlog — undo the matched-seller state.
+      card.dataset.internal = '1';
+      card.dataset.sellerId = '';
+      card.dataset.sellerName = '';
+      card.dataset.sellerEmail = '';
+      card.dataset.disposition = '';
+      var rb = card.querySelector('.rpm-badge'); if (rb) rb.remove();
+      rpmClose();
+      return;
+    }
     if (RPM_SCOPE === 'internal') {
-      if (card) card.remove();
+      card.remove();
       var countEl = $('rpm-count');
       if (countEl) countEl.textContent = Math.max(0, parseInt(countEl.textContent, 10) - 1);
-    } else if (card) {
+    } else {
       card.dataset.disposition = disp || '';
       var badge = card.querySelector('.rpm-badge');
       if (disp) {
@@ -436,6 +465,7 @@
       if (!$('rpm-storage-loc').value) { err.textContent = 'Select a storage location to keep & list this item.'; err.style.display = 'block'; return; }
       if (!confirm('Keep #' + state.itemId + ' for Campus Swap and list it for sale?')) return;
     }
+    if (action === 'revert' && !confirm('Revert #' + state.itemId + ' back to the Campus Swap backlog? It will be unassigned from its seller and pulled from the shop if it was listed.')) return;
     var fd = new FormData();
     fd.append('csrf_token', csrf);
     fd.append('action', action);
@@ -456,7 +486,7 @@
           err.style.display = 'block';
           return;
         }
-        rpmAfterDispose(res.j.disposition || '');
+        rpmAfterDispose(action, res.j.disposition || '');
       })
       .catch(function() { err.textContent = 'Network error.'; err.style.display = 'block'; });
   };
