@@ -214,6 +214,11 @@
                         Item Sold
                     </button>
                 {% elif item.status in ('available', 'pending_logistics') %}
+                    {% if item.stock_available_count > 1 %}
+                    <p style="font-weight: 600; color: var(--primary); margin-bottom: 20px;">
+                        <i class="fas fa-layer-group"></i> {{ item.stock_available_count }} available
+                    </p>
+                    {% endif %}
                     <!-- Delivery Method Section -->
                     <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 25px; background: #f8fafc;">
                         <h4 style="margin-bottom: 15px; font-size: 1rem; color: var(--text-main);">Delivery Method</h4>

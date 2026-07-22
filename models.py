@@ -282,6 +282,25 @@ class InventoryItem(db.Model):
     # via Restore (clears back to NULL). Does not change seller_id.
     rephoto_disposition = db.Column(db.String(20), nullable=True)
 
+    # STOCK (identical-units listing, e.g. 37 matching dressers Campus Swap owns). Design B:
+    # each unit is its own InventoryItem row so the whole sale/payout/delivery chain works
+    # per-unit unchanged; rows sharing a stock_group_id are collapsed into one shop card that
+    # shows the available count. stock_quantity is the DESIRED unit count entered at keep time;
+    # it drives a one-time clone-expansion when the listing publishes, after which each row
+    # carries stock_quantity=1. NULL/absent group == an ordinary single item.
+    stock_quantity = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    stock_group_id = db.Column(db.String(36), nullable=True, index=True)
+
+    @property
+    def stock_available_count(self):
+        """Units of this listing currently for sale — 1 for an ordinary item, else the count
+        of still-available rows sharing its stock_group_id."""
+        if not self.stock_group_id:
+            return 1
+        return InventoryItem.query.filter_by(
+            stock_group_id=self.stock_group_id, status='available'
+        ).count()
+
     @property
     def visible_gallery_photos(self):
         """Gallery photos not hidden via the Shop Edit Mode panel — use for buyer-facing rendering."""

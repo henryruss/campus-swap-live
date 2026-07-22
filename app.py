@@ -268,6 +268,26 @@ def item_is_held(item, exclude_cart_id=None):
     return q.count() > 0
 
 
+def _pick_available_stock_unit(item, cart_id):
+    """For a multi-unit listing (stock_group_id set), return an available unit that isn't
+    already in this cart and isn't being checked out by someone else. Returns None if the
+    group is sold out / fully spoken-for. For an ordinary item, returns the item unchanged.
+    """
+    if not item.stock_group_id:
+        return item
+    units = (InventoryItem.query
+             .filter_by(stock_group_id=item.stock_group_id, status='available')
+             .order_by(InventoryItem.id)
+             .all())
+    for u in units:
+        if CartItem.query.filter_by(cart_id=cart_id, item_id=u.id).first():
+            continue  # already in this cart
+        if item_is_held(u, exclude_cart_id=cart_id):
+            continue  # another buyer is checking this unit out
+        return u
+    return None
+
+
 def _get_active_cart(create=True):
     """Return (or optionally create) the active Cart for the current request."""
     from flask_login import current_user
@@ -1933,6 +1953,16 @@ def inventory():
         # Never surface a discarded (junk/duplicate) rephoto item, even if otherwise sellable.
         InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
     )
+    # Multi-unit stock (Design B): collapse each stock_group_id to ONE card — the
+    # lowest-id still-available unit. Ungrouped items (NULL group) are always shown.
+    from sqlalchemy.orm import aliased as _aliased
+    _dup = _aliased(InventoryItem)
+    query = query.filter(~db.session.query(_dup.id).filter(
+        InventoryItem.stock_group_id.isnot(None),
+        _dup.stock_group_id == InventoryItem.stock_group_id,
+        _dup.status == 'available',
+        _dup.id < InventoryItem.id,
+    ).exists())
     # FUTURE: add location/store filter here as one more .filter(...) clause
 
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
@@ -2599,12 +2629,20 @@ def cart_add(item_id):
     if AppSetting.get('reserve_only_mode') == 'true':
         return fail('Purchases are not open yet.', 403)
 
-    if item.status == 'sold':
-        return fail('This item has already been sold.')
-    if item.status != 'available':
-        return fail('This item is not available.')
-
     cart = _get_active_cart(create=True)
+
+    if item.stock_group_id:
+        # Multi-unit listing: swap the clicked card for an actually-available unit from the
+        # group (the clicked representative may already be sold/held while others remain).
+        unit = _pick_available_stock_unit(item, cart.id)
+        if unit is None:
+            return fail('This item just sold out — check back soon.')
+        item = unit
+    else:
+        if item.status == 'sold':
+            return fail('This item has already been sold.')
+        if item.status != 'available':
+            return fail('This item is not available.')
 
     # Check if already in this cart (idempotent)
     existing = CartItem.query.filter_by(cart_id=cart.id, item_id=item.id).first()
@@ -15621,6 +15659,49 @@ def admin_warehouse_seller_items():
     ])
 
 
+def _expand_stock_group(item):
+    """One-time clone-expansion for a multi-unit listing (Design B — see InventoryItem).
+
+    When a listing with stock_quantity > 1 first goes 'available', clone it into that many
+    identical, individually-purchasable rows sharing a fresh stock_group_id. Each unit then
+    flows through the sale/payout/delivery chain exactly like a normal one-off item; the shop
+    collapses the group into one card showing the available count. Idempotent: does nothing
+    once a group id exists or quantity <= 1. Returns the number of EXTRA units created.
+    """
+    if not item or (item.stock_quantity or 1) <= 1 or item.stock_group_id or item.status != 'available':
+        return 0
+    import uuid
+    group_id = uuid.uuid4().hex
+    total = int(item.stock_quantity)
+    item.stock_group_id = group_id
+    item.stock_quantity = 1  # each row now represents a single unit
+    # Listing/display/logistics fields to copy; sale, payout, replacement, quick-capture,
+    # featured-pin and timestamp fields are intentionally NOT copied (clones start fresh).
+    COPY_FIELDS = (
+        'description', 'long_description', 'price', 'suggested_price', 'quality',
+        'length_in', 'width_in', 'height_in', 'collection_method',
+        'category_id', 'subcategory_id', 'seller_id', 'photo_url', 'video_url',
+        'retail_price', 'unit_size', 'storage_location_id', 'storage_row', 'storage_note',
+        'ai_description', 'ai_long_description', 'ai_price', 'ai_retail_price',
+        'ai_generated_at', 'ai_approved', 'ai_photo_enhanced', 'was_previously_approved',
+        'seller_description', 'seller_long_description', 'rephoto_disposition',
+        'needs_new_photo', 'needs_photo_verification', 'needs_photo_refresh',
+    )
+    for _ in range(total - 1):
+        clone = InventoryItem(status='available', stock_quantity=1, stock_group_id=group_id)
+        for f in COPY_FIELDS:
+            setattr(clone, f, getattr(item, f))
+        db.session.add(clone)
+        db.session.flush()  # assign clone.id for its photo rows
+        for p in item.gallery_photos:
+            db.session.add(ItemPhoto(
+                item_id=clone.id, photo_url=p.photo_url, is_hidden=p.is_hidden,
+                captured_at=p.captured_at, sort_order=p.sort_order, view=p.view,
+            ))
+    logger.info(f'[stock] expanded item {item.id} into {total} units (group {group_id})')
+    return total - 1
+
+
 def _publish_rephoto_if_ready(item):
     """Promote a rephotographed item to the shop (status='available') once it is
     fully ready. Order-independent: whichever of the two human steps finishes
@@ -15646,6 +15727,7 @@ def _publish_rephoto_if_ready(item):
     item.status = 'available'
     logger.info(f'[rephoto publish] item {item.id} → available (seller={item.seller_id}, '
                 f'storage={item.storage_location_id})')
+    _expand_stock_group(item)  # multi-unit listings clone into N purchasable rows on publish
     return True
 
 
@@ -15791,12 +15873,21 @@ def admin_rephoto_dispose(item_id):
             val = _parse_dimension(request.form.get(field))
             if val is not None:
                 setattr(item, field, val)
+        # Stock: how many identical units Campus Swap owns (e.g. 37 matching dressers). Drives
+        # a clone-expansion when the listing publishes. Only settable while not yet expanded.
+        qty_raw = (request.form.get('quantity') or '').strip()
+        if qty_raw:
+            if not qty_raw.isdigit() or not (1 <= int(qty_raw) <= 500):
+                return jsonify({'success': False, 'error': 'Quantity must be a whole number from 1 to 500.'}), 400
+            if not item.stock_group_id:  # can't re-set once expanded into a group
+                item.stock_quantity = int(qty_raw)
         item.rephoto_disposition = 'kept'
-        published = _publish_rephoto_if_ready(item)  # lists now if ready, else auto-lists on AI approval
+        published = _publish_rephoto_if_ready(item)  # lists now if ready (and expands stock), else on AI approval
         db.session.commit()
-        logger.info(f"Rephoto keep: item {item.id} kept for Campus Swap"
+        logger.info(f"Rephoto keep: item {item.id} kept for Campus Swap (qty={item.stock_quantity})"
                     + (", PUBLISHED" if published else " (awaiting AI approval to publish)"))
-        return jsonify({'success': True, 'item_id': item.id, 'disposition': 'kept', 'published': published})
+        return jsonify({'success': True, 'item_id': item.id, 'disposition': 'kept',
+                        'published': published, 'quantity': item.stock_quantity})
 
     elif action == 'restore':
         item.rephoto_disposition = None

@@ -41,6 +41,9 @@
     <div class="item-card-body">
       <p class="item-card-title">{{ item.description }}</p>
       <div class="item-card-price">${{ "%.0f"|format(item.price) if item.price is not none else '—' }}</div>
+      {% if item.stock_available_count > 1 %}
+      <div style="font-size: 0.78rem; font-weight: 600; color: var(--primary); margin-top: 2px;">{{ item.stock_available_count }} available</div>
+      {% endif %}
 
       {# Retail strikethrough + % off pill — only when retail_price is present and higher than price #}
       {% if item.retail_price and item.price and item.retail_price > item.price %}
