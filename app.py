@@ -2179,8 +2179,39 @@ def product_detail(item_id):
             'all_categories': InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all(),
             'edit_gallery_photos': gallery_state,
         }
+    # "More in this category" — same-category, shop-ready items (same visibility as /shop),
+    # excluding this item and collapsing multi-unit stock groups to one card each.
+    related_items = []
+    if item.category_id:
+        _raw = (
+            InventoryItem.query
+            .filter(
+                InventoryItem.category_id == item.category_id,
+                InventoryItem.id != item.id,
+                InventoryItem.ai_approved == True,          # noqa: E712
+                InventoryItem.status == 'available',
+                InventoryItem.needs_new_photo == False,     # noqa: E712
+                InventoryItem.price.isnot(None), InventoryItem.price > 0,
+                InventoryItem.storage_location_id.isnot(None),
+                InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+                _rephotographed_clause(),
+                _matched_or_kept_clause(),
+            )
+            .order_by(func.random())
+            .limit(24)
+            .all()
+        )
+        seen_groups = set()
+        for _it in _raw:
+            if _it.stock_group_id:
+                if _it.stock_group_id in seen_groups:
+                    continue
+                seen_groups.add(_it.stock_group_id)
+            related_items.append(_it)
+            if len(related_items) >= 8:
+                break
     return render_template('product.html', item=item, current_store=store_name, store_info=store_info,
-                            is_shareable=is_shareable, **edit_mode_context)
+                            is_shareable=is_shareable, related_items=related_items, **edit_mode_context)
 
 # --- SHARE CARD IMAGE GENERATION ---
 def _is_item_shareable(item):
@@ -18350,8 +18381,24 @@ def admin_ai_approve(item_id):
     item.description = title
     item.long_description = body
     item.price = final_price
-    if item.ai_retail_price:
+    # Retail price: use the edited value if provided, else fall back to staged AI value.
+    retail_override = request.form.get('retail_price', '').strip()
+    if retail_override:
+        try:
+            rp = round(float(retail_override), 2)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid retail price'}), 400
+        item.retail_price = rp if rp > 0 else None
+    elif item.ai_retail_price:
         item.retail_price = item.ai_retail_price
+    # Optional "flag for new photo" — holds the item from the shop until re-shot.
+    if request.form.get('needs_new_photo') == '1':
+        item.needs_new_photo = True
+        note = request.form.get('needs_photo_note', '').strip()[:500]
+        if note:
+            item.needs_photo_note = note
+    else:
+        item.needs_new_photo = False
     item.ai_review_pending = False
     item.ai_approved = True
     # Order-independent publish: if the item was already matched to a seller with
@@ -18392,6 +18439,43 @@ def admin_ai_reset(item_id):
     item.ai_review_pending = False
     item.ai_approved = False
     item.ai_generated_at = None
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/ai/item/<int:item_id>/restore-to-review', methods=['POST'])
+@login_required
+def admin_ai_restore_to_review(item_id):
+    """Undo the last approve/discard: put the item back into the Background Removal
+    Review queue. Restores staged AI fields from the client snapshot (discard nulls
+    them), clears the approved/published state, and un-publishes if it went live."""
+    guard = require_super_admin()
+    if guard:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status == 'sold':
+        return jsonify({'success': False, 'error': 'Item has been sold — cannot undo.'}), 400
+    desc = request.form.get('description', '').strip()[:200]
+    body = request.form.get('long_description', '').strip()[:2000]
+    price = request.form.get('price', '').strip()
+    retail = request.form.get('retail_price', '').strip()
+    if desc:
+        item.ai_description = desc
+    item.ai_long_description = body or None
+    if price:
+        try:
+            item.ai_price = round(float(price), 2)
+        except ValueError:
+            pass
+    if retail:
+        try:
+            item.ai_retail_price = round(float(retail), 2)
+        except ValueError:
+            pass
+    item.ai_review_pending = True
+    item.ai_approved = False
+    if item.status == 'available':   # un-publish an item that just went live on approve
+        item.status = 'pending_valuation'
     db.session.commit()
     return jsonify({'success': True})
 

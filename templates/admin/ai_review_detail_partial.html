@@ -4,144 +4,139 @@
      data-ai-price="{{ '%.2f'|format(ai_price) }}"
      data-suggested-price="{{ '%.2f'|format(seller_price) if seller_price else '' }}">
 
-  {# Background-removal review: the three processed photos, one horizontal row. #}
-  <div class="bgr-photos">
-    {% if photo_pairs %}
-    {% for pair in photo_pairs %}
-    <div class="bgr-cell">
-      <div class="bgr-cap">{{ pair.view or 'photo' }}</div>
-      <img src="{{ url_for('uploaded_file', filename=pair.processed) }}"
-           alt="processed {{ pair.view or '' }}" class="bgr-img"
-           onerror="this.parentNode.classList.add('bgr-missing');this.remove();">
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="bgr-na" style="width:100%;">No photos on this item.</div>
-    {% endif %}
-  </div>
   <style>
-    .bgr-photos { display:flex; flex-direction:row; gap:10px; margin-bottom:8px; }
-    .bgr-cell { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:5px; }
-    .bgr-cap { font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); }
-    .bgr-img { width:100%; aspect-ratio:1/1; object-fit:contain; border:1px solid var(--rule); border-radius:10px; background:var(--bg-cream); }
-    .bgr-na, .bgr-missing { aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
-      border:1px dashed var(--rule); border-radius:10px; color:var(--text-muted); font-size:0.78rem; background:var(--bg-cream); text-align:center; padding:8px; }
+    /* Two-column: image left, editable fields right — everything visible, no scroll. */
+    .rv-detail { display:flex; gap:20px; align-items:flex-start; }
+    .rv-detail-media { flex:0 0 42%; max-width:42%; }
+    .rv-detail-fields { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:11px; }
+    @media (max-width:720px) {
+      .rv-detail { flex-direction:column; }
+      .rv-detail-media { flex-basis:auto; max-width:100%; width:100%; }
+    }
+    .rv-carousel { position:relative; aspect-ratio:1/1; width:100%;
+      background:var(--tile-cream); border-radius:14px; overflow:hidden; }
+    .rv-track { display:flex; width:100%; height:100%; transition:transform 0.3s ease; }
+    .rv-slide { min-width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+    .rv-slide img { width:100%; height:100%; object-fit:contain; display:block; }
+    .rv-slide.rv-missing::after { content:'image unavailable'; color:var(--text-muted); font-size:0.8rem; }
+    .rv-arrow { position:absolute; top:50%; transform:translateY(-50%); width:32px; height:32px; border:none;
+      border-radius:50%; background:rgba(255,255,255,0.92); color:var(--card-ink); cursor:pointer;
+      display:flex; align-items:center; justify-content:center; box-shadow:0 1px 5px rgba(0,0,0,0.18); z-index:3; }
+    .rv-prev { left:8px; } .rv-next { right:8px; }
+    .rv-dots { position:absolute; bottom:8px; left:0; right:0; display:flex; justify-content:center; gap:6px; z-index:3; }
+    .rv-dot { width:7px; height:7px; border-radius:50%; background:rgba(0,0,0,0.25); cursor:pointer; }
+    .rv-dot.active { background:var(--accent); }
+    .rv-na { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-muted); font-size:0.85rem; }
+    .rv-field-label { font-size:0.75rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:3px; }
+    .rv-input { width:100%; box-sizing:border-box; border:1.5px solid var(--rule); border-radius:8px;
+      padding:8px 12px; font-size:0.92rem; font-family:inherit; outline:none; }
+    .rv-input:focus { border-color:var(--primary); }
+    .rv-counter { font-size:0.72rem; color:var(--text-muted); text-align:right; margin-top:2px; }
+    .rv-orig { font-size:0.78rem; color:var(--text-muted); line-height:1.4; }
+    .rv-orig b { color:var(--text-main); font-weight:700; }
+    .rv-price-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .rv-price-box { display:flex; align-items:center; border:1.5px solid var(--rule); border-radius:8px; padding:0 10px; background:white; }
+    .rv-price-box:focus-within { border-color:var(--primary); }
+    .rv-price-box input { border:none; outline:none; background:transparent; font-family:inherit; }
+    .rv-savings { background:#d1fae5; color:#065f46; font-size:0.75rem; font-weight:800; padding:2px 9px; border-radius:999px; }
   </style>
 
-  {# Editable fields #}
-  <div class="approval-modal-info-body">
-    <div class="approval-modal-meta">
-      {% if item.category %}<span>{{ item.category.name }}</span>{% endif %}
-      {% if item.quality %} &middot; <span>{{ item.quality|quality_label }}</span>{% endif %}
-      {% if item.date_added %} &middot; <span>Added {{ item.date_added.strftime('%b %-d, %Y') }}</span>{% endif %}
-    </div>
-
-    {# Original seller listing — read-only reference #}
-    {% if item.description or item.long_description %}
-    <div style="background:var(--bg-cream);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
-      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:6px;">Original listing</div>
-      {% if item.description %}
-      <div style="font-size:0.88rem;font-weight:600;color:var(--text-main);margin-bottom:4px;">{{ item.description }}</div>
-      {% endif %}
-      {% if item.long_description %}
-      <div style="font-size:0.82rem;color:var(--text-muted);line-height:1.5;">{{ item.long_description }}</div>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <div>
-        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
-          Title <span style="font-weight:400;">(max 200 chars)</span>
-        </label>
-        <input type="text" name="description" maxlength="200"
-               value="{{ item.ai_description or '' }}"
-               id="ai-title-input"
-               style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.92rem;font-family:inherit;outline:none;"
-               oninput="updateCounter('ai-title-counter', this.value.length, 200)"
-               onfocus="this.style.borderColor='var(--primary)'"
-               onblur="this.style.borderColor='var(--rule)'">
-        <div id="ai-title-counter" style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:3px;">{{ (item.ai_description or '')|length }} / 200</div>
-      </div>
-
-      <div>
-        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
-          Description <span style="font-weight:400;">(max 2000 chars)</span>
-        </label>
-        <textarea name="long_description" maxlength="2000" rows="4" id="ai-desc-textarea"
-                  style="width:100%;box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:0.88rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;"
-                  oninput="updateCounter('ai-desc-counter', this.value.length, 2000)"
-                  onfocus="this.style.borderColor='var(--primary)'"
-                  onblur="this.style.borderColor='var(--rule)'">{{ item.ai_long_description or '' }}</textarea>
-        <div id="ai-desc-counter" style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:3px;">{{ (item.ai_long_description or '')|length }} / 2000</div>
-      </div>
-
-      <div>
-        <label style="font-size:0.8rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">
-          Price ($)
-        </label>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="display:flex;align-items:center;border:1.5px solid var(--rule);border-radius:8px;padding:0 10px;background:white;max-width:140px;"
-               id="price-input-wrap">
-            <span style="color:var(--text-muted);font-weight:700;font-size:1rem;">$</span>
-            <input type="number" name="price" step="0.01" min="0.01"
-                   value="{{ '%.2f'|format(final_price) if final_price > 0 else '' }}"
-                   id="ai-price-input"
-                   style="width:90px;border:none;outline:none;padding:8px 4px;font-size:0.92rem;background:transparent;font-family:inherit;"
-                   onfocus="document.getElementById('price-input-wrap').style.borderColor='var(--primary)'"
-                   onblur="document.getElementById('price-input-wrap').style.borderColor='var(--rule)'">
+  <div class="rv-detail">
+    {# ── Left: view-only carousel of the processed photos ── #}
+    <div class="rv-detail-media">
+      <div class="rv-carousel" data-index="0">
+        {% if photo_pairs %}
+        <div class="rv-track">
+          {% for pair in photo_pairs %}
+          <div class="rv-slide">
+            <img src="{{ url_for('uploaded_file', filename=pair.processed) }}"
+                 alt="processed {{ pair.view or '' }}"
+                 onerror="this.style.display='none';this.parentNode.classList.add('rv-missing');">
           </div>
+          {% endfor %}
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;border:1.5px solid var(--rule);border-radius:8px;padding:0 10px;background:white;max-width:140px;"
-               id="retail-price-input-wrap">
-            <span style="color:var(--text-muted);font-size:0.78rem;font-weight:600;white-space:nowrap;">Retail $</span>
-            <input type="number" name="retail_price" step="1" min="0"
-                   value="{{ '%.0f'|format(retail_price) if retail_price else '' }}"
-                   id="ai-retail-price-input"
-                   placeholder="0"
-                   style="width:70px;border:none;outline:none;padding:6px 4px;font-size:0.88rem;background:transparent;font-family:inherit;"
-                   onfocus="document.getElementById('retail-price-input-wrap').style.borderColor='var(--primary)'"
-                   onblur="document.getElementById('retail-price-input-wrap').style.borderColor='var(--rule)'">
-          </div>
-          <span id="ai-savings-badge" style="{% if not savings_pct %}display:none;{% endif %}background:#d1fae5;color:#065f46;font-size:0.75rem;font-weight:800;padding:2px 9px;border-radius:999px;">
-            {{ savings_pct }}% off retail
-          </span>
-        </div>
-        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">
-          AI suggested: <strong>${{ '%.2f'|format(ai_price) }}</strong>
-          {% if seller_price > 0 %}&nbsp;&middot;&nbsp;Seller suggested: <strong>${{ '%.2f'|format(seller_price) }}</strong>{% endif %}
-        </div>
-      </div>
-    </div>
-      {# Needs new photo flag #}
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid #f3f4f6;">
-        {% if item.needs_new_photo and item.needs_photo_note %}
-        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;">
-          <i class="fas fa-robot" style="color:#d97706;margin-top:2px;flex-shrink:0;"></i>
-          <div>
-            <div style="font-size:0.75rem;font-weight:700;color:#92400e;margin-bottom:3px;">AI flagged — multi-item detected</div>
-            <div style="font-size:0.85rem;color:#92400e;">{{ item.needs_photo_note }}</div>
-          </div>
+        {% if photo_pairs|length > 1 %}
+        <button type="button" class="rv-arrow rv-prev" data-dir="-1" aria-label="Previous photo"><i class="fas fa-chevron-left"></i></button>
+        <button type="button" class="rv-arrow rv-next" data-dir="1" aria-label="Next photo"><i class="fas fa-chevron-right"></i></button>
+        <div class="rv-dots">
+          {% for pair in photo_pairs %}
+          <span class="rv-dot{% if loop.first %} active{% endif %}" data-dot="{{ loop.index0 }}"></span>
+          {% endfor %}
         </div>
         {% endif %}
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+        {% else %}
+        <div class="rv-na">No photos on this item.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Right: editable fields ── #}
+    <div class="rv-detail-fields">
+      <div style="font-size:0.8rem;color:var(--text-muted);">
+        {% if item.category %}{{ item.category.name }}{% endif %}
+        {% if item.quality %} &middot; {{ item.quality|quality_label }}{% endif %}
+        {% if item.date_added %} &middot; Added {{ item.date_added.strftime('%b %-d, %Y') }}{% endif %}
+      </div>
+
+      {% if item.description %}
+      <div class="rv-orig">Original: <b>{{ item.description }}</b></div>
+      {% endif %}
+
+      <div>
+        <label class="rv-field-label">Title</label>
+        <input type="text" name="description" maxlength="200" value="{{ item.ai_description or '' }}"
+               id="ai-title-input" class="rv-input"
+               oninput="updateCounter('ai-title-counter', this.value.length, 200)">
+        <div id="ai-title-counter" class="rv-counter">{{ (item.ai_description or '')|length }} / 200</div>
+      </div>
+
+      <div>
+        <label class="rv-field-label">Description</label>
+        <textarea name="long_description" maxlength="2000" rows="3" id="ai-desc-textarea"
+                  class="rv-input" style="line-height:1.5;resize:vertical;"
+                  oninput="updateCounter('ai-desc-counter', this.value.length, 2000)">{{ item.ai_long_description or '' }}</textarea>
+        <div id="ai-desc-counter" class="rv-counter">{{ (item.ai_long_description or '')|length }} / 2000</div>
+      </div>
+
+      <div>
+        <label class="rv-field-label">Price &amp; retail</label>
+        <div class="rv-price-row">
+          <div class="rv-price-box" id="price-input-wrap">
+            <span style="color:var(--text-muted);font-weight:700;font-size:1rem;">$</span>
+            <input type="number" name="price" step="0.01" min="0.01" id="ai-price-input"
+                   value="{{ '%.2f'|format(final_price) if final_price > 0 else '' }}"
+                   style="width:80px;padding:8px 4px;font-size:0.92rem;" oninput="rvUpdateSavings()">
+          </div>
+          <div class="rv-price-box" id="retail-price-input-wrap">
+            <span style="color:var(--text-muted);font-size:0.78rem;font-weight:600;white-space:nowrap;">Retail $</span>
+            <input type="number" name="retail_price" step="1" min="0" id="ai-retail-price-input" placeholder="0"
+                   value="{{ '%.0f'|format(retail_price) if retail_price else '' }}"
+                   style="width:64px;padding:6px 4px;font-size:0.88rem;" oninput="rvUpdateSavings()">
+          </div>
+          <span id="ai-savings-badge" class="rv-savings" {% if not savings_pct %}style="display:none;"{% endif %}>{{ savings_pct }}% off retail</span>
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">
+          AI: <strong>${{ '%.0f'|format(ai_price) }}</strong>{% if seller_price > 0 %} &middot; Seller: <strong>${{ '%.0f'|format(seller_price) }}</strong>{% endif %}
+        </div>
+      </div>
+
+      {# Needs new photo flag (compact) #}
+      <div style="border-top:1px solid #f3f4f6;padding-top:10px;">
+        {% if item.needs_new_photo and item.needs_photo_note %}
+        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:0.8rem;color:#92400e;">
+          <i class="fas fa-robot" style="color:#d97706;"></i> AI flagged: {{ item.needs_photo_note }}
+        </div>
+        {% endif %}
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:0.82rem;font-weight:600;color:var(--text-main);">
           <input type="checkbox" id="ai-needs-photo-checkbox" name="needs_new_photo" value="1"
                  {% if item.needs_new_photo %}checked{% endif %}
                  onchange="document.getElementById('ai-photo-note-wrap').style.display=this.checked?'block':'none'"
                  style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);">
-          <span style="font-size:0.85rem;font-weight:600;color:var(--text-main);">
-            Flag for new photo
-          </span>
+          Flag for new photo <span style="font-weight:400;color:var(--text-muted);">(held from shop until re-shot)</span>
         </label>
-        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;margin-left:26px;">
-          Item is approved but held from the shop until a replacement photo is uploaded in the Warehouse.
-        </div>
-        <div id="ai-photo-note-wrap" style="margin-top:10px;margin-left:26px;{% if not item.needs_new_photo %}display:none;{% endif %}">
-          <label style="font-size:0.78rem;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">Instructions for the warehouse (optional)</label>
-          <textarea id="ai-photo-note-input" rows="2"
-                    placeholder="e.g. 'Just photograph one chair' or 'Table and chairs — split into two listings'"
-                    style="width:100%;box-sizing:border-box;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 10px;font-size:0.85rem;font-family:inherit;line-height:1.5;resize:vertical;outline:none;background:#fffbeb;color:var(--text-main);">{{ item.needs_photo_note or '' }}</textarea>
+        <div id="ai-photo-note-wrap" style="margin-top:8px;{% if not item.needs_new_photo %}display:none;{% endif %}">
+          <textarea id="ai-photo-note-input" rows="2" placeholder="Instructions for the warehouse (optional)"
+                    class="rv-input" style="font-size:0.82rem;line-height:1.5;resize:vertical;background:#fffbeb;border-color:#fcd34d;">{{ item.needs_photo_note or '' }}</textarea>
         </div>
       </div>
     </div>
@@ -152,5 +147,19 @@
 function updateCounter(id, len, max) {
   var el = document.getElementById(id);
   if (el) el.textContent = len + ' / ' + max;
+}
+function rvUpdateSavings() {
+  var pEl = document.getElementById('ai-price-input');
+  var rEl = document.getElementById('ai-retail-price-input');
+  var badge = document.getElementById('ai-savings-badge');
+  if (!pEl || !rEl || !badge) return;
+  var p = parseFloat(pEl.value) || 0;
+  var r = parseFloat(rEl.value) || 0;
+  if (p > 0 && r > p) {
+    badge.textContent = Math.round((1 - p / r) * 100) + '% off retail';
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
 }
 </script>

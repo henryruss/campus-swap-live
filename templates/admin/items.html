@@ -525,15 +525,19 @@
 
   {# ── AI REVIEW sub-tab ── #}
   {% if view == 'ai_review' and current_user.is_super_admin %}
-  {% if not ai_review_items %}
-  <div class="air-empty">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+    <span class="air-count-pill" id="air-count" {% if not ai_review_items %}style="display:none;"{% endif %}>{{ ai_review_items|length }} pending</span>
+    <button class="air-start-btn" id="air-start" onclick="rvOpenReview(null)" {% if not ai_review_items %}disabled{% endif %}>
+      <i class="fas fa-bolt"></i> Start Review
+    </button>
+    <span style="font-size:0.85rem;color:var(--text-muted);">Approve the photo, title, description &amp; price — auto-advances to the next.</span>
+  </div>
+
+  <div class="air-empty" id="grid-empty" {% if ai_review_items %}style="display:none;"{% endif %}>
     <i class="fas fa-check-circle"></i>
     <p>All caught up — no items pending background removal review.</p>
   </div>
-  {% else %}
-  <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:20px;">
-    Review background-removed photos (with before/after), plus the AI title, description, and price, before they go live. Click a card to open.
-  </p>
+
   <div class="air-card-grid" id="card-grid">
     {% for item in ai_review_items %}
     {% set ai_price = item.ai_price|float if item.ai_price else 0 %}
@@ -541,10 +545,10 @@
     {% set final_price = [ai_price, seller_price]|max %}
     {% set retail_price = item.ai_retail_price|float if item.ai_retail_price else 0 %}
     {% set savings_pct = ((1 - final_price / retail_price) * 100)|round|int if retail_price > 0 and final_price > 0 else 0 %}
-    <div class="air-card approve-card" data-item-id="{{ item.id }}" onclick="openAIModal({{ item.id }})">
+    <div class="air-card approve-card" data-item-id="{{ item.id }}" onclick="rvOpenReview({{ item.id }})">
       <div class="air-card-img">
-        {% if item.photo_url %}
-        <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+        {% if item.display_cover_url %}
+        <img src="{{ url_for('uploaded_file', filename=item.display_cover_url) }}"
              alt="{{ item.ai_description or item.description }}"
              onerror="this.parentNode.innerHTML='<div class=no-photo><i class=fas fa-image></i></div>'">
         {% else %}
@@ -572,26 +576,8 @@
     </div>
     {% endfor %}
   </div>
-  {% endif %}
 
-  {# AI Review modal #}
-  <div class="approval-modal-overlay" id="ai-modal-overlay" onclick="if(event.target===this)closeAIModal()">
-    <div class="approval-modal-panel" id="ai-modal-panel">
-      <button class="approval-modal-close" onclick="closeAIModal()" type="button">&times;</button>
-      <div class="approval-modal-panel-inner" id="ai-modal-body">
-        <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading…</div>
-      </div>
-      <div class="approval-modal-footer">
-        <div class="ai-modal-footer-btns">
-          <button class="btn-ai-approve" id="btn-ai-approve" onclick="submitApproveAI()">Approve</button>
-          <button class="btn-ai-skip" onclick="closeAIModal()">Skip</button>
-          <button class="btn-ai-discard" onclick="submitDiscardAI()">Discard AI</button>
-          <button class="btn-ai-discard" id="btn-ai-reset" onclick="submitResetAI()" style="margin-left:auto;">Reset AI</button>
-        </div>
-        <div class="ai-modal-error" id="ai-modal-error"></div>
-      </div>
-    </div>
-  </div>
+  {% include 'admin/_ai_review_flow.html' %}
   {% endif %}
 
   {# ── PHOTO VERIFICATION sub-tab ── #}

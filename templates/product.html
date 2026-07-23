@@ -176,8 +176,8 @@
                     {% endif %}
                 </div>
 
-                <h1 id="pdp-title" style="font-size: 2.5rem; margin-bottom: 10px;">{{ item.description }}</h1>
-                <div style="margin-bottom: 20px;">
+                <h1 id="pdp-title" style="font-size: 1.9rem; margin-bottom: 8px;">{{ item.description }}</h1>
+                <div style="margin-bottom: 16px;">
                   <div id="pdp-price" style="font-size: 2rem; font-weight: 800; color: var(--primary);">
                     {% if item.price %}${{ "%.2f"|format(item.price) }}{% else %}Price not set{% endif %}
                   </div>
@@ -209,11 +209,6 @@
                     {{ item.length_in|dim }}" L &times; {{ item.width_in|dim }}" W &times; {{ item.height_in|dim }}" H
                 </p>
                 {% endif %}
-
-                <h4 style="margin-bottom: 10px;">Description</h4>
-                <p id="pdp-long-description" style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.7;">
-                    {{ item.long_description or "No detailed description provided." }}
-                </p>
 
                 {% if item.status == 'sold' %}
                     <button class="btn" style="width: 100%; padding: 18px; background: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>
@@ -313,10 +308,31 @@
                         </script>
                     {% endif %}
                 {% endif %}
+
+                <div style="margin-top: 26px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                  <h4 style="margin-bottom: 10px;">Description</h4>
+                  <p id="pdp-long-description" style="color: var(--text-muted); margin: 0; line-height: 1.7;">
+                      {{ item.long_description or "No detailed description provided." }}
+                  </p>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+{# ── More in this category ── #}
+{% if related_items %}
+<div style="max-width: 1200px; margin: 0 auto; padding: 8px 20px 60px;">
+  <h2 style="font-family:'DM Serif Display',serif; font-size:1.5rem; color:var(--primary); margin:0 0 18px;">
+    More in {{ item.category.name if item.category else 'the shop' }}
+  </h2>
+  <div class="shop-grid">
+    {% with items = related_items, search_query = '', active_cat = (item.category_id or None) %}
+      {% include '_item_card.html' %}
+    {% endwith %}
+  </div>
+</div>
+{% endif %}
 
 <div id="lightbox" class="lightbox" onclick="closeLightbox()">
     <span class="close-lightbox">&times;</span>

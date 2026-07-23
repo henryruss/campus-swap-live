@@ -1,0 +1,247 @@
+{# Shared "Background Removal Review" fast-review flow (match-grid modal).
+   Host page must provide: #card-grid containing .approve-card[data-item-id] cards,
+   and optionally #air-start, #air-count, #grid-empty. Exposes window.rv* handlers. #}
+<style>
+  .air-start-btn {
+    background: var(--primary); color: white; border: none; border-radius: 10px;
+    padding: 10px 20px; font-size: 0.95rem; font-weight: 800; cursor: pointer;
+    font-family: inherit; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .air-start-btn:hover { background: var(--primary-light); }
+  .air-start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .air-count-pill {
+    background: var(--accent); color: white; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 800; padding: 3px 10px; white-space: nowrap;
+  }
+
+  .rv-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 2000; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto;
+  }
+  .rv-overlay.open { display: flex; }
+  .rv-panel {
+    background: white; border-radius: 20px; width: 100%; max-width: 900px;
+    box-shadow: var(--glass-shadow); position: relative; margin: auto;
+    display: flex; flex-direction: column; max-height: 92vh;
+  }
+  .rv-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+  .rv-progress { font-size: 0.85rem; font-weight: 800; color: var(--text-muted); }
+  .rv-close { margin-left: auto; background: none; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; line-height: 1; padding: 2px 8px; border-radius: 8px; }
+  .rv-close:hover { background: #f1f5f9; color: var(--text-main); }
+  .rv-body { overflow-y: auto; flex: 1; padding: 18px 22px 6px; }
+
+  .rv-footer { padding: 12px 22px 18px; border-top: 1px solid var(--rule); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .rv-actions { display: flex; align-items: center; gap: 16px; }
+  .rv-approve, .rv-discard, .rv-skip {
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; transition: transform 0.12s, box-shadow 0.15s, background 0.15s; font-family: inherit;
+  }
+  .rv-approve { width: 68px; height: 68px; background: #16a34a; color: white; font-size: 1.7rem; box-shadow: 0 4px 14px rgba(22,163,74,0.4); }
+  .rv-approve:hover { background: #15803d; transform: scale(1.06); }
+  .rv-approve:active { transform: scale(0.96); }
+  .rv-discard { width: 52px; height: 52px; background: white; color: #dc2626; border: 2px solid #fca5a5; font-size: 1.2rem; }
+  .rv-discard:hover { background: #fef2f2; transform: scale(1.06); }
+  .rv-skip { width: 42px; height: 42px; background: white; color: var(--text-muted); border: 1.5px solid var(--rule); font-size: 1rem; }
+  .rv-skip:hover { background: var(--bg-cream); color: var(--text-main); }
+  .rv-approve:disabled, .rv-discard:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .rv-undo { background: white; color: var(--text-muted); border: 1.5px solid var(--rule); border-radius: 8px; padding: 6px 14px; font-size: 0.82rem; font-weight: 700; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+  .rv-undo:hover:not(:disabled) { background: var(--bg-cream); color: var(--text-main); }
+  .rv-undo:disabled { opacity: 0.4; cursor: not-allowed; }
+  .rv-undo-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .rv-hint { font-size: 0.74rem; color: var(--text-muted); }
+  .rv-hint kbd { background: var(--bg-cream); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; font-size: 0.72rem; }
+  .rv-error { color: #dc2626; font-size: 0.82rem; display: none; text-align: right; }
+  .rv-error.visible { display: block; }
+  .rv-done { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  .rv-done i { font-size: 2.6rem; color: var(--sage); display: block; margin-bottom: 14px; }
+</style>
+
+<div class="rv-overlay" id="rv-overlay" onclick="if(event.target===this)rvClose()">
+  <div class="rv-panel">
+    <div class="rv-head">
+      <span class="rv-progress" id="rv-progress">1 of 1</span>
+      <button class="rv-close" onclick="rvClose()" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="rv-body" id="ai-modal-body"></div>
+    <div class="rv-footer">
+      <div class="rv-undo-row">
+        <button class="rv-undo" id="rv-undo" onclick="rvUndo()" disabled><i class="fas fa-rotate-left"></i> Undo</button>
+        <span class="rv-error" id="modal-error"></span>
+      </div>
+      <div class="rv-actions">
+        <button class="rv-skip" onclick="rvSkip(-1)" type="button" aria-label="Previous item"><i class="fas fa-chevron-left"></i></button>
+        <button class="rv-discard" id="rv-discard" onclick="rvDiscard()" type="button" aria-label="Discard"><i class="fas fa-trash-can"></i></button>
+        <button class="rv-approve" id="rv-approve" onclick="rvApprove()" type="button" aria-label="Approve"><i class="fas fa-check"></i></button>
+        <button class="rv-skip" onclick="rvSkip(1)" type="button" aria-label="Next item"><i class="fas fa-chevron-right"></i></button>
+      </div>
+      <div class="rv-hint">
+        <kbd>Enter</kbd> approve &middot; <kbd>&#9003;</kbd> discard &middot; <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> photos &middot; <kbd>&#8984;Z</kbd> undo
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const _csrf = '{{ csrf_token() }}';
+  let queue = [], pos = 0, currentId = null, busy = false, loadToken = 0, lastAction = null;
+
+  const $ = id => document.getElementById(id);
+  function overlayOpen() { return $('rv-overlay').classList.contains('open'); }
+  function buildQueue() { queue = Array.from(document.querySelectorAll('#card-grid .approve-card')).map(c => parseInt(c.dataset.itemId, 10)); }
+
+  function openReview(startId) {
+    buildQueue();
+    if (!queue.length) return;
+    pos = startId ? Math.max(0, queue.indexOf(startId)) : 0;
+    $('rv-overlay').classList.add('open');
+    loadCurrent();
+  }
+  function closeReview() { $('rv-overlay').classList.remove('open'); currentId = null; }
+
+  function loadCurrent() {
+    const body = $('ai-modal-body'), approveBtn = $('rv-approve'), discardBtn = $('rv-discard');
+    hideError();
+    if (!queue.length) {
+      currentId = null;
+      $('rv-progress').textContent = 'All done';
+      approveBtn.disabled = true; discardBtn.disabled = true;
+      body.innerHTML = '<div class="rv-done"><i class="fas fa-check-circle"></i><p>All caught up — nothing left to review.</p></div>';
+      return;
+    }
+    if (pos >= queue.length) pos = 0;
+    if (pos < 0) pos = queue.length - 1;
+    approveBtn.disabled = false; discardBtn.disabled = false;
+    currentId = queue[pos];
+    $('rv-progress').textContent = (pos + 1) + ' of ' + queue.length;
+    const token = ++loadToken;
+    if (!body.innerHTML.trim()) body.innerHTML = '<div style="padding:60px;text-align:center;color:var(--text-muted);">Loading…</div>';
+    fetch('/admin/ai/item/' + currentId + '/detail')
+      .then(r => r.text())
+      .then(html => {
+        if (token !== loadToken) return;   // a newer load started — ignore this stale one
+        body.innerHTML = html;
+        body.querySelectorAll('script').forEach(orig => { const s = document.createElement('script'); s.textContent = orig.textContent; orig.parentNode.replaceChild(s, orig); });
+        body.scrollTop = 0;
+      })
+      .catch(() => { if (token === loadToken) body.innerHTML = '<div style="padding:60px;text-align:center;color:#dc2626;">Failed to load item.</div>'; });
+  }
+
+  function panelSnapshot() {
+    const body = $('ai-modal-body');
+    const g = n => { const e = body.querySelector('[name=' + n + ']'); return e ? e.value : ''; };
+    return { description: g('description'), long_description: g('long_description'), price: g('price'), retail_price: g('retail_price') };
+  }
+
+  function approve() {
+    if (busy || !currentId) return;
+    const snap = panelSnapshot();
+    if (!snap.description.trim()) { showError('Title must not be blank'); return; }
+    busy = true; hideError();
+    const id = currentId;
+    const b = new URLSearchParams();
+    b.append('csrf_token', _csrf);
+    b.append('description', snap.description); b.append('long_description', snap.long_description);
+    b.append('price', snap.price); b.append('retail_price', snap.retail_price);
+    const np = document.querySelector('#ai-needs-photo-checkbox');
+    if (np && np.checked) { b.append('needs_new_photo', '1'); const note = document.querySelector('#ai-photo-note-input'); if (note) b.append('needs_photo_note', note.value); }
+    fetch('/admin/ai/item/' + id + '/approve', { method: 'POST', headers: { 'X-CSRFToken': _csrf, 'Content-Type': 'application/x-www-form-urlencoded' }, body: b.toString() })
+      .then(r => r.json()).then(data => { busy = false; if (data.success) afterDecision(id, snap); else showError(data.error || 'Could not approve.'); })
+      .catch(() => { busy = false; showError('Network error. Try again.'); });
+  }
+
+  function discard() {
+    if (busy || !currentId) return;
+    const snap = panelSnapshot(); busy = true; hideError();
+    const id = currentId;
+    fetch('/admin/ai/item/' + id + '/discard', { method: 'POST', headers: { 'X-CSRFToken': _csrf, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf_token: _csrf }).toString() })
+      .then(r => r.json()).then(data => { busy = false; if (data.success) afterDecision(id, snap); else showError(data.error || 'Could not discard.'); })
+      .catch(() => { busy = false; showError('Network error. Try again.'); });
+  }
+
+  function afterDecision(id, snap) {
+    const card = document.querySelector('#card-grid .approve-card[data-item-id="' + id + '"]');
+    let cardNext = null, cardParent = null;
+    if (card) { cardNext = card.nextElementSibling; cardParent = card.parentNode; card.remove(); }
+    lastAction = { id, snapshot: snap, cardEl: card, cardNext, cardParent };
+    $('rv-undo').disabled = false;
+    const idx = queue.indexOf(id);
+    if (idx > -1) { queue.splice(idx, 1); if (idx < pos) pos--; }
+    decrementBadge(); refreshGridState(); loadCurrent();
+  }
+
+  function skip(dir) { if (!queue.length) return; pos = (pos + dir + queue.length) % queue.length; loadCurrent(); }
+
+  function undo() {
+    if (busy || !lastAction) return;
+    busy = true; hideError();
+    const a = lastAction;
+    const b = new URLSearchParams();
+    b.append('csrf_token', _csrf);
+    b.append('description', a.snapshot.description); b.append('long_description', a.snapshot.long_description);
+    b.append('price', a.snapshot.price); b.append('retail_price', a.snapshot.retail_price);
+    fetch('/admin/ai/item/' + a.id + '/restore-to-review', { method: 'POST', headers: { 'X-CSRFToken': _csrf, 'Content-Type': 'application/x-www-form-urlencoded' }, body: b.toString() })
+      .then(r => r.json()).then(data => {
+        busy = false;
+        if (!data.success) { showError(data.error || 'Could not undo.'); return; }
+        if (a.cardEl && a.cardParent) {
+          a.cardEl.style.opacity = ''; a.cardEl.style.transform = '';
+          if (a.cardNext && a.cardNext.parentNode === a.cardParent) a.cardParent.insertBefore(a.cardEl, a.cardNext);
+          else a.cardParent.appendChild(a.cardEl);
+        }
+        queue.splice(pos, 0, a.id); incrementBadge(); refreshGridState();
+        lastAction = null; $('rv-undo').disabled = true; loadCurrent();
+      })
+      .catch(() => { busy = false; showError('Network error. Try again.'); });
+  }
+
+  function refreshGridState() {
+    const n = document.querySelectorAll('#card-grid .approve-card').length;
+    const empty = $('grid-empty'); if (empty) empty.style.display = n ? 'none' : 'block';
+    const count = $('air-count'); if (count) { if (n) { count.style.display = ''; count.textContent = n + ' pending'; } else count.style.display = 'none'; }
+    const start = $('air-start'); if (start) start.disabled = !n;
+  }
+  function decrementBadge() { document.querySelectorAll('[data-ai-badge]').forEach(b => { const n = parseInt(b.textContent, 10); if (n > 1) b.textContent = n - 1; else b.remove(); }); }
+  function incrementBadge() { document.querySelectorAll('[data-ai-badge]').forEach(b => { b.textContent = (parseInt(b.textContent, 10) || 0) + 1; }); }
+  function showError(msg) { const el = $('modal-error'); el.textContent = msg; el.classList.add('visible'); }
+  function hideError() { const el = $('modal-error'); el.textContent = ''; el.classList.remove('visible'); }
+
+  /* Photo carousel */
+  function carouselApply(car, i) {
+    const slides = car.querySelectorAll('.rv-slide'); if (!slides.length) return;
+    i = ((i % slides.length) + slides.length) % slides.length; car.dataset.index = i;
+    const track = car.querySelector('.rv-track'); if (track) track.style.transform = 'translateX(' + (-i * 100) + '%)';
+    car.querySelectorAll('.rv-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+  }
+  function modalCarouselStep(delta) { const car = document.querySelector('#ai-modal-body .rv-carousel'); if (!car) return; carouselApply(car, parseInt(car.dataset.index || '0', 10) + delta); }
+  $('ai-modal-body').addEventListener('click', function (e) {
+    const arrow = e.target.closest('.rv-arrow'), dot = e.target.closest('.rv-dot');
+    if (!arrow && !dot) return;
+    const car = e.target.closest('.rv-carousel'); if (!car) return;
+    const cur = parseInt(car.dataset.index || '0', 10);
+    carouselApply(car, arrow ? cur + parseInt(arrow.dataset.dir, 10) : parseInt(dot.dataset.dot, 10));
+  });
+
+  /* Keyboard */
+  document.addEventListener('keydown', function (e) {
+    if (!overlayOpen()) return;
+    const a = document.activeElement, tag = a ? a.tagName : '';
+    const isText = tag === 'INPUT' || tag === 'TEXTAREA';
+    if (e.key === 'Escape') { e.preventDefault(); closeReview(); return; }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); return; }
+    if (e.key === 'Enter') { if (tag !== 'TEXTAREA') { e.preventDefault(); approve(); } return; }
+    if (isText) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); modalCarouselStep(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); modalCarouselStep(-1); }
+    else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); discard(); }
+  });
+
+  // Expose for inline handlers
+  window.rvOpenReview = openReview;
+  window.rvClose = closeReview;
+  window.rvApprove = approve;
+  window.rvDiscard = discard;
+  window.rvSkip = skip;
+  window.rvUndo = undo;
+})();
+</script>
