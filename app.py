@@ -2170,6 +2170,21 @@ def inventory():
     response.headers['Cache-Control'] = 'no-store'
     return response
 
+@app.route('/item/<int:item_id>/quickview')
+def product_quickview(item_id):
+    """HTML partial for the homepage quick-view modal (carousel + key info + CTAs).
+    Fetched via JS so shoppers can preview an item without leaving the homepage."""
+    item = InventoryItem.query.get_or_404(item_id)
+    if item.status == 'rejected' and not (current_user.is_authenticated and current_user.is_admin):
+        abort(404)
+    return render_template(
+        '_item_quickview.html',
+        item=item,
+        current_store=request.args.get('store', get_current_store()),
+        store_open=store_is_open(),
+    )
+
+
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
     # Redirect to teaser page when shop is in pre-launch mode

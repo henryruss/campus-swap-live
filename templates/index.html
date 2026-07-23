@@ -334,10 +334,13 @@
         <h2>Shop the inventory</h2>
         <a href="{{ url_for('inventory') }}" class="hp-grid-see-all">See all &rarr;</a>
     </div>
-    <div class="hp-grid">
+    <div class="hp-grid" id="hp-grid" data-quickview="1">
         {% with items = featured_items %}
         {% include '_item_card.html' %}
         {% endwith %}
+    </div>
+    <div class="hp-grid-cta">
+        <a href="{{ url_for('inventory') }}" class="hp-see-inventory-btn">See full inventory &rarr;</a>
     </div>
 </div>
 {% endif %}
@@ -444,6 +447,132 @@
     .hp-testimonials { padding: 40px 16px 60px; }
     .hp-testimonials-grid { grid-template-columns: 1fr; }
 }
+
+/* See full inventory button */
+.hp-grid-cta { text-align: center; margin-top: 28px; }
+.hp-see-inventory-btn {
+    display: inline-block; background: var(--primary); color: #fff; text-decoration: none;
+    font-weight: 800; font-size: 1rem; padding: 13px 28px; border-radius: 10px;
+}
+.hp-see-inventory-btn:hover { background: var(--primary-light); }
+
+/* Quick-view modal */
+.qv-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 2000;
+    align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto;
+    opacity: 0; transition: opacity 0.16s ease;   /* display toggled by JS; opacity animates */
+}
+.qv-overlay.open { opacity: 1; }
+.qv-panel {
+    background: #fff; border-radius: 20px; width: 100%; max-width: 760px; margin: auto;
+    box-shadow: var(--glass-shadow); position: relative; padding: 26px 26px 24px;
+    transform: translateY(10px); transition: transform 0.16s ease;
+}
+.qv-overlay.open .qv-panel { transform: translateY(0); }
+.qv-close {
+    position: absolute; top: 12px; right: 14px; background: none; border: none; font-size: 1.6rem;
+    line-height: 1; color: var(--text-muted); cursor: pointer; padding: 4px 8px; border-radius: 8px; z-index: 5;
+}
+.qv-close:hover { background: #f1f5f9; color: var(--text-main); }
+#qv-body { min-height: 200px; }
 </style>
+
+{# ── Quick-view modal (homepage item preview) ── #}
+<div class="qv-overlay" id="qv-overlay" onclick="if(event.target===this)qvClose()">
+  <div class="qv-panel">
+    <button class="qv-close" type="button" onclick="qvClose()" aria-label="Close">&times;</button>
+    <div id="qv-body"><div style="padding:60px;text-align:center;color:var(--text-muted);">Loading…</div></div>
+  </div>
+</div>
+
+{# Shared carousel behaviour (arrows/dots/swipe) for homepage cards + the quick-view modal #}
+{% include '_item_card_carousel.html' %}
+
+<script>
+(function () {
+  var _csrf = '{{ csrf_token() }}';
+  var grid = document.getElementById('hp-grid');
+  var overlay = document.getElementById('qv-overlay');
+  var body = document.getElementById('qv-body');
+  if (!grid || !overlay) return;
+
+  // Cache quick-view HTML per item so a hovered card opens instantly.
+  var qvCache = {};
+  function qvFetch(itemId) {
+    if (!qvCache[itemId]) {
+      qvCache[itemId] = fetch('/item/' + itemId + '/quickview')
+        .then(function (r) { if (!r.ok) throw new Error('bad status'); return r.text(); })
+        .catch(function (err) { delete qvCache[itemId]; throw err; });  // allow retry after a failure
+    }
+    return qvCache[itemId];
+  }
+
+  var _qvCloseTimer = null;
+  function qvReveal() {
+    // Content is already injected → the panel is at its final size before it shows.
+    if (_qvCloseTimer) { clearTimeout(_qvCloseTimer); _qvCloseTimer = null; }
+    overlay.style.display = 'flex';
+    // Force a reflow, then flip .open so the opacity/transform transition actually runs.
+    void overlay.offsetHeight;
+    overlay.classList.add('open');
+  }
+  function qvOpen(itemId) {
+    qvFetch(itemId)
+      .then(function (html) { body.innerHTML = html; qvReveal(); })
+      .catch(function () {
+        body.innerHTML = '<div style="padding:60px;text-align:center;color:#dc2626;">Could not load this item.</div>';
+        qvReveal();
+      });
+  }
+  window.qvClose = function () {
+    overlay.classList.remove('open');            // fade out
+    _qvCloseTimer = setTimeout(function () {
+      if (!overlay.classList.contains('open')) overlay.style.display = 'none';
+    }, 180);
+  };
+
+  // Warm the cache on hover so the click feels instant.
+  grid.addEventListener('mouseover', function (e) {
+    var card = e.target.closest('.item-card');
+    if (card && card.dataset.itemId) qvFetch(card.dataset.itemId).catch(function () {});
+  });
+
+  // Intercept clicks on a homepage card's image/text → open the quick-view modal
+  // instead of navigating. Arrows/dots are separate elements handled by the carousel JS.
+  grid.addEventListener('click', function (e) {
+    if (e.target.closest('.item-card-arrow') || e.target.closest('.item-card-dot')) return;
+    var link = e.target.closest('.item-card-track-link, .item-card-body');
+    if (!link) return;
+    var card = e.target.closest('.item-card');
+    if (!card || !card.dataset.itemId) return;
+    e.preventDefault();
+    qvOpen(card.dataset.itemId);
+  });
+
+  // Add-to-cart from inside the modal (delegated — content is fetched)
+  body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.qv-add-cart');
+    if (!btn) return;
+    var id = btn.dataset.itemId;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding…';
+    var fd = new FormData();
+    fd.append('csrf_token', _csrf);
+    fetch('/cart/add/' + id, { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.error) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart'; alert(data.error); return; }
+        btn.innerHTML = '<i class="fas fa-check"></i> Added to cart';
+        var badge = document.getElementById('cart-badge');
+        if (badge) { badge.style.display = 'flex'; badge.textContent = (parseInt(badge.textContent, 10) || 0) + 1; }
+      })
+      .catch(function () { btn.disabled = false; btn.innerHTML = '<i class="fas fa-cart-plus"></i> Add to Cart'; });
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) qvClose();
+  });
+})();
+</script>
 
 {% endblock %}

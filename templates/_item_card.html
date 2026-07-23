@@ -8,7 +8,7 @@
 {% endfor %}
 {% set photo_urls = _urls[:6] %}
 {% set item_link = "/item/" ~ item.id ~ "?store=" ~ current_store ~ (("&search=" ~ (search_query|urlencode)) if search_query else "") ~ (("&category_id=" ~ active_cat) if active_cat else "") %}
-<div class="item-card">
+<div class="item-card" data-item-id="{{ item.id }}">
 
   <div class="item-card-media"{% if photo_urls|length > 1 %} data-carousel data-index="0"{% endif %}>
     <a class="item-card-track-link" href="{{ item_link }}">

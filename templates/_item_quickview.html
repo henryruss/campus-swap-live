@@ -1,0 +1,74 @@
+{# Quick-view content — fetched into the homepage quick-view modal. Reuses the
+   .item-card-* carousel classes so the shared carousel JS drives it automatically. #}
+{% set _urls = [] %}
+{% if item.photo_url %}{% set _ = _urls.append(item.photo_url) %}{% endif %}
+{% for p in item.visible_gallery_photos %}
+  {% if p.photo_url and p.photo_url not in _urls %}{% set _ = _urls.append(p.photo_url) %}{% endif %}
+{% endfor %}
+{% set photo_urls = _urls[:6] %}
+
+<div class="qv-detail">
+  <div class="qv-media">
+    <div class="item-card-media"{% if photo_urls|length > 1 %} data-carousel data-index="0"{% endif %} style="border-radius:14px;">
+      {% if photo_urls %}
+      <div class="item-card-track">
+        {% for url in photo_urls %}
+        <div class="item-card-slide"><img src="{{ url_for('uploaded_file', filename=url) }}" alt="{{ item.description }}"></div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="item-card-img-placeholder"><i class="fas fa-image"></i></div>
+      {% endif %}
+      {% if photo_urls|length > 1 %}
+      <button type="button" class="item-card-arrow prev" data-dir="-1" aria-label="Previous photo"><i class="fas fa-chevron-left"></i></button>
+      <button type="button" class="item-card-arrow next" data-dir="1" aria-label="Next photo"><i class="fas fa-chevron-right"></i></button>
+      <div class="item-card-dots">
+        {% for url in photo_urls %}<span class="item-card-dot{% if loop.first %} active{% endif %}" data-dot="{{ loop.index0 }}"></span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if item.status == 'sold' %}<div class="item-card-sold-overlay"><div class="item-card-sold-label">SOLD</div></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="qv-info">
+    <h2 class="qv-title">{{ item.description }}</h2>
+    {% if item.price %}
+    <div class="qv-price">${{ '%.0f'|format(item.price) }}</div>
+    {% if item.retail_price and item.retail_price > item.price %}
+    {% set pct = ((1 - item.price|float / item.retail_price|float) * 100)|round|int %}
+    <div class="qv-retail">Est retail ${{ '%.0f'|format(item.retail_price) }} <span class="qv-sep">&middot;</span> <span class="qv-off">{{ pct }}% off</span></div>
+    {% endif %}
+    {% endif %}
+    {% if item.quality %}<div class="qv-cond">Condition: <strong>{{ item.quality|quality_label }}</strong></div>{% endif %}
+    {% if item.long_description %}<p class="qv-desc">{{ item.long_description }}</p>{% endif %}
+    <div class="qv-actions">
+      {% if store_open and item.status == 'available' %}
+      <button type="button" class="qv-add-cart" data-item-id="{{ item.id }}"><i class="fas fa-cart-plus"></i> Add to Cart</button>
+      {% endif %}
+      <a href="{{ url_for('product_detail', item_id=item.id, store=current_store) }}" class="qv-view-listing">View full listing &rarr;</a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .qv-detail { display:flex; gap:24px; align-items:flex-start; }
+  .qv-media { flex:0 0 46%; max-width:46%; }
+  .qv-info { flex:1 1 auto; min-width:0; }
+  @media (max-width:640px){ .qv-detail{ flex-direction:column; } .qv-media{ flex-basis:auto; max-width:100%; width:100%; } }
+  .qv-title { font-family:'DM Serif Display',serif; font-size:1.6rem; color:var(--text-main); margin:0 0 8px; line-height:1.2; }
+  .qv-price { font-size:1.6rem; font-weight:800; color:var(--card-ink); }
+  .qv-retail { font-size:0.9rem; color:var(--card-ink-muted); margin-top:4px; }
+  .qv-retail .qv-sep { color:var(--card-ink-faint); }
+  .qv-retail .qv-off { color:var(--accent); font-weight:700; }
+  .qv-cond { font-size:0.9rem; color:var(--text-muted); margin-top:12px; }
+  .qv-cond strong { color:var(--text-main); }
+  .qv-desc { font-size:0.92rem; color:var(--text-muted); line-height:1.6; margin:12px 0 0; }
+  .qv-actions { display:flex; flex-direction:column; gap:10px; margin-top:20px; }
+  .qv-add-cart { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:13px 20px;
+    font-size:1rem; font-weight:700; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+  .qv-add-cart:hover { background:var(--primary-light); }
+  .qv-add-cart:disabled { opacity:0.6; cursor:default; }
+  .qv-view-listing { text-align:center; color:var(--primary); font-weight:700; text-decoration:none; padding:11px 20px;
+    border:1.5px solid var(--rule); border-radius:10px; }
+  .qv-view-listing:hover { background:var(--bg-cream); }
+</style>
