@@ -234,6 +234,47 @@ def test_no_seller_excluded(db, factory, cats):
     assert item.id not in ids
 
 
+def test_run_endpoint_starts_job_thread(db, factory, cats, monkeypatch):
+    """Regression: the Run button is job-based (UI expects {job_id, total} and polls
+    /status). The endpoint must create a job + spawn a PER-REQUEST thread, NOT return
+    {enqueued} and rely on the module-level daemon queue (which doesn't run under
+    gunicorn — worked locally, did nothing on Render). No real remove.bg/Anthropic
+    calls: we replace threading.Thread so the job never actually processes."""
+    import app as app_module
+    from models import User
+
+    captured = {}
+    class _FakeThread:
+        def __init__(self, target=None, args=(), daemon=None): captured['target'] = target; captured['args'] = args
+        def start(self): captured['started'] = True
+    monkeypatch.setattr(app_module.threading, 'Thread', _FakeThread)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-key')
+    app_module.app.config['WTF_CSRF_ENABLED'] = False
+
+    factory.make_item(category=cats['furniture'])  # one eligible item
+    su = User(email=f'su_{_uid()}@test.com', is_admin=True, is_super_admin=True)
+    db.session.add(su); db.session.commit()
+
+    client = app_module.app.test_client()
+    with client.session_transaction() as s:
+        s['_user_id'] = str(su.id)
+    resp = client.post('/admin/ai/generate/run', data={'limit': '5', 'model': 'claude-sonnet-4-6'})
+    data = resp.get_json()
+
+    try:
+        assert resp.status_code == 200, resp.status_code
+        assert 'job_id' in data and data['job_id'], f'no job_id: {data}'
+        assert data.get('total', 0) >= 1, f'expected total>=1: {data}'
+        assert 'enqueued' not in data, 'endpoint still using the old queue contract'
+        assert captured.get('started') is True, 'per-request worker thread was not started'
+        assert captured['target'] is app_module._run_ai_generation_job, 'thread does not run the job runner'
+        assert data['job_id'] in app_module._AI_JOBS
+    finally:
+        app_module._AI_JOBS.pop(data.get('job_id', None), None)
+        User.query.filter_by(id=su.id).delete()
+        db.session.commit()
+
+
 def test_eligibility_and_review_count_compile(db, factory, cats):
     """Regression: .count() wraps the query in a subquery. The matched-or-kept
     clause must be a non-correlated IN subquery, not a correlated EXISTS, or

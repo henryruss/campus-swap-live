@@ -17756,19 +17756,33 @@ def admin_ai_generate_page():
 @app.route('/admin/ai/generate/run', methods=['POST'])
 @login_required
 def admin_ai_generate_run():
-    """Enqueue all eligible items for background AI generation via the persistent queue worker."""
+    """Start a background AI-generation job for the eligible items.
+
+    Runs in a PER-REQUEST thread (spawned here in the request handler), not the
+    module-level `_ai_queue` daemon worker. A thread started inside the request
+    executes inside the gunicorn worker that served the request, so it runs in
+    production. The old queue + import-time daemon-thread pattern drained fine
+    under `python app.py` (single process) but NOT under gunicorn — that's why
+    the button worked locally and did nothing (no credits) on Render.
+
+    Returns {job_id, total}; the page polls /admin/ai/generate/status.
+    """
     guard = require_super_admin()
     if guard:
         return guard, 403
     if not os.environ.get('ANTHROPIC_API_KEY'):
         return jsonify({'error': 'ANTHROPIC_API_KEY is not set'}), 400
-    # Optionally persist model choice for the queue worker
+    # Don't stack jobs — the page shows a Cancel button that clears a stuck one.
+    if any(not j.get('done') for j in _AI_JOBS.values()):
+        return jsonify({'error': 'A generation job is already running.'})
+    # Model choice (persisted for the queue-based seller flow too).
     model_choices = {'claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7'}
-    model_form = request.form.get('model', '').strip()
-    if model_form in model_choices:
-        AppSetting.set('ai_autofill_model', model_form)
-    # Persist remove.bg size for this run: 'preview' (free, low-res, local quality
-    # check) vs 'full' (1 credit, production). Defaults to 'full' when unchecked.
+    model = request.form.get('model', '').strip()
+    if model in model_choices:
+        AppSetting.set('ai_autofill_model', model)
+    else:
+        model = AppSetting.get('ai_autofill_model', 'claude-sonnet-4-6')
+    # remove.bg size: 'preview' (free/low-res, testing) vs 'full' (1 credit, production).
     photo_size = request.form.get('photo_size', '').strip()
     AppSetting.set('ai_removebg_size', 'preview' if photo_size == 'preview' else 'full')
     limit_raw = request.form.get('limit', '').strip()
@@ -17776,12 +17790,18 @@ def admin_ai_generate_run():
     q = _ai_autofill_eligible_query().order_by(InventoryItem.date_added.asc())
     if limit:
         q = q.limit(limit)
-    items = q.all()
+    item_ids = [it.id for it in q.all()]
+    job_id = uuid.uuid4().hex
+    _AI_JOBS[job_id] = {
+        'total': len(item_ids), 'completed': 0, 'errors': [], 'results': [],
+        'done': len(item_ids) == 0, 'phase': 'starting',
+    }
+    app.logger.info(f'[AI job {job_id}] starting for {len(item_ids)} items (limit={limit}, model={model})')
     app_obj = current_app._get_current_object()
-    for item in items:
-        _ai_queue.put((app_obj, item.id))
-    app.logger.info(f'[AI worker] enqueued {len(items)} items (limit={limit})')
-    return jsonify({'enqueued': len(items)})
+    threading.Thread(
+        target=_run_ai_generation_job, args=(app_obj, job_id, item_ids, model), daemon=True
+    ).start()
+    return jsonify({'job_id': job_id, 'total': len(item_ids)})
 
 
 # --- remove.bg photo processing (AI Autofill) -------------------------------
