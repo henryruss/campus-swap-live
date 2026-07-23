@@ -103,6 +103,7 @@
 
   <div class="nav-links">
     <a href="#shop" class="nav-link">Shop</a>
+    <a href="#seller-uploads" class="nav-link">Seller uploads</a>
     <a href="#pickup-week-override" class="nav-link">Week override</a>
     <a href="#route" class="nav-link">Route & capacity</a>
     <a href="#storage" class="nav-link">Storage locations</a>
@@ -152,6 +153,36 @@
         </div>
         <button type="submit" class="btn-primary btn-save">Save open date</button>
       </form>
+    </div>
+  </div>
+
+  {# ── Seller uploads (pickup period) ── #}
+  <div class="settings-section" id="seller-uploads">
+    <div class="settings-section-header">
+      <i class="fas fa-upload" style="color: var(--sage);"></i>
+      <h2>Seller uploads</h2>
+    </div>
+    <div class="settings-section-body">
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label-text">Allow sellers to upload items</div>
+          <div class="toggle-label-sub">
+            {% if pickup_period_active %}
+              Uploads are <strong>open</strong> — sellers can list items (onboarding + add-item).
+            {% else %}
+              Uploads are <strong>closed</strong> — the pickup period is over; sellers can't add items.
+            {% endif %}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_settings') }}" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="_action" value="toggle_pickup_period">
+          <label class="toggle-switch" title="Toggle seller uploads (pickup period)">
+            <input type="checkbox" onchange="this.form.submit()" {% if pickup_period_active %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+        </form>
+      </div>
     </div>
   </div>
 

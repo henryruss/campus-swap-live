@@ -1371,8 +1371,34 @@ def _get_ticker_items():
     ]
 
 
+# Homepage layout per mode → (shop_live, pickups_on) used to render index.html.
+_HOMEPAGE_MODE_FLAGS = {
+    'dual': (True, True),
+    'buyer_only': (True, False),
+    'seller_only': (False, True),
+    'off_season': (False, False),
+}
+
+
 def _homepage_state():
-    """Return homepage mode and two booleans off the two existing AppSetting flags."""
+    """Return homepage mode + the two booleans that drive index.html.
+
+    PINNED: the homepage layout is fixed via the `homepage_mode` AppSetting so it
+    stays exactly the same regardless of the live pickup/shop flags. This lets us
+    turn off seller uploads (pickup_period_active) and/or the shop (shop_teaser_mode)
+    without the /index page morphing into the seller-only / off-season layout.
+      - 'dual' (default): the current homepage — BOTH the Buy door and the "Move out.
+        Cash in." Sell door always show. The Sell door's "Start listing" goes to
+        become_a_seller, which itself shows a "signups closed" blocker when uploads
+        are off — so the card stays put and the CTA blocks appropriately.
+      - 'buyer_only' | 'seller_only' | 'off_season': force that layout
+      - 'auto': revert to deriving the layout from the live flags
+    """
+    forced = AppSetting.get('homepage_mode', 'dual').lower()
+    if forced in _HOMEPAGE_MODE_FLAGS:
+        shop_live, pickups_on = _HOMEPAGE_MODE_FLAGS[forced]
+        return {'mode': forced, 'pickups_on': pickups_on, 'shop_live': shop_live}
+    # 'auto' (or unknown) → derive from the live flags.
     pickups_on = AppSetting.get('pickup_period_active', 'false').lower() == 'true'
     shop_live = AppSetting.get('shop_teaser_mode', 'false').lower() != 'true'
     if pickups_on and shop_live:
