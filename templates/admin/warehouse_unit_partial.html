@@ -81,6 +81,11 @@
             onclick="openLogModal({{ loc.id }})">
       <i class="fas fa-plus"></i> Log Item Here
     </button>
+    <a class="btn-outline" style="padding:7px 14px;font-size:0.82rem;text-decoration:none;"
+       href="{{ url_for('admin_export_unit_items', unit_id=loc.id) }}"
+       title="Download every item in {{ loc.name }} with its listing price">
+      <i class="fas fa-file-csv"></i> Download This Unit
+    </a>
     {% if items and move_targets %}
     <button type="button" class="btn-outline" id="whu-move-toggle-{{ loc.id }}" style="padding:7px 14px;font-size:0.82rem;"
             onclick="toggleMoveMode({{ loc.id }})">

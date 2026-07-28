@@ -64,9 +64,15 @@
          style="padding:10px 20px; font-size:0.92rem; text-decoration:none;">
         <i class="fas fa-camera"></i> Re-Photograph Items
       </a>
+      <a href="{{ url_for('admin_export_unit_items') }}" class="btn-outline"
+         style="padding:10px 20px; font-size:0.92rem; text-decoration:none;"
+         title="Every item in every unit with its listing price, plus unit and category pricing summaries">
+        <i class="fas fa-file-csv"></i> Download Item List
+      </a>
       <a href="{{ url_for('admin_export_storage_units') }}" class="btn-outline"
-         style="padding:10px 20px; font-size:0.92rem; text-decoration:none;">
-        <i class="fas fa-file-csv"></i> Download Unit Report
+         style="padding:10px 20px; font-size:0.92rem; text-decoration:none;"
+         title="One row per unit: size, value, value per sq ft">
+        <i class="fas fa-table"></i> Unit Summary
       </a>
       <button class="btn-primary" onclick="openLogModal(null)"
               style="padding:10px 20px; font-size:0.92rem;">

@@ -283,13 +283,13 @@ def build(d):
   <div class="cov-mid">
     <div class="cov-kicker">The season at a glance</div>
   <div class="cov-stats">
-    {stat(fmt(h['items_listed_by_sellers']), 'items listed by sellers',
-          f"from {h['sellers_who_listed']} sellers")}
-    {stat(fmt(h['physical_items_in_storage']), 'items on hand today',
-          f"{fmt(h['seller_items_in_storage_physical'])} seller · "
-          f"{fmt(h['campus_swap_items_in_storage'])} Campus Swap")}
-    {stat(fmt(h['live_in_shop_total']), 'items listed in the shop',
-          f"${fmt(int(h['live_inventory_list_value']))} at list price")}
+    {stat(fmt(t['items_on_hand_physical']), 'items on hand today',
+          f"{fmt(t['seller_items_collected'])} collected from sellers · "
+          f"{fmt(t['campus_swap_owned'])} Campus Swap")}
+    {stat('$' + fmt(int(t['list_value'])), 'inventory value at list prices',
+          f"${t['avg_list_price']:.0f} average per item")}
+    {stat(fmt(t['shop_items']), 'items priced and ready to sell',
+          f"{t['awaiting_details_or_price']} still to be priced")}
     {stat(f"{round(100 * logistics['totals']['pickups_completed'] / logistics['totals']['pickups_scheduled'])}%",
           'pickup completion rate',
           f"{logistics['totals']['pickups_completed']} of "
@@ -308,8 +308,8 @@ def build(d):
          f"from {t['sellers_collected_from']} sellers, counted in the warehouse"),
         ('Campus Swap–owned items added', t['campus_swap_owned'],
          'kept by Campus Swap instead of being matched to a seller'),
-        ('Not yet catalogued individually', t['unrecorded_gap'],
-         'mostly identical twin mattresses, held as a single listing'),
+        ('Counted but not yet itemised', t['unrecorded_gap'],
+         'hand-count variance across four units'),
         ('Items on hand today', t['items_on_hand_physical'],
          'hand counted, unit by unit, across all eight units'),
         ('Listed in the shop', t['shop_items'],
@@ -328,16 +328,15 @@ def build(d):
   <p class="lede">Campus Swap ran its first full pickup season at UNC Chapel Hill this
   summer: we collected {t['seller_items_collected']} items from {t['sellers_collected_from']}
   students, added {t['campus_swap_owned']} of our own, and organised all
-  {t['items_on_hand_physical']} of them across {t['storage_units_retained']} storage units.
-  {fmt(t['shop_items'])} are live in the shop today. Nothing has sold yet — every number here
-  describes inventory and operations, not revenue.</p>
+  {t['items_on_hand_physical']} of them across {t['storage_units_retained']} storage units —
+  ${fmt(int(t['list_value']))} of inventory at list prices. Nothing has sold yet, so every
+  number here describes inventory and operations, not revenue.</p>
 
   <h2>How the inventory was built</h2>
   <table class="recon"><tbody>{rows_html}</tbody></table>
   <p class="cap">Every figure is a physical count taken in the warehouse, not a count of
-  database records. {fmt(t['items_recorded'])} items are catalogued one by one; the other
-  {t['unrecorded_gap']} are a block of identical twin mattresses held as a single listing,
-  plus a small count variance across four units.</p>
+  database records. The {t['unrecorded_gap']}-item difference between the count and the
+  catalogue is variance across four units, within the tolerance of a hand count.</p>
 
   <div class="grid2">
     <div>
@@ -514,13 +513,13 @@ def build(d):
   <div class="grid3">
     {stat(fmt(t['items_recorded']), 'items catalogued')}
     {stat(fmt(t['shop_items']), 'listed in the shop')}
-    {stat(t['awaiting_details_or_price'], 'awaiting details or pricing',
+    {stat(t['awaiting_details_or_price'], 'still to be priced',
           f"{t['blank_records']} still to be catalogued")}
   </div>
-  <p class="cap">The {t['awaiting_details_or_price']} awaiting details are mostly the
-  mattress unit: sellers are exempt from photographing mattresses by design, so those items
-  are inspected at pickup and catalogued afterwards. They are inventory we hold, not yet
-  inventory a buyer can see.</p>
+  <p class="cap">The mattress unit holds {t['mattress_items']} mattresses —
+  {t['mattress_individual']} individual pieces plus a block of {t['mattress_block_units']}
+  identical twins. Mattresses are priced flat by size, so they are valued at
+  ${t['mattress_generic_price']:.0f} each here rather than individually appraised.</p>
 </section>''')
 
     # ── PAGE 4b — furniture in detail ───────────────────────────────────────
@@ -587,8 +586,9 @@ def build(d):
 
   <h2>How the shop is priced</h2>
   <p class="cap">Every priced item in the warehouse, by list price. The
-  {t['awaiting_details_or_price']} items still to be priced — mostly the mattress unit — are
-  not shown.</p>
+  {t['mattress_items']} mattresses sit in the $50–99 band at their flat
+  ${t['mattress_generic_price']:.0f} price; the {t['awaiting_details_or_price']} items still
+  to be priced are not shown.</p>
   {chart_columns([{'week_start': b['band'], 'count': b['count']} for b in bands],
                  'Live inventory by price band', categorical_labels=True, h=200)}
   <p class="note"><b>{mid} of the {sum(b['count'] for b in bands)} priced items
@@ -728,11 +728,10 @@ def build(d):
     <td class="n">${ut['value_per_sqft']:.2f}</td>
     <td class="n">{ut['items_per_100_sqft']:.0f}</td></tr></tbody>
   </table>
-  <p class="cap">Size is the unit's footprint as rented. Value counts every catalogued item
-  carrying a price; the mattress unit reads low because that block is priced as one listing
-  until its stock is entered. Rent is excluded here and sits in the financial breakdown —
-  paired with these figures it gives a value-to-rent ratio per unit, which is how we will
-  choose unit sizes at the next campus.</p>
+  <p class="cap">Size is the unit's footprint as rented. Mattresses are valued at their flat
+  ${t['mattress_generic_price']:.0f} price rather than individually appraised. Rent is excluded
+  here and sits in the financial breakdown — paired with these figures it gives a
+  value-to-rent ratio per unit, which is how we will choose unit sizes at the next campus.</p>
 </section>""")
 
     # ── PAGE 7 — operations ─────────────────────────────────────────────────

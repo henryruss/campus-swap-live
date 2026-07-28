@@ -15169,6 +15169,149 @@ def _unit_metrics(loc):
     }
 
 
+@app.route('/admin/export/unit-items')
+@login_required
+def admin_export_unit_items():
+    """Item-level inventory export: every item in every unit with its listing price.
+
+    Pass ?unit_id=N for a single unit. Superseded originals (an item re-photographed
+    and replaced) are left out so nothing is counted twice. A multi-unit listing (e.g.
+    37 identical mattresses) is one row with Quantity set, and Extended Value =
+    price x quantity, so the sheet sums to the real inventory value.
+
+    After the item rows the file carries three summary blocks — by unit, by category,
+    and unit x category — so unit and category pricing can be read without a pivot.
+    """
+    if not _has_warehouse_access():
+        abort(403)
+    unit_id = request.args.get('unit_id', type=int)
+    q = StorageLocation.query
+    if unit_id:
+        q = q.filter(StorageLocation.id == unit_id)
+    locs = q.order_by(StorageLocation.name).all()
+    if unit_id and not locs:
+        abort(404)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['ITEMS'])
+    writer.writerow([
+        'Unit', 'Zone', 'Item ID', 'Description', 'Category', 'Subcategory',
+        'Listing Price', 'Quantity', 'Extended Value', 'Status', 'In Shop',
+        'Owner', 'Seller Email', 'Condition', 'Mattress Size',
+        'Dimensions (LxWxH in)', 'Date Added',
+    ])
+
+    rows = []          # (unit, category, qty, extended value, priced?)
+    for loc in locs:
+        items = loc.items.filter(
+            InventoryItem.replaced_by_item_id.is_(None)
+        ).order_by(InventoryItem.storage_row.asc(), InventoryItem.id.asc()).all()
+        items.sort(key=lambda i: ((i.category.name if i.category else 'zzz'),
+                                  -(float(i.price) if i.price else 0)))
+        for i in items:
+            qty = int(i.stock_quantity or 1)
+            price = float(i.price) if i.price else 0.0
+            in_shop = bool(i.ai_approved and i.status == 'available'
+                           and not i.needs_new_photo and price > 0)
+            owner = ('Campus Swap' if (i.seller and i.seller.is_internal_account)
+                     else (i.seller.full_name if i.seller else ''))
+            dims = 'x'.join(str(d) for d in (i.length_in, i.width_in, i.height_in)
+                            if d is not None) or ''
+            writer.writerow([
+                loc.name, i.storage_row or '', i.id, i.description or '',
+                i.category.name if i.category else '',
+                i.subcategory.name if i.subcategory else '',
+                f'{price:.2f}' if price else '', qty, f'{price * qty:.2f}' if price else '',
+                i.status, 'Yes' if in_shop else 'No', owner,
+                (i.seller.email if i.seller and not i.seller.is_internal_account else ''),
+                quality_to_label(i.quality) if i.quality else '',
+                i.mattress_size_label or '', dims,
+                i.date_added.strftime('%Y-%m-%d') if i.date_added else '',
+            ])
+            if i.status not in ('rejected', 'sold'):
+                rows.append((loc.name, i.category.name if i.category else 'Uncategorised',
+                             qty, price * qty, price > 0))
+
+    def block(title, headers, data):
+        writer.writerow([])
+        writer.writerow([title])
+        writer.writerow(headers)
+        for r in data:
+            writer.writerow(r)
+
+    # by unit
+    unit_rows = []
+    for loc in locs:
+        rs = [r for r in rows if r[0] == loc.name]
+        n = sum(r[2] for r in rs)
+        val = sum(r[3] for r in rs)
+        priced = sum(r[2] for r in rs if r[4])
+        sqft = _unit_sqft(loc)
+        unit_rows.append([
+            loc.name, (loc.capacity_note or ''), sqft or '', n, priced, f'{val:.2f}',
+            f'{val / priced:.2f}' if priced else '',
+            f'{val / sqft:.2f}' if sqft else '',
+            round(100.0 * n / sqft, 1) if sqft else '',
+        ])
+    block('SUMMARY BY UNIT',
+          ['Unit', 'Size', 'Sq Ft', 'Items', 'Priced Items', 'Inventory Value',
+           'Avg Price', 'Value per Sq Ft', 'Items per 100 Sq Ft'], unit_rows)
+
+    # by category
+    cats = {}
+    for _, cat, qty, val, priced in rows:
+        c = cats.setdefault(cat, {'items': 0, 'value': 0.0, 'priced': 0})
+        c['items'] += qty
+        c['value'] += val
+        c['priced'] += qty if priced else 0
+    total_val = sum(c['value'] for c in cats.values()) or 1
+    block('SUMMARY BY CATEGORY',
+          ['Category', 'Items', 'Priced Items', 'Inventory Value', 'Avg Price',
+           'Share of Value'],
+          [[cat, c['items'], c['priced'], f"{c['value']:.2f}",
+            f"{c['value'] / c['priced']:.2f}" if c['priced'] else '',
+            f"{100 * c['value'] / total_val:.1f}%"]
+           for cat, c in sorted(cats.items(), key=lambda kv: -kv[1]['value'])])
+
+    # unit x category
+    pairs = {}
+    for unit, cat, qty, val, priced in rows:
+        p = pairs.setdefault((unit, cat), {'items': 0, 'value': 0.0, 'priced': 0})
+        p['items'] += qty
+        p['value'] += val
+        p['priced'] += qty if priced else 0
+    block('UNIT x CATEGORY',
+          ['Unit', 'Category', 'Items', 'Inventory Value', 'Avg Price'],
+          [[u, c, v['items'], f"{v['value']:.2f}",
+            f"{v['value'] / v['priced']:.2f}" if v['priced'] else '']
+           for (u, c), v in sorted(pairs.items(), key=lambda kv: (kv[0][0], -kv[1]['value']))])
+
+    grand_items = sum(r[2] for r in rows)
+    grand_value = sum(r[3] for r in rows)
+    grand_priced = sum(r[2] for r in rows if r[4])
+    writer.writerow([])
+    writer.writerow(['TOTAL (units in this file)', '', '', grand_items, grand_priced,
+                     f'{grand_value:.2f}',
+                     f'{grand_value / grand_priced:.2f}' if grand_priced else ''])
+    writer.writerow([])
+    writer.writerow(['Notes:'])
+    writer.writerow(['Excludes listings superseded by a re-photographed replacement, '
+                     'so no physical item is counted twice.'])
+    writer.writerow(['Quantity > 1 means one listing covering that many identical units; '
+                     'Extended Value is price x quantity.'])
+    writer.writerow(['Summary blocks exclude rejected and sold items.'])
+
+    output.seek(0)
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    slug = (locs[0].name.replace(' ', '_').lower() if unit_id else 'all_units')
+    response.headers['Content-Disposition'] = (
+        f'attachment; filename=campus_swap_{slug}_items_'
+        f'{datetime.utcnow().strftime("%Y%m%d")}.csv')
+    return response
+
+
 @app.route('/admin/export/storage-units')
 @login_required
 def admin_export_storage_units():

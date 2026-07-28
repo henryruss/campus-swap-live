@@ -839,6 +839,13 @@ def section_10_truth():
     PHYSICAL_COUNTS = {'Unit 119': 58, 'Unit 121': 46, 'Unit 203': 71, 'Unit 204': 67,
                        'Unit 214': 19, 'Unit 240': 53, 'Unit 354': 39, 'Unit 362': 10}
     TRASH_UNITS = ('Unit 835', 'Unit 756')
+    # The mattress unit holds 19 individual mattresses plus one listing standing in for
+    # 37 identical twins whose stock has not been expanded yet. Mattresses are priced by
+    # size at a flat rate; no size is recorded for 18 of the 19, so the generic twin price
+    # (matching the one mattress already priced) is applied to all of them. Change this one
+    # number to reprice the whole block.
+    MATTRESS_UNIT = 'Unit 119'
+    MATTRESS_GENERIC_PRICE = 60.0
 
     campaign = db.session.query(ItemPhoto.item_id).filter(ItemPhoto.captured_at.isnot(None))
     internal = db.session.query(User.id).filter(User.is_internal_account == True)  # noqa: E712
@@ -854,9 +861,28 @@ def section_10_truth():
             InventoryItem.replaced_by_item_id.is_(None), *extra)
 
     recorded_ids = [i.id for i in inv()]
-    recorded = len(recorded_ids)
-    physical = sum(PHYSICAL_COUNTS.values())
-    cs_owned = inv(InventoryItem.seller_id.in_(internal)).count()
+
+    # ── mattress block: count the 37 un-expanded twins and value the unit ───
+    m_loc = StorageLocation.query.filter_by(name=MATTRESS_UNIT).first()
+    m_rows = inv(InventoryItem.storage_location_id == m_loc.id).all() if m_loc else []
+    m_block = next((i for i in m_rows if (i.stock_quantity or 1) > 1), None)
+    m_block_units = int(m_block.stock_quantity) if m_block else 0
+    m_individual = len(m_rows) - (1 if m_block else 0)
+    mattress_items = m_individual + m_block_units
+    mattress_value = round(mattress_items * MATTRESS_GENERIC_PRICE, 2)
+    m_row_ids = {i.id for i in m_rows}
+
+    # Everything outside the mattress unit, counted from its own records.
+    other_ids = [i for i in recorded_ids if i not in m_row_ids]
+    recorded = len(other_ids) + mattress_items
+    physical = sum(v if k != MATTRESS_UNIT else mattress_items
+                   for k, v in PHYSICAL_COUNTS.items())
+    # Owner split: the mattress block sits on the Campus Swap account.
+    cs_owned = (inv(InventoryItem.seller_id.in_(internal),
+                    InventoryItem.id.notin_(m_row_ids or [-1])).count()
+                + InventoryItem.query.filter(InventoryItem.id.in_(m_row_ids or [-1]),
+                                             InventoryItem.seller_id.in_(internal)).count()
+                + (m_block_units - 1 if m_block else 0))
     seller_owned = recorded - cs_owned
 
     # ── listed for sale: every priced item in the warehouse ─────────────────
@@ -866,7 +892,8 @@ def section_10_truth():
     shop_q = inv(
         InventoryItem.price > 0,
         InventoryItem.status != 'rejected',
-        InventoryItem.rephoto_disposition.is_distinct_from('discarded'))
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+        InventoryItem.id.notin_(m_row_ids or [-1]))
     shop_ids = [i.id for i in shop_q]
     rendering_now = inv(
         InventoryItem.price > 0,
@@ -878,11 +905,14 @@ def section_10_truth():
         or_(InventoryItem.seller_id.notin_(internal),
             InventoryItem.rephoto_disposition == 'kept')).count()
     awaiting_photo = len(shop_ids) - rendering_now
-    list_value, avg_price = db.session.query(
-        func.sum(InventoryItem.price), func.avg(InventoryItem.price)
-    ).filter(InventoryItem.id.in_(shop_ids)).one()
-    awaiting = recorded - len(shop_ids)
-    blank_records = inv(func.coalesce(InventoryItem.description, '') == '').count()
+    other_value = float(db.session.query(func.sum(InventoryItem.price)).filter(
+        InventoryItem.id.in_(shop_ids)).scalar() or 0)
+    list_value = other_value + mattress_value
+    priced_items = len(shop_ids) + mattress_items
+    avg_price = list_value / priced_items if priced_items else 0
+    awaiting = recorded - priced_items
+    blank_records = inv(func.coalesce(InventoryItem.description, '') == '',
+                        InventoryItem.id.notin_(m_row_ids or [-1])).count()
 
     # ── sellers ─────────────────────────────────────────────────────────────
     def n_sellers(*extra):
@@ -936,6 +966,19 @@ def section_10_truth():
         [{'category_name': nm or 'Awaiting classification', 'total': n,
           'campus_swap_items': cs, 'seller_items': n - cs} for nm, n, cs in cat_rows],
         key=lambda c: c['total'], reverse=True)
+    # The mattress block is one row standing in for many units: add the extra units to
+    # its category so the table totals the real item count.
+    if m_block and m_block_units > 1:
+        m_cat = m_block.category.name if m_block.category else 'Awaiting classification'
+        extra = m_block_units - 1
+        row = next((c for c in categories if c['category_name'] == m_cat), None)
+        if row:
+            row['total'] += extra
+            row['campus_swap_items'] += extra
+        else:
+            categories.append({'category_name': m_cat, 'total': extra,
+                               'campus_swap_items': extra, 'seller_items': 0})
+        categories.sort(key=lambda c: -c['total'])
 
     furn_rows = db.session.query(
         InventoryCategory.name, func.count(InventoryItem.id),
@@ -956,10 +999,11 @@ def section_10_truth():
     for name, label in REAL_UNIT_LABELS.items():
         loc = StorageLocation.query.filter_by(name=name).first()
         rec = inv(InventoryItem.storage_location_id == loc.id).count() if loc else 0
+        phys = mattress_items if name == MATTRESS_UNIT else PHYSICAL_COUNTS[name]
+        rec = mattress_items if name == MATTRESS_UNIT else rec
         units.append({'name': name, 'label': label,
                       'number': name.replace('Unit ', ''),
-                      'recorded': rec, 'physical': PHYSICAL_COUNTS[name],
-                      'gap': PHYSICAL_COUNTS[name] - rec})
+                      'recorded': rec, 'physical': phys, 'gap': phys - rec})
     units.sort(key=lambda u: u['physical'], reverse=True)
 
     # Per-unit economics (size, value, density). Uses the app's own helper so the
@@ -974,6 +1018,17 @@ def section_10_truth():
         m['label'] = label
         m['number'] = name.replace('Unit ', '')
         m['physical'] = PHYSICAL_COUNTS[name]
+        if name == MATTRESS_UNIT:
+            # Count the un-expanded twins and value the block at the generic price.
+            m['items'] = mattress_items
+            m['items_priced'] = mattress_items
+            m['value'] = mattress_value
+            m['avg_price'] = MATTRESS_GENERIC_PRICE
+            m['physical'] = mattress_items
+            m['value_per_sqft'] = round(mattress_value / m['sqft'], 2) if m['sqft'] else None
+            m['items_per_100_sqft'] = (round(100.0 * mattress_items / m['sqft'], 1)
+                                       if m['sqft'] else None)
+            m['campus_swap_owned'] = mattress_items - m['seller_owned']
         unit_metrics.append(m)
     unit_metrics.sort(key=lambda m: -(m['value_per_sqft'] or 0))
     _sqft = sum(m['sqft'] or 0 for m in unit_metrics)
@@ -992,6 +1047,11 @@ def section_10_truth():
     price_bands = [{'band': lab, 'count': InventoryItem.query.filter(
         InventoryItem.id.in_(shop_ids), InventoryItem.price >= lo,
         InventoryItem.price < hi).count()} for lab, lo, hi in bands]
+    # Every mattress is valued at the generic price, so the whole block lands in one band.
+    for band, lo, hi in bands:
+        if lo <= MATTRESS_GENERIC_PRICE < hi:
+            next(b for b in price_bands if b['band'] == band)['count'] += mattress_items
+            break
 
     val_rows = db.session.query(
         InventoryCategory.name, func.count(InventoryItem.id),
@@ -1002,6 +1062,18 @@ def section_10_truth():
         [{'category_name': nm or 'Uncategorised', 'count': n,
           'avg_price': round(float(a), 0), 'list_value': round(float(s), 0)}
          for nm, n, a, s in val_rows], key=lambda c: c['list_value'], reverse=True)
+    if mattress_items:
+        m_cat = m_block.category.name if (m_block and m_block.category) else 'Bedroom'
+        row = next((c for c in live_by_category if c['category_name'] == m_cat), None)
+        if row:
+            row['count'] += mattress_items
+            row['list_value'] += mattress_value
+            row['avg_price'] = round(row['list_value'] / row['count'], 0)
+        else:
+            live_by_category.append({'category_name': m_cat, 'count': mattress_items,
+                                     'avg_price': MATTRESS_GENERIC_PRICE,
+                                     'list_value': mattress_value})
+        live_by_category.sort(key=lambda c: -c['list_value'])
 
     per_seller = [c[0] for c in db.session.query(func.count(InventoryItem.id)).filter(
         InventoryItem.seller_id.in_(real),
@@ -1054,7 +1126,13 @@ def section_10_truth():
         'seller_items_collected': seller_owned,
         'sellers_collected_from': sellers_collected_from,
         'campus_swap_owned': cs_owned,
-        'shop_items': len(shop_ids),
+        'shop_items': priced_items,
+        'mattress_unit': MATTRESS_UNIT,
+        'mattress_items': mattress_items,
+        'mattress_individual': m_individual,
+        'mattress_block_units': m_block_units,
+        'mattress_generic_price': MATTRESS_GENERIC_PRICE,
+        'mattress_value': mattress_value,
         'rendering_now': rendering_now,
         'awaiting_photo_processing': awaiting_photo,
         'awaiting_details_or_price': awaiting,
