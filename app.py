@@ -15117,6 +15117,116 @@ def admin_diag():
 
 # ── Warehouse Floor ────────────────────────────────────────────────────────────
 
+def _unit_sqft(loc):
+    """Square footage of a unit. Prefers the stored size_sqft; falls back to parsing
+    capacity_note, which is where the footprint is actually recorded ("10x25")."""
+    if loc.size_sqft and float(loc.size_sqft) > 0:
+        return float(loc.size_sqft)
+    note = (loc.capacity_note or '').strip().lower().replace(' ', '')
+    m = re.match(r'^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$', note)
+    if m:
+        return float(m.group(1)) * float(m.group(2))
+    return None
+
+
+def _unit_metrics(loc):
+    """Inventory metrics for one storage unit. Excludes rejected/sold items and any
+    listing superseded by a re-photographed replacement, so nothing counts twice."""
+    items = loc.items.filter(
+        InventoryItem.status.notin_(['rejected', 'sold']),
+        InventoryItem.replaced_by_item_id.is_(None),
+    ).all()
+    priced = [i for i in items if i.price and float(i.price) > 0]
+    value = sum(float(i.price) for i in priced)
+    sqft = _unit_sqft(loc)
+    cats = {}
+    seller_owned = 0
+    for i in items:
+        name = i.category.name if i.category else 'Uncategorised'
+        cats[name] = cats.get(name, 0) + 1
+        if i.seller and not i.seller.is_internal_account:
+            seller_owned += 1
+    top_cat = max(cats.items(), key=lambda kv: kv[1])[0] if cats else ''
+    return {
+        'loc': loc,
+        'name': loc.name,
+        'sqft': sqft,
+        'size_label': (loc.capacity_note or '').strip(),
+        'items': len(items),
+        'items_priced': len(priced),
+        'value': round(value, 2),
+        'avg_price': round(value / len(priced), 2) if priced else None,
+        'value_per_sqft': round(value / sqft, 2) if sqft else None,
+        'items_per_100_sqft': round(100.0 * len(items) / sqft, 1) if sqft else None,
+        'top_category': top_cat,
+        'category_mix': dict(sorted(cats.items(), key=lambda kv: -kv[1])),
+        'seller_owned': seller_owned,
+        'campus_swap_owned': len(items) - seller_owned,
+        'is_full': bool(loc.is_full),
+        'monthly_cost': float(loc.monthly_cost) if loc.monthly_cost else None,
+        'cost_per_sqft': round(float(loc.monthly_cost) / sqft, 2)
+                         if loc.monthly_cost and sqft else None,
+    }
+
+
+@app.route('/admin/export/storage-units')
+@login_required
+def admin_export_storage_units():
+    """Export every storage unit with its inventory metrics to CSV."""
+    if not _has_warehouse_access():
+        abort(403)
+    locs = StorageLocation.query.order_by(StorageLocation.name).all()
+    rows = [_unit_metrics(loc) for loc in locs]
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'Unit', 'Size', 'Sq Ft', 'Active', 'Marked Full', 'Items', 'Items Priced',
+        'Inventory Value', 'Avg Item Price', 'Value per Sq Ft', 'Items per 100 Sq Ft',
+        'Seller-Owned Items', 'Campus Swap-Owned Items', 'Top Category', 'Category Mix',
+        'Monthly Cost', 'Cost per Sq Ft', 'Address', 'Location Note',
+    ])
+    for m in rows:
+        loc = m['loc']
+        writer.writerow([
+            m['name'], m['size_label'], m['sqft'] or '',
+            'Yes' if loc.is_active else 'No', 'Yes' if m['is_full'] else 'No',
+            m['items'], m['items_priced'],
+            f"{m['value']:.2f}", f"{m['avg_price']:.2f}" if m['avg_price'] else '',
+            f"{m['value_per_sqft']:.2f}" if m['value_per_sqft'] else '',
+            m['items_per_100_sqft'] if m['items_per_100_sqft'] else '',
+            m['seller_owned'], m['campus_swap_owned'], m['top_category'],
+            '; '.join(f'{k}: {v}' for k, v in m['category_mix'].items()),
+            f"{m['monthly_cost']:.2f}" if m['monthly_cost'] else '',
+            f"{m['cost_per_sqft']:.2f}" if m['cost_per_sqft'] else '',
+            loc.address or '', (loc.location_note or '').replace('\n', ' '),
+        ])
+    # Totals cover ACTIVE units only, so retiring a unit in Settings drops it from the
+    # total without hiding its row — the file always shows every unit.
+    active = [m for m in rows if m['loc'].is_active]
+    tot_items = sum(m['items'] for m in active)
+    tot_value = sum(m['value'] for m in active)
+    tot_sqft = sum(m['sqft'] or 0 for m in active)
+    tot_priced = sum(m['items_priced'] for m in active)
+    writer.writerow([])
+    writer.writerow([
+        'TOTAL (active units)', '', tot_sqft or '', '', '', tot_items, tot_priced,
+        f'{tot_value:.2f}', f'{tot_value / tot_priced:.2f}' if tot_priced else '',
+        f'{tot_value / tot_sqft:.2f}' if tot_sqft else '',
+        round(100.0 * tot_items / tot_sqft, 1) if tot_sqft else '',
+        sum(m['seller_owned'] for m in active), sum(m['campus_swap_owned'] for m in active),
+        '', '', '', '', '', '',
+    ])
+
+    output.seek(0)
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = (
+        f'attachment; filename=campus_swap_storage_units_'
+        f'{datetime.utcnow().strftime("%Y%m%d")}.csv')
+    return response
+
+
 def _build_unit_data(loc):
     """Return dict with loc, item_count, battery_pct, move_targets for a StorageLocation."""
     items = loc.items.filter(
