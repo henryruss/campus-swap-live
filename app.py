@@ -2021,6 +2021,8 @@ def inventory():
     # New filter params
     condition_filters = request.args.getlist('condition')   # like_new | good | fair
     price_filters = request.args.getlist('price')           # under_25 | 25_50 | 50_100 | 100_200 | over_200
+    # Mattress size — only meaningful (and only shown) when the Mattress subcategory is active
+    size_filters = [s for s in request.args.getlist('size') if s in MATTRESS_SIZES]
     sort_val = request.args.get('sort', 'newest')           # newest | price_asc | price_desc | best_deal
 
     commodities = InventoryCategory.query.filter_by(parent_id=None).order_by(InventoryCategory.id).all()
@@ -2031,6 +2033,13 @@ def inventory():
         active_cat_obj = InventoryCategory.query.get(cat_id)
         if active_cat_obj:
             subcategories = active_cat_obj.subcategories
+
+    # Size filter surfaces only under Bedroom > Mattress. mattress_sub_id lets the
+    # sidebar render the (hidden) group up front so JS can reveal it without a reload.
+    mattress_sub_id = next((s.id for s in subcategories if s.name.lower() == 'mattress'), None)
+    show_size_filter = bool(sub_id and mattress_sub_id and sub_id == mattress_sub_id)
+    if not show_size_filter:
+        size_filters = []
 
     # Items appear on shop only when admin-approved (ai_approved=True) and status=available
     _visible = and_(
@@ -2071,6 +2080,8 @@ def inventory():
         query = query.filter(InventoryItem.category_id == cat_id)
     if sub_id:
         query = query.filter(InventoryItem.subcategory_id == sub_id)
+    if size_filters:
+        query = query.filter(InventoryItem.mattress_size.in_(size_filters))
 
     # Apply search filter
     if search_query:
@@ -2163,6 +2174,10 @@ def inventory():
                          subcategories=subcategories,
                          condition_filters=condition_filters,
                          price_filters=price_filters,
+                         size_filters=size_filters,
+                         show_size_filter=show_size_filter,
+                         mattress_sub_id=mattress_sub_id,
+                         mattress_sizes=MATTRESS_SIZES,
                          sort_val=sort_val,
                          total_count=total_count))
     # Prevent the browser back/forward cache from restoring a stale snapshot

@@ -24,14 +24,14 @@ MATTRESS_UNIT = 'Unit 119'
 
 # Flat price per size. Adjust these and re-run.
 PRICE_BY_SIZE = {
-    'twin': 60.0,
-    'twin_xl': 60.0,
-    'full': 75.0,
-    'queen': 90.0,
-    'king': 120.0,
-    'cal_king': 120.0,
+    'twin': 100.0,
+    'twin_xl': 100.0,
+    'full': 100.0,
+    'queen': 100.0,
+    'king': 100.0,
+    'cal_king': 100.0,
 }
-DEFAULT_PRICE = 60.0        # size not recorded
+DEFAULT_PRICE = 100.0       # size not recorded — flat rate, same as every other size
 
 
 def main():

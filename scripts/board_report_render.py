@@ -516,10 +516,10 @@ def build(d):
     {stat(t['awaiting_details_or_price'], 'still to be priced',
           f"{t['blank_records']} still to be catalogued")}
   </div>
-  <p class="cap">The mattress unit holds {t['mattress_items']} mattresses —
-  {t['mattress_individual']} individual pieces plus a block of {t['mattress_block_units']}
-  identical twins. Mattresses are priced flat by size, so they are valued at
-  ${t['mattress_generic_price']:.0f} each here rather than individually appraised.</p>
+  <p class="cap">The mattress unit holds {t['mattress_items']} mattresses, including
+  {t['mattress_twins']} identical twins listed at ${t['mattress_generic_price']:.0f} each.
+  Mattresses are priced flat rather than individually appraised;
+  {t['mattress_estimated_rows']} are valued at that same rate pending their own listing.</p>
 </section>''')
 
     # ── PAGE 4b — furniture in detail ───────────────────────────────────────
@@ -586,7 +586,7 @@ def build(d):
 
   <h2>How the shop is priced</h2>
   <p class="cap">Every priced item in the warehouse, by list price. The
-  {t['mattress_items']} mattresses sit in the $50–99 band at their flat
+  {t['mattress_items']} mattresses sit at their flat
   ${t['mattress_generic_price']:.0f} price; the {t['awaiting_details_or_price']} items still
   to be priced are not shown.</p>
   {chart_columns([{'week_start': b['band'], 'count': b['count']} for b in bands],
@@ -728,8 +728,8 @@ def build(d):
     <td class="n">${ut['value_per_sqft']:.2f}</td>
     <td class="n">{ut['items_per_100_sqft']:.0f}</td></tr></tbody>
   </table>
-  <p class="cap">Size is the unit's footprint as rented. Mattresses are valued at their flat
-  ${t['mattress_generic_price']:.0f} price rather than individually appraised. Rent is excluded
+  <p class="cap">Size is the unit's footprint as rented. Mattresses carry a flat
+  ${t['mattress_generic_price']:.0f} price rather than individual appraisals. Rent is excluded
   here and sits in the financial breakdown — paired with these figures it gives a
   value-to-rent ratio per unit, which is how we will choose unit sizes at the next campus.</p>
 </section>""")
@@ -792,11 +792,11 @@ def build(d):
   of failure at twenty — a deeper bench is the first hire we make at each new campus.</p>
 
   <h2>What this proves for school two</h2>
-  <p class="note">One campus, {h['sellers_who_listed']} sellers,
-  {h['items_listed_by_sellers']} listings and {t['items_recorded']} items warehoused were
+  <p class="note">One campus, {t['sellers_collected_from']} sellers,
+  {t['items_recorded']} items warehoused and ${fmt(int(t['list_value']))} of inventory were
   delivered by {crew['distinct_crew_members']} part-time student hires, rented trucks and
-  {t['storage_units_retained']} storage units — no owned vehicles, no warehouse lease and
-  no full-time operations staff. That is the unit we intend to replicate.</p>
+  {t['storage_units_retained']} storage units — no owned vehicles, no warehouse lease and no
+  full-time operations staff. That is the unit we intend to replicate.</p>
 </section>''')
 
 

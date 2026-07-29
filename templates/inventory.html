@@ -35,6 +35,11 @@
       {%- set _ = base.append('price=' ~ p) -%}
     {%- endif -%}
   {%- endfor -%}
+  {%- for s in size_filters -%}
+    {%- if 'size_' ~ s not in removals -%}
+      {%- set _ = base.append('size=' ~ s) -%}
+    {%- endif -%}
+  {%- endfor -%}
   {%- if 'sort' not in overrides and sort_val and sort_val != 'newest' -%}
     {%- set _ = base.append('sort=' ~ sort_val) -%}
   {%- endif -%}
@@ -76,6 +81,7 @@
       {% if active_sub %}<input type="hidden" name="subcategory" value="{{ active_sub }}">{% endif %}
       {% for cond in condition_filters %}<input type="hidden" name="condition" value="{{ cond }}">{% endfor %}
       {% for p in price_filters %}<input type="hidden" name="price" value="{{ p }}">{% endfor %}
+      {% for s in size_filters %}<input type="hidden" name="size" value="{{ s }}">{% endfor %}
       {% if sort_val and sort_val != 'newest' %}<input type="hidden" name="sort" value="{{ sort_val }}">{% endif %}
       <input type="text"
              name="search"
@@ -176,6 +182,25 @@
         </div>
         {% endif %}
 
+        {# Mattress size — rendered whenever this category has a Mattress subcategory,
+           revealed by JS (or server-side) only when Mattress is the active subcategory #}
+        {% if mattress_sub_id %}
+        <div class="filter-group size-filter-group" data-mattress-sub="{{ mattress_sub_id }}"
+             {% if not show_size_filter %}style="display:none"{% endif %}>
+          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if size_filters else 'false' }}">
+            Mattress Size <i class="fas fa-chevron-down filter-group-chevron"></i>
+          </button>
+          <div class="filter-group-body" {% if not size_filters %}style="display:none"{% endif %}>
+            {% for key, spec in mattress_sizes.items() %}
+            <label class="filter-check-label">
+              <input type="checkbox" name="size" value="{{ key }}"{% if key in size_filters %} checked{% endif %}>
+              {{ spec.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
         <button type="submit" class="btn btn-primary filter-apply-btn">Apply filters</button>
         {%- set clear_parts = [] -%}
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
@@ -201,6 +226,7 @@
         {%- if active_sub -%}{%- set _ = s_parts.append('subcategory=' ~ active_sub) -%}{%- endif -%}
         {%- for cond in condition_filters -%}{%- set _ = s_parts.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = s_parts.append('price=' ~ p) -%}{%- endfor -%}
+        {%- for sz in size_filters -%}{%- set _ = s_parts.append('size=' ~ sz) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = s_parts.append('sort=' ~ sort_val) -%}{%- endif -%}
         <a href="/shop{% if s_parts %}?{{ s_parts | join('&') }}{% endif %}" class="filter-chip">
           "{{ search_query }}" &times;
@@ -217,6 +243,7 @@
         {%- if search_query -%}{%- set _ = cp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for c2 in condition_filters if c2 != cond -%}{%- set _ = cp.append('condition=' ~ c2) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = cp.append('price=' ~ p) -%}{%- endfor -%}
+        {%- for sz in size_filters -%}{%- set _ = cp.append('size=' ~ sz) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = cp.append('sort=' ~ sort_val) -%}{%- endif -%}
         <a href="/shop{% if cp %}?{{ cp | join('&') }}{% endif %}" class="filter-chip">
           {{ cond_labels.get(cond, cond) }} &times;
@@ -233,6 +260,7 @@
         {%- if search_query -%}{%- set _ = pp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for cond in condition_filters -%}{%- set _ = pp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p2 in price_filters if p2 != p -%}{%- set _ = pp.append('price=' ~ p2) -%}{%- endfor -%}
+        {%- for sz in size_filters -%}{%- set _ = pp.append('size=' ~ sz) -%}{%- endfor -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = pp.append('sort=' ~ sort_val) -%}{%- endif -%}
         <a href="/shop{% if pp %}?{{ pp | join('&') }}{% endif %}" class="filter-chip">
           {{ price_labels.get(p, p) }} &times;
@@ -254,8 +282,24 @@
         </a>
         {% endif %}
 
+        {# Mattress size chips #}
+        {% for sz in size_filters %}
+        {%- set zp = [] -%}
+        {%- if current_store -%}{%- set _ = zp.append('store=' ~ current_store) -%}{%- endif -%}
+        {%- if active_cat -%}{%- set _ = zp.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- if active_sub -%}{%- set _ = zp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- if search_query -%}{%- set _ = zp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
+        {%- for cond in condition_filters -%}{%- set _ = zp.append('condition=' ~ cond) -%}{%- endfor -%}
+        {%- for p in price_filters -%}{%- set _ = zp.append('price=' ~ p) -%}{%- endfor -%}
+        {%- for sz2 in size_filters if sz2 != sz -%}{%- set _ = zp.append('size=' ~ sz2) -%}{%- endfor -%}
+        {%- if sort_val and sort_val != 'newest' -%}{%- set _ = zp.append('sort=' ~ sort_val) -%}{%- endif -%}
+        <a href="/shop{% if zp %}?{{ zp | join('&') }}{% endif %}" class="filter-chip">
+          {{ mattress_sizes[sz].label if sz in mattress_sizes else sz }} &times;
+        </a>
+        {% endfor %}
+
         {# Clear all — only when any filter is active #}
-        {% if condition_filters or price_filters or active_sub or search_query %}
+        {% if condition_filters or price_filters or size_filters or active_sub or search_query %}
         {%- set clear_parts = [] -%}
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
@@ -367,6 +411,23 @@
         <label class="filter-check-label">
           <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
           {{ sub.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if mattress_sub_id %}
+    <div class="filter-group size-filter-group" data-mattress-sub="{{ mattress_sub_id }}"
+         {% if not show_size_filter %}style="display:none"{% endif %}>
+      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if size_filters else 'false' }}">
+        Mattress Size <i class="fas fa-chevron-down filter-group-chevron"></i>
+      </button>
+      <div class="filter-group-body" {% if not size_filters %}style="display:none"{% endif %}>
+        {% for key, spec in mattress_sizes.items() %}
+        <label class="filter-check-label">
+          <input type="checkbox" name="size" value="{{ key }}"{% if key in size_filters %} checked{% endif %}>
+          {{ spec.label }}
         </label>
         {% endfor %}
       </div>
@@ -490,7 +551,30 @@
       .catch(function() {});
   }
 
+  /* ── Mattress Size group: visible only while the Mattress subcategory is checked.
+        Hiding it also clears its boxes so stale sizes never reach the query string. ── */
+  function syncSizeGroup(form) {
+    var group = form.querySelector('.size-filter-group');
+    if (!group) return;
+    var subId = group.dataset.mattressSub;
+    var subBox = form.querySelector('input[name="subcategory"][value="' + subId + '"]');
+    var show = !!(subBox && subBox.checked);
+    group.style.display = show ? '' : 'none';
+    if (!show) {
+      group.querySelectorAll('input[name="size"]:checked').forEach(function(cb) { cb.checked = false; });
+    }
+  }
+
+  ['filter-form', 'filter-form-mobile'].forEach(function(id) {
+    var f = document.getElementById(id);
+    if (!f) return;
+    f.addEventListener('change', function(e) {
+      if (e.target.name === 'subcategory') syncSizeGroup(f);
+    });
+  });
+
   function formToUrl(form) {
+    syncSizeGroup(form);
     var data = new FormData(form);
     /* Sync sort from toolbar select */
     var sortSelect = document.getElementById('shop-sort-select');
