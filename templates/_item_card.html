@@ -7,7 +7,13 @@
   {% if p.photo_url and p.photo_url not in _urls %}{% set _ = _urls.append(p.photo_url) %}{% endif %}
 {% endfor %}
 {% set photo_urls = _urls[:6] %}
+{# shop_qs carries the shopper's full filter state (set by /shop) so "Back to Shop" restores it.
+   Other callers (homepage, related items) have no filter state — fall back to store + context. #}
+{% if shop_qs %}
+{% set item_link = "/item/" ~ item.id ~ "?" ~ shop_qs %}
+{% else %}
 {% set item_link = "/item/" ~ item.id ~ "?store=" ~ current_store ~ (("&search=" ~ (search_query|urlencode)) if search_query else "") ~ (("&category_id=" ~ active_cat) if active_cat else "") %}
+{% endif %}
 <div class="item-card" data-item-id="{{ item.id }}">
 
   <div class="item-card-media"{% if photo_urls|length > 1 %} data-carousel data-index="0"{% endif %}>

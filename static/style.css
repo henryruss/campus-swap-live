@@ -2446,19 +2446,22 @@ body.teaser-page footer { display: none; }
 .shop-grid {
   display: grid;
   gap: 28px 20px;                    /* comfortable, airy */
-  grid-template-columns: repeat(4, 1fr);
+  /* minmax(0, 1fr), not 1fr — a plain 1fr floors at min-content, so a long
+     nowrap title would widen its column and blow up that card's square image */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 @media (max-width: 1279px) {
-  .shop-grid { grid-template-columns: repeat(3, 1fr); gap: 24px 18px; }
+  .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 18px; }
 }
 @media (max-width: 1023px) {
-  .shop-grid { grid-template-columns: repeat(2, 1fr); gap: 20px 14px; }
+  .shop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 14px; }
 }
 
 /* ── Item card (flat, AptDeco-style: cream tile + carousel, text on page) ── */
 .item-card {
   display: block;
   background: transparent;          /* no bubble: no border, no shadow, no box */
+  min-width: 0;                     /* let the title ellipsis instead of stretching the card */
 }
 
 /* Image tile — square, cream, softly rounded; holds the photo carousel */
@@ -2555,6 +2558,7 @@ body.teaser-page footer { display: none; }
 /* Body — text sits directly on the page background */
 .item-card-body {
   display: block;
+  min-width: 0;
   padding: 10px 2px 0;
   text-decoration: none;
 }

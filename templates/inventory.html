@@ -2,53 +2,6 @@
 
 {% block content %}
 
-{# ───────────────────────────────────────────────────────────────────
-   Helper macro: build a query-string URL preserving all active params
-   except the ones overridden by kwargs.
-   Usage: shop_url(category_id=3) or shop_url(category_id=None) to remove.
-   ─────────────────────────────────────────────────────────────────── #}
-{% macro build_url(overrides={}, removals=[]) %}
-  {%- set base = [] -%}
-  {%- if current_store -%}{%- set _ = base.append('store=' ~ current_store) -%}{%- endif -%}
-  {%- if 'category_id' not in overrides and 'category_id' not in removals and active_cat -%}
-    {%- set _ = base.append('category_id=' ~ active_cat) -%}
-  {%- endif -%}
-  {%- if 'category_id' in overrides and overrides['category_id'] is not none -%}
-    {%- set _ = base.append('category_id=' ~ overrides['category_id']) -%}
-  {%- endif -%}
-  {%- if 'subcategory' not in overrides and 'subcategory' not in removals and active_sub -%}
-    {%- set _ = base.append('subcategory=' ~ active_sub) -%}
-  {%- endif -%}
-  {%- if 'subcategory' in overrides and overrides['subcategory'] is not none -%}
-    {%- set _ = base.append('subcategory=' ~ overrides['subcategory']) -%}
-  {%- endif -%}
-  {%- if 'search' not in removals and search_query -%}
-    {%- set _ = base.append('search=' ~ (search_query | urlencode)) -%}
-  {%- endif -%}
-  {%- for cond in condition_filters -%}
-    {%- if 'condition_' ~ cond not in removals -%}
-      {%- set _ = base.append('condition=' ~ cond) -%}
-    {%- endif -%}
-  {%- endfor -%}
-  {%- for p in price_filters -%}
-    {%- if 'price_' ~ p not in removals -%}
-      {%- set _ = base.append('price=' ~ p) -%}
-    {%- endif -%}
-  {%- endfor -%}
-  {%- for s in size_filters -%}
-    {%- if 'size_' ~ s not in removals -%}
-      {%- set _ = base.append('size=' ~ s) -%}
-    {%- endif -%}
-  {%- endfor -%}
-  {%- if 'sort' not in overrides and sort_val and sort_val != 'newest' -%}
-    {%- set _ = base.append('sort=' ~ sort_val) -%}
-  {%- endif -%}
-  {%- if 'sort' in overrides and overrides['sort'] -%}
-    {%- set _ = base.append('sort=' ~ overrides['sort']) -%}
-  {%- endif -%}
-  /shop{% if base %}?{{ base | join('&') }}{% endif %}
-{%- endmacro %}
-
 <div class="shop-wrap">
 
   {# ── Store indicator ── #}
@@ -78,7 +31,7 @@
     <form method="GET" action="{{ url_for('inventory') }}" class="shop-toolbar-search" id="shop-search-form">
       {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
       {% if active_cat %}<input type="hidden" name="category_id" value="{{ active_cat }}">{% endif %}
-      {% if active_sub %}<input type="hidden" name="subcategory" value="{{ active_sub }}">{% endif %}
+      {% for sub in active_subs %}<input type="hidden" name="subcategory" value="{{ sub }}">{% endfor %}
       {% for cond in condition_filters %}<input type="hidden" name="condition" value="{{ cond }}">{% endfor %}
       {% for p in price_filters %}<input type="hidden" name="price" value="{{ p }}">{% endfor %}
       {% for s in size_filters %}<input type="hidden" name="size" value="{{ s }}">{% endfor %}
@@ -168,13 +121,13 @@
         {# Subcategory — only when a category with children is active #}
         {% if subcategories %}
         <div class="filter-group">
-          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_sub else 'false' }}">
+          <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_subs else 'false' }}">
             Type <i class="fas fa-chevron-down filter-group-chevron"></i>
           </button>
-          <div class="filter-group-body" {% if not active_sub %}style="display:none"{% endif %}>
+          <div class="filter-group-body" {% if not active_subs %}style="display:none"{% endif %}>
             {% for sub in subcategories %}
             <label class="filter-check-label">
-              <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+              <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if sub.id in active_subs %} checked{% endif %}>
               {{ sub.name }}
             </label>
             {% endfor %}
@@ -223,7 +176,7 @@
         {%- set s_parts = [] -%}
         {%- if current_store -%}{%- set _ = s_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = s_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        {%- if active_sub -%}{%- set _ = s_parts.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- for sub in active_subs -%}{%- set _ = s_parts.append('subcategory=' ~ sub) -%}{%- endfor -%}
         {%- for cond in condition_filters -%}{%- set _ = s_parts.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = s_parts.append('price=' ~ p) -%}{%- endfor -%}
         {%- for sz in size_filters -%}{%- set _ = s_parts.append('size=' ~ sz) -%}{%- endfor -%}
@@ -239,7 +192,7 @@
         {%- set cp = [] -%}
         {%- if current_store -%}{%- set _ = cp.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = cp.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        {%- if active_sub -%}{%- set _ = cp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- for sub in active_subs -%}{%- set _ = cp.append('subcategory=' ~ sub) -%}{%- endfor -%}
         {%- if search_query -%}{%- set _ = cp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for c2 in condition_filters if c2 != cond -%}{%- set _ = cp.append('condition=' ~ c2) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = cp.append('price=' ~ p) -%}{%- endfor -%}
@@ -256,7 +209,7 @@
         {%- set pp = [] -%}
         {%- if current_store -%}{%- set _ = pp.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = pp.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        {%- if active_sub -%}{%- set _ = pp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- for sub in active_subs -%}{%- set _ = pp.append('subcategory=' ~ sub) -%}{%- endfor -%}
         {%- if search_query -%}{%- set _ = pp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for cond in condition_filters -%}{%- set _ = pp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p2 in price_filters if p2 != p -%}{%- set _ = pp.append('price=' ~ p2) -%}{%- endfor -%}
@@ -267,27 +220,32 @@
         </a>
         {% endfor %}
 
-        {# Subcategory chip #}
-        {% if active_sub %}
-        {%- set sub_obj = subcategories | selectattr('id', 'equalto', active_sub) | list | first -%}
+        {# Subcategory chips — one per selected type #}
+        {% for sub_id in active_subs %}
+        {%- set sub_obj = subcategories | selectattr('id', 'equalto', sub_id) | list | first -%}
         {%- set subp = [] -%}
         {%- if current_store -%}{%- set _ = subp.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = subp.append('category_id=' ~ active_cat) -%}{%- endif -%}
+        {%- for s2 in active_subs if s2 != sub_id -%}{%- set _ = subp.append('subcategory=' ~ s2) -%}{%- endfor -%}
         {%- if search_query -%}{%- set _ = subp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for cond in condition_filters -%}{%- set _ = subp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = subp.append('price=' ~ p) -%}{%- endfor -%}
+        {# Dropping Mattress drops its size filters with it #}
+        {%- if sub_id != mattress_sub_id -%}
+          {%- for sz in size_filters -%}{%- set _ = subp.append('size=' ~ sz) -%}{%- endfor -%}
+        {%- endif -%}
         {%- if sort_val and sort_val != 'newest' -%}{%- set _ = subp.append('sort=' ~ sort_val) -%}{%- endif -%}
         <a href="/shop{% if subp %}?{{ subp | join('&') }}{% endif %}" class="filter-chip">
           {{ sub_obj.name if sub_obj else 'Subcategory' }} &times;
         </a>
-        {% endif %}
+        {% endfor %}
 
         {# Mattress size chips #}
         {% for sz in size_filters %}
         {%- set zp = [] -%}
         {%- if current_store -%}{%- set _ = zp.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = zp.append('category_id=' ~ active_cat) -%}{%- endif -%}
-        {%- if active_sub -%}{%- set _ = zp.append('subcategory=' ~ active_sub) -%}{%- endif -%}
+        {%- for sub in active_subs -%}{%- set _ = zp.append('subcategory=' ~ sub) -%}{%- endfor -%}
         {%- if search_query -%}{%- set _ = zp.append('search=' ~ (search_query | urlencode)) -%}{%- endif -%}
         {%- for cond in condition_filters -%}{%- set _ = zp.append('condition=' ~ cond) -%}{%- endfor -%}
         {%- for p in price_filters -%}{%- set _ = zp.append('price=' ~ p) -%}{%- endfor -%}
@@ -299,7 +257,7 @@
         {% endfor %}
 
         {# Clear all — only when any filter is active #}
-        {% if condition_filters or price_filters or size_filters or active_sub or search_query %}
+        {% if condition_filters or price_filters or size_filters or active_subs or search_query %}
         {%- set clear_parts = [] -%}
         {%- if current_store -%}{%- set _ = clear_parts.append('store=' ~ current_store) -%}{%- endif -%}
         {%- if active_cat -%}{%- set _ = clear_parts.append('category_id=' ~ active_cat) -%}{%- endif -%}
@@ -403,13 +361,13 @@
 
     {% if subcategories %}
     <div class="filter-group">
-      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_sub else 'false' }}">
+      <button type="button" class="filter-group-toggle" aria-expanded="{{ 'true' if active_subs else 'false' }}">
         Type <i class="fas fa-chevron-down filter-group-chevron"></i>
       </button>
-      <div class="filter-group-body" {% if not active_sub %}style="display:none"{% endif %}>
+      <div class="filter-group-body" {% if not active_subs %}style="display:none"{% endif %}>
         {% for sub in subcategories %}
         <label class="filter-check-label">
-          <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if active_sub == sub.id %} checked{% endif %}>
+          <input type="checkbox" name="subcategory" value="{{ sub.id }}"{% if sub.id in active_subs %} checked{% endif %}>
           {{ sub.name }}
         </label>
         {% endfor %}

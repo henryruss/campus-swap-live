@@ -14,6 +14,7 @@ import html as html_module
 import threading
 import queue
 import base64
+from urllib.parse import urlencode
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
 
@@ -1985,6 +1986,17 @@ def unsubscribe(token):
 def inventory_redirect():
     return redirect(url_for('inventory', **request.args), 301)
 
+
+# Query params that define a shopper's current /shop view. Carried onto every item link so
+# the item page's "Back to Shop" returns to the exact filtered grid instead of a bare /shop.
+SHOP_FILTER_PARAMS = ('store', 'category_id', 'subcategory', 'search', 'condition', 'price', 'size', 'sort')
+
+
+def _shop_filter_qs(args):
+    """Canonical query string for the shop filter state carried in `args` (multi-value aware)."""
+    pairs = [(key, val) for key in SHOP_FILTER_PARAMS for val in args.getlist(key) if val != '']
+    return urlencode(pairs)
+
 @app.route('/shop')
 def inventory():
     """Display inventory with pagination, search, and optimized queries"""
@@ -2013,7 +2025,8 @@ def inventory():
         )
 
     cat_id = request.args.get('category_id', type=int)
-    sub_id = request.args.get('subcategory', type=int)
+    # Multi-select: repeated ?subcategory= params union together (Mattress + Headboard → both)
+    sub_ids = request.args.getlist('subcategory', type=int)
     store_name = request.args.get('store', get_current_store())
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
@@ -2037,7 +2050,7 @@ def inventory():
     # Size filter surfaces only under Bedroom > Mattress. mattress_sub_id lets the
     # sidebar render the (hidden) group up front so JS can reveal it without a reload.
     mattress_sub_id = next((s.id for s in subcategories if s.name.lower() == 'mattress'), None)
-    show_size_filter = bool(sub_id and mattress_sub_id and sub_id == mattress_sub_id)
+    show_size_filter = bool(mattress_sub_id and mattress_sub_id in sub_ids)
     if not show_size_filter:
         size_filters = []
 
@@ -2078,10 +2091,14 @@ def inventory():
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
     if cat_id:
         query = query.filter(InventoryItem.category_id == cat_id)
-    if sub_id:
-        query = query.filter(InventoryItem.subcategory_id == sub_id)
+    if sub_ids:
+        query = query.filter(InventoryItem.subcategory_id.in_(sub_ids))
     if size_filters:
-        query = query.filter(InventoryItem.mattress_size.in_(size_filters))
+        # Size constrains mattresses only — other selected types (e.g. Headboard) pass through
+        query = query.filter(or_(
+            InventoryItem.subcategory_id.is_distinct_from(mattress_sub_id),
+            InventoryItem.mattress_size.in_(size_filters),
+        ))
 
     # Apply search filter
     if search_query:
@@ -2153,13 +2170,29 @@ def inventory():
     items = pagination.items
     store_info = get_store_info(store_name)
 
+    # Full filter state for item links — resolved values, not raw args, so `store` is always
+    # present and dropped/invalid params (e.g. a size with no Mattress selected) never leak.
+    _qs_pairs = [('store', store_name)]
+    if cat_id:
+        _qs_pairs.append(('category_id', cat_id))
+    _qs_pairs += [('subcategory', s) for s in sub_ids]
+    if search_query:
+        _qs_pairs.append(('search', search_query))
+    _qs_pairs += [('condition', c) for c in condition_filters]
+    _qs_pairs += [('price', p) for p in price_filters]
+    _qs_pairs += [('size', s) for s in size_filters]
+    if sort_val and sort_val != 'newest':
+        _qs_pairs.append(('sort', sort_val))
+    shop_qs = urlencode(_qs_pairs)
+
     # Ajax scroll: return rendered card HTML + has_next flag
     if request.args.get('ajax') == '1':
         cards_html = render_template('_item_card.html',
                                      items=items,
                                      current_store=store_name,
                                      search_query=search_query,
-                                     active_cat=cat_id)
+                                     active_cat=cat_id,
+                                     shop_qs=shop_qs)
         return jsonify({'html': cards_html, 'has_next': pagination.has_next, 'page': page})
 
     response = make_response(render_template('inventory.html',
@@ -2168,7 +2201,7 @@ def inventory():
                          pagination=pagination,
                          search_query=search_query,
                          active_cat=cat_id,
-                         active_sub=sub_id,
+                         active_subs=sub_ids,
                          current_store=store_name,
                          store_info=store_info,
                          subcategories=subcategories,
@@ -2178,6 +2211,7 @@ def inventory():
                          show_size_filter=show_size_filter,
                          mattress_sub_id=mattress_sub_id,
                          mattress_sizes=MATTRESS_SIZES,
+                         shop_qs=shop_qs,
                          sort_val=sort_val,
                          total_count=total_count))
     # Prevent the browser back/forward cache from restoring a stale snapshot
@@ -2266,8 +2300,11 @@ def product_detail(item_id):
             related_items.append(_it)
             if len(related_items) >= 8:
                 break
+    # Back link restores the shopper's filtered grid — every filter param they arrived with
+    _back_qs = _shop_filter_qs(request.args) or urlencode({'store': store_name})
     return render_template('product.html', item=item, current_store=store_name, store_info=store_info,
-                            is_shareable=is_shareable, related_items=related_items, **edit_mode_context)
+                            is_shareable=is_shareable, related_items=related_items,
+                            back_to_shop_url='/shop?' + _back_qs, **edit_mode_context)
 
 # --- SHARE CARD IMAGE GENERATION ---
 def _is_item_shareable(item):
