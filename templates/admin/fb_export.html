@@ -1,0 +1,328 @@
+{% extends "layout.html" %}
+{# Facebook Marketplace export — focus mode, one item per screen.
+   Extends layout.html rather than admin_layout.html on purpose: the worker using this page
+   is a marketplace poster, not an admin, so the admin sidebar would show them a dozen nav
+   items that all 403. Spec: feature_fb_marketplace_export.md #}
+
+{% block head_extra %}
+<style>
+  .fbx-wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+
+  .fbx-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    padding: 14px 18px; margin-bottom: 20px;
+    background: var(--bg-cream); border: var(--card-border); border-radius: 12px;
+  }
+  .fbx-count { font-weight: 700; color: var(--text-main); }
+  .fbx-progress { font-size: 0.85rem; color: var(--text-muted); }
+  .fbx-nav { display: flex; gap: 8px; }
+  .fbx-nav a, .fbx-nav span {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 84px; padding: 9px 16px; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 600; text-decoration: none;
+    background: var(--primary); color: var(--text-light);
+  }
+  .fbx-nav span { background: var(--rule); color: var(--text-muted); }
+
+  .fbx-card {
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: 14px; padding: 22px; box-shadow: var(--glass-shadow);
+  }
+
+  .fbx-field { margin-bottom: 20px; }
+  .fbx-label {
+    display: block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+  }
+  .fbx-value-row { display: flex; align-items: flex-start; gap: 10px; }
+  .fbx-value {
+    flex: 1; min-width: 0;
+    padding: 11px 14px; border: 1px solid var(--rule); border-radius: 8px;
+    background: var(--bg-body); color: var(--card-ink);
+    font-size: 1rem; word-break: break-word;
+  }
+  .fbx-value--price { font-size: 1.45rem; font-weight: 700; color: var(--accent); }
+  .fbx-value--static { background: var(--bg-cream); color: var(--text-muted); }
+
+  .fbx-copy {
+    flex-shrink: 0; padding: 11px 16px; border: none; border-radius: 8px;
+    background: var(--primary); color: var(--text-light);
+    font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    width: auto; /* style.css sets input/button width:100% globally */
+  }
+  .fbx-copy:hover { background: var(--primary-light); }
+  .fbx-copy.copied { background: var(--sage); }
+
+  .fbx-desc {
+    width: 100%; min-height: 190px; resize: vertical;
+    padding: 12px 14px; border: 1px solid var(--rule); border-radius: 8px;
+    font-family: inherit; font-size: 0.92rem; line-height: 1.55;
+    color: var(--card-ink); background: var(--bg-body);
+  }
+
+  .fbx-verify {
+    display: inline-block; margin-top: 6px; font-size: 0.78rem;
+    color: var(--accent-hover); font-weight: 600;
+  }
+
+  .fbx-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .fbx-photo {
+    width: 104px; height: 104px; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--rule); background: var(--tile-cream);
+  }
+  .fbx-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .fbx-none { font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
+
+  .fbx-zip {
+    display: inline-block; margin-top: 4px; padding: 11px 20px;
+    background: var(--accent); color: #fff; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 700; text-decoration: none;
+  }
+  .fbx-zip:hover { background: var(--accent-hover); }
+
+  .fbx-posted {
+    margin-top: 24px; padding: 16px 18px;
+    background: var(--bg-cream); border: var(--card-border); border-radius: 10px;
+  }
+  /* style.css sets a global `input { width:100%; padding:12px 16px }` — a checkbox must
+     pin its own box or it stretches the row (bit warehouse_log_modal + rephoto modal). */
+  .fbx-check {
+    width: 20px !important; height: 20px !important;
+    padding: 0 !important; margin: 0; flex-shrink: 0; cursor: pointer;
+    accent-color: var(--primary);
+  }
+  .fbx-check-row { display: flex; align-items: center; gap: 10px; }
+  .fbx-check-row label { font-weight: 700; color: var(--text-main); cursor: pointer; margin: 0; }
+  .fbx-url { margin-top: 12px; }
+  .fbx-url input {
+    padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px;
+    font-size: 0.9rem;
+  }
+  .fbx-saved { font-size: 0.8rem; color: var(--sage); font-weight: 600; margin-left: 8px; }
+
+  .fbx-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  .fbx-toggle { font-size: 0.82rem; color: var(--text-muted); }
+  .fbx-toggle a { color: var(--primary); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .fbx-value-row { flex-direction: column; }
+    .fbx-copy { width: 100%; }
+    .fbx-nav { width: 100%; }
+    .fbx-nav a, .fbx-nav span { flex: 1; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fbx-wrap">
+
+  <div class="fbx-bar">
+    <div>
+      {% if item %}
+        <div class="fbx-count">Item {{ position }} of {{ items_total }}</div>
+      {% else %}
+        <div class="fbx-count">Nothing left to post</div>
+      {% endif %}
+      <div class="fbx-progress">{{ posted_count }} of {{ total_all }} posted to Facebook</div>
+      <div class="fbx-toggle">
+        {% if unposted_only %}
+          Showing unposted only &middot;
+          <a href="{{ url_for('fb_export', unposted=0) }}">show all</a>
+        {% else %}
+          Showing all items &middot;
+          <a href="{{ url_for('fb_export') }}">show unposted only</a>
+        {% endif %}
+      </div>
+    </div>
+    {% if item %}
+    <div class="fbx-nav">
+      {% if position > 1 %}
+        <a href="{{ url_for('fb_export', i=position-1, unposted=1 if unposted_only else 0) }}">&larr; Prev</a>
+      {% else %}
+        <span>&larr; Prev</span>
+      {% endif %}
+      {% if position < items_total %}
+        <a href="{{ url_for('fb_export', i=position+1, unposted=1 if unposted_only else 0) }}">Next &rarr;</a>
+      {% else %}
+        <span>Next &rarr;</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not item %}
+    <div class="fbx-card fbx-empty">
+      <p><strong>All caught up.</strong></p>
+      <p>Every eligible item has been marked as posted to Facebook Marketplace.</p>
+      {% if unposted_only %}
+        <p><a href="{{ url_for('fb_export', unposted=0) }}">Review all items anyway</a></p>
+      {% endif %}
+    </div>
+  {% else %}
+
+  <div class="fbx-card" data-item-id="{{ item.id }}">
+
+    <div class="fbx-field">
+      <span class="fbx-label">Title</span>
+      <div class="fbx-value-row">
+        <div class="fbx-value" id="fbx-title">{{ item.description }}</div>
+        <button type="button" class="fbx-copy" data-copy-from="fbx-title">Copy</button>
+      </div>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Price</span>
+      <div class="fbx-value-row">
+        <div class="fbx-value fbx-value--price" id="fbx-price">{{ fb_price }}</div>
+        <button type="button" class="fbx-copy" data-copy-from="fbx-price">Copy</button>
+      </div>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Category</span>
+      {% if fb_category %}
+        <div class="fbx-value-row">
+          <div class="fbx-value" id="fbx-category">{{ fb_category }}</div>
+          <button type="button" class="fbx-copy" data-copy-from="fbx-category">Copy</button>
+        </div>
+      {% else %}
+        {# No confident mapping — show guidance, never a pasteable guess. #}
+        <div class="fbx-value fbx-value--static">Pick the closest category on Facebook</div>
+        <span class="fbx-verify">This one isn't mapped (Campus Swap category: {{ cs_category }}). Choose the nearest Facebook category and let Henry know which you used.</span>
+      {% endif %}
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Condition</span>
+      <div class="fbx-value fbx-value--static">{{ fb_condition }}</div>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Listing photos &mdash; upload these to Facebook</span>
+      {% if listing_keys %}
+        <div class="fbx-photos">
+          {% for key in listing_keys %}
+            <div class="fbx-photo">
+              <img src="{{ url_for('uploaded_file', filename=key) }}" alt="Listing photo {{ loop.index }}" loading="lazy">
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="fbx-none">No listing photos found for this item.</p>
+      {% endif %}
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">
+        {% if originals_source == 'seller' %}
+          Seller's original photos &mdash; send if a buyer asks to see more
+        {% else %}
+          Warehouse originals &mdash; send if a buyer asks to see more
+        {% endif %}
+      </span>
+      {% if original_keys %}
+        <div class="fbx-photos">
+          {% for key in original_keys %}
+            <div class="fbx-photo">
+              <img src="{{ url_for('uploaded_file', filename=key) }}" alt="Original photo {{ loop.index }}" loading="lazy">
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="fbx-none">No extra photos available for this item.</p>
+      {% endif %}
+      <a class="fbx-zip" href="{{ url_for('fb_export_item_zip', item_id=item.id) }}">Download all photos (.zip)</a>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Description</span>
+      <textarea class="fbx-desc" id="fbx-desc" readonly>{{ fb_description }}</textarea>
+      <div style="margin-top:8px;">
+        <button type="button" class="fbx-copy" data-copy-from="fbx-desc">Copy description</button>
+      </div>
+    </div>
+
+    <div class="fbx-posted">
+      <div class="fbx-check-row">
+        <input type="checkbox" class="fbx-check" id="fbx-posted-check"
+               {% if item.fb_posted_at %}checked{% endif %}>
+        <label for="fbx-posted-check">Posted to Facebook Marketplace</label>
+        <span class="fbx-saved" id="fbx-saved" hidden>Saved</span>
+      </div>
+      <div class="fbx-url">
+        <input type="url" id="fbx-url" placeholder="Facebook listing link (optional)"
+               value="{{ item.fb_listing_url or '' }}">
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+</div>
+
+{% if item %}
+<script>
+(function () {
+  // Copy buttons — read from the element named by data-copy-from.
+  document.querySelectorAll('.fbx-copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var src = document.getElementById(btn.dataset.copyFrom);
+      if (!src) return;
+      var text = ('value' in src) ? src.value : src.textContent;
+      var done = function () {
+        var original = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = original;
+          btn.classList.remove('copied');
+        }, 1200);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text.trim()).then(done);
+      } else {
+        // Fallback for non-secure contexts.
+        var ta = document.createElement('textarea');
+        ta.value = text.trim();
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+      }
+    });
+  });
+
+  var card = document.querySelector('.fbx-card[data-item-id]');
+  var check = document.getElementById('fbx-posted-check');
+  var urlInput = document.getElementById('fbx-url');
+  var saved = document.getElementById('fbx-saved');
+  if (!card || !check) return;
+  var itemId = card.dataset.itemId;
+
+  function save() {
+    fetch('/admin/fb-export/' + itemId + '/posted', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      },
+      body: JSON.stringify({
+        posted: check.checked,
+        fb_listing_url: urlInput ? urlInput.value : null
+      })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data.success) { alert(data.error || 'Could not save.'); return; }
+      saved.hidden = false;
+      setTimeout(function () { saved.hidden = true; }, 1500);
+    }).catch(function () { alert('Could not save. Check your connection.'); });
+  }
+
+  check.addEventListener('change', save);
+  if (urlInput) {
+    urlInput.addEventListener('blur', function () { if (check.checked) save(); });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

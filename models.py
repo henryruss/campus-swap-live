@@ -61,6 +61,12 @@ class User(UserMixin, db.Model):
     worker_status = db.Column(db.String(20), nullable=True)  # None | 'pending' | 'approved' | 'rejected'
     worker_role = db.Column(db.String(20), nullable=True)    # None | 'driver' | 'organizer' | 'both'
 
+    # MARKETPLACE POSTER — data-entry-only permission for the Facebook Marketplace export tool.
+    # Grants /admin/fb-export (view + copy), the "posted to Facebook" flag, and (later)
+    # mark-sold-for-pickup / undo. Deliberately INDEPENDENT of is_worker: a poster must not land
+    # in the crew staffing pool via /crew/availability. Never grants ops, payouts, or scheduling.
+    is_marketplace_poster = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
+
     # REFERRAL PROGRAM
     referral_code = db.Column(db.String(8), unique=True, nullable=True)
     # 8-char uppercase alphanumeric code (no 0,O,I,1). Generated at account creation.
@@ -306,6 +312,12 @@ class InventoryItem(db.Model):
     # carries stock_quantity=1. NULL/absent group == an ordinary single item.
     stock_quantity = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     stock_group_id = db.Column(db.String(36), nullable=True, index=True)
+
+    # FACEBOOK MARKETPLACE EXPORT — set by the poster via /admin/fb-export. Tracking only; these
+    # never affect shop visibility, pricing, or payout math. NULL fb_posted_at = not yet listed.
+    # Together with status=='sold' these define the future "take the FB listing down" queue.
+    fb_posted_at = db.Column(db.DateTime, nullable=True)      # UTC
+    fb_listing_url = db.Column(db.String(300), nullable=True)  # optional, pasted by the poster
 
     @property
     def mattress_size_label(self):

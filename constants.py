@@ -220,3 +220,127 @@ RESIDENCE_HALLS_BY_STORE = {
         ],
     },
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FACEBOOK MARKETPLACE EXPORT
+# Used only by /admin/fb-export to build copy-paste listing data for a worker who
+# manually recreates live shop listings on Facebook Marketplace.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Shipping component added to the site price before the markup multiplier.
+# Tiered rather than flat: median site price is ~$55 and ~47% of inventory is under $50,
+# so a flat $15 would be ~94% of a $16 lamp but ~5% of a $287 couch — punishing cheap
+# items and barely touching the ones with real margin. Tiers hold markup near 25-30%
+# across the whole catalog. Evaluated in order; first matching upper bound wins.
+# (upper_bound_exclusive | None for "no upper bound", dollars_added)
+FB_SHIPPING_TIERS = [
+    (50, 5),
+    (100, 10),
+    (None, 15),
+]
+
+# Multiplier applied after the tier add. Overridable at runtime via the
+# `fb_price_markup` AppSetting; this is the fallback default.
+FB_PRICE_MARKUP_DEFAULT = 1.1
+
+# Every item is listed as this condition. `quality` defaults to 1 and the vast majority
+# of shop-visible items sit at that default with zero rows at quality 2, so quality==1
+# means "never assessed", not "poor" — and quality_to_label() would otherwise tag ~76%
+# of a professionally rephotographed catalog as "Fair" on Facebook. Nothing is new and
+# nothing is bad, so one honest value is used and the worker gets no dropdown.
+FB_CONDITION_DEFAULT = 'Used - Good'
+
+FB_CTA_DEFAULT = (
+    "Delivery and discounts available through our website:\n"
+    "https://usecampusswap.com/shop\n"
+    "\n"
+    "Hundreds more dorm and apartment items listed there, with full photos, sizes,\n"
+    "and delivery pricing on every listing."
+)
+
+# "Parent > Subcategory" -> the leaf category name the worker types into Facebook's
+# search-as-you-type category picker. Facebook's taxonomy shifts over time; unmapped
+# keys fall back to showing the raw Campus Swap category with a "verify on FB" note
+# rather than silently guessing. See _fb_category().
+FB_CATEGORY_MAP = {
+    'Bedroom > Mattress':                                  'Beds & Mattresses',
+    'Bedroom > Headboard':                                 'Beds & Mattresses',
+    'Bedroom > Other Bedroom':                             'Bedroom Furniture',
+    'Furniture > Couch / Sofa':                            'Sofas',
+    'Furniture > Futon':                                   'Sofas',
+    'Furniture > Armchair / Accent Chair':                  'Chairs',
+    'Furniture > Desk Chair':                              'Office Chairs',
+    'Furniture > Gaming Chair':                            'Office Chairs',
+    'Furniture > Desk':                                    'Desks',
+    'Furniture > Dresser':                                 'Dressers & Armoires',
+    'Furniture > Bookshelf / Shelving':                    'Bookcases & Shelving',
+    'Furniture > Coffee Table':                            'Coffee Tables',
+    'Furniture > Side Table':                              'End & Side Tables',
+    'Furniture > TV Stand / Media Console':                'TV Stands & Entertainment Centers',
+    'Furniture > Storage Ottoman':                         'Ottomans & Benches',
+    'Furniture > Other Furniture':                         'Furniture',
+    'Kitchen & Appliances > Mini Fridge':                  'Refrigerators',
+    'Kitchen & Appliances > Microwave':                    'Microwaves',
+    'Kitchen & Appliances > Air Fryer':                    'Small Kitchen Appliances',
+    'Kitchen & Appliances > Toaster Oven':                 'Small Kitchen Appliances',
+    'Kitchen & Appliances > Coffee Maker / Espresso Machine': 'Small Kitchen Appliances',
+    'Kitchen & Appliances > Blender':                      'Small Kitchen Appliances',
+    'Kitchen & Appliances > Instant Pot / Rice Cooker':    'Small Kitchen Appliances',
+    'Kitchen & Appliances > Knife Set':                    'Kitchen & Dining',
+    'Kitchen & Appliances > Other Kitchen':                'Kitchen & Dining',
+    'Climate & Comfort > Portable AC Unit':                'Heating & Cooling',
+    'Climate & Comfort > Space Heater':                    'Heating & Cooling',
+    'Climate & Comfort > Tower Fan':                       'Heating & Cooling',
+    'Climate & Comfort > Humidifier / Dehumidifier':       'Heating & Cooling',
+    'Climate & Comfort > Other Climate':                   'Heating & Cooling',
+    'Electronics > TV':                                    'TVs',
+    'Electronics > Monitor':                               'Computer Monitors',
+    'Electronics > Laptop':                                'Laptops',
+    'Electronics > Keyboard / Mouse':                      'Computer Accessories',
+    'Electronics > Printer / Scanner':                     'Printers & Scanners',
+    'Electronics > Speakers / Soundbar':                   'Audio Equipment',
+    'Electronics > Headphones':                            'Headphones',
+    'Electronics > Gaming Console':                        'Video Game Consoles',
+    'Electronics > Other Electronics':                     'Electronics',
+    'Rugs > Area Rug':                                     'Rugs',
+    'Bikes & Scooters > Bike':                             'Bicycles',
+    'Bikes & Scooters > Electric Scooter':                 'Scooters',
+}
+
+# Fallback for items whose subcategory is NULL or unmapped (the "Other" bucket — ~6% of the
+# shop, and over a third of those are lamps). Matched against the lowercased title, first hit
+# wins, so order these most-specific first. Purpose is to keep the worker on pure data entry
+# instead of making a category judgment per item. Anything that misses every keyword falls
+# through to a "choose it on Facebook" prompt rather than a misleading pasteable value.
+FB_TITLE_KEYWORD_CATEGORIES = [
+    ('desk lamp',      'Lamps'),
+    ('floor lamp',     'Lamps'),
+    ('table lamp',     'Lamps'),
+    ('lamp',           'Lamps'),
+    ('area rug',       'Rugs'),
+    ('rug',            'Rugs'),
+    ('shoe rack',      'Storage & Organization'),
+    ('drawer tower',   'Storage & Organization'),
+    ('storage bin',    'Storage & Organization'),
+    ('shelf',          'Bookcases & Shelving'),
+    ('shelving',       'Bookcases & Shelving'),
+    ('bookcase',       'Bookcases & Shelving'),
+    ('bar cart',       'Kitchen & Dining'),
+    ('rolling cart',   'Storage & Organization'),
+    ('cart',           'Storage & Organization'),
+    ('mirror',         'Home Decor'),
+    ('welcome mat',    'Home Decor'),
+    ('mat',            'Home Decor'),
+    ('cushion',        'Home Decor'),
+    ('pillow',         'Home Decor'),
+    ('curtain',        'Home Decor'),
+    ('hamper',         'Household Supplies'),
+    ('trash can',      'Household Supplies'),
+    ('drying rack',    'Household Supplies'),
+    ('fan',            'Heating & Cooling'),
+    ('heater',         'Heating & Cooling'),
+    ('bag',            'Bags & Luggage'),
+    ('backpack',       'Bags & Luggage'),
+    ('suitcase',       'Bags & Luggage'),
+]

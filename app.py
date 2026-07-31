@@ -14,6 +14,9 @@ import html as html_module
 import threading
 import queue
 import base64
+import io
+import zipfile
+import tempfile
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 load_dotenv()  # Load .env for local dev (Render uses env vars directly)
@@ -57,7 +60,7 @@ def _delivery_window(ref_date=None):
         'saturday': saturday,
         'flex_end': flex_end,
     }
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, jsonify, Response, make_response, abort, current_app
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_from_directory, send_file, jsonify, Response, make_response, abort, current_app
 import csv
 from io import StringIO, BytesIO
 from werkzeug.utils import secure_filename
@@ -91,7 +94,9 @@ from constants import (
     PICKUP_WEEKS, PICKUP_WEEK_DATE_RANGES, PICKUP_TIME_OPTIONS,
     WAREHOUSE_CAPACITY,
     HOMEPAGE_FEATURED_LIMIT, HOMEPAGE_HERO_TILE_LIMIT, HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES,
-    get_price_range_for_category
+    get_price_range_for_category,
+    FB_SHIPPING_TIERS, FB_PRICE_MARKUP_DEFAULT, FB_CONDITION_DEFAULT,
+    FB_CTA_DEFAULT, FB_CATEGORY_MAP, FB_TITLE_KEYWORD_CATEGORIES,
 )
 
 # Configure Logging
@@ -595,6 +600,23 @@ def _has_warehouse_access():
     return (current_user.is_authenticated
             and getattr(current_user, 'is_worker', False)
             and getattr(current_user, 'worker_status', None) == 'approved')
+
+
+def _has_marketplace_access():
+    """True if current user can use the Facebook Marketplace export tool.
+
+    Data-entry-only permission: view /admin/fb-export, copy the listing fields, download
+    photo bundles, and toggle the "posted to Facebook" flag (later: mark sold-for-pickup
+    and undo it). Grants nothing else.
+
+    Deliberately gated on `is_marketplace_poster` rather than `require_crew()`: require_crew
+    is a single global check with no granularity, so it would also open /crew/availability
+    and drop a data-entry temp into the auto-assignment staffing pool. Keep the two flags
+    independent so a poster can separately become real crew without affecting either.
+    """
+    return current_user.is_authenticated and (
+        getattr(current_user, 'is_marketplace_poster', False) or _has_ops_access()
+    )
 
 
 @app.before_request
@@ -17598,6 +17620,9 @@ def admin_settings():
     # Attach tutorial session to each CD for display in the settings table
     for cd in campus_directors:
         cd._tutorial_session = cd.tutorial_session
+    marketplace_posters = User.query.filter_by(
+        is_marketplace_poster=True
+    ).order_by(User.full_name).all()
 
     # Count week1 sellers with no existing ShiftPickup (eligible for bulk reassign)
     existing_pickup_ids = {p.seller_id for p in ShiftPickup.query.with_entities(ShiftPickup.seller_id).all()}
@@ -17612,6 +17637,7 @@ def admin_settings():
         storage_locations=storage_locations,
         admin_users=admin_users,
         campus_directors=campus_directors,
+        marketplace_posters=marketplace_posters,
         week1_unassigned_count=week1_unassigned_count,
         # Route settings
         truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
@@ -19596,6 +19622,402 @@ if os.environ.get('FLASK_ENV') != 'production':
         login_user(user, remember=True)
         return redirect(get_user_dashboard())
 # ── end Dev-only login bypass ──────────────────────────────────────────────────
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# FACEBOOK MARKETPLACE EXPORT
+# Copy-paste tooling for a data-entry worker who manually recreates every live shop
+# listing on Facebook Marketplace. FB has no bulk import for local (non-shipped)
+# listings, so the thing being optimized here is clicks-per-listing.
+# Read-only over inventory except for the fb_posted_at / fb_listing_url tracking fields.
+# Spec: feature_fb_marketplace_export.md
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _fb_price(item):
+    """Facebook asking price for `item` — computed at runtime, never stored.
+
+    (site_price + tiered shipping add) * markup, rounded UP to a whole dollar.
+    Returns None when the item has no usable price.
+    """
+    if not item.price or float(item.price) <= 0:
+        return None
+    price = float(item.price)
+    add = FB_SHIPPING_TIERS[-1][1]
+    for upper, amount in FB_SHIPPING_TIERS:
+        if upper is not None and price < upper:
+            add = amount
+            break
+    try:
+        markup = float(AppSetting.get('fb_price_markup', '') or FB_PRICE_MARKUP_DEFAULT)
+    except (TypeError, ValueError):
+        markup = FB_PRICE_MARKUP_DEFAULT
+    return int(math.ceil((price + add) * markup))
+
+
+def _fb_category(item):
+    """(fb_category_label_or_None, cs_category_label) for the FB category picker.
+
+    A None label means we have no confident mapping — the template then prompts the
+    worker to pick the category on Facebook instead of offering a misleading value to
+    paste. cs_category_label is the Campus Swap category, shown only as context.
+
+    Two passes: the explicit subcategory map first, then a title-keyword fallback for the
+    'Other' bucket (NULL subcategory), which is ~6% of the shop and largely lamps.
+    """
+    parent = item.category.name if item.category else None
+    sub = item.subcategory.name if item.subcategory else None
+    cs_label = ' > '.join([p for p in (parent, sub) if p]) or '—'
+
+    if parent and sub:
+        mapped = FB_CATEGORY_MAP.get(f'{parent} > {sub}')
+        if mapped:
+            return mapped, cs_label
+
+    title = (item.description or '').lower()
+    for keyword, fb_cat in FB_TITLE_KEYWORD_CATEGORIES:
+        if keyword in title:
+            return fb_cat, cs_label
+
+    return None, cs_label
+
+
+def _fb_description(item):
+    """Assembled Facebook listing description. No emojis — they render
+    inconsistently in FB descriptions. CTA block is an AppSetting so it is
+    editable in one place and every card picks it up."""
+    parts = []
+    body = (item.long_description or item.description or '').strip()
+    if body:
+        parts.append(body)
+
+    dims = []
+    if item.width_in:
+        dims.append(f'{dim_filter(item.width_in)}"W')
+    if item.length_in:
+        dims.append(f'{dim_filter(item.length_in)}"D')
+    if item.height_in:
+        dims.append(f'{dim_filter(item.height_in)}"H')
+    meta = []
+    if dims:
+        meta.append('Dimensions: ' + ' x '.join(dims))
+    if item.mattress_size_label:
+        meta.append(f'Size: {item.mattress_size_label}')
+    if meta:
+        parts.append('\n'.join(meta))
+
+    cta = (AppSetting.get('fb_cta_text', '') or '').strip() or FB_CTA_DEFAULT
+    parts.append(cta)
+    return '\n\n'.join(parts)
+
+
+def _fb_condition():
+    """Single condition string used for every listing. See FB_CONDITION_DEFAULT."""
+    return (AppSetting.get('fb_condition_label', '') or '').strip() or FB_CONDITION_DEFAULT
+
+
+def _fb_is_ai_enhanced(url):
+    return bool(url) and url.startswith('ai_enhanced_')
+
+
+def _fb_photo_buckets(item):
+    """(listing_keys, originals_keys, originals_source) for `item`.
+
+    listing   — the background-removed / current gallery photos that go into the FB post.
+    originals — extra photos to send a buyer who asks to see more. Two sources:
+                'seller'    the matched original seller listing's own photos. Note the FK
+                            direction: replaced_by_item_id lives on the ORIGINAL and points
+                            at this shop item, so the lookup is filter_by(replaced_by_item_id=id).
+                            These are genuinely different shots of the item in the seller's room.
+                'warehouse' no matched original (warehouse-kept item), so fall back to the
+                            pre-background-removal raw captures, derived by dropping the
+                            '_nobg' suffix. Derived filenames are NOT DB rows, so each is
+                            probed in storage and silently skipped when absent. Legacy photos
+                            that were never bg-removed have no separate original at all.
+
+    ai_enhanced_* (synthetic OpenAI backgrounds) and is_hidden photos are excluded from both.
+    """
+    listing = []
+    for p in item.gallery_photos:
+        if p.is_hidden or _fb_is_ai_enhanced(p.photo_url) or not p.photo_url:
+            continue
+        if p.photo_url not in listing:
+            listing.append(p.photo_url)
+    if not listing and item.photo_url and not _fb_is_ai_enhanced(item.photo_url):
+        listing.append(item.photo_url)
+
+    original_item = InventoryItem.query.filter_by(replaced_by_item_id=item.id).first()
+    if original_item:
+        originals = []
+        # The matched original may have a NULL cover but a populated gallery — confirmed
+        # present in production data. Do not assume photo_url exists.
+        if original_item.photo_url and not _fb_is_ai_enhanced(original_item.photo_url):
+            originals.append(original_item.photo_url)
+        for p in original_item.gallery_photos:
+            if p.is_hidden or _fb_is_ai_enhanced(p.photo_url) or not p.photo_url:
+                continue
+            if p.photo_url not in originals:
+                originals.append(p.photo_url)
+        return listing, originals, 'seller'
+
+    originals = []
+    for key in listing:
+        stem, dot, ext = key.rpartition('.')
+        if not dot or not stem.endswith('_nobg'):
+            continue
+        raw = stem[:-len('_nobg')] + '.' + ext
+        if raw in originals:
+            continue
+        try:
+            if photo_storage.exists(raw):
+                originals.append(raw)
+        except Exception:
+            logger.warning(f'fb-export: storage probe failed for {raw}', exc_info=True)
+    return listing, originals, 'warehouse'
+
+
+def _fb_export_query(unposted_only=True):
+    """Eligible items, in stable id order.
+
+    Reuses the exact /shop visibility definition via the shared clause helpers so the
+    export can never drift from what buyers actually see.
+    """
+    q = InventoryItem.query.options(
+        joinedload(InventoryItem.category),
+        joinedload(InventoryItem.subcategory),
+    ).filter(
+        InventoryItem.ai_approved == True,  # noqa: E712
+        InventoryItem.status == 'available',
+        InventoryItem.needs_new_photo == False,  # noqa: E712
+        InventoryItem.price.isnot(None),
+        InventoryItem.price > 0,
+        InventoryItem.storage_location_id.isnot(None),
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+        _rephotographed_clause(),
+        _matched_or_kept_clause(),
+    )
+    if unposted_only:
+        q = q.filter(InventoryItem.fb_posted_at.is_(None))
+    return q.order_by(InventoryItem.id)
+
+
+def _fb_slug(item):
+    """ASCII, filesystem-safe folder name for an item's photo bundle."""
+    base = (item.description or 'item').lower()
+    base = re.sub(r'[^a-z0-9]+', '-', base).strip('-')[:40].strip('-')
+    return f'item-{item.id}-{base}' if base else f'item-{item.id}'
+
+
+def _fb_zip_entries(item):
+    """[(archive_path, storage_key)] for one item's bundle, numbered in gallery order."""
+    listing, originals, _src = _fb_photo_buckets(item)
+    slug = _fb_slug(item)
+    view_by_key = {p.photo_url: p.view for p in item.gallery_photos if p.photo_url}
+    entries = []
+    for i, key in enumerate(listing, start=1):
+        view = view_by_key.get(key)
+        suffix = f'-{view}' if view else ''
+        ext = key.rpartition('.')[2] or 'jpg'
+        entries.append((f'{slug}/listing/{i:02d}{suffix}.{ext}', key))
+    for i, key in enumerate(originals, start=1):
+        ext = key.rpartition('.')[2] or 'jpg'
+        entries.append((f'{slug}/originals/{i:02d}.{ext}', key))
+    return entries
+
+
+def _fb_write_zip(items, fileobj):
+    """Write a ZIP of every item's bundle to `fileobj`. Returns (files_written, skipped).
+
+    ZIP_STORED, not DEFLATE: JPEGs do not recompress meaningfully and STORED is far
+    cheaper on CPU, which matters for the bulk archive (~1,450 photos).
+    """
+    written = skipped = 0
+    with zipfile.ZipFile(fileobj, 'w', zipfile.ZIP_STORED) as zf:
+        for item in items:
+            for arcname, key in _fb_zip_entries(item):
+                try:
+                    data = photo_storage.get_photo_bytes(key)
+                except Exception:
+                    logger.warning(f'fb-export: read failed for {key}', exc_info=True)
+                    data = None
+                if data is None:
+                    skipped += 1
+                    continue
+                zf.writestr(arcname, data)
+                written += 1
+    return written, skipped
+
+
+@app.route('/admin/fb-export')
+@login_required
+def fb_export():
+    """Focus mode: one item per screen, everything the worker needs to paste into FB."""
+    if not _has_marketplace_access():
+        abort(403)
+
+    unposted_only = request.args.get('unposted', '1') != '0'
+    items = _fb_export_query(unposted_only=unposted_only).all()
+
+    total_all = _fb_export_query(unposted_only=False).count()
+    posted_count = total_all - _fb_export_query(unposted_only=True).count()
+
+    if not items:
+        return render_template(
+            'admin/fb_export.html',
+            item=None, items_total=0, position=0,
+            total_all=total_all, posted_count=posted_count,
+            unposted_only=unposted_only,
+        )
+
+    position = request.args.get('i', 1, type=int)
+    position = max(1, min(position, len(items)))
+    item = items[position - 1]
+
+    listing_keys, original_keys, originals_source = _fb_photo_buckets(item)
+    fb_category, cs_category = _fb_category(item)
+
+    return render_template(
+        'admin/fb_export.html',
+        item=item,
+        items_total=len(items),
+        position=position,
+        total_all=total_all,
+        posted_count=posted_count,
+        unposted_only=unposted_only,
+        fb_price=_fb_price(item),
+        fb_category=fb_category,
+        cs_category=cs_category,
+        fb_condition=_fb_condition(),
+        fb_description=_fb_description(item),
+        listing_keys=listing_keys,
+        original_keys=original_keys,
+        originals_source=originals_source,
+    )
+
+
+@app.route('/admin/fb-export/<int:item_id>/posted', methods=['POST'])
+@login_required
+def fb_export_mark_posted(item_id):
+    """Toggle the posted flag in place. Fetch POST -> JSON, no page reload."""
+    if not _has_marketplace_access():
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+    item = InventoryItem.query.get_or_404(item_id)
+
+    payload = request.get_json(silent=True) or {}
+    posted = bool(payload.get('posted'))
+    url_val = (payload.get('fb_listing_url') or '').strip()[:300] or None
+
+    item.fb_posted_at = datetime.utcnow() if posted else None
+    item.fb_listing_url = url_val if posted else None
+    db.session.commit()
+    return jsonify({'success': True, 'posted': posted})
+
+
+@app.route('/admin/fb-export/<int:item_id>/photos.zip')
+@login_required
+def fb_export_item_zip(item_id):
+    """Per-item photo bundle: listing/ + originals/."""
+    if not _has_marketplace_access():
+        abort(403)
+    item = InventoryItem.query.get_or_404(item_id)
+    buf = io.BytesIO()
+    written, skipped = _fb_write_zip([item], buf)
+    if skipped:
+        logger.info(f'fb-export item {item_id}: {written} photos, {skipped} missing in storage')
+    buf.seek(0)
+    return send_file(
+        buf, mimetype='application/zip', as_attachment=True,
+        download_name=f'{_fb_slug(item)}.zip',
+    )
+
+
+@app.route('/admin/fb-export/photos.zip')
+@login_required
+def fb_export_bulk_zip():
+    """Bulk photo bundle, one folder per item.
+
+    Chunked via ?offset= & ?limit= (default 50 items) — the full set is ~1,450 photos
+    and 500MB-1GB, and a single download that size is fragile. Streams from a temp file
+    rather than building the whole archive in memory.
+    """
+    if not _has_marketplace_access():
+        abort(403)
+
+    unposted_only = request.args.get('unposted', '1') != '0'
+    offset = max(0, request.args.get('offset', 0, type=int))
+    limit = request.args.get('limit', 50, type=int)
+    limit = max(1, min(limit, 500))
+
+    items = _fb_export_query(unposted_only=unposted_only).offset(offset).limit(limit).all()
+    if not items:
+        abort(404)
+
+    tmp = tempfile.NamedTemporaryFile(suffix='.zip', delete=False)
+    try:
+        written, skipped = _fb_write_zip(items, tmp)
+        tmp.flush()
+        tmp.close()
+        logger.info(
+            f'fb-export bulk: {len(items)} items, {written} photos, {skipped} missing '
+            f'(offset={offset}, limit={limit})'
+        )
+        last = offset + len(items)
+        resp = send_file(
+            tmp.name, mimetype='application/zip', as_attachment=True,
+            download_name=f'campusswap-fb-photos-{offset + 1}-{last}.zip',
+        )
+        # Delete the temp file once the response has been fully sent.
+        @resp.call_on_close
+        def _cleanup():
+            try:
+                os.remove(tmp.name)
+            except OSError:
+                pass
+        return resp
+    except Exception:
+        try:
+            tmp.close()
+            os.remove(tmp.name)
+        except OSError:
+            pass
+        raise
+
+
+@app.route('/admin/user/grant-marketplace-poster', methods=['POST'])
+@login_required
+def admin_grant_marketplace_poster():
+    """Grant is_marketplace_poster to a user by email. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    email = request.form.get('email', '').strip().lower()
+    if not email:
+        flash("Email is required.", "error")
+        return redirect(url_for('admin_settings') + '#marketplace-posters')
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash("No account with that email exists. The user must sign up first.", "error")
+        return redirect(url_for('admin_settings') + '#marketplace-posters')
+    if user.is_admin or user.is_super_admin:
+        flash("This user already has full admin access.", "error")
+        return redirect(url_for('admin_settings') + '#marketplace-posters')
+    user.is_marketplace_poster = True
+    db.session.commit()
+    flash(f"Marketplace poster access granted to {user.full_name or email}.", "success")
+    return redirect(url_for('admin_settings') + '#marketplace-posters')
+
+
+@app.route('/admin/user/revoke-marketplace-poster', methods=['POST'])
+@login_required
+def admin_revoke_marketplace_poster():
+    """Revoke is_marketplace_poster from a user by ID. Super admin only."""
+    if not current_user.is_super_admin:
+        abort(403)
+    user_id = request.form.get('user_id', type=int)
+    user = User.query.get_or_404(user_id)
+    user.is_marketplace_poster = False
+    db.session.commit()
+    flash(f"Marketplace poster access revoked from {user.full_name or user.email}.", "success")
+    return redirect(url_for('admin_settings') + '#marketplace-posters')
+
 
 
 if __name__ == '__main__':

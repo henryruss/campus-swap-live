@@ -1940,3 +1940,87 @@ None — built exactly as specced.
 - Off-season copy in `index.html` links to `url_for('about')` — confirm that route exists (it does as of last check)
 - Hero mosaic uses `loading="lazy"` — first paint above fold on desktop may show placeholder bg color briefly on slow connections. Acceptable for now; revisit if measured as a problem.
 - CODEBASE.md: interactive room location corrected (was `index.html`, actually `become_a_seller.html`)
+
+---
+
+## Facebook Marketplace Export (feature_fb_marketplace_export) — 2026-07-31
+
+**Status:** Complete — in dev, pending deploy. Spec: `feature_fb_marketplace_export.md`
+
+### Why
+A data-entry worker is manually recreating every live shop listing on Facebook Marketplace.
+FB has no bulk import for local (non-shipped) listings — Commerce Manager catalog upload is
+for shipped inventory only — so every listing is hand-entered. This tool optimizes
+clicks-per-listing rather than producing an export file. A spreadsheet was rejected mainly
+because photos can't travel in one: FB's uploader needs real files on the worker's machine.
+
+**Scale:** 287 shop-eligible items at time of build (~10–15 hrs of work across many sessions,
+which is why progress is tracked server-side).
+
+### What was built
+- `models.py`: `InventoryItem.fb_posted_at` (DateTime), `InventoryItem.fb_listing_url` (String 300),
+  `User.is_marketplace_poster` (Boolean, server_default false).
+- `constants.py`: `FB_SHIPPING_TIERS`, `FB_PRICE_MARKUP_DEFAULT`, `FB_CONDITION_DEFAULT`,
+  `FB_CTA_DEFAULT`, `FB_CATEGORY_MAP` (42 subcategories), `FB_TITLE_KEYWORD_CATEGORIES` (29 rules).
+- `app.py` helpers: `_has_marketplace_access()`, `_fb_price()`, `_fb_category()`, `_fb_description()`,
+  `_fb_condition()`, `_fb_photo_buckets()`, `_fb_export_query()`, `_fb_slug()`, `_fb_zip_entries()`,
+  `_fb_write_zip()`.
+- Routes: `GET /admin/fb-export` (focus mode), `POST /admin/fb-export/<id>/posted`,
+  `GET /admin/fb-export/<id>/photos.zip`, `GET /admin/fb-export/photos.zip` (chunked bulk),
+  `POST /admin/user/grant-marketplace-poster`, `POST /admin/user/revoke-marketplace-poster`.
+- `templates/admin/fb_export.html` — new. Extends `layout.html`, **not** `admin_layout.html`:
+  the poster is not an admin, so the admin sidebar would show a dozen links that all 403.
+- `templates/admin/settings.html` — new "Marketplace Posters" section (`#marketplace-posters`),
+  grant-by-email / revoke, mirrors the campus-director pattern. Super admin only.
+- Migration `480cd6c9c8ba_fb_marketplace_export_fields` — applied to `campusswap` and
+  `campusswap_prod`. Hand-rewritten to plain Postgres `op.add_column` (autogenerate emitted
+  `batch_alter_table`, which is SQLite-only and banned by CLAUDE.md).
+- `test_fb_export.py` — 59 tests, all passing.
+
+### Key decisions
+- **Auth is a dedicated `is_marketplace_poster` flag, NOT `require_crew()`.** `require_crew()` is a
+  single global check with no granularity, so it would also open `/crew/availability` and drop a
+  data-entry temp into the auto-assignment staffing pool. `is_worker` stays False on posters.
+  Verified: poster gets 200 on `/admin/fb-export` and non-200 on every admin/crew/ops route.
+- **Pricing is tiered, not flat.** `ceil((price + tier_add) * 1.1)` where tier_add is $5/$10/$15
+  under $50 / under $100 / $100+. A flat $15 add was the original spec but median price is $55 and
+  47% of inventory is under $50, so it inverted the incentive (+119% on a $16 lamp, +16% on a $287
+  couch). Tiers hold markup near 25–30% catalog-wide. Markup multiplier is AppSetting
+  `fb_price_markup`; tiers are constants.
+- **Condition is one hardcoded value, `Used - Good`, with no worker override.** `quality` defaults
+  to 1, 233 of 305 items sit at that default, and quality 2 has *zero* rows — so quality==1 means
+  "never assessed", not "poor". `quality_to_label()` would have tagged ~76% of the catalog "Fair".
+- **`originals/` photo bucket has two sources.** If a matched seller original exists, use *its*
+  photos (128 items) — genuinely different shots of the item in the seller's room. Otherwise fall
+  back to pre-bg-removal raws derived by dropping `_nobg` (159 items). Note the FK direction:
+  `replaced_by_item_id` lives on the ORIGINAL and points at the shop item, so the lookup is
+  `filter_by(replaced_by_item_id=item.id)`. `ai_enhanced_*` and `is_hidden` excluded from both.
+- Derived original filenames are **not DB rows** — probe `photo_storage.exists()` and skip misses.
+  A matched original can have NULL `photo_url` but a populated gallery (confirmed in prod data).
+- Bulk ZIP is chunked (`?offset=`/`?limit=`, default 50 items) and streams from a temp file with
+  `@resp.call_on_close` cleanup. Full set is ~1,450 photos / 500MB–1GB; a single download that
+  size is fragile. `ZIP_STORED` not DEFLATE — JPEGs don't recompress and STORED is far cheaper.
+- Unmapped categories return `None`, and the UI prompts the worker to choose on FB rather than
+  offering a misleading value to paste. Keyword fallback cut unmapped from 17 items to 1.
+
+### Deploy checklist
+1. Push to main → Render auto-deploys
+2. In Render shell: `flask db upgrade` (applies `480cd6c9c8ba`)
+3. `/admin/settings#marketplace-posters` → grant access by email (the worker must sign up first)
+4. Smoke test `/admin/fb-export` as the poster; confirm a per-item ZIP downloads
+
+### Caveats / follow-up
+- **Not built (deliberately deferred):** the sold/takedown loop. Two halves:
+  (a) item sells on the site → the FB listing must come down. `status=='sold' AND fb_posted_at IS
+  NOT NULL` is already the queue, no further migration needed.
+  (b) worker closes a deal *on Facebook* → needs a "mark sold for pickup" flow. This is the harder
+  one: no Stripe payment, so no `BuyerOrder`, but the seller payout is still owed. Needs a spec
+  covering how it enters payout reconciliation. Both actions should gate on
+  `_has_marketplace_access()` — no new migration required.
+- `FB_CATEGORY_MAP` values are best-effort; FB's taxonomy shifts. Have the worker verify the first
+  few live and report corrections.
+- **Separate pre-existing issue surfaced during this work:** the quality=1 default makes the *live
+  shop* display "Fair" on 233 of 305 items. Untouched here. Likely a larger revenue lever than the
+  FB listings themselves.
+- 4 failures in `test_cart_bundle.py` are pre-existing (verified by stashing this branch's changes
+  and re-running) — 2 cart-hold timing tests, 1 needing `stripe_flexible_coupon_id`, 1 cart badge.
