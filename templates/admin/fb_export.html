@@ -253,6 +253,18 @@
       <div class="fbx-value fbx-value--static">{{ fb_condition }}</div>
     </div>
 
+    {% if stock_count and stock_count > 1 %}
+      {# Multi-unit stock collapses to one listing, so the count has to be visible here or
+         the poster has no idea there are more than one of these in the warehouse. #}
+      <div class="fbx-field">
+        <span class="fbx-label">Quantity available</span>
+        <div class="fbx-value fbx-value--static">
+          <strong>{{ stock_count }} identical units</strong> &mdash; post ONE listing.
+          Mention the quantity in your message replies, and relist after each sale.
+        </div>
+      </div>
+    {% endif %}
+
     <div class="fbx-field">
       <span class="fbx-label">Listing photos &mdash; upload these to Facebook</span>
       {% if listing_keys %}

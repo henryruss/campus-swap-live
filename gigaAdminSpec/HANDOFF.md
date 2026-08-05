@@ -2171,3 +2171,103 @@ Filter tests use a new `categorized_items` fixture that builds its own category 
 eligible items — an earlier version read ambient DB data and silently **skipped** all six on
 `campusswap_prod`, which has no categorized eligible inventory.
 Full safe sweep: 193 passing.
+
+---
+
+## FB Export — Stock Collapse, Shared Eligibility, Flat ZIP, 30-mile Radius — 2026-08-05
+
+**Status:** Complete — committed and pushed. No migration.
+
+### Bug found: export showed 287 items, /shop showed 215
+
+`/shop` collapses multi-unit stock to one card per `stock_group_id`; `_fb_export_query` did not.
+Campus Swap owns 37 identical white foam mattresses and 37 identical IKEA black dressers, so the
+export listed 74 units for what is really 2 products. The worker would have created **74 Facebook
+listings**, including **37 byte-identical posts** — a far stronger spam signal than any repeated
+CTA text, and the single most likely way to get the account banned.
+
+**Why the test missed it:** `test_export_set_matches_shop_visibility` hand-copied the shop's seven
+filter clauses and compared counts. It reproduced the filters but omitted the collapse that follows
+them, so it compared the export against its own incomplete copy of `/shop` and passed while the
+real sets differed by 72. A test that duplicates the logic it checks will always agree with itself.
+
+### Fix — single source of truth
+- `_shop_eligible_clauses()` — the 9 buyer-visibility clauses, returned as a tuple.
+- `_stock_group_collapse_clause()` — the NOT EXISTS that keeps only the lowest-id available unit.
+- **Both** `/shop` (`inventory()`) and `_fb_export_query()` now apply these two helpers. Nothing
+  re-lists the conditions inline.
+- Verified the shop refactor is behaviour-preserving: old and new query forms return identical id
+  sets (215 items, empty symmetric difference). The dropped `status != 'rejected'` clause was
+  redundant alongside `status == 'available'`.
+- `test_export_set_matches_shop_visibility` now calls the shared helpers. Added
+  `test_multi_unit_stock_collapses_to_one_listing`, which asserts the *behaviour* (3 grouped units
+  → exactly 1 in the export, the lowest id) so parity can't be satisfied by breaking both surfaces
+  together.
+- Export card gained a **Quantity available** field (`item.stock_available_count`) reading
+  "37 identical units — post ONE listing", since collapsing otherwise hides that there are more.
+
+### ZIP is now one flat folder per item
+Was `slug/listing/01-front.jpg` + `slug/originals/01.jpg`. Both subfolders restarted numbering at
+01, so merging them by hand collided and lost the intended order (Henry's Finder was sorting
+descending and the back photo went in first, becoming the FB thumbnail).
+
+Now a single continuous sequence: `01-front.jpg`, `02-side.jpg`, `03-back.jpg`, `04-extra.jpg`, …
+Ascending name sort == intended upload order, asserted by
+`test_zip_numbering_sorts_into_upload_order`. All photos get uploaded anyway (decided 2026-07-31),
+so the split served no purpose.
+
+**Remaining caveat this cannot fix:** the file manager's sort direction. If Finder is set to
+descending, select-all-and-drag still feeds photos in reverse. Sort by Name ascending before
+dragging.
+
+### Radius 20 -> 30 miles
+All four `FB_CTA_VARIANTS` now say 30 miles of Chapel Hill.
+
+**RESOLVED — the delivery system now honours 30 miles** (Henry's call, 2026-08-05). The FB copy
+briefly advertised 30 while checkout still enforced 20, which would have sent buyers 20-30 miles
+out to a "we don't deliver there" error.
+
+- `DELIVERY_ZONE_BOUNDARIES_DEFAULT = '5,10,15,20,30'` and `DELIVERY_ZONE_FEES_DEFAULT =
+  '15,20,25,30,40'` added to `constants.py`; `calculate_delivery_zone()` and the
+  `max_delivery_miles` computation both read them. Zones 1-4 and their fees are **unchanged**, so
+  no existing customer's pricing moves — only a new zone 5 is added.
+- **The new 20-30 mile band is priced at $40.** It is a 10-mile band (twice the width of the
+  others), so $40 keeps roughly the $5-per-5-miles rate. One AppSetting to change.
+- Both hardcoded "20 miles" strings are now derived from the config: the checkout error message
+  interpolates `max_delivery_miles`, and `checkout_delivery.html:161` uses the same template
+  variable that lines 207 and 244 already used. A literal is what let the copy drift in the first
+  place — nothing states the radius as a constant any more.
+- Verified end to end through the real cart -> checkout flow: page reads "within 30 miles of
+  campus", JS guard `maxMiles = 30.0`, no stale "20 miles" anywhere. Zone probe: 3mi $15, 12mi $25,
+  18mi $30, 24mi $40, 29mi $40, 31mi refused.
+- `MAX_DELIVERY_MILES_DEFAULT = 30.0` replaces the two inline `20.0` fallbacks.
+
+### Tests
+`test_fb_export.py` 81 passing (was 77). Wider sweep 223 passing; the 4 `test_cart_bundle.py`
+failures are pre-existing (verified earlier by stashing this branch's changes).
+
+### ⚠️ Testing hazard hit twice during this work — read before running pytest
+`campusswap_prod` was wiped twice (down to `alembic_version`) by widening a pytest invocation.
+**Nine suites** call `drop_all()` against the configured Postgres DB, via three different
+mechanisms, so grepping for one pattern is not enough:
+
+1. Consume the root `conftest.py` `app`/`db`/`make_user` fixtures — `test_delivery.py`,
+   `test_pickup_location.py`, `test_route_planning.py`, `test_sms_notifications.py`,
+   `test_seller_progress_tracker.py`, `test_unified_item_submission.py`
+2. Call `db.drop_all()` directly in their own fixtures — `test_payout_boost.py`, `test_referral.py`
+3. Import fixtures from `tests/conftest.py`, which also repoints to SQLite then drops —
+   `test_warehouse_cost_addendum.py`
+
+The reassignment of `SQLALCHEMY_DATABASE_URI` to a temp SQLite path does not help: the engine is
+already bound to Postgres at import time (the root conftest sets `DATABASE_URL` before any app
+import), so `drop_all()` hits Postgres regardless.
+
+**Verified-safe set** (223 passed, DB intact): `test_fb_export.py`, `test_delivery_fees.py`,
+`test_cart_bundle.py`, `test_warehouse_rephotography.py`, `test_ai_autofill_revamp.py`,
+`test_background_removal.py`. The 4 `test_cart_bundle.py` failures are pre-existing.
+
+**Recovery** — `campusswap_prod` is a local test snapshot only; production on Render is unaffected:
+```
+dropdb --if-exists campusswap_prod && createdb campusswap_prod
+pg_dump campusswap | psql -q campusswap_prod
+```

@@ -15,6 +15,7 @@ from app import (
     _fb_price, _fb_category, _fb_description, _fb_condition,
     _fb_photo_buckets, _fb_export_query, _fb_slug, _fb_zip_entries,
     _fb_export_category_options, _fb_export_filter_label,
+    _shop_eligible_clauses, _stock_group_collapse_clause,
     _has_marketplace_access,
 )
 from models import User, InventoryItem, ItemPhoto, InventoryCategory, AppSetting
@@ -322,14 +323,14 @@ def test_description_has_cta_and_url(app_ctx, make_item):
     out = _fb_description(item)
     assert 'A sturdy oak desk.' in out
     assert 'https://usecampusswap.com/shop' in out
-    assert '20 mile' in out.lower()
+    assert '30 mile' in out.lower()
 
 
 def test_cta_variants_all_carry_the_required_facts(app_ctx):
     """Rotating the prose must never drop the radius, the URL, or emoji-freeness."""
     for i, v in enumerate(FB_CTA_VARIANTS):
         assert 'usecampusswap.com/shop' in v, f'variant {i} missing URL'
-        assert '20 mile' in v.lower(), f'variant {i} missing radius'
+        assert '30 mile' in v.lower(), f'variant {i} missing radius'
         assert all(ord(ch) < 0x2190 for ch in v), f'variant {i} has an emoji/symbol'
 
 
@@ -515,36 +516,101 @@ def test_slug_is_ascii_and_bounded(app_ctx, make_item):
     assert '/' not in slug and ' ' not in slug
 
 
-def test_zip_entries_split_listing_and_originals(app_ctx, make_item, add_photo, fake_storage):
+def test_zip_is_one_flat_folder_per_item(app_ctx, make_item, add_photo, fake_storage):
+    """No listing/ + originals/ split — one folder, one continuous sequence."""
     item = make_item()
     add_photo(item, 'a_nobg.jpg', view='front')
     add_photo(item, 'b_nobg.jpg', view='side')
     fake_storage.present.update({'a.jpg', 'b.jpg'})
-    entries = dict((arc, key) for arc, key in _fb_zip_entries(item))
+    entries = [arc for arc, _key in _fb_zip_entries(item)]
     slug = _fb_slug(item)
-    assert f'{slug}/listing/01-front.jpg' in entries
-    assert f'{slug}/listing/02-side.jpg' in entries
-    assert f'{slug}/originals/01.jpg' in entries
-    assert f'{slug}/originals/02.jpg' in entries
+    assert entries == [
+        f'{slug}/01-front.jpg',
+        f'{slug}/02-side.jpg',
+        f'{slug}/03-extra.jpg',
+        f'{slug}/04-extra.jpg',
+    ]
+    assert all(a.count('/') == 1 for a in entries), 'must be flat'
+
+
+def test_zip_numbering_sorts_into_upload_order(app_ctx, make_item, add_photo, fake_storage):
+    """Ascending filename sort must equal intended upload order, so select-all-and-drag
+    puts the cover photo first instead of the back shot — which is what happened when the
+    two subfolders each restarted numbering at 01."""
+    item = make_item()
+    for key, view in [('a_nobg.jpg', 'front'), ('b_nobg.jpg', 'side'), ('c_nobg.jpg', 'back')]:
+        add_photo(item, key, view=view)
+    fake_storage.present.update({'a.jpg', 'b.jpg', 'c.jpg'})
+    names = [arc.split('/')[-1] for arc, _k in _fb_zip_entries(item)]
+    assert names == sorted(names), 'name-sort order must match generated order'
+    assert names[0].startswith('01-front'), 'cover photo must sort first'
+    assert len(set(names)) == len(names), 'no filename collisions'
 
 
 # ─────────────────────────── eligibility ───────────────────────────
 
-def test_export_set_matches_shop_visibility(app_ctx, client_admin):
-    """The export must never drift from what buyers see on /shop."""
-    from app import _rephotographed_clause, _matched_or_kept_clause
+def test_export_set_matches_shop_visibility(app_ctx):
+    """The export must never drift from what buyers see on /shop.
+
+    Calls the SHARED helpers rather than re-listing the conditions. The previous version
+    hand-copied the filter clauses and omitted the stock-group collapse, so it compared
+    the export against its own incomplete copy of /shop and passed while the real sets
+    differed by 72 items (287 vs 215). A test that duplicates the logic it checks will
+    always agree with itself.
+    """
     shop_count = InventoryItem.query.filter(
-        InventoryItem.ai_approved == True,  # noqa: E712
-        InventoryItem.status == 'available',
-        InventoryItem.needs_new_photo == False,  # noqa: E712
-        InventoryItem.price.isnot(None),
-        InventoryItem.price > 0,
-        InventoryItem.storage_location_id.isnot(None),
-        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
-        _rephotographed_clause(),
-        _matched_or_kept_clause(),
+        *_shop_eligible_clauses(), _stock_group_collapse_clause()
     ).count()
     assert _fb_export_query(unposted_only=False).count() == shop_count
+
+
+def _make_stock_group(make_item, add_photo, tag, n=3, price=80.0):
+    """n eligible items sharing one stock_group_id. Returns the created items."""
+    from models import StorageLocation
+    loc = StorageLocation.query.first()
+    if loc is None:
+        pytest.skip('no StorageLocation in this database')
+    group = f'fbtest-{tag}-{datetime.utcnow().timestamp()}'
+    units = []
+    for i in range(n):
+        it = make_item(
+            description=f'FBTest {tag} unit {i}', price=price, status='available',
+            ai_approved=True, needs_new_photo=False, storage_location_id=loc.id,
+            rephoto_disposition='kept', stock_group_id=group,
+        )
+        add_photo(it, f'fbtest_{tag}_{it.id}_front_nobg.jpg', view='front')
+        units.append(it)
+    db.session.commit()
+    return group, units
+
+
+def test_multi_unit_stock_collapses_to_one_listing(app_ctx, tracked, make_item, add_photo):
+    """37 identical mattresses are ONE Facebook listing, not 37.
+
+    This is the behavioural assertion the parity test cannot make on its own — parity
+    would still hold if /shop and the export were both changed the wrong way together.
+    """
+    _group, units = _make_stock_group(make_item, add_photo, 'collapse')
+    ids = {i.id for i in _fb_export_query(unposted_only=False).all()}
+    present = ids & {u.id for u in units}
+    assert len(present) == 1, f'expected 1 of 3 grouped units, got {len(present)}'
+    assert present == {min(u.id for u in units)}, 'should keep the lowest-id unit'
+
+
+def test_stock_count_surfaced_for_grouped_item(app_ctx, tracked, make_item, add_photo):
+    """The poster must be told there are N units, or they list 1 of 37 unknowingly."""
+    group, _units = _make_stock_group(make_item, add_photo, 'count')
+    kept = next(i for i in _fb_export_query(unposted_only=False).all()
+                if i.stock_group_id == group)
+    assert kept.stock_available_count == 3
+
+
+def test_grouped_page_shows_quantity(client_admin, app_ctx, tracked, make_item, add_photo):
+    group, _units = _make_stock_group(make_item, add_photo, 'qty')
+    items = _fb_export_query(unposted_only=False).all()
+    pos = next(n for n, i in enumerate(items, start=1) if i.stock_group_id == group)
+    body = client_admin.get(f'/admin/fb-export?unposted=0&i={pos}').get_data(as_text=True)
+    assert '3 identical units' in body
 
 
 def test_unposted_filter_reflects_posted_flag(app_ctx, eligible_item):

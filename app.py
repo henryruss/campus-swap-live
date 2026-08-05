@@ -95,6 +95,7 @@ from constants import (
     WAREHOUSE_CAPACITY,
     HOMEPAGE_FEATURED_LIMIT, HOMEPAGE_HERO_TILE_LIMIT, HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES,
     get_price_range_for_category,
+    DELIVERY_ZONE_BOUNDARIES_DEFAULT, DELIVERY_ZONE_FEES_DEFAULT, MAX_DELIVERY_MILES_DEFAULT,
     FB_SHIPPING_TIERS, FB_PRICE_MARKUP_DEFAULT, FB_CONDITION_DEFAULT,
     FB_CTA_DEFAULT, FB_CTA_VARIANTS, FB_CATEGORY_MAP, FB_TITLE_KEYWORD_CATEGORIES,
 )
@@ -224,8 +225,8 @@ def calculate_delivery_zone(distance_miles):
     hardcoded fallback defaults so a missing row never breaks checkout.
     Upper bounds are inclusive (distance <= boundary).
     """
-    boundaries_raw = AppSetting.get('delivery_zone_boundaries', '5,10,15,20')
-    fees_raw = AppSetting.get('delivery_zone_fees', '15,20,25,30')
+    boundaries_raw = AppSetting.get('delivery_zone_boundaries', DELIVERY_ZONE_BOUNDARIES_DEFAULT)
+    fees_raw = AppSetting.get('delivery_zone_fees', DELIVERY_ZONE_FEES_DEFAULT)
     boundaries = [float(b.strip()) for b in boundaries_raw.split(',')]
     fees = [Decimal(f.strip()) for f in fees_raw.split(',')]
     for zone_idx, boundary in enumerate(boundaries):
@@ -1536,6 +1537,47 @@ def _rephotographed_clause():
     )
 
 
+def _shop_eligible_clauses():
+    """The complete set of filters that decide whether an item is buyer-visible.
+
+    SINGLE SOURCE OF TRUTH — apply these (and _stock_group_collapse_clause) anywhere
+    that needs "what's actually for sale", rather than re-listing the conditions.
+    Hand-copying them is how /admin/fb-export came to show 287 items while /shop showed
+    215: the copy reproduced these clauses but omitted the stock-group collapse.
+    """
+    return (
+        InventoryItem.ai_approved == True,  # noqa: E712
+        InventoryItem.status == 'available',
+        InventoryItem.needs_new_photo == False,  # noqa: E712
+        InventoryItem.price.isnot(None),
+        InventoryItem.price > 0,
+        InventoryItem.storage_location_id.isnot(None),
+        # Never surface a discarded (junk/duplicate) rephoto item, even if otherwise sellable.
+        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
+        # Shop-ready means: re-photographed + has storage (above) + matched to a real
+        # seller or kept by Campus Swap.
+        _rephotographed_clause(),
+        _matched_or_kept_clause(),
+    )
+
+
+def _stock_group_collapse_clause():
+    """Collapse each stock_group_id to ONE row — the lowest-id still-available unit.
+
+    Multi-unit stock (Design B) stores each physical unit as its own InventoryItem so the
+    sale/payout/delivery chain works per-unit, but 37 identical mattresses must surface as
+    a single listing. Ungrouped items (NULL group) are always kept.
+    """
+    from sqlalchemy.orm import aliased as _aliased
+    _dup = _aliased(InventoryItem)
+    return ~db.session.query(_dup.id).filter(
+        InventoryItem.stock_group_id.isnot(None),
+        _dup.stock_group_id == InventoryItem.stock_group_id,
+        _dup.status == 'available',
+        _dup.id < InventoryItem.id,
+    ).exists()
+
+
 def _matched_or_kept_clause():
     """Ownership gate: the item is either matched to a real seller (a non-internal
     account) OR kept by Campus Swap (rephoto_disposition == 'kept').
@@ -2076,38 +2118,15 @@ def inventory():
     if not show_size_filter:
         size_filters = []
 
-    # Items appear on shop only when admin-approved (ai_approved=True) and status=available
-    _visible = and_(
-        InventoryItem.ai_approved == True,
-        InventoryItem.status == 'available',
-        InventoryItem.needs_new_photo == False,
-    )
+    # Buyer visibility + multi-unit collapse both come from the shared helpers, so any
+    # other surface that lists "what's for sale" stays in lockstep with this page.
     query = InventoryItem.query.join(InventoryItem.seller, isouter=True).options(
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.seller)
     ).filter(
-        _visible,
-        InventoryItem.status != 'rejected',
-        InventoryItem.price.isnot(None),
-        InventoryItem.price > 0,
-        InventoryItem.storage_location_id.isnot(None),
-        # Never surface a discarded (junk/duplicate) rephoto item, even if otherwise sellable.
-        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
-        # Shop the Drop shows ONLY shop-ready items: re-photographed + has storage
-        # (enforced above) + matched to a real seller or kept by Campus Swap.
-        _rephotographed_clause(),
-        _matched_or_kept_clause(),
+        *_shop_eligible_clauses(),
+        _stock_group_collapse_clause(),
     )
-    # Multi-unit stock (Design B): collapse each stock_group_id to ONE card — the
-    # lowest-id still-available unit. Ungrouped items (NULL group) are always shown.
-    from sqlalchemy.orm import aliased as _aliased
-    _dup = _aliased(InventoryItem)
-    query = query.filter(~db.session.query(_dup.id).filter(
-        InventoryItem.stock_group_id.isnot(None),
-        _dup.stock_group_id == InventoryItem.stock_group_id,
-        _dup.status == 'available',
-        _dup.id < InventoryItem.id,
-    ).exists())
     # FUTURE: add location/store filter here as one more .filter(...) clause
 
     # Apply category filter (use InventoryItem explicitly; join can make filter_by ambiguous)
@@ -3010,10 +3029,13 @@ def checkout_delivery():
     except (TypeError, ValueError):
         wh_lat_f, wh_lng_f = float(WAREHOUSE_DEFAULT_LAT), float(WAREHOUSE_DEFAULT_LNG)
     try:
-        _boundaries = [float(b.strip()) for b in AppSetting.get('delivery_zone_boundaries', '5,10,15,20').split(',')]
-        max_delivery_miles = max(_boundaries) if _boundaries else 20.0
+        _boundaries = [
+            float(b.strip()) for b in
+            AppSetting.get('delivery_zone_boundaries', DELIVERY_ZONE_BOUNDARIES_DEFAULT).split(',')
+        ]
+        max_delivery_miles = max(_boundaries) if _boundaries else MAX_DELIVERY_MILES_DEFAULT
     except (TypeError, ValueError):
-        max_delivery_miles = 20.0
+        max_delivery_miles = MAX_DELIVERY_MILES_DEFAULT
     map_ctx = {
         'google_maps_key': gmaps_key,
         'warehouse_lat': wh_lat_f,
@@ -3059,7 +3081,12 @@ def checkout_delivery():
     if zone_result is None:
         return render_template('checkout_delivery.html', cart_items=cart_items,
                                form=form_data,
-                               error="Sorry, we currently only deliver within 20 miles of campus. Your address is outside our delivery area.",
+                               # Derived from the zone config, never hardcoded — a literal
+                               # here silently contradicts the real radius the moment the
+                               # boundaries change (it advertised 20 after the move to 30).
+                               error=(f"Sorry, we currently only deliver within "
+                                      f"{max_delivery_miles:.0f} miles of campus. "
+                                      f"Your address is outside our delivery area."),
                                **map_ctx)
 
     zone_number, zone_fee = zone_result
@@ -19798,15 +19825,11 @@ def _fb_export_query(unposted_only=True, category_id=None, subcategory_id=None):
         joinedload(InventoryItem.category),
         joinedload(InventoryItem.subcategory),
     ).filter(
-        InventoryItem.ai_approved == True,  # noqa: E712
-        InventoryItem.status == 'available',
-        InventoryItem.needs_new_photo == False,  # noqa: E712
-        InventoryItem.price.isnot(None),
-        InventoryItem.price > 0,
-        InventoryItem.storage_location_id.isnot(None),
-        InventoryItem.rephoto_disposition.is_distinct_from('discarded'),
-        _rephotographed_clause(),
-        _matched_or_kept_clause(),
+        *_shop_eligible_clauses(),
+        # One listing per stock group. 37 identical mattresses are ONE Facebook listing:
+        # posting each unit separately would be 36 wasted listings and, worse, 37
+        # byte-identical posts — a far stronger spam signal than any repeated CTA text.
+        _stock_group_collapse_clause(),
     )
     if unposted_only:
         q = q.filter(InventoryItem.fb_posted_at.is_(None))
@@ -19877,19 +19900,36 @@ def _fb_slug(item):
 
 
 def _fb_zip_entries(item):
-    """[(archive_path, storage_key)] for one item's bundle, numbered in gallery order."""
+    """[(archive_path, storage_key)] for one item's bundle.
+
+    ONE flat folder per item, numbered in a single continuous sequence — cutouts first,
+    then the extra/original shots. Two reasons it is flat rather than listing/ +
+    originals/ subfolders:
+
+      1. All the photos get uploaded to the listing anyway (decided 2026-07-31), so
+         splitting them just makes the poster drag from two places.
+      2. Separate folders each restarted at 01, so merging them by hand collided
+         (01.jpg vs 01-front.jpg) and lost the intended order.
+
+    A single zero-padded ascending sequence means "select all, drag" lands the cover
+    photo first — as long as the file manager is sorting by name ascending, which is
+    the one thing this cannot control.
+    """
     listing, originals, _src = _fb_photo_buckets(item)
     slug = _fb_slug(item)
     view_by_key = {p.photo_url: p.view for p in item.gallery_photos if p.photo_url}
     entries = []
-    for i, key in enumerate(listing, start=1):
+    seq = 1
+    for key in listing:
         view = view_by_key.get(key)
         suffix = f'-{view}' if view else ''
         ext = key.rpartition('.')[2] or 'jpg'
-        entries.append((f'{slug}/listing/{i:02d}{suffix}.{ext}', key))
-    for i, key in enumerate(originals, start=1):
+        entries.append((f'{slug}/{seq:02d}{suffix}.{ext}', key))
+        seq += 1
+    for key in originals:
         ext = key.rpartition('.')[2] or 'jpg'
-        entries.append((f'{slug}/originals/{i:02d}.{ext}', key))
+        entries.append((f'{slug}/{seq:02d}-extra.{ext}', key))
+        seq += 1
     return entries
 
 
@@ -19980,6 +20020,7 @@ def fb_export():
         cs_category=cs_category,
         fb_condition=_fb_condition(),
         fb_description=_fb_description(item),
+        stock_count=item.stock_available_count,
         listing_keys=listing_keys,
         original_keys=original_keys,
         originals_source=originals_source,

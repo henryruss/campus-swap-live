@@ -156,7 +156,9 @@
   <div class="card delivery-form-card">
     <h1>Where should we deliver?</h1>
     <p class="text-muted">
-      We deliver to addresses within 20 miles of campus.
+      {# Driven by the zone config (same value the map radius and JS guard use) so this
+         copy can never contradict the real delivery radius. #}
+      We deliver to addresses within {{ max_delivery_miles|round|int }} miles of campus.
       Delivery pricing is calculated from your address.
     </p>
 

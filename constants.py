@@ -257,11 +257,11 @@ FB_CONDITION_DEFAULT = 'Used - Good'
 # Marketplace spam detection targets. Varying the prose weakens that signal — it does NOT
 # eliminate it, since the URL itself stays constant. Posting velocity is the bigger lever.
 #
-# Every variant must state: the 20-mile Chapel Hill radius, the shop URL, and that more
+# Every variant must state: the 30-mile Chapel Hill radius, the shop URL, and that more
 # inventory is listed there. No emojis — they render inconsistently in FB descriptions.
 FB_CTA_VARIANTS = [
     (
-        "Local delivery available within 20 miles of Chapel Hill.\n"
+        "Local delivery available within 30 miles of Chapel Hill.\n"
         "\n"
         "Delivery and discounts available through our website:\n"
         "https://usecampusswap.com/shop\n"
@@ -270,7 +270,7 @@ FB_CTA_VARIANTS = [
         "and delivery pricing on every listing."
     ),
     (
-        "We deliver anywhere within 20 miles of Chapel Hill.\n"
+        "We deliver anywhere within 30 miles of Chapel Hill.\n"
         "\n"
         "Book delivery and see current discounts on our site:\n"
         "https://usecampusswap.com/shop\n"
@@ -279,7 +279,7 @@ FB_CTA_VARIANTS = [
         "each with measurements and a delivery quote up front."
     ),
     (
-        "Delivery available to any address within 20 miles of Chapel Hill.\n"
+        "Delivery available to any address within 30 miles of Chapel Hill.\n"
         "\n"
         "Full catalog, delivery booking, and bundle discounts:\n"
         "https://usecampusswap.com/shop\n"
@@ -288,7 +288,7 @@ FB_CTA_VARIANTS = [
         "dimensions and an upfront delivery price."
     ),
     (
-        "Delivering across Chapel Hill and everywhere inside a 20 mile radius.\n"
+        "Delivering across Chapel Hill and everywhere inside a 30 mile radius.\n"
         "\n"
         "Check the site for delivery options and this week's discounts:\n"
         "https://usecampusswap.com/shop\n"
@@ -386,3 +386,27 @@ FB_TITLE_KEYWORD_CATEGORIES = [
     ('backpack',       'Bags & Luggage'),
     ('suitcase',       'Bags & Luggage'),
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DELIVERY ZONES
+# Fallback defaults for the `delivery_zone_boundaries` / `delivery_zone_fees`
+# AppSettings, so a missing row never breaks checkout. Kept here (not inline in
+# app.py) because the value is read from three separate places — inline copies are
+# how the buyer-visibility filters drifted between /shop and /admin/fb-export.
+#
+# Upper bounds are inclusive and evaluated in order: <=5mi, <=10mi, <=15mi, <=20mi,
+# <=30mi. Beyond the last boundary calculate_delivery_zone() returns None and
+# checkout refuses the address.
+#
+# The 20-30 mile band was added 2026-08-05 so the radius matches what the Facebook
+# Marketplace listings advertise. It is a 10-mile band (twice the width of the
+# others), priced at $40 to keep the roughly $5-per-5-miles rate of the earlier
+# zones. Override either list via AppSetting — no deploy needed.
+# ─────────────────────────────────────────────────────────────────────────────
+DELIVERY_ZONE_BOUNDARIES_DEFAULT = '5,10,15,20,30'
+DELIVERY_ZONE_FEES_DEFAULT = '15,20,25,30,40'
+
+# Fallback used when the boundaries setting is unparseable — keep in sync with the
+# largest value above.
+MAX_DELIVERY_MILES_DEFAULT = 30.0
