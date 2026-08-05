@@ -2024,3 +2024,150 @@ which is why progress is tracked server-side).
   FB listings themselves.
 - 4 failures in `test_cart_bundle.py` are pre-existing (verified by stashing this branch's changes
   and re-running) — 2 cart-hold timing tests, 1 needing `stripe_flexible_coupon_id`, 1 cart badge.
+
+---
+
+## Camera Resolution Fix + FB CTA Variants — 2026-07-31 (follow-up to feature_fb_marketplace_export)
+
+**Status:** Complete — in dev, pending deploy. No migration.
+
+### The camera bug (affects the live shop, not just Facebook)
+
+Every photo captured anywhere in the app was **640×480 (0.31 MP)**. Root cause: all five
+`getUserMedia` call sites requested only `facingMode`, with no `width`/`height`, so browsers
+handed back their default VGA video stream.
+
+In `rephoto_capture_modal.html` this silently disabled the existing quality cap:
+
+```js
+scale = Math.min(1, MAX_EDGE / Math.max(srcW, srcH))
+      = Math.min(1, 1600 / 640) = 1     // no downscale — cap never engaged
+```
+
+`MAX_EDGE = 1600` proves the *intended* size was 1600px; the camera was simply never asked for
+enough pixels for it to matter. The remove.bg composite then upscaled the ~640px subject onto a
+1600×1600 cream canvas at `_REMOVEBG_FILL_RATIO = 0.8` (~1280px) — roughly a 2× upscale, which is
+the visible blur. **Confirmed there is no full-resolution original to recover:** the downscale
+happens client-side in `compressToBlob` before upload, and an S3 listing shows exactly two objects
+per photo (raw 480×640 + `_nobg` 1600×1600), nothing larger.
+
+Measured in Chromium with a fake capture device:
+
+| Constraint | Negotiated stream |
+|---|---|
+| `{facingMode}` only (old) | 640×480 — 0.31 MP |
+| `+ width/height {ideal: 2560/1440}` (new) | 1760×1328 — 2.34 MP |
+
+640×480 matches the S3 files exactly, confirming the diagnosis.
+
+### What changed
+All five capture sites now request `width: {ideal: 2560}, height: {ideal: 1440}`. **`ideal`, not
+`min`/`exact`** — a hard constraint throws `OverconstrainedError` on weaker cameras and would break
+capture entirely.
+
+- `templates/admin/rephoto_capture_modal.html` — constraint only; `MAX_EDGE=1600` now does real work
+- `templates/crew/quick_capture_modal.html` — constraint + new 1600px cap
+- `templates/admin/warehouse_log_modal.html` — constraint + new 1600px cap
+- `templates/admin/warehouse.html` — constraint + new 1600px cap
+- `templates/admin/items.html` (`pvcSnap`) — constraint + new 1600px cap
+
+The four caps are **required, not cosmetic**: those paths captured at native `videoWidth` and
+uploaded at quality 0.92. Raising the stream resolution without a cap would have taken uploads from
+~85 KB to multi-megabyte frames over cellular — exactly the snappiness the original `MAX_EDGE`
+design was protecting.
+
+**Not retroactive.** The existing 287 items keep their soft photos; that detail never existed.
+Re-photography is the only way to improve them.
+
+### FB CTA variants
+`FB_CTA_VARIANTS` (4 variants) replaces the single `FB_CTA_DEFAULT` block, selected by
+`item.id % len(variants)` in `_fb_description()`. `FB_CTA_DEFAULT` is retained as
+`FB_CTA_VARIANTS[0]` for callers wanting one canonical block.
+
+- **Why:** a byte-identical closing block across 287 listings is trivially fingerprintable, and
+  "same text + same outbound link, repeated many times" is the pattern Marketplace spam detection
+  targets. Consequences escalate from reduced reach → listing removal → account restriction.
+- **Keyed on id, not random** — the same item must render identically across page loads and
+  re-downloads, or the worker sees the text shift mid-task.
+- Verified distribution across real inventory: 75 / 69 / 70 / 73 of 287.
+- Every variant is asserted to carry the 20-mile Chapel Hill radius, the shop URL, and no emojis.
+- The `fb_cta_text` AppSetting still overrides all variants for every item (admin escape hatch).
+- **Partial mitigation only:** the URL is constant across all variants and is a stronger signal than
+  the prose. Posting velocity is the bigger lever — 15–25 listings/day, not 287 in a weekend.
+  Henry has not yet decided on putting the URL in only a subset of listings.
+
+### Also added
+- 20-mile Chapel Hill delivery radius now stated in every FB description. Henry explicitly declined
+  a per-listing Location field on the export card, reasoning the description line is sufficient.
+- Photo strategy decided: **upload everything in the ZIP, cutout first.** Cutout wins the thumbnail
+  click; the real photos behind it prove physical possession (plain-background cutouts read as
+  stolen catalog images to Marketplace buyers). Order only matters for which image becomes the
+  thumbnail — after the click it's a carousel.
+
+### Tests
+`test_fb_export.py` 64 passing (up from 59; 5 new CTA-variant tests).
+Full safe sweep: 180 passing across fb_export + delivery_fees + warehouse_rephotography +
+ai_autofill_revamp + background_removal.
+
+### Deploy
+No migration. Push and deploy. Worth re-photographing a couple of items post-deploy and
+confirming the stored file is ~1600px on the long edge rather than 640.
+
+---
+
+## FB Export — Category Filter — 2026-07-31
+
+**Status:** Complete — in dev, pending deploy. No migration.
+
+So the poster can work one item type at a time ("list all the couches first") instead of
+grinding through 287 mixed items.
+
+### What changed
+- `_fb_export_query()` gained `category_id` / `subcategory_id`. **`subcategory_id` wins when
+  both are supplied** — it is strictly narrower, so honouring both would be redundant at best
+  and contradictory if they disagree. A mismatched pair still returns the subcategory rather
+  than intersecting to zero.
+- `_fb_export_category_options()` — new. Builds the picker from the eligible set itself via a
+  `GROUP BY category_id, subcategory_id`, so only categories with actual items appear, each
+  with its remaining count. A dropdown of all 42 subcategories mostly reading "(0)" would be
+  noise. Counts respect the active unposted filter, i.e. "left to post".
+  - **Gotcha:** needs `.order_by(None)` to clear the base query's `ORDER BY inventory_item.id`
+    — Postgres rejects an ordering column that is neither grouped nor aggregated.
+  - Items with a parent category but no subcategory (the 'Other' bucket, 16 items) still get a
+    parent group with an "All Other" option, so nothing is unreachable through the picker.
+- `_fb_export_filter_label()` — new. Human label for the active filter, or None.
+- `fb_export()` reads `?cat=` / `?sub=`. Progress counts are **scoped to the filter** so the
+  header reads "6 of 46 posted in Couch / Sofa" rather than a catalog-wide number the poster
+  cannot act on. Dropdown options are built unfiltered — scoping them to the active selection
+  would collapse the dropdown to one entry and strand the poster there.
+- `fb_export_bulk_zip()` honours `cat`/`sub` too, and names the archive after the filter
+  (`campusswap-fb-couch-sofa-1-3.zip`, or `-all-` when unfiltered). Without this, "download
+  the couches" would hand over the first N items of the whole catalog.
+- `templates/admin/fb_export.html`: grouped `<select>` (optgroup per parent, "All <Parent>"
+  plus each subcategory with counts), Clear link, filter shown in the header. **Every**
+  nav/toggle link now carries `cat`+`sub` via a `filter_args` dict — dropping it on Next would
+  silently dump the poster back into the full catalog. The filter's JS lives outside the
+  item-only script block so the dropdown still works from the empty state, otherwise selecting
+  a fully-posted category traps the poster with no way back. Changing the filter deliberately
+  omits `&i=`, so a new batch starts at item 1.
+
+### Gotcha worth remembering
+A JS comment containing literal Jinja tag syntax (`{%` `if` `%}`) is parsed by Jinja as a real
+tag and throws `TemplateSyntaxError: Encountered unknown tag 'endblock'`. Never write Jinja
+syntax inside JS comments in a template, even illustratively.
+
+### Verified
+- Option counts sum exactly to the unfiltered total (287) — nothing unreachable.
+- Every option's count equals what selecting it actually returns.
+- Browser-driven: selecting "Couch / Sofa (12)" → "Item 1 of 12 · Couch / Sofa",
+  "0 of 12 posted in Couch / Sofa", dropdown retains selection, Next preserves `sub=7`
+  and advances to "Item 2 of 12". Zero JS errors.
+- Bulk ZIP with `sub` returned exactly the expected 3 couch folders.
+- Bogus `?sub=999999` renders the empty state, not a 500.
+
+### Tests
+`test_fb_export.py` 77 passing (up from 64; 13 new filter tests, 0 skipped).
+Filter tests use a new `categorized_items` fixture that builds its own category tree and
+eligible items — an earlier version read ambient DB data and silently **skipped** all six on
+`campusswap_prod`, which has no categorized eligible inventory.
+Full safe sweep: 193 passing.

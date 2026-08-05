@@ -168,7 +168,16 @@
       switchToFileInput();
       return;
     }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    // Request resolution explicitly — an unconstrained stream defaults to VGA (640x480),
+    // which is why every captured photo was 0.3 MP. `ideal` degrades gracefully on
+    // cameras that cannot deliver it rather than throwing OverconstrainedError.
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 2560 },
+        height: { ideal: 1440 }
+      }
+    })
       .then(function(s) {
         stream = s;
         video.srcObject = s;
@@ -247,15 +256,20 @@
     clearError();
   }
 
-  // Snap from live stream
+  // Snap from live stream. Downscale to MAX_EDGE before encoding: getUserMedia is now asked
+  // for a high-res stream (see startCamera), so capturing at native size would upload
+  // multi-megabyte frames over cellular. 1600px keeps uploads snappy and still far exceeds
+  // the old unconstrained VGA capture.
+  var MAX_EDGE = 1600;
   snapBtn.addEventListener('click', function() {
     if (!stream) return;
     var vw = video.videoWidth;
     var vh = video.videoHeight;
     if (!vw || !vh) return;
-    canvas.width  = vw;
-    canvas.height = vh;
-    canvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+    var scale = Math.min(1, MAX_EDGE / Math.max(vw, vh));
+    canvas.width  = Math.round(vw * scale);
+    canvas.height = Math.round(vh * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(function(blob) { showThumbnail(blob); }, 'image/jpeg', 0.92);
   });
 

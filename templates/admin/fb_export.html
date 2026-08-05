@@ -105,6 +105,23 @@
   .fbx-toggle { font-size: 0.82rem; color: var(--text-muted); }
   .fbx-toggle a { color: var(--primary); font-weight: 600; }
 
+  .fbx-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .fbx-filter label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-muted); margin: 0;
+  }
+  .fbx-filter select {
+    width: auto; max-width: 100%; padding: 7px 10px;
+    border: 1px solid var(--rule); border-radius: 8px;
+    background: var(--bg-body); color: var(--text-main);
+    font-size: 0.86rem; font-weight: 600; cursor: pointer;
+  }
+  .fbx-filter-clear { font-size: 0.8rem; color: var(--primary); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .fbx-filter select { width: 100%; }
+  }
+
   @media (max-width: 640px) {
     .fbx-value-row { flex-direction: column; }
     .fbx-copy { width: 100%; }
@@ -117,33 +134,68 @@
 {% block content %}
 <div class="fbx-wrap">
 
+  {# Every nav/toggle link must carry cat+sub, or changing page or the posted filter
+     silently drops the poster out of the batch they're working through. #}
+  {% set filter_args = {'cat': cat_id, 'sub': sub_id} %}
+
   <div class="fbx-bar">
     <div>
       {% if item %}
-        <div class="fbx-count">Item {{ position }} of {{ items_total }}</div>
+        <div class="fbx-count">
+          Item {{ position }} of {{ items_total }}{% if filter_label %} &middot; {{ filter_label }}{% endif %}
+        </div>
       {% else %}
-        <div class="fbx-count">Nothing left to post</div>
+        <div class="fbx-count">
+          {% if filter_label %}Nothing left to post in {{ filter_label }}{% else %}Nothing left to post{% endif %}
+        </div>
       {% endif %}
-      <div class="fbx-progress">{{ posted_count }} of {{ total_all }} posted to Facebook</div>
+      <div class="fbx-progress">
+        {{ posted_count }} of {{ total_all }} posted{% if filter_label %} in {{ filter_label }}{% else %} to Facebook{% endif %}
+      </div>
       <div class="fbx-toggle">
         {% if unposted_only %}
           Showing unposted only &middot;
-          <a href="{{ url_for('fb_export', unposted=0) }}">show all</a>
+          <a href="{{ url_for('fb_export', unposted=0, **filter_args) }}">show all</a>
         {% else %}
           Showing all items &middot;
-          <a href="{{ url_for('fb_export') }}">show unposted only</a>
+          <a href="{{ url_for('fb_export', **filter_args) }}">show unposted only</a>
+        {% endif %}
+      </div>
+
+      <div class="fbx-filter">
+        <label for="fbx-cat-filter">Category</label>
+        <select id="fbx-cat-filter"
+                data-base="{{ url_for('fb_export', unposted=1 if unposted_only else 0) }}">
+          <option value="">All categories</option>
+          {% for p in category_options %}
+            <optgroup label="{{ p.parent_name }}">
+              <option value="cat={{ p.parent_id }}"
+                      {% if cat_id == p.parent_id and not sub_id %}selected{% endif %}>
+                All {{ p.parent_name }} ({{ p.count }})
+              </option>
+              {% for s in p.subs %}
+                <option value="sub={{ s.id }}" {% if sub_id == s.id %}selected{% endif %}>
+                  {{ s.name }} ({{ s.count }})
+                </option>
+              {% endfor %}
+            </optgroup>
+          {% endfor %}
+        </select>
+        {% if filter_label %}
+          <a class="fbx-filter-clear"
+             href="{{ url_for('fb_export', unposted=1 if unposted_only else 0) }}">Clear</a>
         {% endif %}
       </div>
     </div>
     {% if item %}
     <div class="fbx-nav">
       {% if position > 1 %}
-        <a href="{{ url_for('fb_export', i=position-1, unposted=1 if unposted_only else 0) }}">&larr; Prev</a>
+        <a href="{{ url_for('fb_export', i=position-1, unposted=1 if unposted_only else 0, **filter_args) }}">&larr; Prev</a>
       {% else %}
         <span>&larr; Prev</span>
       {% endif %}
       {% if position < items_total %}
-        <a href="{{ url_for('fb_export', i=position+1, unposted=1 if unposted_only else 0) }}">Next &rarr;</a>
+        <a href="{{ url_for('fb_export', i=position+1, unposted=1 if unposted_only else 0, **filter_args) }}">Next &rarr;</a>
       {% else %}
         <span>Next &rarr;</span>
       {% endif %}
@@ -156,7 +208,10 @@
       <p><strong>All caught up.</strong></p>
       <p>Every eligible item has been marked as posted to Facebook Marketplace.</p>
       {% if unposted_only %}
-        <p><a href="{{ url_for('fb_export', unposted=0) }}">Review all items anyway</a></p>
+        <p><a href="{{ url_for('fb_export', unposted=0, **filter_args) }}">Review all items anyway</a></p>
+      {% endif %}
+      {% if filter_label %}
+        <p><a href="{{ url_for('fb_export', unposted=1 if unposted_only else 0) }}">Back to all categories</a></p>
       {% endif %}
     </div>
   {% else %}
@@ -259,6 +314,24 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+// Category filter. Deliberately outside the item-only script block below, so the
+// dropdown still works from the empty state — otherwise picking a fully-posted
+// category would trap the poster on a page with no way back.
+// (Do not write Jinja tag syntax in these comments; Jinja parses it as a real tag.)
+(function () {
+  var sel = document.getElementById('fbx-cat-filter');
+  if (!sel) return;
+  sel.addEventListener('change', function () {
+    var base = sel.dataset.base;               // already carries ?unposted=
+    var val = sel.value;                       // '' | 'cat=<id>' | 'sub=<id>'
+    // Deliberately no &i= — a new filter must start at item 1, not inherit a
+    // position from the previous batch.
+    window.location.href = val ? base + '&' + val : base;
+  });
+})();
+</script>
 
 {% if item %}
 <script>

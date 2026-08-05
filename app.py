@@ -96,7 +96,7 @@ from constants import (
     HOMEPAGE_FEATURED_LIMIT, HOMEPAGE_HERO_TILE_LIMIT, HOMEPAGE_MOSAIC_EXCLUDE_CATEGORIES,
     get_price_range_for_category,
     FB_SHIPPING_TIERS, FB_PRICE_MARKUP_DEFAULT, FB_CONDITION_DEFAULT,
-    FB_CTA_DEFAULT, FB_CATEGORY_MAP, FB_TITLE_KEYWORD_CATEGORIES,
+    FB_CTA_DEFAULT, FB_CTA_VARIANTS, FB_CATEGORY_MAP, FB_TITLE_KEYWORD_CATEGORIES,
 )
 
 # Configure Logging
@@ -19705,7 +19705,15 @@ def _fb_description(item):
     if meta:
         parts.append('\n'.join(meta))
 
-    cta = (AppSetting.get('fb_cta_text', '') or '').strip() or FB_CTA_DEFAULT
+    # An explicit fb_cta_text override wins for every item (admin escape hatch). Otherwise
+    # rotate the variants by item id so the closing block is not byte-identical across
+    # hundreds of listings — see FB_CTA_VARIANTS for why. Keyed on id, not random, so the
+    # same item always renders the same text across page loads and re-downloads.
+    override = (AppSetting.get('fb_cta_text', '') or '').strip()
+    if override:
+        cta = override
+    else:
+        cta = FB_CTA_VARIANTS[(item.id or 0) % len(FB_CTA_VARIANTS)]
     parts.append(cta)
     return '\n\n'.join(parts)
 
@@ -19775,11 +19783,16 @@ def _fb_photo_buckets(item):
     return listing, originals, 'warehouse'
 
 
-def _fb_export_query(unposted_only=True):
+def _fb_export_query(unposted_only=True, category_id=None, subcategory_id=None):
     """Eligible items, in stable id order.
 
     Reuses the exact /shop visibility definition via the shared clause helpers so the
     export can never drift from what buyers actually see.
+
+    category_id / subcategory_id narrow the batch so the poster can work one item type
+    at a time (all the couches, then all the dressers). subcategory_id wins when both
+    are supplied — it is strictly narrower, so honouring both would be redundant at
+    best and contradictory if they disagree.
     """
     q = InventoryItem.query.options(
         joinedload(InventoryItem.category),
@@ -19797,7 +19810,63 @@ def _fb_export_query(unposted_only=True):
     )
     if unposted_only:
         q = q.filter(InventoryItem.fb_posted_at.is_(None))
+    if subcategory_id:
+        q = q.filter(InventoryItem.subcategory_id == subcategory_id)
+    elif category_id:
+        q = q.filter(InventoryItem.category_id == category_id)
     return q.order_by(InventoryItem.id)
+
+
+def _fb_export_category_options(unposted_only=True):
+    """Category picker options, built from the eligible set itself.
+
+    Only categories that actually have eligible items appear, each with its remaining
+    count — a dropdown of all 42 subcategories where most read "(0)" would just be noise.
+    Counts respect the current unposted filter so the number is "left to post", which is
+    what the poster is actually deciding on.
+
+    Returns [{parent_id, parent_name, count, subs: [{id, name, count}]}], plus a
+    separate bucket for items with a parent category but no subcategory (the 'Other'
+    items) so they remain reachable rather than silently unfilterable.
+    """
+    # order_by(None) clears the base query's ORDER BY inventory_item.id — Postgres rejects
+    # an ordering column that is neither grouped nor aggregated.
+    rows = _fb_export_query(unposted_only=unposted_only).order_by(None).with_entities(
+        InventoryItem.category_id, InventoryItem.subcategory_id, func.count(InventoryItem.id)
+    ).group_by(InventoryItem.category_id, InventoryItem.subcategory_id).all()
+    if not rows:
+        return []
+
+    cat_ids = {r[0] for r in rows if r[0]} | {r[1] for r in rows if r[1]}
+    names = {c.id: c.name for c in
+             InventoryCategory.query.filter(InventoryCategory.id.in_(cat_ids)).all()}
+
+    parents = {}
+    for cat_id, sub_id, n in rows:
+        key = cat_id or sub_id  # an item with only a subcategory still needs a home
+        if key is None:
+            continue
+        p = parents.setdefault(key, {
+            'parent_id': key, 'parent_name': names.get(key, 'Uncategorized'),
+            'count': 0, 'subs': [],
+        })
+        p['count'] += n
+        if sub_id:
+            p['subs'].append({'id': sub_id, 'name': names.get(sub_id, 'Unknown'), 'count': n})
+
+    out = sorted(parents.values(), key=lambda p: p['parent_name'])
+    for p in out:
+        p['subs'].sort(key=lambda s: s['name'])
+    return out
+
+
+def _fb_export_filter_label(category_id=None, subcategory_id=None):
+    """Human label for the active category filter, or None when unfiltered."""
+    target = subcategory_id or category_id
+    if not target:
+        return None
+    cat = InventoryCategory.query.get(target)
+    return cat.name if cat else None
 
 
 def _fb_slug(item):
@@ -19855,17 +19924,43 @@ def fb_export():
         abort(403)
 
     unposted_only = request.args.get('unposted', '1') != '0'
-    items = _fb_export_query(unposted_only=unposted_only).all()
+    cat_id = request.args.get('cat', type=int)
+    sub_id = request.args.get('sub', type=int)
 
-    total_all = _fb_export_query(unposted_only=False).count()
-    posted_count = total_all - _fb_export_query(unposted_only=True).count()
+    items = _fb_export_query(
+        unposted_only=unposted_only, category_id=cat_id, subcategory_id=sub_id
+    ).all()
+
+    # Progress counts are scoped to the active filter, so while working the couches the
+    # header reads "6 of 46 posted" for couches rather than a catalog-wide number the
+    # poster cannot act on.
+    total_all = _fb_export_query(
+        unposted_only=False, category_id=cat_id, subcategory_id=sub_id
+    ).count()
+    remaining = _fb_export_query(
+        unposted_only=True, category_id=cat_id, subcategory_id=sub_id
+    ).count()
+    posted_count = total_all - remaining
+
+    # Options come from the unfiltered eligible set: scoping them to the active filter
+    # would collapse the dropdown to the current selection and strand the poster there.
+    category_options = _fb_export_category_options(unposted_only=unposted_only)
+    filter_label = _fb_export_filter_label(cat_id, sub_id)
+
+    common = dict(
+        total_all=total_all,
+        posted_count=posted_count,
+        unposted_only=unposted_only,
+        cat_id=cat_id,
+        sub_id=sub_id,
+        category_options=category_options,
+        filter_label=filter_label,
+    )
 
     if not items:
         return render_template(
             'admin/fb_export.html',
-            item=None, items_total=0, position=0,
-            total_all=total_all, posted_count=posted_count,
-            unposted_only=unposted_only,
+            item=None, items_total=0, position=0, **common
         )
 
     position = request.args.get('i', 1, type=int)
@@ -19880,9 +19975,6 @@ def fb_export():
         item=item,
         items_total=len(items),
         position=position,
-        total_all=total_all,
-        posted_count=posted_count,
-        unposted_only=unposted_only,
         fb_price=_fb_price(item),
         fb_category=fb_category,
         cs_category=cs_category,
@@ -19891,6 +19983,7 @@ def fb_export():
         listing_keys=listing_keys,
         original_keys=original_keys,
         originals_source=originals_source,
+        **common
     )
 
 
@@ -19943,11 +20036,17 @@ def fb_export_bulk_zip():
         abort(403)
 
     unposted_only = request.args.get('unposted', '1') != '0'
+    cat_id = request.args.get('cat', type=int)
+    sub_id = request.args.get('sub', type=int)
     offset = max(0, request.args.get('offset', 0, type=int))
     limit = request.args.get('limit', 50, type=int)
     limit = max(1, min(limit, 500))
 
-    items = _fb_export_query(unposted_only=unposted_only).offset(offset).limit(limit).all()
+    # Honours the same cat/sub filter as the page, so "download the couches" pulls only
+    # the couches rather than the first N items of the whole catalog.
+    items = _fb_export_query(
+        unposted_only=unposted_only, category_id=cat_id, subcategory_id=sub_id
+    ).offset(offset).limit(limit).all()
     if not items:
         abort(404)
 
@@ -19961,9 +20060,13 @@ def fb_export_bulk_zip():
             f'(offset={offset}, limit={limit})'
         )
         last = offset + len(items)
+        # Name the archive after the active filter — otherwise a Downloads folder of
+        # "campusswap-fb-photos-1-50.zip" files is indistinguishable batch to batch.
+        label = _fb_export_filter_label(cat_id, sub_id)
+        scope = re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-') if label else 'all'
         resp = send_file(
             tmp.name, mimetype='application/zip', as_attachment=True,
-            download_name=f'campusswap-fb-photos-{offset + 1}-{last}.zip',
+            download_name=f'campusswap-fb-{scope}-{offset + 1}-{last}.zip',
         )
         # Delete the temp file once the response has been fully sent.
         @resp.call_on_close

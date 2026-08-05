@@ -2037,7 +2037,16 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       _pvcUseFile = true; document.getElementById('pvc-fileinput-wrap').style.display = 'flex'; return;
     }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    // Request resolution explicitly — an unconstrained stream defaults to VGA (640x480),
+    // which is why every captured photo was 0.3 MP. `ideal` degrades gracefully on
+    // cameras that cannot deliver it rather than throwing OverconstrainedError.
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 2560 },
+        height: { ideal: 1440 }
+      }
+    })
       .then(function(s){ _pvcStream = s; document.getElementById('pvc-video').srcObject = s; document.getElementById('pvc-camera-wrap').style.display = 'block'; })
       .catch(function(){ _pvcUseFile = true; document.getElementById('pvc-fileinput-wrap').style.display = 'flex'; });
   }
@@ -2045,7 +2054,12 @@
   function pvcSnap() {
     var v = document.getElementById('pvc-video'); var c = document.getElementById('pvc-canvas');
     if (!_pvcStream || !v.videoWidth) return;
-    c.width = v.videoWidth; c.height = v.videoHeight;
+    // Cap the long edge at 1600px: getUserMedia now requests a high-res stream, so
+    // capturing at native size would upload multi-megabyte frames from a phone.
+    var MAX_EDGE = 1600;
+    var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
+    c.width = Math.round(v.videoWidth * scale);
+    c.height = Math.round(v.videoHeight * scale);
     c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
     c.toBlob(function(blob){ pvcShowThumb(blob); }, 'image/jpeg', 0.92);
   }

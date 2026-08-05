@@ -251,13 +251,55 @@ FB_PRICE_MARKUP_DEFAULT = 1.1
 # nothing is bad, so one honest value is used and the worker gets no dropdown.
 FB_CONDITION_DEFAULT = 'Used - Good'
 
-FB_CTA_DEFAULT = (
-    "Delivery and discounts available through our website:\n"
-    "https://usecampusswap.com/shop\n"
-    "\n"
-    "Hundreds more dorm and apartment items listed there, with full photos, sizes,\n"
-    "and delivery pricing on every listing."
-)
+# Closing block appended to every FB description. Rotated per item (by item id) rather than
+# reused verbatim: a byte-identical block across hundreds of listings is trivially
+# fingerprintable, and "same text + same outbound link, repeated many times" is the signature
+# Marketplace spam detection targets. Varying the prose weakens that signal — it does NOT
+# eliminate it, since the URL itself stays constant. Posting velocity is the bigger lever.
+#
+# Every variant must state: the 20-mile Chapel Hill radius, the shop URL, and that more
+# inventory is listed there. No emojis — they render inconsistently in FB descriptions.
+FB_CTA_VARIANTS = [
+    (
+        "Local delivery available within 20 miles of Chapel Hill.\n"
+        "\n"
+        "Delivery and discounts available through our website:\n"
+        "https://usecampusswap.com/shop\n"
+        "\n"
+        "Hundreds more dorm and apartment items listed there, with full photos, sizes,\n"
+        "and delivery pricing on every listing."
+    ),
+    (
+        "We deliver anywhere within 20 miles of Chapel Hill.\n"
+        "\n"
+        "Book delivery and see current discounts on our site:\n"
+        "https://usecampusswap.com/shop\n"
+        "\n"
+        "That is where our full inventory lives. Hundreds of dorm and apartment pieces,\n"
+        "each with measurements and a delivery quote up front."
+    ),
+    (
+        "Delivery available to any address within 20 miles of Chapel Hill.\n"
+        "\n"
+        "Full catalog, delivery booking, and bundle discounts:\n"
+        "https://usecampusswap.com/shop\n"
+        "\n"
+        "We keep hundreds of dorm and apartment items listed there, every one with\n"
+        "dimensions and an upfront delivery price."
+    ),
+    (
+        "Delivering across Chapel Hill and everywhere inside a 20 mile radius.\n"
+        "\n"
+        "Check the site for delivery options and this week's discounts:\n"
+        "https://usecampusswap.com/shop\n"
+        "\n"
+        "Hundreds more move-out furniture pieces and dorm essentials are listed, with\n"
+        "full measurements and delivery pricing shown before you buy."
+    ),
+]
+
+# Kept as the fallback single value (and for callers that want one canonical block).
+FB_CTA_DEFAULT = FB_CTA_VARIANTS[0]
 
 # "Parent > Subcategory" -> the leaf category name the worker types into Facebook's
 # search-as-you-type category picker. Facebook's taxonomy shifts over time; unmapped

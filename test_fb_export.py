@@ -4,6 +4,7 @@ Spec: feature_fb_marketplace_export.md
 Run: python3 -m pytest test_fb_export.py -q
 """
 import io
+import re
 import zipfile
 from datetime import datetime
 
@@ -13,10 +14,11 @@ from app import (
     app as flask_app, db,
     _fb_price, _fb_category, _fb_description, _fb_condition,
     _fb_photo_buckets, _fb_export_query, _fb_slug, _fb_zip_entries,
+    _fb_export_category_options, _fb_export_filter_label,
     _has_marketplace_access,
 )
 from models import User, InventoryItem, ItemPhoto, InventoryCategory, AppSetting
-from constants import FB_CONDITION_DEFAULT, FB_PRICE_MARKUP_DEFAULT
+from constants import FB_CONDITION_DEFAULT, FB_PRICE_MARKUP_DEFAULT, FB_CTA_VARIANTS
 
 
 class FakeItem:
@@ -182,6 +184,40 @@ def eligible_item(tracked, make_item, add_photo):
     return item
 
 
+
+@pytest.fixture
+def categorized_items(tracked, make_item, add_photo, make_category):
+    """A parent category + subcategory with 2 fully-eligible items in it.
+
+    The category-filter tests must not depend on the DB happening to contain
+    categorized eligible inventory — campusswap_prod has none, which silently
+    turned these into skips.
+    """
+    from models import StorageLocation
+    loc = StorageLocation.query.first()
+    if loc is None:
+        pytest.skip('no StorageLocation in this database')
+    parent, sub = make_category('FBTest Furniture', 'FBTest Couch')
+    items = []
+    for n in range(2):
+        it = make_item(
+            description=f'FBTest couch {n}',
+            long_description='Test couch for category filter tests.',
+            price=200.0,
+            status='available',
+            ai_approved=True,
+            needs_new_photo=False,
+            storage_location_id=loc.id,
+            rephoto_disposition='kept',
+            category_id=parent.id,
+            subcategory_id=sub.id,
+        )
+        add_photo(it, f'fbtest_cat_{it.id}_front_nobg.jpg', view='front')
+        items.append(it)
+    db.session.commit()
+    return parent, sub, items
+
+
 @pytest.fixture
 def client_admin(app_ctx):
     admin = (User.query.filter_by(is_super_admin=True).first()
@@ -281,11 +317,46 @@ def test_condition_ignores_item_quality(app_ctx, make_item):
 # ─────────────────────────── description ───────────────────────────
 
 def test_description_has_cta_and_url(app_ctx, make_item):
+    """Assert only what every CTA variant shares — the block rotates by item id."""
     item = make_item(long_description='A sturdy oak desk.')
     out = _fb_description(item)
     assert 'A sturdy oak desk.' in out
     assert 'https://usecampusswap.com/shop' in out
-    assert 'Delivery and discounts' in out
+    assert '20 mile' in out.lower()
+
+
+def test_cta_variants_all_carry_the_required_facts(app_ctx):
+    """Rotating the prose must never drop the radius, the URL, or emoji-freeness."""
+    for i, v in enumerate(FB_CTA_VARIANTS):
+        assert 'usecampusswap.com/shop' in v, f'variant {i} missing URL'
+        assert '20 mile' in v.lower(), f'variant {i} missing radius'
+        assert all(ord(ch) < 0x2190 for ch in v), f'variant {i} has an emoji/symbol'
+
+
+def test_cta_variants_are_distinct(app_ctx):
+    """Identical variants would defeat the whole point."""
+    assert len(set(FB_CTA_VARIANTS)) == len(FB_CTA_VARIANTS)
+    assert len(FB_CTA_VARIANTS) >= 3
+
+
+def test_cta_variant_is_deterministic_for_an_item(app_ctx, make_item):
+    """Keyed on id, not random — the same item must render identically every time,
+    or the worker sees the text change between page load and re-download."""
+    item = make_item(long_description='Desk.')
+    assert _fb_description(item) == _fb_description(item)
+
+
+def test_cta_variant_selected_by_item_id(app_ctx, make_item):
+    item = make_item(long_description='Desk.')
+    expected = FB_CTA_VARIANTS[item.id % len(FB_CTA_VARIANTS)]
+    assert expected in _fb_description(item)
+
+
+def test_cta_rotates_across_consecutive_ids(app_ctx, make_item):
+    """Adjacent items must not share a closing block."""
+    items = [make_item(long_description=f'Item {n}.') for n in range(len(FB_CTA_VARIANTS))]
+    blocks = [_fb_description(i).split('\n\n')[-1] for i in items]
+    assert len(set(blocks)) == len(FB_CTA_VARIANTS)
 
 
 def test_description_has_no_emoji(app_ctx, make_item):
@@ -592,3 +663,107 @@ def test_zip_missing_file_does_not_500(client_admin, app_ctx, make_item, add_pho
     r = client_admin.get(f'/admin/fb-export/{item.id}/photos.zip')
     assert r.status_code == 200
     assert zipfile.ZipFile(io.BytesIO(r.data)).testzip() is None
+
+
+# ─────────────────────────── category filter ───────────────────────────
+
+def test_category_options_counts_match_filtered_queries(app_ctx, categorized_items):
+    """Every count in the picker must equal what selecting it actually returns,
+    or the poster is told 12 couches and shown a different number."""
+    opts = _fb_export_category_options(unposted_only=True)
+    for p in opts:
+        assert p['count'] == _fb_export_query(
+            unposted_only=True, category_id=p['parent_id']).count()
+        for sub in p['subs']:
+            assert sub['count'] == _fb_export_query(
+                unposted_only=True, subcategory_id=sub['id']).count()
+
+
+def test_category_options_sum_to_total(app_ctx, categorized_items):
+    """No eligible item may be unreachable through the picker."""
+    opts = _fb_export_category_options(unposted_only=True)
+    assert sum(p['count'] for p in opts) == _fb_export_query(unposted_only=True).count()
+
+
+def test_category_options_only_include_nonempty(app_ctx, categorized_items):
+    for p in _fb_export_category_options(unposted_only=True):
+        assert p['count'] > 0
+        for sub in p['subs']:
+            assert sub['count'] > 0
+
+
+def test_subcategory_filter_narrows_to_that_subcategory(app_ctx, categorized_items):
+    _parent, sub, created = categorized_items
+    items = _fb_export_query(unposted_only=False, subcategory_id=sub.id).all()
+    assert {i.id for i in items} == {i.id for i in created}
+    assert all(i.subcategory_id == sub.id for i in items)
+
+
+def test_subcategory_wins_over_category_when_both_given(app_ctx, categorized_items):
+    """Documented precedence: sub is strictly narrower, so it takes priority."""
+    parent, sub, _created = categorized_items
+    both = _fb_export_query(unposted_only=False,
+                            category_id=parent.id, subcategory_id=sub.id).count()
+    assert both == _fb_export_query(unposted_only=False, subcategory_id=sub.id).count()
+    # A mismatched pair still honours sub, rather than intersecting to zero.
+    assert _fb_export_query(unposted_only=False,
+                            category_id=999999, subcategory_id=sub.id).count() == both
+
+
+def test_unknown_category_id_returns_empty_not_error(app_ctx):
+    assert _fb_export_query(unposted_only=False, subcategory_id=999999).count() == 0
+    assert _fb_export_query(unposted_only=False, category_id=999999).count() == 0
+
+
+def test_filter_label_none_when_unfiltered(app_ctx):
+    assert _fb_export_filter_label(None, None) is None
+    assert _fb_export_filter_label(999999, None) is None
+
+
+def test_filtered_page_renders_and_scopes_count(client_admin, app_ctx, categorized_items):
+    _parent, sub, created = categorized_items
+    r = client_admin.get(f'/admin/fb-export?sub={sub.id}')
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert f'Item 1 of {len(created)}' in body
+    assert sub.name in body
+    assert f'posted in {sub.name}' in body
+
+
+def test_filter_preserved_in_navigation_links(client_admin, app_ctx, categorized_items):
+    """Losing cat/sub on Next would silently dump the poster back into the full catalog."""
+    _parent, sub, _created = categorized_items
+    body = client_admin.get(f'/admin/fb-export?sub={sub.id}').get_data(as_text=True)
+    assert re.search(r'href="[^"]*sub=%d[^"]*"[^>]*>\s*Next' % sub.id, body)
+    # and on the unposted/all toggle
+    assert re.search(r'href="[^"]*sub=%d[^"]*"[^>]*>\s*show all' % sub.id, body)
+
+
+def test_unknown_filter_renders_empty_state_not_500(client_admin):
+    r = client_admin.get('/admin/fb-export?sub=999999')
+    assert r.status_code == 200
+    assert 'Nothing left to post' in r.get_data(as_text=True)
+
+
+def test_bulk_zip_respects_category_filter(client_admin, app_ctx, categorized_items):
+    """'Download the couches' must not hand over the first N of the whole catalog."""
+    _parent, sub, created = categorized_items
+    expected = {_fb_slug(i) for i in created}
+    r = client_admin.get(f'/admin/fb-export/photos.zip?sub={sub.id}&limit=50&unposted=0')
+    assert r.status_code == 200
+    folders = {n.split('/')[0] for n in zipfile.ZipFile(io.BytesIO(r.data)).namelist()}
+    assert folders <= expected, 'bulk zip leaked items outside the filter'
+
+
+def test_bulk_zip_filename_names_the_filter(client_admin, app_ctx, categorized_items):
+    _parent, sub, _created = categorized_items
+    r = client_admin.get(f'/admin/fb-export/photos.zip?sub={sub.id}&limit=1&unposted=0')
+    assert r.status_code == 200
+    disp = r.headers.get('Content-Disposition', '')
+    assert 'fbtest-couch' in disp, disp
+
+
+def test_bulk_zip_filename_says_all_when_unfiltered(client_admin, eligible_item):
+    r = client_admin.get('/admin/fb-export/photos.zip?limit=1&unposted=0')
+    assert r.status_code == 200
+    assert 'campusswap-fb-all-' in r.headers.get('Content-Disposition', '')

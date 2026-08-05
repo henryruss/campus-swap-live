@@ -368,7 +368,18 @@
       fileWrap.style.display = 'flex';
       return;
     }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+    // Resolution MUST be requested explicitly. Without width/height the browser hands back
+    // its default VGA video stream (640x480), which made MAX_EDGE below a no-op —
+    // scale = min(1, 1600/640) = 1 — so every captured photo was 0.3 MP and the cream
+    // composite upscaled it ~2x into a blurry 1600x1600. `ideal` (not `min`/`exact`) so
+    // weaker cameras degrade gracefully instead of throwing OverconstrainedError.
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 2560 },
+        height: { ideal: 1440 }
+      }
+    })
       .then(function(s) {
         _rpStream = s;
         document.getElementById('rpc-video').srcObject = s;
