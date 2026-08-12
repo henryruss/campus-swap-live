@@ -1,0 +1,134 @@
+{#
+  Single source of truth for a crew delivery stop card.
+
+  Used by three renderings that previously each had their own copy:
+    - delivery.html pre-run preview   (delivery_run is None)
+    - delivery.html in-progress list  (delivery_run set)
+    - delivery_stops_partial.html     (the 30s auto-refresh)
+
+  They had drifted: the auto-refresh partial rendered no action buttons, so
+  Mark Delivered / Flag Issue silently vanished 30 seconds after page load.
+  Keep this macro as the only place a stop card is defined.
+#}
+{% set ROW_LABELS = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left',
+                     'back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
+
+{% macro stop_card(stop, delivery_run, warehouse_address) %}
+{% set order = stop.buyer_order %}
+{% set item = order.item %}
+{% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
+{# Directions always start at the warehouse. Storage rows store a bare street
+   ("515 S Greensboro St") with no city, which geocodes ambiguously — the
+   configured warehouse_address is fully qualified. #}
+{% set directions_url = 'https://www.google.com/maps/dir/?api=1&origin=' ~ (warehouse_address | urlencode) ~ '&destination=' ~ (order.delivery_address | urlencode) ~ '&travelmode=driving' %}
+<div class="stop-card" data-stop-id="{{ stop.id }}">
+  <div class="stop-card-header">
+    <span>
+      <span class="stop-id-badge">#{{ item.id }}</span>
+      <span class="stop-item-title">{{ item.description }}</span>
+    </span>
+    <span class="stop-badge badge-{{ stop.status }}">{{ stop.status }}</span>
+  </div>
+
+  {% if item.photo_url %}
+  <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
+  {% else %}
+  <div class="stop-thumb" style="background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
+    <i class="fas fa-image" style="font-size:1.8rem;"></i>
+  </div>
+  {% endif %}
+
+  {# Where to load it from #}
+  {% if item.storage_location %}
+  <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem;">
+    <div style="font-weight:700; color:#166534; margin-bottom:2px;">
+      <i class="fas fa-warehouse"></i>
+      {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ ROW_LABELS.get(item.storage_row, item.storage_row) }}{% endif %}
+    </div>
+    {% if item.storage_location.address %}
+    <div style="color:#166534; font-size:0.8rem;">{{ item.storage_location.address }}</div>
+    {% endif %}
+    {% if item.storage_location.location_note %}
+    <div style="color:#15803d; font-size:0.78rem; margin-top:2px; font-style:italic;">{{ item.storage_location.location_note }}</div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div style="font-size:0.8rem; color:var(--text-muted); margin:6px 0;">
+    <i class="fas fa-warehouse"></i> Storage location not yet assigned
+  </div>
+  {% endif %}
+
+  {# Where it's going #}
+  <div class="stop-address">
+    <i class="fas fa-map-marker-alt"></i>
+    {{ order.delivery_address }}
+  </div>
+
+  {# Always available — including before the run is started #}
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 10px;">
+    <a href="{{ directions_url }}" target="_blank" rel="noopener"
+       style="display:inline-block; padding:8px 14px; border:1.5px solid #0d9488; border-radius:8px; font-size:0.82rem; font-weight:700; color:#0d9488; text-decoration:none;">
+      <i class="fas fa-map-marked-alt"></i> Open in Maps
+    </a>
+    {% if buyer_phone %}
+    <a href="tel:{{ buyer_phone }}"
+       style="display:inline-block; padding:8px 14px; border:1.5px solid #0d9488; border-radius:8px; font-size:0.82rem; font-weight:700; color:#0d9488; text-decoration:none;">
+      <i class="fas fa-phone"></i> Call buyer
+    </a>
+    {% endif %}
+  </div>
+
+  <span class="stop-unit-badge">
+    {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
+  </span>
+
+  {% if stop.status == 'pending' and delivery_run and delivery_run.status == 'in_progress' %}
+  <div class="stop-actions">
+    <button class="btn-stop-action btn-complete" onclick="openNotes('complete-{{ stop.id }}')">
+      <i class="fas fa-check"></i> Mark Delivered
+    </button>
+    <button class="btn-stop-action btn-issue" onclick="openNotes('issue-{{ stop.id }}')">
+      <i class="fas fa-exclamation"></i> Flag Issue
+    </button>
+  </div>
+
+  <div class="inline-notes-form" id="complete-{{ stop.id }}">
+    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <input type="hidden" name="status" value="completed"/>
+      <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Notes (optional)</label>
+      <textarea name="notes" placeholder="Any delivery notes…"></textarea>
+      <div class="confirm-row">
+        <button type="submit" class="btn-confirm">Confirm Delivered</button>
+        <button type="button" class="btn-cancel-inline" onclick="closeNotes('complete-{{ stop.id }}')">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="inline-notes-form" id="issue-{{ stop.id }}">
+    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <input type="hidden" name="status" value="issue"/>
+      <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Describe the issue</label>
+      <textarea name="notes" placeholder="What happened?"></textarea>
+      <div class="confirm-row">
+        <button type="submit" class="btn-confirm issue-confirm">Confirm Issue</button>
+        <button type="button" class="btn-cancel-inline" onclick="closeNotes('issue-{{ stop.id }}')">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  {% elif stop.status != 'pending' %}
+  {% if stop.notes %}
+  <div class="stop-notes-resolved">
+    <i class="fas fa-sticky-note"></i> {{ stop.notes }}
+  </div>
+  {% endif %}
+  {% if stop.completed_at %}
+  <div style="font-size:0.8rem; color:#166534; margin-top:6px;">
+    <i class="fas fa-check-circle"></i> {{ stop.completed_at.strftime('%-I:%M %p') }}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endmacro %}

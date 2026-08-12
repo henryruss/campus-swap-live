@@ -160,6 +160,14 @@ def store_open_date_raw():
 # fails open rather than erroring.
 WAREHOUSE_DEFAULT_LAT = '35.9030324'
 WAREHOUSE_DEFAULT_LNG = '-79.0709049'
+# Street address form of the same warehouse, used as the origin for Google Maps
+# directions links in the ops panel and the crew delivery portal.
+WAREHOUSE_DEFAULT_ADDRESS = '515 S Greensboro St, Carrboro, NC 27510'
+
+
+def get_warehouse_address():
+    """Warehouse street address used as the driving-directions origin."""
+    return AppSetting.get('warehouse_address', WAREHOUSE_DEFAULT_ADDRESS) or WAREHOUSE_DEFAULT_ADDRESS
 
 # --- Meta Product Catalog Feed ---
 _catalog_cache = {"xml": None, "built_at": None}  # invalidated on redeploy
@@ -377,7 +385,8 @@ def inject_store_functions():
         store_open_date=store_open_date,
         store_open_date_raw=store_open_date_raw,
         category_requires_video=category_requires_video,
-        video_required_keywords=VIDEO_REQUIRED_CATEGORIES
+        video_required_keywords=VIDEO_REQUIRED_CATEGORIES,
+        warehouse_address=get_warehouse_address(),
     )
 
 @app.context_processor
@@ -772,6 +781,22 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
 </body>
 </html>"""
 
+def _emails_suppressed():
+    """True when outbound mail should be logged instead of sent.
+
+    The local database is a copy of production, so it holds real customer
+    addresses. Walking through a delivery run on a dev server would otherwise
+    email actual buyers. Default: suppress on a debug server, send in production.
+    Override either way with SUPPRESS_EMAILS=1 / SUPPRESS_EMAILS=0.
+    """
+    explicit = (os.environ.get('SUPPRESS_EMAILS') or '').strip().lower()
+    if explicit in ('1', 'true', 'yes'):
+        return True
+    if explicit in ('0', 'false', 'no'):
+        return False
+    return bool(app.debug) and os.environ.get('FLASK_ENV') != 'production'
+
+
 # Addresses that exist only as internal placeholders. campusswap.com has no MX
 # record, so anything sent there hard-bounces and damages sending reputation.
 _UNDELIVERABLE_DOMAINS = ('@campusswap.com',)
@@ -833,6 +858,10 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
     if not resend.api_key:
         logger.warning(f"Skipping email to {to_email}: RESEND_API_KEY not set.")
         return False
+
+    if _emails_suppressed():
+        logger.warning(f"[EMAIL SUPPRESSED — dev] would send to {to_email}: {subject}")
+        return True
 
     # Proxy placeholder emails never receive mail — skip silently
     if to_email and _is_undeliverable_placeholder(to_email):
@@ -14871,6 +14900,12 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
     for p in pickups:
         pickups_by_truck[p.truck_number].append(p)
 
+    # Movers per truck, so the ops card can show who is on it and assign directly
+    movers_by_truck = defaultdict(list)
+    for a in ShiftAssignment.query.filter_by(shift_id=shift.id, role_on_shift='driver').all():
+        if a.truck_number:
+            movers_by_truck[a.truck_number].append(a)
+
     shift_run = ShiftRun.query.filter_by(shift_id=shift.id).first()
 
     cards = []
@@ -14971,6 +15006,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'is_delivery': True,
                 'delivery_stops': delivery_stops_for_truck,
                 'delivery_live': dlive,
+                'movers': movers_by_truck.get(truck_num, []),
             })
         else:
             cards.append({
@@ -14985,6 +15021,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'is_delivery': False,
                 'delivery_stops': [],
                 'delivery_live': None,
+                'movers': movers_by_truck.get(truck_num, []),
             })
     return cards, shift_run
 
@@ -15231,6 +15268,17 @@ def admin_ops():
                 'label': f"{sd.strftime('%a %b %-d')} {'AM' if s.slot=='am' else 'PM'} — Truck {t}",
             })
 
+    # Approved workers for the per-truck "Assign worker" dropdown on each card
+    assignable_workers = (
+        User.query
+        .filter(
+            User.is_worker == True,
+            User.is_tutorial_user == (True if tutorial_mode else False),
+        )
+        .order_by(User.full_name)
+        .all()
+    )
+
     delivery_queue = _build_delivery_queue()
     # Delivery stops on the CURRENT shift — drives the "Notify Buyers" button in the header
     has_delivery_stops = False
@@ -15267,6 +15315,7 @@ def admin_ops():
         upcoming_delivery_shifts=_upcoming_del_shifts,
         has_delivery_stops=has_delivery_stops,
         delivery_unnotified_count=delivery_unnotified_count,
+        assignable_workers=assignable_workers,
     )
 
 
@@ -19858,6 +19907,78 @@ def admin_shift_notify_buyers(shift_id):
 
 
 # ── Delivery truck detail drawer (admin ops) ──────────────────
+
+@app.route('/admin/ops/shift/<int:shift_id>/truck/<int:truck_number>/assign-worker', methods=['POST'])
+@login_required
+def admin_ops_assign_worker_to_truck(shift_id, truck_number):
+    """Put a worker on a specific truck for this shift, straight from the ops panel.
+
+    Creates the ShiftAssignment if the worker isn't on the shift yet, otherwise
+    moves their existing assignment to this truck — so ops no longer has to detour
+    through Crew HQ. Per-truck assignment is what gives each driver a crew portal
+    scoped to their own stops.
+    """
+    if not _has_ops_access():
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    worker_id = request.form.get('worker_id', type=int)
+    if not worker_id:
+        flash("Pick a worker to assign.", "error")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    worker = User.query.get_or_404(worker_id)
+    drivers_per_truck = int(AppSetting.get('drivers_per_truck', '2'))
+    existing = ShiftAssignment.query.filter_by(shift_id=shift_id, worker_id=worker_id).first()
+
+    if existing and existing.truck_number == truck_number:
+        flash(f"{worker.full_name} is already on Truck {truck_number}.", "info")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    on_truck = ShiftAssignment.query.filter_by(
+        shift_id=shift_id, role_on_shift='driver', truck_number=truck_number
+    ).count()
+    if on_truck >= drivers_per_truck:
+        flash(f"Truck {truck_number} is full ({drivers_per_truck} max). "
+              f"Remove someone first or raise drivers_per_truck in settings.", "error")
+        return redirect(url_for('admin_ops', shift_id=shift_id))
+
+    if existing:
+        existing.role_on_shift = 'driver'
+        existing.truck_number = truck_number
+        msg = f"{worker.full_name} moved to Truck {truck_number}."
+    else:
+        db.session.add(ShiftAssignment(
+            shift_id=shift_id,
+            worker_id=worker_id,
+            role_on_shift='driver',
+            truck_number=truck_number,
+            assigned_at=_now_eastern(),
+            assigned_by_id=current_user.id,
+        ))
+        msg = f"{worker.full_name} assigned to Truck {truck_number}."
+
+    db.session.commit()
+    flash(msg, "success")
+    return redirect(url_for('admin_ops', shift_id=shift_id))
+
+
+@app.route('/admin/ops/shift/<int:shift_id>/truck/<int:truck_number>/unassign-worker', methods=['POST'])
+@login_required
+def admin_ops_unassign_worker_from_truck(shift_id, truck_number):
+    """Take a worker off this truck. Keeps them on the shift, just untrucked."""
+    if not _has_ops_access():
+        abort(403)
+    Shift.query.get_or_404(shift_id)
+    assignment_id = request.form.get('assignment_id', type=int)
+    assignment = ShiftAssignment.query.get_or_404(assignment_id)
+    if assignment.shift_id != shift_id:
+        abort(404)
+    name = assignment.worker.full_name if assignment.worker else 'Worker'
+    assignment.truck_number = None
+    db.session.commit()
+    flash(f"{name} removed from Truck {truck_number}.", "success")
+    return redirect(url_for('admin_ops', shift_id=shift_id))
+
 
 @app.route('/admin/ops/delivery-truck-detail')
 @login_required

@@ -178,6 +178,51 @@
     letter-spacing: 0.05em;
     color: var(--primary);
   }
+  /* Crew on truck — chips + assign dropdown, sits beside the Truck N label */
+  .truck-crew-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .truck-crew-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 2px 6px 2px 8px;
+    border-radius: 10px;
+    background: var(--bg-cream);
+    color: var(--text-main);
+    border: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .truck-crew-remove {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .truck-crew-remove:hover { color: #dc2626; }
+  /* style.css sets a global `input {width:100%}`; selects need an explicit width
+     here or the dropdown stretches the whole header row. */
+  .truck-crew-select {
+    width: auto;
+    min-width: 130px;
+    max-width: 180px;
+    padding: 3px 6px;
+    font-size: 0.76rem;
+    font-family: inherit;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: white;
+    color: var(--text-main);
+  }
   .storage-chip {
     display: inline-flex;
     align-items: center;
@@ -803,6 +848,32 @@
           <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
           <span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.68rem; font-weight:700; background:#ccfbf1; color:#0d9488; text-transform:uppercase; letter-spacing:0.04em; flex-shrink:0;">Delivery</span>
 
+          {# ── Crew on this truck + assign control ── #}
+          <div class="truck-crew-wrap">
+            {% for a in card.movers %}
+            <span class="truck-crew-chip">
+              <i class="fas fa-user"></i> {{ a.worker.full_name or a.worker.email }}
+              <form method="POST" style="display:inline; margin:0;"
+                    action="{{ url_for('admin_ops_unassign_worker_from_truck', shift_id=shift.id, truck_number=card.truck_number) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="assignment_id" value="{{ a.id }}"/>
+                <button type="submit" class="truck-crew-remove" title="Remove from truck">&times;</button>
+              </form>
+            </span>
+            {% endfor %}
+            <form method="POST" style="display:inline-flex; gap:4px; align-items:center; margin:0;"
+                  action="{{ url_for('admin_ops_assign_worker_to_truck', shift_id=shift.id, truck_number=card.truck_number) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <select name="worker_id" required class="truck-crew-select">
+                <option value="">+ Assign worker…</option>
+                {% for w in assignable_workers %}
+                <option value="{{ w.id }}">{{ w.full_name or w.email }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn-sm">Add</button>
+            </form>
+          </div>
+
           {% if card.delivery_live %}
             {% if card.delivery_live.status == 'in_progress' %}
             <span class="truck-run-pill pill-in-progress">In progress</span>
@@ -887,6 +958,32 @@
         {# ── Pickup truck card (existing) ── #}
         <div class="truck-card-header-row">
           <span class="truck-label-chip">Truck {{ card.truck_number }}</span>
+
+          {# ── Crew on this truck + assign control ── #}
+          <div class="truck-crew-wrap">
+            {% for a in card.movers %}
+            <span class="truck-crew-chip">
+              <i class="fas fa-user"></i> {{ a.worker.full_name or a.worker.email }}
+              <form method="POST" style="display:inline; margin:0;"
+                    action="{{ url_for('admin_ops_unassign_worker_from_truck', shift_id=shift.id, truck_number=card.truck_number) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="assignment_id" value="{{ a.id }}"/>
+                <button type="submit" class="truck-crew-remove" title="Remove from truck">&times;</button>
+              </form>
+            </span>
+            {% endfor %}
+            <form method="POST" style="display:inline-flex; gap:4px; align-items:center; margin:0;"
+                  action="{{ url_for('admin_ops_assign_worker_to_truck', shift_id=shift.id, truck_number=card.truck_number) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <select name="worker_id" required class="truck-crew-select">
+                <option value="">+ Assign worker…</option>
+                {% for w in assignable_workers %}
+                <option value="{{ w.id }}">{{ w.full_name or w.email }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn-sm">Add</button>
+            </form>
+          </div>
 
           {% if card.storage_loc %}
           <button class="storage-chip assigned storage-chip--btn"

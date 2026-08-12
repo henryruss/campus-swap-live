@@ -176,3 +176,86 @@ class TestTutorialSellersExcludedFromOpsPanel:
             tutorial_ids = {u.id for u in User.query.filter_by(is_tutorial_user=True).all()}
         assert not (tutorial_ids & set(counts)), \
             f'tutorial sellers in unassigned pool: {tutorial_ids & set(counts)}'
+
+
+# ---------------------------------------------------------------------------
+# Crew delivery stop card — the full page and the 30s refresh must not drift
+# ---------------------------------------------------------------------------
+
+class TestDeliveryStopCardParity:
+    """The auto-refresh partial used to omit Mark Delivered / Flag Issue, so the
+    buttons vanished 30s after page load. Both now render one shared macro."""
+
+    MACRO = 'templates/crew/_delivery_stop_card.html'
+
+    def test_only_the_macro_defines_the_action_buttons(self):
+        """Guard against a second copy of the card being reintroduced."""
+        for path in ('templates/crew/delivery.html',
+                     'templates/crew/delivery_stops_partial.html'):
+            src = open(path).read()
+            assert 'stop_card(' in src, f'{path} should render the shared macro'
+            # Match button markup, not the .btn-stop-action CSS rule (which
+            # legitimately lives in delivery.html for the macro to use).
+            assert 'class="btn-stop-action' not in src, \
+                f'{path} has its own copy of the actions — it must use the macro'
+            assert 'crew_delivery_stop_update' not in src, \
+                f'{path} builds its own status form — it must use the macro'
+
+    def test_macro_gates_actions_on_an_active_run(self):
+        src = open(self.MACRO).read()
+        assert 'btn-stop-action btn-complete' in src
+        assert "delivery_run and delivery_run.status == 'in_progress'" in src
+
+    def test_macro_shows_maps_link_regardless_of_run_state(self):
+        """Drivers plan the route before tapping Start Run."""
+        src = open(self.MACRO).read()
+        maps_at = src.index('fa-map-marked-alt')
+        gate_at = src.index("{% if stop.status == 'pending' and delivery_run")
+        assert maps_at < gate_at, 'maps link must sit outside the run-gated block'
+
+    def test_directions_start_at_the_warehouse(self, ops_app):
+        import app as app_module
+        src = open(self.MACRO).read()
+        assert 'maps/dir/?api=1&origin=' in src
+        assert 'warehouse_address | urlencode' in src
+        with ops_app.app_context():
+            addr = app_module.get_warehouse_address()
+        assert '515 S Greensboro' in addr
+        assert 'Carrboro' in addr, \
+            'origin must be fully qualified or Google geocodes it ambiguously'
+
+
+class TestEmailSuppressionInDev:
+    """The local DB is a copy of prod, so dev runs must not email real buyers."""
+
+    def test_suppressed_on_a_debug_server(self, monkeypatch, ops_app):
+        import app as app_module
+        monkeypatch.delenv('SUPPRESS_EMAILS', raising=False)
+        monkeypatch.setattr(ops_app, 'debug', True)
+        monkeypatch.delenv('FLASK_ENV', raising=False)
+        assert app_module._emails_suppressed() is True
+
+    def test_not_suppressed_in_production(self, monkeypatch, ops_app):
+        import app as app_module
+        monkeypatch.delenv('SUPPRESS_EMAILS', raising=False)
+        monkeypatch.setattr(ops_app, 'debug', False)
+        assert app_module._emails_suppressed() is False
+
+    def test_env_var_overrides_both_ways(self, monkeypatch, ops_app):
+        import app as app_module
+        monkeypatch.setattr(ops_app, 'debug', False)
+        monkeypatch.setenv('SUPPRESS_EMAILS', '1')
+        assert app_module._emails_suppressed() is True
+        monkeypatch.setattr(ops_app, 'debug', True)
+        monkeypatch.setenv('SUPPRESS_EMAILS', '0')
+        assert app_module._emails_suppressed() is False
+
+    def test_send_email_short_circuits_when_suppressed(self, monkeypatch, ops_app):
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(app_module.resend, 'api_key', 'test-key')
+        monkeypatch.setattr(app_module, '_resend_send_throttled', lambda d, **kw: calls.append(d))
+        monkeypatch.setenv('SUPPRESS_EMAILS', '1')
+        with ops_app.test_request_context('/'):
+            assert app_module.send_email('real.buyer@gmail.com', 'Delivered!', '<p>x</p>') is True
+        assert calls == [], 'no Resend call may be made while suppressed'

@@ -1,73 +1,11 @@
-{% set row_labels = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left','back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
+{# Auto-refresh target for the crew delivery view. Renders the same stop cards as
+   the full page — including the action buttons — via the shared macro. Before
+   they were unified, this partial omitted the buttons, so Mark Delivered and
+   Flag Issue disappeared 30 seconds after page load. #}
+{% from "crew/_delivery_stop_card.html" import stop_card with context %}
 <div id="stop-list" data-delivery-stops-partial="1">
 {% for stop in stops %}
-{% set order = stop.buyer_order %}
-{% set item = order.item %}
-<div class="stop-card" data-stop-id="{{ stop.id }}" style="background:white; border:var(--card-border); border-radius:14px; padding:16px 20px; margin-bottom:12px;">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
-    <div>
-      <span style="font-size:0.72rem; font-weight:700; color:var(--text-muted); font-family:monospace; margin-right:4px;">#{{ item.id }}</span>
-      <span style="font-weight:700; color:var(--primary); font-size:1rem;">{{ item.description }}</span>
-    </div>
-    <span style="display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:700; text-transform:uppercase;
-           background: {{ '#dcfce7' if stop.status == 'completed' else ('#fef3c7' if stop.status == 'issue' else '#f1f5f9') }};
-           color: {{ '#166534' if stop.status == 'completed' else ('#92400e' if stop.status == 'issue' else '#64748b') }};">
-      {{ stop.status }}
-    </span>
-  </div>
-  {% if item.photo_url %}
-  <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}"
-       style="width:80px; height:80px; border-radius:10px; object-fit:cover; border:1px solid var(--rule); display:block; margin-bottom:8px;">
-  {% else %}
-  <div style="width:80px; height:80px; border-radius:10px; border:1px solid var(--rule); background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted); margin-bottom:8px;">
-    <i class="fas fa-image" style="font-size:1.8rem;"></i>
-  </div>
-  {% endif %}
-  {# Storage pickup info #}
-  {% if item.storage_location %}
-  <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem;">
-    <div style="font-weight:700; color:#166634; margin-bottom:2px;">
-      <i class="fas fa-warehouse"></i>
-      {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ row_labels.get(item.storage_row, item.storage_row) }}{% endif %}
-    </div>
-    {% if item.storage_location.address %}
-    <div style="color:#166534; font-size:0.8rem;">{{ item.storage_location.address }}</div>
-    {% endif %}
-    {% if item.storage_location.location_note %}
-    <div style="color:#15803d; font-size:0.78rem; margin-top:2px; font-style:italic;">{{ item.storage_location.location_note }}</div>
-    {% endif %}
-  </div>
-  {% else %}
-  <div style="font-size:0.8rem; color:var(--text-muted); margin:6px 0;">
-    <i class="fas fa-warehouse"></i> Storage location not yet assigned
-  </div>
-  {% endif %}
-  <div style="color:var(--text-muted); font-size:0.875rem; margin:4px 0 8px;">
-    <i class="fas fa-map-marker-alt"></i> {{ order.delivery_address }}
-  </div>
-  {% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="https://maps.google.com/?q={{ order.delivery_address | urlencode }}"
-       target="_blank"
-       style="display:inline-block; padding:7px 14px; border:1.5px solid #0d9488; border-radius:8px; font-size:0.82rem; font-weight:700; color:#0d9488; text-decoration:none;">
-      Navigate &rarr;
-    </a>
-    {% if buyer_phone %}
-    <a href="tel:{{ buyer_phone }}"
-       style="display:inline-block; padding:7px 14px; border:1.5px solid #0d9488; border-radius:8px; font-size:0.82rem; font-weight:700; color:#0d9488; text-decoration:none;">
-      <i class="fas fa-phone"></i> Call buyer
-    </a>
-    {% endif %}
-  </div>
-  {% if stop.completed_at %}
-  <div style="font-size:0.8rem; color:#166534; margin-top:6px;">
-    <i class="fas fa-check-circle"></i> Delivered {{ stop.completed_at.strftime('%-I:%M %p') }}
-  </div>
-  {% endif %}
-  {% if stop.notes %}
-  <div style="font-size:0.82rem; color:var(--text-muted); margin-top:6px; font-style:italic;">{{ stop.notes }}</div>
-  {% endif %}
-</div>
+  {{ stop_card(stop, delivery_run, warehouse_address) }}
 {% else %}
 <p style="color:var(--text-muted); font-size:0.875rem; text-align:center; padding:24px 0;">No stops assigned.</p>
 {% endfor %}

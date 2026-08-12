@@ -92,6 +92,13 @@
         <a href="mailto:{{ order.buyer_email }}">{{ order.buyer_email }}</a>
         {% endif %}
       </div>
+      {# Driving directions from the warehouse to this stop #}
+      <div style="margin:6px 0 2px;">
+        <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ order.delivery_address | urlencode }}&travelmode=driving"
+           target="_blank" rel="noopener" class="btn-xs">
+          <i class="fas fa-map-marked-alt"></i> Open in Maps
+        </a>
+      </div>
       <div class="detail-stop-meta">
         <span>{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</span>
         {% if stop.status == 'completed' and stop.completed_at %}
