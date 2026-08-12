@@ -694,3 +694,90 @@ class TestSenderAndReplyTo:
             app_module.send_email('buyer@example.com', 'Test', '<p>hi</p>',
                                   from_email='Campus Swap <alerts@usecampusswap.com>')
         assert captured['from'] == 'Campus Swap <alerts@usecampusswap.com>'
+
+
+# ---------------------------------------------------------------------------
+# Ops delivery card must keep showing the route while the run is live
+# ---------------------------------------------------------------------------
+
+class TestOpsDeliveryCardDuringRun:
+    """The stop list used to be in the {% else %} of `if card.delivery_live`, so
+    starting a run replaced the whole route with a one-line progress summary."""
+
+    def _login_admin(self, client, notif_app):
+        from models import User
+        with notif_app.app_context():
+            aid = User.query.filter_by(is_super_admin=True).first().id
+        with client.session_transaction() as sess:
+            sess['_user_id'] = str(aid)
+            sess['_fresh'] = True
+
+    def _get_ops(self, notif_app, shift_id):
+        notif_app.config['WTF_CSRF_ENABLED'] = False
+        with notif_app.test_client() as c:
+            self._login_admin(c, notif_app)
+            r = c.get(f'/admin/ops?shift_id={shift_id}')
+            assert r.status_code == 200, r.status_code
+            return r.get_data(as_text=True)
+
+    def test_stops_visible_before_and_during_the_run(self, notif_app, delivery_fixtures):
+        from app import db, _now_eastern
+        from models import DeliveryRun, DeliveryStop
+
+        shift_id = delivery_fixtures['shift_id']
+
+        before = self._get_ops(notif_app, shift_id)
+        assert 'maps/dir/?api=1' in before, 'pre-run card should offer directions'
+        pre_rows = before.count('class="stop-row"')
+        assert pre_rows >= 4, f'expected the 4 fixture stops pre-run, saw {pre_rows}'
+
+        with notif_app.app_context():
+            from models import User
+            aid = User.query.filter_by(is_super_admin=True).first().id
+            db.session.add(DeliveryRun(shift_id=shift_id, status='in_progress',
+                                       started_at=_now_eastern().replace(tzinfo=None),
+                                       started_by_id=aid))
+            db.session.commit()
+        db.session.expire_all()
+        try:
+            during = self._get_ops(notif_app, shift_id)
+            assert during.count('class="stop-row"') == pre_rows, \
+                'starting the run must not hide the stop list'
+            assert 'delivered' in during, 'progress summary should still render'
+            assert 'maps/dir/?api=1' in during, 'directions must survive the run starting'
+        finally:
+            with notif_app.app_context():
+                db.session.execute(db.delete(DeliveryRun).where(DeliveryRun.shift_id == shift_id))
+                db.session.commit()
+
+    def test_completed_and_issue_stops_show_their_state(self, notif_app, delivery_fixtures):
+        from app import db, _now_eastern
+        from models import DeliveryRun, DeliveryStop
+
+        shift_id = delivery_fixtures['shift_id']
+        with notif_app.app_context():
+            from models import User
+            aid = User.query.filter_by(is_super_admin=True).first().id
+            db.session.add(DeliveryRun(shift_id=shift_id, status='in_progress',
+                                       started_at=_now_eastern().replace(tzinfo=None),
+                                       started_by_id=aid))
+            stops = DeliveryStop.query.filter_by(shift_id=shift_id).order_by(DeliveryStop.id).all()
+            stops[0].status = 'completed'
+            stops[0].completed_at = _now_eastern().replace(tzinfo=None)
+            stops[1].status = 'issue'
+            stops[1].notes = 'Buyer not home'
+            db.session.commit()
+        # expire_on_commit=False is set on this session, and the test-client request
+        # reuses the fixture's still-pushed app context — and therefore its session.
+        # Expire on THAT session (outside the inner context) or the page renders
+        # stale 'pending' rows.
+        db.session.expire_all()
+        try:
+            body = self._get_ops(notif_app, shift_id)
+            assert 'stop-num-circle completed' in body
+            assert 'stop-num-circle issue' in body
+            assert 'Buyer not home' in body, 'issue notes should be visible to ops'
+        finally:
+            with notif_app.app_context():
+                db.session.execute(db.delete(DeliveryRun).where(DeliveryRun.shift_id == shift_id))
+                db.session.commit()

@@ -922,8 +922,10 @@
           <i class="fas fa-exclamation-triangle"></i> Issue flagged — tap to view
         </div>
         {% endif %}
-        {% else %}
-        {# Pre-run delivery stop list #}
+        {% endif %}
+
+        {# Stop list — shown before AND during the run. Hiding it mid-run left the
+           card with nothing but a progress line, exactly when the route matters most. #}
         <div class="stop-list">
           {% if not card.delivery_stops %}
           <div style="padding:16px; font-size:0.83rem; color:var(--text-muted); text-align:center;">
@@ -932,25 +934,53 @@
           {% endif %}
           {% for stop in card.delivery_stops %}
           {% set item = stop.buyer_order.item %}
+          {% set bo = stop.buyer_order %}
+          {% set buyer_name = (bo.order.buyer_name if bo.order and bo.order.buyer_name else bo.buyer_email) %}
+          {% set buyer_phone = bo.buyer_phone or (bo.order.buyer_phone if bo.order else None) %}
           <div class="stop-row">
-            <div class="stop-num-circle pending">
-              {{ stop.stop_order if stop.stop_order is not none else '–' }}
+            <div class="stop-num-circle {{ stop.status }}">
+              {% if stop.status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
+              {% elif stop.status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
+              {% else %}{{ stop.stop_order if stop.stop_order is not none else '–' }}
+              {% endif %}
             </div>
             <div class="stop-info">
               <div class="stop-seller-name">
                 <span style="font-size:0.68rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
                 {{ item.description }}
               </div>
-              <div class="stop-address">{{ stop.buyer_order.delivery_address.split(',')[:2] | join(', ') }}</div>
+              <div class="stop-address">{{ buyer_name }} &middot; {{ bo.delivery_address.split(',')[:2] | join(', ') }}</div>
               <div class="stop-badges">
+                {% if stop.status == 'completed' %}
+                <span style="background:#dcfce7;color:#166534;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">
+                  delivered{% if stop.completed_at %} {{ stop.completed_at.strftime('%-I:%M %p') }}{% endif %}
+                </span>
+                {% elif stop.status == 'issue' %}
+                <span style="background:#fee2e2;color:#991b1b;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">issue</span>
+                {% endif %}
                 {% if stop.notified_at %}<span style="background:#ccfbf1;color:#0d9488;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">notified</span>{% endif %}
+              </div>
+              {% if stop.status == 'issue' and stop.notes %}
+              <div style="font-size:0.72rem; color:#991b1b; margin-top:3px; font-style:italic;">{{ stop.notes }}</div>
+              {% endif %}
+              <div class="stop-badges" style="margin-top:4px;">
+                <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ bo.delivery_address | urlencode }}&travelmode=driving"
+                   target="_blank" rel="noopener"
+                   style="font-size:0.68rem; font-weight:700; color:#0d9488; text-decoration:none; border:1px solid #0d9488; border-radius:6px; padding:1px 6px;">
+                  <i class="fas fa-map-marked-alt"></i> Maps
+                </a>
+                {% if buyer_phone %}
+                <a href="tel:{{ buyer_phone }}"
+                   style="font-size:0.68rem; font-weight:700; color:#0d9488; text-decoration:none; border:1px solid #0d9488; border-radius:6px; padding:1px 6px;">
+                  <i class="fas fa-phone"></i> Call
+                </a>
+                {% endif %}
               </div>
             </div>
             <div class="stop-units">{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</div>
           </div>
           {% endfor %}
         </div>
-        {% endif %}
 
         <div class="truck-card-footer"></div>
 
