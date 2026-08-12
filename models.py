@@ -831,6 +831,7 @@ class Order(db.Model):
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     buyer_email = db.Column(db.String(120), nullable=True)
     buyer_name = db.Column(db.String(100), nullable=True)
+    buyer_phone = db.Column(db.String(30), nullable=True)  # collected by Stripe Checkout
     delivery_street = db.Column(db.String(200), nullable=True)
     delivery_city = db.Column(db.String(100), nullable=True)
     delivery_state = db.Column(db.String(20), nullable=True)
@@ -861,6 +862,7 @@ class BuyerOrder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), unique=True, nullable=False)
     buyer_email = db.Column(db.String(120), nullable=False)
+    buyer_phone = db.Column(db.String(30), nullable=True)  # denormalized from Order for ops views
     delivery_address = db.Column(db.String(300), nullable=False)
     delivery_lat = db.Column(db.Float, nullable=True)
     delivery_lng = db.Column(db.Float, nullable=True)
@@ -986,6 +988,9 @@ class DeliveryStop(db.Model):
     notes            = db.Column(db.Text, nullable=True)
     completed_at     = db.Column(db.DateTime, nullable=True)
     notified_at      = db.Column(db.DateTime, nullable=True)
+    # Set on every stop in a buyer order when the delivery-complete email goes out,
+    # so re-marking a stop cannot re-send it.
+    completed_email_sent_at = db.Column(db.DateTime, nullable=True)
     capacity_warning = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at       = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)

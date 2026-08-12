@@ -759,6 +759,49 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
 </body>
 </html>"""
 
+# Addresses that exist only as internal placeholders. campusswap.com has no MX
+# record, so anything sent there hard-bounces and damages sending reputation.
+_UNDELIVERABLE_DOMAINS = ('@campusswap.com',)
+
+
+def _is_undeliverable_placeholder(to_email):
+    """True for internal placeholder addresses that must never receive real mail."""
+    addr = (to_email or '').strip().lower()
+    if addr.startswith('proxy+') and addr.endswith('@usecampusswap.com'):
+        return True
+    return addr.endswith(_UNDELIVERABLE_DOMAINS)
+
+
+# Resend allows 2 requests/second. Bursts (a multi-item order emails every seller
+# plus the buyer back to back) blow past that and the later sends 429 — silently
+# dropping whichever email happens to go last. Serialize sends with a floor gap.
+_RESEND_MIN_INTERVAL = 0.55
+_resend_send_lock = threading.Lock()
+_resend_last_send_at = [0.0]
+
+
+def _resend_send_throttled(email_data, attempts=3):
+    """Send via Resend, spacing calls to stay under the rate limit and retrying on 429."""
+    for attempt in range(attempts):
+        with _resend_send_lock:
+            gap = time.monotonic() - _resend_last_send_at[0]
+            if gap < _RESEND_MIN_INTERVAL:
+                time.sleep(_RESEND_MIN_INTERVAL - gap)
+            try:
+                return resend.Emails.send(email_data)
+            except Exception as e:
+                is_rate_limited = '429' in str(e) or 'rate' in str(e).lower()
+                if not is_rate_limited or attempt == attempts - 1:
+                    raise
+                logger.warning(
+                    f"Resend rate limited sending to {email_data.get('to')} "
+                    f"(attempt {attempt + 1}/{attempts}); backing off"
+                )
+            finally:
+                _resend_last_send_at[0] = time.monotonic()
+        time.sleep(_RESEND_MIN_INTERVAL * (attempt + 2))
+
+
 def send_email(to_email, subject, html_content, from_email=None, is_marketing=False, user=None):
     """
     Sends an email using Resend with automatic unsubscribe handling for marketing emails.
@@ -779,8 +822,8 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         return False
 
     # Proxy placeholder emails never receive mail — skip silently
-    if to_email and to_email.startswith('proxy+') and to_email.endswith('@usecampusswap.com'):
-        logger.info(f"Skipping email to proxy placeholder address: {to_email}")
+    if to_email and _is_undeliverable_placeholder(to_email):
+        logger.info(f"Skipping email to placeholder address: {to_email}")
         return False
 
     # Check if user is unsubscribed (for marketing emails)
@@ -826,7 +869,7 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         }
 
     try:
-        resend.Emails.send(email_data)
+        _resend_send_throttled(email_data)
         logger.info(f"Email sent to {to_email}: {subject}")
         return True
     except Exception as e:
@@ -929,26 +972,88 @@ def get_warehouse_spots_remaining():
     return max(0, WAREHOUSE_CAPACITY - committed)
 
 
-def _item_sold_email_html(item, seller):
-    """Build HTML for item sold notification with payout details."""
-    sale_price = item.price or 0
-    payout_pct = _get_payout_percentage(item)
-    payout_amount = round(sale_price * payout_pct, 2)
+def _items_sold_email_html(items, seller):
+    """Build HTML for a sold notification covering one or more of a seller's items.
+
+    When a single buyer purchases several items from the same seller, they get one
+    email listing all of them rather than one email per item.
+    """
+    items = list(items)
     payout_method = seller.payout_method or "Venmo"
     payout_handle = seller.payout_handle or "-"
+
+    # Payout percentage is always computed at runtime, per item
+    lines = []
+    total_sale = 0.0
+    total_payout = 0.0
+    for itm in items:
+        sale_price = float(itm.price or 0)
+        payout_pct = _get_payout_percentage(itm)
+        payout_amount = round(sale_price * payout_pct, 2)
+        total_sale += sale_price
+        total_payout += payout_amount
+        lines.append((itm, sale_price, payout_pct, payout_amount))
+
+    if len(lines) == 1:
+        itm, sale_price, payout_pct, payout_amount = lines[0]
+        heading = "Cha-Ching!"
+        intro = f"Good news! Your item <strong>{itm.description}</strong> has just been purchased."
+        detail = (
+            f'<p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>'
+            f'<p style="margin: 0 0 8px;"><strong>Your payout ({int(payout_pct * 100)}%):</strong> ${payout_amount:.2f}</p>'
+            f'<p style="margin: 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>'
+        )
+    else:
+        heading = "Cha-Ching! Multiple items sold"
+        intro = f"Great news! <strong>{len(lines)} of your items</strong> were purchased in one order."
+        rows = ''
+        for itm, sale_price, payout_pct, payout_amount in lines:
+            rows += (
+                f'<tr>'
+                f'<td style="padding:8px 0;border-bottom:1px solid #dcfce7;">{itm.description}</td>'
+                f'<td style="padding:8px 0;border-bottom:1px solid #dcfce7;text-align:right;white-space:nowrap;">'
+                f'${sale_price:.2f}</td>'
+                f'<td style="padding:8px 0 8px 16px;border-bottom:1px solid #dcfce7;text-align:right;white-space:nowrap;">'
+                f'${payout_amount:.2f}</td>'
+                f'</tr>'
+            )
+        detail = (
+            '<table role="presentation" style="width:100%;border-collapse:collapse;">'
+            '<tr>'
+            '<th style="text-align:left;padding:0 0 8px;font-size:0.8rem;color:#166534;">Item</th>'
+            '<th style="text-align:right;padding:0 0 8px;font-size:0.8rem;color:#166534;">Sold for</th>'
+            '<th style="text-align:right;padding:0 0 8px 16px;font-size:0.8rem;color:#166534;">Your payout</th>'
+            '</tr>'
+            f'{rows}'
+            '<tr>'
+            f'<td style="padding:12px 0 0;"><strong>Total</strong></td>'
+            f'<td style="padding:12px 0 0;text-align:right;"><strong>${total_sale:.2f}</strong></td>'
+            f'<td style="padding:12px 0 0 16px;text-align:right;"><strong>${total_payout:.2f}</strong></td>'
+            '</tr>'
+            '</table>'
+            f'<p style="margin: 16px 0 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>'
+        )
+
     return f"""
     <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
-        <h2 style="color: #166534;">Cha-Ching!</h2>
-        <p>Good news! Your item <strong>{item.description}</strong> has just been purchased.</p>
+        <h2 style="color: #166534;">{heading}</h2>
+        <p>{intro}</p>
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <p style="margin: 0 0 8px;"><strong>Sale price:</strong> ${sale_price:.2f}</p>
-            <p style="margin: 0 0 8px;"><strong>Your payout ({int(payout_pct * 100)}%):</strong> ${payout_amount:.2f}</p>
-            <p style="margin: 0;"><strong>Payout to:</strong> {payout_method} (@{payout_handle})</p>
+            {detail}
         </div>
         <p>We'll process your payout shortly. Our team handles the handover to the buyer. You don't need to do anything!</p>
         <p>Thanks for selling with Campus Swap!</p>
     </div>
     """
+
+
+def _item_sold_email_html(item, seller):
+    """Single-item sold notification. Thin wrapper — see _items_sold_email_html."""
+    return _items_sold_email_html([item], seller)
+
+
+def _items_sold_subject(count):
+    return "Your Items Have Sold! - Campus Swap" if count > 1 else "Your Item Has Sold! - Campus Swap"
 
 
 def _email_photo_url(filename):
@@ -994,7 +1099,7 @@ def _send_buyer_order_confirmation(order, sold_items):
     items_html = f'<table role="presentation" style="width:100%;border-collapse:collapse;margin:12px 0;">{rows}</table>'
     dw = _delivery_window()
     timing = (
-        f"Estimated {dw['flexible']} — we'll give you a heads-up before your delivery date."
+        f"Estimated {dw['flexible']} — we'll email you before your delivery date."
         if is_flexible
         else f"Expected {dw['standard']} — deliveries are batched weekly."
     )
@@ -1025,6 +1130,77 @@ def _send_buyer_order_confirmation(order, sold_items):
     </div>
     """
     send_email(order.buyer_email, "Your Campus Swap Order — Confirmed!", html)
+
+
+def _send_admin_sale_notification(sold_items, buyer_email=None, buyer_name=None,
+                                  delivery_address=None, total_paid=None,
+                                  is_flexible_delivery=False, order_id=None,
+                                  conflict_note=None, buyer_phone=None):
+    """Notify every super admin that a purchase came through.
+
+    Called from the Stripe webhook for both cart orders and legacy single-item
+    purchases. Never raises — a failed notification must not break the webhook.
+    """
+    admins = User.query.filter(
+        User.is_super_admin == True,
+        User.unsubscribed == False
+    ).all()
+    if not admins:
+        logger.warning("Sale notification: no super admin recipients found.")
+        return
+
+    rows = ''
+    for itm in sold_items:
+        seller = itm.seller
+        seller_label = f"{seller.email}" if seller else 'unknown seller'
+        rows += (
+            f'<tr>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #f1f5f9;">'
+            f'<strong>#{itm.id}</strong> {itm.description or "(no description)"}<br>'
+            f'<span style="font-size:0.8rem;color:#64748b;">Seller: {seller_label}</span></td>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">'
+            f'${float(itm.price or 0):.2f}</td>'
+            f'</tr>'
+        )
+    items_html = f'<table role="presentation" style="width:100%;border-collapse:collapse;margin:12px 0;">{rows}</table>'
+
+    _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    queue_url = f"{_base}/admin/ops/delivery-queue"
+
+    count = len(sold_items)
+    total_str = f"${float(total_paid):.2f}" if total_paid is not None else '—'
+    order_label = f"Order #{order_id}" if order_id else 'Order'
+
+    conflict_html = ''
+    if conflict_note:
+        conflict_html = (
+            '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:16px 0;">'
+            f'<p style="margin:0;color:#991b1b;"><strong>Needs attention:</strong> {conflict_note}</p></div>'
+        )
+
+    html = f"""
+    <div style="font-family: sans-serif; padding: 20px; max-width: 550px;">
+        <h2 style="color: #166534;">New sale — {order_label}</h2>
+        {conflict_html}
+        <p><strong>{count} item{'s' if count != 1 else ''} sold</strong> for {total_str}.</p>
+        {items_html}
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 0 0 8px;"><strong>Buyer:</strong> {buyer_name or '—'}</p>
+            <p style="margin: 0 0 8px;"><strong>Buyer email:</strong> {buyer_email or '—'}</p>
+            <p style="margin: 0 0 8px;"><strong>Buyer phone:</strong> {buyer_phone or '—'}</p>
+            <p style="margin: 0 0 8px;"><strong>Delivery address:</strong> {delivery_address or '—'}</p>
+            <p style="margin: 0;"><strong>Delivery type:</strong> {'Flexible' if is_flexible_delivery else 'Standard'}</p>
+        </div>
+        <p><a href="{queue_url}" style="background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;">Open delivery queue</a></p>
+        <p style="font-size: 0.85rem; color: #64748b; margin-top: 20px;">You're receiving this because you're a super admin at Campus Swap.</p>
+    </div>
+    """
+    subject = f"New sale: {count} item{'s' if count != 1 else ''} — {total_str}"
+    for admin in admins:
+        try:
+            send_email(admin.email, subject, html)
+        except Exception as e:
+            logger.error(f"Sale notification failed for {admin.email}: {e}", exc_info=True)
 
 
 def backfill_orders_from_buyer_orders():
@@ -3260,6 +3436,9 @@ def checkout_review():
             },
             success_url=url_for('item_sold_success', _external=True) + '?order_id={CHECKOUT_SESSION_ID}',
             cancel_url=url_for('cart_view', _external=True),
+            # Required — delivery coordination needs a reachable buyer, and email
+            # alone leaves us stranded when an address bounces.
+            phone_number_collection={'enabled': True},
         )
         if is_flexible and coupon_id:
             session_kwargs['discounts'] = [{'coupon': coupon_id}]
@@ -3374,6 +3553,7 @@ def buy_item(item_id):
             metadata={'type': 'item_purchase', 'item_id': item.id},
             success_url=url_for('item_sold_success', _external=True) + '?session_id={CHECKOUT_SESSION_ID}',
             cancel_url=url_for('inventory', _external=True),
+            phone_number_collection={'enabled': True},
         )
         
         logger.info(f"Checkout session created for item {item_id}")
@@ -3478,6 +3658,8 @@ def webhook():
                     order.buyer_email = customer_details['email']
                 if customer_details.get('name'):
                     order.buyer_name = customer_details['name']
+                if customer_details.get('phone'):
+                    order.buyer_phone = customer_details['phone']
                 db.session.commit()
                 logger.info(f"WEBHOOK cart_order: Order {order_id} marked paid")
 
@@ -3522,6 +3704,7 @@ def webhook():
                         item_id=item.id,
                         order_id=order.id,
                         buyer_email=order.buyer_email or '',
+                        buyer_phone=order.buyer_phone,
                         delivery_address=addr_str,
                         delivery_lat=order.delivery_lat,
                         delivery_lng=order.delivery_lng,
@@ -3555,21 +3738,23 @@ def webhook():
                     CartItem.query.filter_by(item_id=item.id).delete()
                 db.session.commit()
 
-                # Email each seller whose item sold
+                # Email each seller once, covering all of their items in this order
                 seller_items = {}
                 for item in sold_items:
                     seller_items.setdefault(item.seller_id, []).append(item)
                 for seller_id, items in seller_items.items():
-                    for itm in items:
-                        if itm.seller:
-                            try:
-                                send_email(
-                                    itm.seller.email,
-                                    "Your Item Has Sold! - Campus Swap",
-                                    _item_sold_email_html(itm, itm.seller)
-                                )
-                            except Exception as email_error:
-                                logger.error(f"WEBHOOK: Failed seller email for item {itm.id}: {email_error}")
+                    seller = items[0].seller
+                    if not seller:
+                        continue
+                    try:
+                        send_email(
+                            seller.email,
+                            _items_sold_subject(len(items)),
+                            _items_sold_email_html(items, seller)
+                        )
+                    except Exception as email_error:
+                        item_ids_logged = ', '.join(str(i.id) for i in items)
+                        logger.error(f"WEBHOOK: Failed seller email for items {item_ids_logged}: {email_error}")
 
                 # Confirmation email to buyer
                 if order.buyer_email:
@@ -3577,6 +3762,27 @@ def webhook():
                         _send_buyer_order_confirmation(order, sold_items)
                     except Exception as buyer_email_err:
                         logger.error(f"WEBHOOK: Failed buyer confirmation email Order {order_id}: {buyer_email_err}")
+
+                # Notify super admins that a sale came through
+                try:
+                    _addr = f"{order.delivery_street}, {order.delivery_city}, {order.delivery_state} {order.delivery_zip}".strip(', ')
+                    _send_admin_sale_notification(
+                        sold_items,
+                        buyer_email=order.buyer_email,
+                        buyer_name=order.buyer_name,
+                        buyer_phone=order.buyer_phone,
+                        delivery_address=_addr,
+                        total_paid=order.total_paid,
+                        is_flexible_delivery=order.is_flexible_delivery,
+                        order_id=order.id,
+                        conflict_note=(
+                            'This order hit a double-sale conflict — one or more items were '
+                            'already unavailable. A manual refund may be required.'
+                            if order.has_conflict else None
+                        ),
+                    )
+                except Exception as admin_email_err:
+                    logger.error(f"WEBHOOK: Failed admin sale notification Order {order_id}: {admin_email_err}")
 
         # --- CASE 1: ITEM PURCHASE (delivery flow or legacy buy_item flow) ---
         elif _meta.get('item_id') and (_meta.get('type') == 'item_purchase' or not _meta.get('type')):
@@ -3592,6 +3798,7 @@ def webhook():
                 item = InventoryItem.query.with_for_update().filter_by(id=item_id).first()
 
                 if item:
+                    _had_conflict = False
                     if item.status == 'available':
                         # 1. Mark item sold
                         item.status = 'sold'
@@ -3618,6 +3825,7 @@ def webhook():
                                 logger.error(f"Failed to send email to seller for item {item_id}: {email_error}")
                     else:
                         # Double-sale guard: item was already sold — flag for manual review
+                        _had_conflict = True
                         logger.error(
                             f"WEBHOOK DOUBLE-SALE: Stripe session {stripe_session_id} paid for item {item_id} "
                             f"but item status is '{item.status}'. Manual refund may be required."
@@ -3640,10 +3848,12 @@ def webhook():
                     # 3. Create BuyerOrder with all fee/tax/zone fields from metadata
                     if _meta.get('delivery_address'):
                         try:
-                            buyer_email = (session.get('customer_details') or {}).get('email', '')
+                            _cust_details = session.get('customer_details') or {}
+                            buyer_email = _cust_details.get('email', '')
                             order = BuyerOrder(
                                 item_id=item.id,
                                 buyer_email=buyer_email,
+                                buyer_phone=_cust_details.get('phone'),
                                 delivery_address=_meta['delivery_address'],
                                 delivery_lat=float(_meta['delivery_lat']) if _meta.get('delivery_lat') else None,
                                 delivery_lng=float(_meta['delivery_lng']) if _meta.get('delivery_lng') else None,
@@ -3663,6 +3873,26 @@ def webhook():
                             logger.info(f"WEBHOOK: BuyerOrder created for item {item_id}")
                         except Exception as order_err:
                             logger.error(f"WEBHOOK: Failed to create BuyerOrder for item {item_id}: {order_err}")
+
+                    # 4. Notify super admins that a sale came through
+                    try:
+                        _cust = session.get('customer_details') or {}
+                        _send_admin_sale_notification(
+                            [item],
+                            buyer_email=_cust.get('email'),
+                            buyer_name=_cust.get('name'),
+                            buyer_phone=_cust.get('phone'),
+                            delivery_address=_meta.get('delivery_address'),
+                            total_paid=Decimal(_meta['total_paid']) if _meta.get('total_paid') else None,
+                            is_flexible_delivery=(_meta.get('is_flexible_delivery') == '1'),
+                            conflict_note=(
+                                f"Item #{item_id} was already '{item.status}' when this payment "
+                                'landed — a manual refund may be required.'
+                                if _had_conflict else None
+                            ),
+                        )
+                    except Exception as admin_email_err:
+                        logger.error(f"WEBHOOK: Failed admin sale notification for item {item_id}: {admin_email_err}")
                 else:
                     logger.error(f"WEBHOOK: Item {item_id} not found in database")
 
@@ -19199,6 +19429,7 @@ def _build_delivery_queue():
             'line_items': bos,
             'buyer_name': buyer_name,
             'buyer_email': primary.buyer_email,
+            'buyer_phone': primary.buyer_phone or (primary.order.buyer_phone if primary.order else None),
             'delivery_address': primary.delivery_address,
             'delivery_lat': primary.delivery_lat,
             'delivery_lng': primary.delivery_lng,
@@ -19353,50 +19584,202 @@ def admin_delivery_remove_stop(shift_id, stop_id):
     return jsonify(success=True)
 
 
-def _send_delivery_scheduled_email(stop):
-    """Send the 'delivery scheduled' email for one DeliveryStop and set notified_at.
-    Returns True if sent. Caller is responsible for committing the session."""
-    order = stop.buyer_order
+def _group_stops_by_buyer_order(stops):
+    """Group DeliveryStops so one buyer hears about their whole order once.
+
+    Keyed on the parent Order (cart checkout) where present, falling back to the
+    individual BuyerOrder for legacy single-item purchases. Mirrors the grouping
+    _build_delivery_queue() already uses for the ops queue.
+    """
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for stop in stops:
+        bo = stop.buyer_order
+        if not bo:
+            continue
+        key = ('order', bo.order_id) if bo.order_id else ('solo', bo.id)
+        groups.setdefault(key, []).append(stop)
+    return list(groups.values())
+
+
+def _send_delivery_scheduled_email(stops):
+    """Send one 'delivery scheduled' email covering every stop in a buyer's order.
+
+    Accepts a single DeliveryStop or a list of stops belonging to the same buyer
+    order. Sets notified_at on each stop it covers. Returns True if sent.
+    Caller is responsible for committing the session.
+    """
+    stops = [stops] if isinstance(stops, DeliveryStop) else list(stops)
+    if not stops:
+        return False
+
+    order = stops[0].buyer_order
     if not order or not order.buyer_email:
         return False
-    item = order.item
-    shift = stop.shift
-    shift_date = _ops_shift_date(shift)
 
-    photo_html = ''
-    if item and item.photo_url:
-        photo_url = _email_photo_url(item.photo_url)
-        if photo_url:
-            photo_html = f'<img src="{photo_url}" alt="{item.description}" style="max-width:240px;border-radius:8px;margin:12px 0;">'
+    items = [s.buyer_order.item for s in stops if s.buyer_order and s.buyer_order.item]
+    shift_date = _ops_shift_date(stops[0].shift)
+    multi = len(items) > 1
+
+    if multi:
+        rows = ''
+        for item in items:
+            photo_url = _email_photo_url(item.photo_url) if item.photo_url else None
+            img = (
+                f'<img src="{photo_url}" alt="{item.description}" width="64" height="64" '
+                f'style="width:64px;height:64px;object-fit:cover;border-radius:8px;'
+                f'border:1px solid #e2e8f0;margin-right:12px;vertical-align:middle;">'
+                if photo_url else ''
+            )
+            rows += (
+                f'<tr><td style="padding:10px 0;border-bottom:1px solid #f1f5f9;">'
+                f'{img}<strong>{item.description}</strong></td></tr>'
+            )
+        items_html = (
+            f'<p><strong>Items ({len(items)}):</strong></p>'
+            f'<table role="presentation" style="width:100%;border-collapse:collapse;margin:4px 0 12px;">{rows}</table>'
+        )
+        intro = f"Great news — all {len(items)} of your items are scheduled for delivery together."
+    else:
+        item = items[0] if items else None
+        photo_html = ''
+        if item and item.photo_url:
+            photo_url = _email_photo_url(item.photo_url)
+            if photo_url:
+                photo_html = (
+                    f'<img src="{photo_url}" alt="{item.description}" '
+                    f'style="max-width:240px;border-radius:8px;margin:12px 0;">'
+                )
+        items_html = f"{photo_html}<p><strong>Item:</strong> {item.description if item else 'Your order'}</p>"
+        intro = "Great news — your item is scheduled for delivery."
 
     # NOTE: pass raw content — send_email() wraps it in the template (logo/footer).
     # Wrapping here too would double the logo header.
     html = f"""
 <h2 style="color:#1a3d1a;">Your Campus Swap delivery is scheduled!</h2>
-<p>Great news — your item is scheduled for delivery.</p>
-{photo_html}
-<p><strong>Item:</strong> {item.description if item else 'Your order'}</p>
+<p>{intro}</p>
+{items_html}
 <p><strong>Delivery address:</strong> {order.delivery_address}</p>
 <p><strong>Delivery date:</strong> {shift_date.strftime('%A, %B %-d, %Y')}</p>
-<p>We'll send you a heads-up on the day of delivery.</p>
+<p>We'll send you an email before your delivery date.</p>
 <p>Questions? Just reply to this email.</p>
 """
     send_email(order.buyer_email, 'Your Campus Swap delivery is scheduled', html)
-    stop.notified_at = _now_eastern().replace(tzinfo=None)
+    notified = _now_eastern().replace(tzinfo=None)
+    for stop in stops:
+        stop.notified_at = notified
     return True
+
+
+def _send_delivery_completed_email(stops):
+    """Send one 'delivered' email covering every stop in a buyer's order.
+
+    Stamps completed_email_sent_at on each stop so re-marking a stop cannot
+    re-send. Caller is responsible for committing the session.
+    """
+    stops = [stops] if isinstance(stops, DeliveryStop) else list(stops)
+    if not stops:
+        return False
+    if any(s.completed_email_sent_at for s in stops):
+        return False  # already sent for this order
+
+    order = stops[0].buyer_order
+    if not order or not order.buyer_email:
+        return False
+
+    items = [s.buyer_order.item for s in stops if s.buyer_order and s.buyer_order.item]
+    if len(items) > 1:
+        listed = ''.join(f'<li>{item.description}</li>' for item in items)
+        items_html = f'<ul style="margin:8px 0 16px;padding-left:20px;">{listed}</ul>'
+        intro = f"All {len(items)} of your items have been delivered."
+    else:
+        desc = items[0].description if items else 'Your order'
+        items_html = f'<p><strong>Item:</strong> {desc}</p>'
+        intro = "Your item has been delivered."
+
+    _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    refund_policy_url = f"{_base}/refund-policy"
+
+    # NOTE: pass raw content — send_email() wraps it in the template (logo/footer).
+    html = f"""
+<h2 style="color:#1a3d1a;">Delivered!</h2>
+<p>{intro} Thanks for shopping with Campus Swap.</p>
+{items_html}
+<p><strong>Delivered to:</strong> {order.delivery_address}</p>
+<p>Something not right? Reply to this email within 48 hours and we'll make it right —
+see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.</p>
+<p>We hope you love it!</p>
+"""
+    send_email(order.buyer_email, 'Your Campus Swap order has been delivered', html)
+    now = _now_eastern().replace(tzinfo=None)
+    for stop in stops:
+        stop.completed_email_sent_at = now
+    return True
+
+
+def _maybe_send_delivery_completed_email(stop):
+    """After a stop is marked completed, email the buyer once their whole order is done.
+
+    A buyer with three items has three stops; they should hear from us when the last
+    one is delivered, not three times. Never raises — a failed email must not break
+    the crew's stop update.
+    """
+    bo = stop.buyer_order
+    if not bo:
+        return False
+    sibling_stops = [stop]
+    if bo.order_id:
+        sibling_stops = (
+            DeliveryStop.query
+            .join(BuyerOrder, DeliveryStop.buyer_order_id == BuyerOrder.id)
+            .filter(DeliveryStop.shift_id == stop.shift_id,
+                    BuyerOrder.order_id == bo.order_id)
+            .all()
+        ) or [stop]
+
+    # Only when every stop in the order is done. A flagged 'issue' stop holds the
+    # email back — that order needs a human, not an automated "delivered!".
+    if not all(s.status == 'completed' for s in sibling_stops):
+        return False
+    try:
+        return _send_delivery_completed_email(sibling_stops)
+    except Exception as e:
+        stop_ids = ', '.join(str(s.id) for s in sibling_stops)
+        logger.error(f"Failed delivery-complete email for stops {stop_ids}: {e}", exc_info=True)
+        return False
 
 
 @app.route('/admin/delivery/stop/<int:stop_id>/notify', methods=['POST'])
 @login_required
 def admin_delivery_notify_buyer(stop_id):
-    """Send delivery scheduled email to one buyer. Sets notified_at. Idempotent."""
+    """Send delivery scheduled email to one buyer. Sets notified_at. Idempotent.
+
+    Covers every stop in the same buyer order on this shift, so a multi-item
+    order produces one email — not one per item.
+    """
     if not _has_ops_access():
         return jsonify(error='Forbidden'), 403
     stop = DeliveryStop.query.get_or_404(stop_id)
-    if not _send_delivery_scheduled_email(stop):
+
+    bo = stop.buyer_order
+    sibling_stops = [stop]
+    if bo and bo.order_id:
+        sibling_stops = (
+            DeliveryStop.query
+            .join(BuyerOrder, DeliveryStop.buyer_order_id == BuyerOrder.id)
+            .filter(DeliveryStop.shift_id == stop.shift_id,
+                    BuyerOrder.order_id == bo.order_id)
+            .order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc())
+            .all()
+        ) or [stop]
+
+    if not _send_delivery_scheduled_email(sibling_stops):
         return jsonify(error='This buyer has no email on file.'), 400
     db.session.commit()
-    return jsonify(notified_at=stop.notified_at.strftime('%-I:%M %p'))
+    return jsonify(
+        notified_at=stop.notified_at.strftime('%-I:%M %p'),
+        stop_ids=[s.id for s in sibling_stops],
+    )
 
 
 @app.route('/admin/crew/shift/<int:shift_id>/notify-buyers', methods=['POST'])
@@ -19409,12 +19792,14 @@ def admin_shift_notify_buyers(shift_id):
     stops = DeliveryStop.query.filter_by(shift_id=shift_id).filter(
         DeliveryStop.notified_at == None).all()
     sent = 0
-    for stop in stops:
+    # One email per buyer order, not per item
+    for order_stops in _group_stops_by_buyer_order(stops):
         try:
-            if _send_delivery_scheduled_email(stop):
+            if _send_delivery_scheduled_email(order_stops):
                 sent += 1
         except Exception as e:
-            logger.error(f"Failed to notify buyer for delivery stop {stop.id}: {e}")
+            stop_ids = ', '.join(str(s.id) for s in order_stops)
+            logger.error(f"Failed to notify buyer for delivery stops {stop_ids}: {e}")
     db.session.commit()
     if sent:
         flash(f"Notified {sent} buyer{'s' if sent != 1 else ''}.", "success")
@@ -19598,6 +19983,8 @@ def crew_delivery_stop_update(stop_id):
         stop.completed_at = now
         order = stop.buyer_order
         order.delivered_at = now
+        db.session.flush()  # sibling status checks must see this stop as completed
+        _maybe_send_delivery_completed_email(stop)
     db.session.commit()
     return redirect(url_for('crew_delivery_view', shift_id=shift_id))
 
