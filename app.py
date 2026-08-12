@@ -1127,6 +1127,85 @@ def _items_sold_subject(count):
     return "Your Items Have Sold! - Campus Swap" if count > 1 else "Your Item Has Sold! - Campus Swap"
 
 
+def _payout_sent_subject(count):
+    return ("You've been paid for your Campus Swap items!" if count > 1
+            else "You've been paid for your Campus Swap item!")
+
+
+def _payout_sent_email_html(items, seller):
+    """Payout-sent confirmation covering one or more of a seller's items.
+
+    Paying a seller with several sold items produces one email, not one per item.
+    """
+    items = list(items)
+    first_name = (seller.full_name or '').split()[0] if seller.full_name else 'there'
+    payout_rate_pct = seller.payout_rate
+
+    total = 0.0
+    rows = ''
+    for itm in items:
+        amt = round(float(itm.price or 0) * _get_payout_percentage(itm), 2)
+        total += amt
+        rows += (
+            f'<tr>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #f1f5f9;">{itm.description}</td>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">'
+            f'${float(itm.price or 0):.2f}</td>'
+            f'<td style="padding:8px 0 8px 16px;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">'
+            f'${amt:.2f}</td>'
+            f'</tr>'
+        )
+    total = round(total, 2)
+
+    sent_to_line = ''
+    if seller.payout_handle:
+        sent_to_line = (f"<p><strong>Sent to:</strong> {seller.payout_method or 'Venmo'} — "
+                        f"{seller.payout_handle}</p>")
+
+    if len(items) == 1:
+        itm = items[0]
+        thumb_html = ''
+        if itm.photo_url:
+            thumb_url = _email_photo_url(itm.photo_url)
+            if thumb_url:
+                thumb_html = (f'<img src="{thumb_url}" alt="{itm.description}" '
+                              f'style="max-width:200px; border-radius:8px; margin-bottom:12px;">')
+        body = f"""
+            <p>Great news — we've sent your payout for the following item sold through Campus Swap:</p>
+            {thumb_html}
+            <p><strong>{itm.description}</strong></p>
+            <p><strong>Sale price:</strong> ${float(itm.price or 0):.2f}</p>
+            <p><strong>Your payout ({payout_rate_pct}%):</strong> ${total:.2f}</p>
+        """
+    else:
+        body = f"""
+            <p>Great news — we've sent your payout for <strong>{len(items)} items</strong>
+            sold through Campus Swap:</p>
+            <table role="presentation" style="width:100%;border-collapse:collapse;margin:12px 0;">
+              <tr>
+                <th style="text-align:left;padding:0 0 8px;font-size:0.8rem;color:#166534;">Item</th>
+                <th style="text-align:right;padding:0 0 8px;font-size:0.8rem;color:#166534;">Sold for</th>
+                <th style="text-align:right;padding:0 0 8px 16px;font-size:0.8rem;color:#166534;">Your payout</th>
+              </tr>
+              {rows}
+              <tr>
+                <td style="padding:12px 0 0;"><strong>Total sent</strong></td>
+                <td></td>
+                <td style="padding:12px 0 0 16px;text-align:right;"><strong>${total:.2f}</strong></td>
+              </tr>
+            </table>
+        """
+
+    return f"""
+        <h2>You've been paid!</h2>
+        <p>Hi {first_name},</p>
+        {body}
+        {sent_to_line}
+        <p>Thanks for selling with Campus Swap. We'll be in touch if anything else sells!</p>
+        <p>— The Campus Swap Team</p>
+    """
+
+
 def _email_photo_url(filename):
     """Return an absolute, email-safe image URL for a stored photo.
 
@@ -11878,10 +11957,14 @@ def admin_payouts():
         if sid not in seller_groups:
             seller_groups[sid] = {
                 'seller': item.seller,
-                'items': [],
+                # NOT 'items': in Jinja, group.items resolves to dict.items (the
+                # bound method), not this key — that is what broke this page.
+                'lines': [],
                 'total': 0.0,
+                'item_ids': [],
             }
-        seller_groups[sid]['items'].append({
+        seller_groups[sid]['item_ids'].append(item.id)
+        seller_groups[sid]['lines'].append({
             'item': item,
             'payout_amount': payout_amt,
             'payout_rate_pct': item.seller.payout_rate,
@@ -11892,6 +11975,8 @@ def admin_payouts():
 
     # Sort seller groups by total descending
     sorted_sellers = sorted(seller_groups.values(), key=lambda g: g['total'], reverse=True)
+    unpaid_grand_total = round(sum(g['total'] for g in sorted_sellers), 2)
+    unpaid_item_count = sum(len(g['lines']) for g in sorted_sellers)
 
     # --- Paid history (paginated, 50/page) ---
     page = request.args.get('page', 1, type=int)
@@ -11928,6 +12013,8 @@ def admin_payouts():
         paid_rows=paid_rows,
         pagination=paid_pagination,
         active_tab=active_tab,
+        unpaid_grand_total=unpaid_grand_total,
+        unpaid_item_count=unpaid_item_count,
     )
 
 
@@ -11964,47 +12051,68 @@ def admin_payout_mark_paid(item_id):
     # Send payout confirmation email to seller
     if item.seller:
         try:
-            seller = item.seller
-            pct = _get_payout_percentage(item)
-            payout_amount = round((item.price or 0) * pct, 2)
-            payout_rate_pct = seller.payout_rate
-            first_name = (seller.full_name or '').split()[0] if seller.full_name else 'there'
-
-            # Build payout method line
-            if seller.payout_handle:
-                sent_to_line = f"<p><strong>Sent to:</strong> {seller.payout_method or 'Venmo'} — {seller.payout_handle}</p>"
-            else:
-                sent_to_line = ""
-
-            # Build thumbnail line
-            if item.photo_url:
-                thumb_url = url_for('uploaded_file', filename=item.photo_url, _external=True)
-                thumb_html = f'<img src="{thumb_url}" alt="{item.description}" style="max-width:200px; border-radius:8px; margin-bottom:12px;">'
-            else:
-                thumb_html = ""
-
-            email_html = wrap_email_template(f"""
-                <h2>You've been paid!</h2>
-                <p>Hi {first_name},</p>
-                <p>Great news — we've sent your payout for the following item sold through Campus Swap:</p>
-                {thumb_html}
-                <p><strong>{item.description}</strong></p>
-                <p><strong>Sale price:</strong> ${item.price:.2f}</p>
-                <p><strong>Your payout ({payout_rate_pct}%):</strong> ${payout_amount:.2f}</p>
-                {sent_to_line}
-                <p>Thanks for selling with Campus Swap. We'll be in touch if anything else sells!</p>
-                <p>— The Campus Swap Team</p>
-            """)
-
             send_email(
-                seller.email,
-                "You've been paid for your Campus Swap item!",
-                email_html,
+                item.seller.email,
+                _payout_sent_subject(1),
+                _payout_sent_email_html([item], item.seller),
             )
         except Exception as e:
             logger.error(f"Payout confirmation email failed for item {item.id}: {e}", exc_info=True)
 
     flash(f"Payout marked as sent for '{item.description}'.", "success")
+    return redirect(url_for('admin_payouts'))
+
+
+@app.route('/admin/payouts/seller/<int:seller_id>/mark_paid', methods=['POST'])
+@login_required
+def admin_payout_mark_seller_paid(seller_id):
+    """Mark every unpaid sold item for one seller as paid, in a single action.
+
+    This is the main workflow: you pay a seller one Venmo transfer for their whole
+    balance, so clearing them item by item does not match what actually happened.
+    Sends one grouped confirmation email rather than one per item.
+    """
+    if not current_user.is_admin:
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+
+    seller = User.query.get_or_404(seller_id)
+    items = (
+        InventoryItem.query
+        .filter_by(seller_id=seller_id, payout_sent=False, status='sold')
+        .all()
+    )
+    if not items:
+        flash("Nothing unpaid for that seller.", "warning")
+        return redirect(url_for('admin_payouts'))
+
+    now = datetime.utcnow()
+    total = 0.0
+    for item in items:
+        item.payout_sent = True
+        item.payout_sent_at = now
+        total += round(float(item.price or 0) * _get_payout_percentage(item), 2)
+    db.session.commit()
+    total = round(total, 2)
+
+    posthog.capture('payout_marked_sent', distinct_id=str(current_user.id), properties={
+        'seller_id': seller_id,
+        'item_count': len(items),
+        'total': total,
+        'is_admin': True,
+    })
+
+    try:
+        send_email(
+            seller.email,
+            _payout_sent_subject(len(items)),
+            _payout_sent_email_html(items, seller),
+        )
+    except Exception as e:
+        logger.error(f"Payout confirmation email failed for seller {seller_id}: {e}", exc_info=True)
+
+    flash(f"Marked ${total:.2f} paid to {seller.full_name or seller.email} "
+          f"({len(items)} item{'s' if len(items) != 1 else ''}).", "success")
     return redirect(url_for('admin_payouts'))
 
 
