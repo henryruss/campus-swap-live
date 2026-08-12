@@ -713,6 +713,18 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
             </a>
         </div>
     """
+    # Shown on every email. The From address is unmonitored, so give people a
+    # working route to a human that does not depend on replying.
+    help_block = f"""
+        <div style="margin-top: 32px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #64748b;">
+            <p style="margin: 0;">
+                Need help with your order?
+                <a href="{base}/contact" style="color: #166534; font-weight: 600;">Contact our team</a>
+                — we usually reply within a day.
+            </p>
+        </div>
+    """
+
     footer = ""
     if is_marketing and unsubscribe_url:
         footer = f"""
@@ -749,6 +761,7 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
                         <td style="padding: 30px;">
                             {logo_block}
                             {html_content}
+                            {help_block}
                             {footer}
                         </td>
                     </tr>
@@ -831,12 +844,12 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         logger.info(f"Skipping email to {to_email}: User has unsubscribed")
         return False
 
-    # Sends as team@usecampusswap.com, which must exist as a real Google Workspace
-    # mailbox/group — it did not until 2026-08-11, and every customer reply
-    # hard-bounced with "account does not exist" while we never saw the failures.
-    # Reply-To is set explicitly so replies still route to the team inbox even if
-    # the From address is ever changed to an unmonitored one.
-    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <team@usecampusswap.com>')
+    # From is an unmonitored address; Reply-To carries replies to the real team
+    # inbox, and every email footer also links to /contact. Reply-To must point at
+    # an address that actually exists in Google Workspace — team@ did not until
+    # 2026-08-11, and every customer reply hard-bounced with "account does not
+    # exist" while the failures were invisible to us.
+    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <noreply@usecampusswap.com>')
     sender = from_email or default_from
     reply_to = os.environ.get('RESEND_REPLY_TO', 'team@usecampusswap.com')
 
@@ -853,8 +866,14 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
     # Wrap content in email template
     wrapped_html = wrap_email_template(html_content, unsubscribe_url, is_marketing=is_marketing)
     
-    # Generate plain text version
-    plain_text = html_to_text(html_content)
+    # Generate plain text version. Built from the unwrapped content, so the help
+    # link from wrap_email_template() has to be appended here too — otherwise
+    # text-only clients get an email from an unmonitored address with no way to reach us.
+    _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    plain_text = (
+        f"{html_to_text(html_content)}\n\n"
+        f"---\nNeed help with your order? Contact our team: {_base}/contact"
+    )
 
     # Prepare email data
     email_data = {

@@ -656,11 +656,21 @@ class TestSenderAndReplyTo:
                           {'RESEND_FROM_EMAIL': None, 'RESEND_REPLY_TO': None})
         assert sent['reply_to'] == 'team@usecampusswap.com'
 
-    def test_default_sender_is_team_mailbox(self, monkeypatch, notif_app):
-        """From must be a real Workspace mailbox so replies are deliverable."""
+    def test_default_sender_is_noreply(self, monkeypatch, notif_app):
+        """From is unmonitored; replies route via Reply-To and the footer contact link."""
         sent = self._send(monkeypatch, notif_app, {'RESEND_FROM_EMAIL': None})
-        assert 'team@usecampusswap.com' in sent['from']
-        assert 'noreply' not in sent['from']
+        assert 'noreply@usecampusswap.com' in sent['from']
+
+    def test_every_email_links_to_the_contact_page(self, monkeypatch, notif_app):
+        """From is unmonitored, so there must always be a working route to a human."""
+        sent = self._send(monkeypatch, notif_app, {'RESEND_FROM_EMAIL': None})
+        assert '/contact' in sent['html']
+        assert 'Need help with your order?' in sent['html']
+
+    def test_contact_link_also_in_plain_text_part(self, monkeypatch, notif_app):
+        """html_to_text runs on unwrapped content, so the link must be appended separately."""
+        sent = self._send(monkeypatch, notif_app, {'RESEND_FROM_EMAIL': None})
+        assert '/contact' in sent['text']
 
     def test_both_are_env_overridable(self, monkeypatch, notif_app):
         sent = self._send(monkeypatch, notif_app, {
