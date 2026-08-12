@@ -14887,6 +14887,7 @@ def _get_seller_item_photos(seller_id, since=None):
             if p.photo_url and p.photo_url != item.photo_url  # upload flow stores cover in both fields; skip duplicate
         ]
         result.append({
+            'id': item.id,
             'description': item.description or '',
             'status': item.status,
             'cover_url': _url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '',

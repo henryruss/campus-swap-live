@@ -299,6 +299,46 @@
     color: var(--text-muted);
     font-size: 0.95rem;
   }
+  /* Per-item breakdown inside a pickup stop — what was actually collected */
+  .stop-item-list {
+    margin-top: 6px;
+    padding-left: 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stop-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    min-width: 0;
+  }
+  .stop-item-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    flex-shrink: 0;
+    background: var(--bg-cream);
+    display: block;
+  }
+  .stop-item-thumb.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+  }
+  .stop-item-id { font-family: monospace; font-size: 0.68rem; color: var(--text-muted); flex-shrink: 0; }
+  .stop-item-desc {
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stop-item-units { color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; margin-left: auto; }
   .stop-num-circle {
     width: 24px;
     height: 24px;
@@ -1129,8 +1169,9 @@
         {% endif %}
         {% endif %}
 
-        {# Pre-shift stop list #}
-        {% if not card.live %}
+        {# Stop list — shown before, during AND after the shift. Gating it on
+           `not card.live` meant a finished shift showed only "All stops resolved",
+           with no record of which items were actually collected. #}
         <div class="stop-list">
           {% if not card.stop_rows %}
           <div style="padding: 16px; font-size: 0.83rem; color: var(--text-muted); text-align: center;">
@@ -1139,8 +1180,11 @@
           {% endif %}
           {% for row in card.stop_rows %}
           <div class="stop-row">
-            <div class="stop-num-circle pending">
-              {{ row.pickup.stop_order if row.pickup.stop_order is not none else '–' }}
+            <div class="stop-num-circle {{ row.pickup.status }}">
+              {% if row.pickup.status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
+              {% elif row.pickup.status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
+              {% else %}{{ row.pickup.stop_order if row.pickup.stop_order is not none else '–' }}
+              {% endif %}
             </div>
             <div class="stop-info">
               <div class="stop-seller-name" style="display:flex;align-items:center;gap:4px;">
@@ -1156,15 +1200,42 @@
               <div class="stop-address">{{ row.seller.pickup_display }}</div>
               {% if row.seller.phone %}<div class="stop-address">{{ row.seller.phone }}</div>{% endif %}
               <div class="stop-badges">
+                {% if row.pickup.status == 'completed' %}
+                <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:8px;font-size:0.68rem;font-weight:700;">
+                  picked up{% if row.pickup.completed_at %} {{ row.pickup.completed_at.strftime('%-I:%M %p') }}{% endif %}
+                </span>
+                {% elif row.pickup.status == 'issue' %}
+                <span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:8px;font-size:0.68rem;font-weight:700;">issue</span>
+                {% endif %}
                 {% if row.is_new %}<span class="badge-new">new</span>{% endif %}
                 {% if row.is_rescheduled %}<span class="badge-moved">moved</span>{% endif %}
               </div>
+              {% if row.pickup.status == 'issue' and row.pickup.notes %}
+              <div style="font-size:0.72rem; color:#991b1b; margin-top:3px; font-style:italic;">{{ row.pickup.notes }}</div>
+              {% endif %}
+
+              {# The actual items on this stop — what was collected, not just a count #}
+              {% if row.item_photos %}
+              <div class="stop-item-list">
+                {% for it in row.item_photos %}
+                <div class="stop-item">
+                  {% if it.cover_url %}
+                  <img src="{{ it.cover_url }}" alt="{{ it.description }}" class="stop-item-thumb" loading="lazy">
+                  {% else %}
+                  <div class="stop-item-thumb placeholder"><i class="fas fa-image"></i></div>
+                  {% endif %}
+                  <span class="stop-item-id">#{{ it.id }}</span>
+                  <span class="stop-item-desc">{{ it.description or '(no description)' }}</span>
+                  {% if it.unit_size %}<span class="stop-item-units">{{ it.unit_size | round(1) }}u</span>{% endif %}
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
             </div>
             <div class="stop-units">{{ row.item_count }} item{{ 's' if row.item_count != 1 }}</div>
           </div>
           {% endfor %}
         </div>
-        {% endif %}
 
         <div class="truck-card-footer">
           {% if card.map_url %}
