@@ -831,9 +831,13 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         logger.info(f"Skipping email to {to_email}: User has unsubscribed")
         return False
 
-    # Default sender - use team@usecampusswap.com
-    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <team@usecampusswap.com>')
+    # Send from an unmonitored address, but point replies at the real team inbox.
+    # NOTE: reply_to must be a mailbox/group that actually exists in Google Workspace.
+    # It previously sent as team@usecampusswap.com, which was never created — every
+    # customer reply hard-bounced with "account does not exist" and we never saw it.
+    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <noreply@usecampusswap.com>')
     sender = from_email or default_from
+    reply_to = os.environ.get('RESEND_REPLY_TO', 'team@usecampusswap.com')
 
     # Generate unsubscribe URL if marketing email
     unsubscribe_url = None
@@ -859,6 +863,8 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         "html": wrapped_html,
         "text": plain_text
     }
+    if reply_to:
+        email_data["reply_to"] = reply_to
 
     # Add headers for marketing emails (improves deliverability)
     if is_marketing and unsubscribe_url:

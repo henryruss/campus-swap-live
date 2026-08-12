@@ -628,3 +628,58 @@ class TestBuyerPhoneCapture:
                                                     buyer_phone='+19195550123', total_paid=50)
         assert '+19195550123' in sent[0]
         assert 'Buyer phone' in sent[0]
+
+
+# ---------------------------------------------------------------------------
+# Sender identity / reply-to
+# ---------------------------------------------------------------------------
+
+class TestSenderAndReplyTo:
+    def _send(self, monkeypatch, notif_app, env=None):
+        import app as app_module
+
+        captured = {}
+        monkeypatch.setattr(app_module.resend, 'api_key', 'test-key')
+        monkeypatch.setattr(app_module, '_resend_send_throttled',
+                            lambda data, **kw: captured.update(data))
+        for key, val in (env or {}).items():
+            if val is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, val)
+        with notif_app.test_request_context('/'):
+            app_module.send_email('buyer@example.com', 'Test', '<p>hi</p>')
+        return captured
+
+    def test_reply_to_is_set_so_customer_replies_land_somewhere(self, monkeypatch, notif_app):
+        sent = self._send(monkeypatch, notif_app,
+                          {'RESEND_FROM_EMAIL': None, 'RESEND_REPLY_TO': None})
+        assert sent['reply_to'] == 'team@usecampusswap.com'
+
+    def test_default_sender_is_noreply(self, monkeypatch, notif_app):
+        """From is unmonitored; replies are routed by Reply-To instead."""
+        sent = self._send(monkeypatch, notif_app, {'RESEND_FROM_EMAIL': None})
+        assert 'noreply@usecampusswap.com' in sent['from']
+
+    def test_both_are_env_overridable(self, monkeypatch, notif_app):
+        sent = self._send(monkeypatch, notif_app, {
+            'RESEND_FROM_EMAIL': 'Campus Swap <bots@usecampusswap.com>',
+            'RESEND_REPLY_TO': 'support@usecampusswap.com',
+        })
+        assert sent['from'] == 'Campus Swap <bots@usecampusswap.com>'
+        assert sent['reply_to'] == 'support@usecampusswap.com'
+
+    def test_blank_reply_to_omits_the_field(self, monkeypatch, notif_app):
+        sent = self._send(monkeypatch, notif_app, {'RESEND_REPLY_TO': ''})
+        assert 'reply_to' not in sent
+
+    def test_explicit_from_email_still_wins(self, monkeypatch, notif_app):
+        import app as app_module
+        captured = {}
+        monkeypatch.setattr(app_module.resend, 'api_key', 'test-key')
+        monkeypatch.setattr(app_module, '_resend_send_throttled',
+                            lambda data, **kw: captured.update(data))
+        with notif_app.test_request_context('/'):
+            app_module.send_email('buyer@example.com', 'Test', '<p>hi</p>',
+                                  from_email='Campus Swap <alerts@usecampusswap.com>')
+        assert captured['from'] == 'Campus Swap <alerts@usecampusswap.com>'
