@@ -750,6 +750,15 @@ class TestOpsDeliveryCardDuringRun:
                 db.session.execute(db.delete(DeliveryRun).where(DeliveryRun.shift_id == shift_id))
                 db.session.commit()
 
+    def test_stop_rows_show_an_item_photo(self, notif_app, delivery_fixtures):
+        """Ops needs to see which physical item is going on the truck."""
+        body = self._get_ops(notif_app, delivery_fixtures['shift_id'])
+        rows = body.count('class="stop-row"')
+        thumbs = body.count('stop-thumb-sm')
+        # every row gets either a photo or an explicit placeholder
+        assert thumbs >= rows, f'{rows} stop rows but only {thumbs} thumbnails'
+        assert 'loading="lazy"' in body or 'stop-thumb-sm placeholder' in body
+
     def test_completed_and_issue_stops_show_their_state(self, notif_app, delivery_fixtures):
         from app import db, _now_eastern
         from models import DeliveryRun, DeliveryStop

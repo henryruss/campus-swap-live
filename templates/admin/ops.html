@@ -281,6 +281,24 @@
     font-size: 0.85rem;
   }
   .stop-row:last-child { border-bottom: none; }
+  /* Item thumbnail on delivery stop rows — lets ops see what's actually on the truck */
+  .stop-thumb-sm {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    flex-shrink: 0;
+    background: var(--bg-cream);
+    display: block;
+  }
+  .stop-thumb-sm.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
   .stop-num-circle {
     width: 24px;
     height: 24px;
@@ -944,6 +962,12 @@
               {% else %}{{ stop.stop_order if stop.stop_order is not none else '–' }}
               {% endif %}
             </div>
+            {% if item.photo_url %}
+            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+                 alt="{{ item.description }}" class="stop-thumb-sm" loading="lazy">
+            {% else %}
+            <div class="stop-thumb-sm placeholder"><i class="fas fa-image"></i></div>
+            {% endif %}
             <div class="stop-info">
               <div class="stop-seller-name">
                 <span style="font-size:0.68rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
