@@ -831,11 +831,12 @@ def send_email(to_email, subject, html_content, from_email=None, is_marketing=Fa
         logger.info(f"Skipping email to {to_email}: User has unsubscribed")
         return False
 
-    # Send from an unmonitored address, but point replies at the real team inbox.
-    # NOTE: reply_to must be a mailbox/group that actually exists in Google Workspace.
-    # It previously sent as team@usecampusswap.com, which was never created — every
-    # customer reply hard-bounced with "account does not exist" and we never saw it.
-    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <noreply@usecampusswap.com>')
+    # Sends as team@usecampusswap.com, which must exist as a real Google Workspace
+    # mailbox/group — it did not until 2026-08-11, and every customer reply
+    # hard-bounced with "account does not exist" while we never saw the failures.
+    # Reply-To is set explicitly so replies still route to the team inbox even if
+    # the From address is ever changed to an unmonitored one.
+    default_from = os.environ.get('RESEND_FROM_EMAIL', 'Campus Swap <team@usecampusswap.com>')
     sender = from_email or default_from
     reply_to = os.environ.get('RESEND_REPLY_TO', 'team@usecampusswap.com')
 
@@ -13912,8 +13913,28 @@ def admin_routes_index():
     return redirect(url_for('admin_ops'), 302)
 
 
+def _needs_collection_filters():
+    """SQLAlchemy filters for items that still physically need collecting from a seller.
+
+    `date_added` alone is not enough. Warehouse-side flows (rephotography add-path,
+    quick capture) create InventoryItem rows for stock that was already collected
+    months earlier, so a bare date comparison reads all of them as "seller added
+    new items, send a truck". Guard on actual warehouse presence instead.
+    """
+    return (
+        InventoryItem.picked_up_at.is_(None),        # not yet collected
+        InventoryItem.storage_location_id.is_(None),  # not sitting in a storage unit
+        InventoryItem.is_quick_capture == False,      # not created at the warehouse
+        InventoryItem.status != 'rejected',           # never worth a truck
+    )
+
+
 def _get_re_pickup_seller_ids():
-    """Return {seller_id: completed_at} for sellers with a completed pickup who added items after it."""
+    """Return {seller_id: completed_at} for sellers who need a second pickup.
+
+    A seller qualifies only if they have items added after their completed pickup
+    that are still awaiting collection — see _needs_collection_filters().
+    """
     completed = ShiftPickup.query.filter_by(status='completed').all()
     result = {}
     for pickup in completed:
@@ -13922,6 +13943,7 @@ def _get_re_pickup_seller_ids():
         newer = InventoryItem.query.filter(
             InventoryItem.seller_id == pickup.seller_id,
             InventoryItem.date_added > pickup.completed_at,
+            *_needs_collection_filters(),
         ).first()
         if newer:
             result[pickup.seller_id] = pickup.completed_at
@@ -13951,6 +13973,7 @@ def _admin_routes_index_data():
                 InventoryItem.status == 'available',
                 User.pickup_week.isnot(None),
                 User.is_proxy_account == False,
+                User.is_tutorial_user == False,  # sandbox sellers must not reach live ops
                 User.id.notin_(assigned_seller_ids),
             )
             .group_by(User.id)
@@ -13964,6 +13987,7 @@ def _admin_routes_index_data():
         .filter(
             User.is_proxy_account == True,
             User.is_seller == True,
+            User.is_tutorial_user == False,
             User.id.notin_(assigned_seller_ids),
         )
         .order_by(User.full_name)

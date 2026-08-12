@@ -656,10 +656,11 @@ class TestSenderAndReplyTo:
                           {'RESEND_FROM_EMAIL': None, 'RESEND_REPLY_TO': None})
         assert sent['reply_to'] == 'team@usecampusswap.com'
 
-    def test_default_sender_is_noreply(self, monkeypatch, notif_app):
-        """From is unmonitored; replies are routed by Reply-To instead."""
+    def test_default_sender_is_team_mailbox(self, monkeypatch, notif_app):
+        """From must be a real Workspace mailbox so replies are deliverable."""
         sent = self._send(monkeypatch, notif_app, {'RESEND_FROM_EMAIL': None})
-        assert 'noreply@usecampusswap.com' in sent['from']
+        assert 'team@usecampusswap.com' in sent['from']
+        assert 'noreply' not in sent['from']
 
     def test_both_are_env_overridable(self, monkeypatch, notif_app):
         sent = self._send(monkeypatch, notif_app, {
