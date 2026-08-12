@@ -781,6 +781,22 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
 </body>
 </html>"""
 
+def _contact_url():
+    """Public contact form — the only support route that reliably reaches a human.
+
+    Emails must never tell people to reply or to write to a bare address: mail sent
+    as noreply@ is unmonitored, and team@/hello@ were both non-existent mailboxes
+    that hard-bounced every customer message for months.
+    """
+    base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+    return f"{base}/contact"
+
+
+def _contact_link(text='Contact our team'):
+    """Inline anchor to the contact form, for use inside email bodies."""
+    return f'<a href="{_contact_url()}" style="color:#166534; font-weight:600;">{text}</a>'
+
+
 def _emails_suppressed():
     """True when outbound mail should be logged instead of sent.
 
@@ -1168,7 +1184,7 @@ def _send_buyer_order_confirmation(order, sold_items):
             <p style="margin: 0 0 8px;"><strong>Delivery:</strong> {timing}</p>
             <p style="margin: 0;"><strong>Total paid:</strong> ${float(order.total_paid):.2f}</p>
         </div>
-        <p>Questions? Reply to this email and we'll sort it out.</p>
+        <p>Questions? {_contact_link()} and we'll sort it out.</p>
         <p>Thanks for shopping with Campus Swap!</p>
     </div>
     """
@@ -1180,7 +1196,7 @@ def _send_buyer_order_confirmation(order, sold_items):
             <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b; font-weight: 600;">Refund Policy</p>
             <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b;">Changed your mind? Email us before your delivery day and we'll refund you in full — no questions asked.</p>
             <p style="margin: 0 0 8px; font-size: 0.875rem; color: #64748b;">After delivery, refunds are issued only if an item is damaged or materially different from its listing. <a href="{_refund_policy_url}" style="color: #166534;">View our full refund policy</a>.</p>
-            <p style="margin: 0; font-size: 0.875rem; color: #64748b;">Questions? Reply to this email or contact us at <a href="mailto:team@usecampusswap.com" style="color: #166534;">team@usecampusswap.com</a>.</p>
+            <p style="margin: 0; font-size: 0.875rem; color: #64748b;">Questions? {_contact_link('Send us a message')} and we'll get back to you within a day.</p>
         </div>
     </div>
     """
@@ -5265,7 +5281,7 @@ def admin_send_pickup_nudge():
                         <p style="margin: 0;"><strong>Next step:</strong> Log in to your dashboard and select your pickup week and address.</p>
                     </div>
                     <p><a href="{dashboard_url}" style="background: #166534; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Dashboard</a></p>
-                    <p>Questions? Reply to this email or reach out at <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                    <p>Questions? {_contact_link()} — we usually reply within a day.</p>
                     <p>Thanks,<br>Campus Swap</p>
                 """)
                 send_email(u.email, "Action Required: Select Your Pickup Week — Campus Swap", html)
@@ -12774,7 +12790,7 @@ def admin_schedule_publish(week_id):
             <p>Your schedule for the week of {week_label} is set. Here are your shifts:</p>
             <ul>{shift_lines}</ul>
             <p><a href="{request.host_url.rstrip('/')}/crew" style="color:#C8832A;">View your crew portal →</a></p>
-            <p>Questions? Reply to this email or reach out to your admin.</p>
+            <p>Questions? Reach out to your admin, or {_contact_link('send us a message')}.</p>
         """)
         try:
             send_email(worker.email, f"Your Campus Swap Schedule — Week of {week_label}", body)
@@ -13688,8 +13704,8 @@ def admin_shift_notify_sellers(shift_id):
                 <p>Your pickup has been scheduled for <strong>{shift_day_str}</strong>, {time_window}.</p>
                 <p>Our team will arrive at your location during this window to collect your items.
                 Please make sure everything is ready and accessible.</p>
-                <p>If you have any questions, reply to this email or reach out at
-                <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                <p>If you have any questions, {_contact_link('send us a message')} —
+                we usually reply within a day.</p>
                 <p>Thanks for selling with Campus Swap!</p>
                 <p style="margin-top:24px; padding-top:20px; border-top:1px solid #e2e8f0; text-align:center;">
                   <a href="{reschedule_url}"
@@ -13871,8 +13887,8 @@ def cron_no_show_emails():
                     Reschedule My Pickup &rarr;
                   </a>
                 </p>
-                <p>If you have any questions, reply to this email or reach out at
-                <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.</p>
+                <p>If you have any questions, {_contact_link('send us a message')} —
+                we usually reply within a day.</p>
                 <p>Thanks for your patience — we'll make it work!</p>
             """)
             send_email(seller.email, f"We're sorry we missed you, {first_name}!", html)
@@ -19760,7 +19776,7 @@ def _send_delivery_scheduled_email(stops):
 <p><strong>Delivery address:</strong> {order.delivery_address}</p>
 <p><strong>Delivery date:</strong> {shift_date.strftime('%A, %B %-d, %Y')}</p>
 <p>We'll send you an email before your delivery date.</p>
-<p>Questions? Just reply to this email.</p>
+<p>Questions? {_contact_link()} — we usually reply within a day.</p>
 """
     send_email(order.buyer_email, 'Your Campus Swap delivery is scheduled', html)
     notified = _now_eastern().replace(tzinfo=None)
@@ -19804,7 +19820,7 @@ def _send_delivery_completed_email(stops):
 <p>{intro} Thanks for shopping with Campus Swap.</p>
 {items_html}
 <p><strong>Delivered to:</strong> {order.delivery_address}</p>
-<p>Something not right? Reply to this email within 48 hours and we'll make it right —
+<p>Something not right? {_contact_link('Tell us within 48 hours')} and we'll make it right —
 see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.</p>
 <p>We hope you love it!</p>
 """
@@ -19907,6 +19923,45 @@ def admin_shift_notify_buyers(shift_id):
 
 
 # ── Delivery truck detail drawer (admin ops) ──────────────────
+
+@app.route('/admin/delivery/order/<int:buyer_order_id>/phone', methods=['POST'])
+@login_required
+def admin_delivery_set_buyer_phone(buyer_order_id):
+    """Set or correct a buyer's phone on a delivery order.
+
+    Phone capture via Stripe only started 2026-08-11, so earlier orders have none,
+    and buyers sometimes give a better number over the phone. Writes to the parent
+    Order and every line item under it so ops, crew, and email all agree.
+    """
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    bo = BuyerOrder.query.get_or_404(buyer_order_id)
+    raw = (request.form.get('phone') or '').strip()
+
+    if not raw:
+        # Empty submit clears the number
+        bo.buyer_phone = None
+        if bo.order:
+            bo.order.buyer_phone = None
+            for sibling in bo.order.line_items:
+                sibling.buyer_phone = None
+        db.session.commit()
+        return jsonify(success=True, phone=None, display='')
+
+    ok, result = validate_phone(raw)
+    if not ok:
+        return jsonify(error=result), 400
+
+    formatted = f"({result[0:3]}) {result[3:6]}-{result[6:10]}"
+    bo.buyer_phone = formatted
+    if bo.order:
+        bo.order.buyer_phone = formatted
+        for sibling in bo.order.line_items:
+            sibling.buyer_phone = formatted
+    db.session.commit()
+    logger.info(f"Buyer phone set on BuyerOrder {bo.id} (order {bo.order_id}) by user {current_user.id}")
+    return jsonify(success=True, phone=formatted, display=formatted)
+
 
 @app.route('/admin/ops/shift/<int:shift_id>/truck/<int:truck_number>/assign-worker', methods=['POST'])
 @login_required

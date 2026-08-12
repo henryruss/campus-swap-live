@@ -781,3 +781,149 @@ class TestOpsDeliveryCardDuringRun:
             with notif_app.app_context():
                 db.session.execute(db.delete(DeliveryRun).where(DeliveryRun.shift_id == shift_id))
                 db.session.commit()
+
+
+# ---------------------------------------------------------------------------
+# No email may tell a customer to reply or write to a bare mailbox
+# ---------------------------------------------------------------------------
+
+class TestNoReplyToEmailCopy:
+    """Mail is sent from an unmonitored noreply@, and team@/hello@ were both
+    non-existent mailboxes that hard-bounced every customer message. Support
+    routing must go through the contact form."""
+
+    def test_no_source_tells_customers_to_reply(self):
+        import re
+        src = open('app.py').read()
+        offenders = re.findall(r'.{0,60}[Rr]eply to this email.{0,40}', src)
+        # The only permitted mentions are explanatory code comments
+        real = [o for o in offenders if not o.lstrip().startswith('#')
+                and 'hard-bounced' not in o and 'unmonitored' not in o]
+        assert not real, f'email copy still tells customers to reply: {real}'
+
+    def test_no_dead_mailbox_links_anywhere(self):
+        import glob
+        import re
+        bad = []
+        for path in ['app.py'] + glob.glob('templates/**/*.html', recursive=True):
+            src = open(path).read()
+            if 'mailto:hello@usecampusswap.com' in src:
+                bad.append(path)
+        assert not bad, f'hello@usecampusswap.com does not exist; dead links in: {bad}'
+
+    def test_contact_url_points_at_the_form(self, notif_app):
+        from app import _contact_url, _contact_link
+        with notif_app.test_request_context('/'):
+            assert _contact_url().endswith('/contact')
+            assert '/contact' in _contact_link()
+            assert 'Contact our team' in _contact_link()
+
+    def test_buyer_emails_route_support_to_the_contact_form(self, monkeypatch, notif_app,
+                                                           delivery_fixtures):
+        import re
+        import app as app_module
+        from models import DeliveryStop
+
+        captured = []
+        monkeypatch.setattr(app_module, '_resend_send_throttled',
+                            lambda d, **kw: captured.append(dict(d)))
+        monkeypatch.setattr(app_module.resend, 'api_key', 'test-key')
+        monkeypatch.setenv('SUPPRESS_EMAILS', '0')
+
+        with notif_app.test_request_context('/'):
+            stops = DeliveryStop.query.filter_by(shift_id=delivery_fixtures['shift_id']).all()
+            app_module._send_delivery_scheduled_email(stops[:3])
+
+        assert captured, 'no email captured'
+        html = captured[0]['html']
+        assert not re.search(r'[Rr]eply to this email', html)
+        assert 'mailto:' not in html
+        assert '/contact' in html
+
+
+class TestCrewSeesBuyerContact:
+    def test_macro_shows_buyer_name_and_phone(self):
+        src = open('templates/crew/_delivery_stop_card.html').read()
+        assert 'buyer_name' in src, 'driver needs the buyer name at the door'
+        assert 'href="tel:{{ buyer_phone }}"' in src
+        assert 'No phone on file' in src, 'absence of a phone must be explicit, not blank'
+
+    def test_phone_falls_back_from_line_item_to_parent_order(self):
+        src = open('templates/crew/_delivery_stop_card.html').read()
+        assert 'order.buyer_phone or (order.order.buyer_phone' in src
+
+
+class TestAdminSetBuyerPhone:
+    def _client(self, notif_app):
+        from models import User
+        notif_app.config['WTF_CSRF_ENABLED'] = False
+        c = notif_app.test_client()
+        with notif_app.app_context():
+            aid = User.query.filter_by(is_super_admin=True).first().id
+        with c.session_transaction() as sess:
+            sess['_user_id'] = str(aid)
+            sess['_fresh'] = True
+        return c
+
+    def test_sets_phone_on_order_and_every_line_item(self, notif_app, delivery_fixtures):
+        from app import db
+        from models import BuyerOrder, DeliveryStop
+
+        with notif_app.app_context():
+            stop = DeliveryStop.query.get(delivery_fixtures['cart_stop_ids'][0])
+            bo_id, order_id = stop.buyer_order_id, stop.buyer_order.order_id
+
+        c = self._client(notif_app)
+        r = c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': '916-599-8646'})
+        assert r.status_code == 200
+        assert r.get_json()['phone'] == '(916) 599-8646'
+
+        with notif_app.app_context():
+            db.session.expire_all()
+            siblings = BuyerOrder.query.filter_by(order_id=order_id).all()
+            assert len(siblings) == 3
+            assert all(b.buyer_phone == '(916) 599-8646' for b in siblings), \
+                'all line items in the order must agree'
+            assert siblings[0].order.buyer_phone == '(916) 599-8646'
+
+    def test_normalizes_common_formats(self, notif_app, delivery_fixtures):
+        from models import DeliveryStop
+        with notif_app.app_context():
+            bo_id = DeliveryStop.query.get(delivery_fixtures['cart_stop_ids'][0]).buyer_order_id
+        c = self._client(notif_app)
+        for raw in ['(916) 599-8646', '9165998646', '+1 916 599 8646', '916.599.8646']:
+            r = c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': raw})
+            assert r.get_json()['phone'] == '(916) 599-8646', raw
+
+    def test_rejects_invalid_number(self, notif_app, delivery_fixtures):
+        from models import DeliveryStop
+        with notif_app.app_context():
+            bo_id = DeliveryStop.query.get(delivery_fixtures['cart_stop_ids'][0]).buyer_order_id
+        c = self._client(notif_app)
+        r = c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': '12345'})
+        assert r.status_code == 400
+        assert 'valid 10-digit' in r.get_json()['error']
+
+    def test_empty_submit_clears_the_phone(self, notif_app, delivery_fixtures):
+        from app import db
+        from models import BuyerOrder, DeliveryStop
+        with notif_app.app_context():
+            bo_id = DeliveryStop.query.get(delivery_fixtures['cart_stop_ids'][0]).buyer_order_id
+        c = self._client(notif_app)
+        c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': '9165998646'})
+        r = c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': ''})
+        assert r.get_json()['phone'] is None
+        with notif_app.app_context():
+            db.session.expire_all()
+            assert BuyerOrder.query.get(bo_id).buyer_phone is None
+
+    def test_requires_ops_access(self, notif_app, delivery_fixtures):
+        from models import DeliveryStop
+        with notif_app.app_context():
+            bo_id = DeliveryStop.query.get(delivery_fixtures['cart_stop_ids'][0]).buyer_order_id
+        notif_app.config['WTF_CSRF_ENABLED'] = False
+        with notif_app.test_client() as c:
+            with c.session_transaction() as sess:
+                sess.clear()
+            r = c.post(f'/admin/delivery/order/{bo_id}/phone', data={'phone': '9165998646'})
+        assert r.status_code in (302, 401, 403)

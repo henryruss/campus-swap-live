@@ -61,8 +61,7 @@
       <div class="amber-callout">
         <i class="fas fa-info-circle"></i>
         This reschedule link has already been used. If you need to make another change,
-        reply to your confirmation email or contact us at
-        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+        <a href="{{ url_for('contact') }}">send us a message</a>.
       </div>
       <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
 
@@ -71,8 +70,7 @@
       <h1>Link expired</h1>
       <div class="amber-callout">
         <i class="fas fa-clock"></i>
-        This reschedule link has expired. Reply to your confirmation email and we'll help —
-        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+        This reschedule link has expired. <a href="{{ url_for('contact') }}">Send us a message</a> and we'll help.
       </div>
       <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
 
@@ -89,8 +87,7 @@
     {% else %}
       <h1>Something went wrong</h1>
       <div class="amber-callout">
-        An unexpected error occurred. Please contact
-        <a href="mailto:hello@usecampusswap.com">hello@usecampusswap.com</a>.
+        An unexpected error occurred. Please <a href="{{ url_for('contact') }}">send us a message</a>.
       </div>
       <a href="{{ url_for('dashboard') }}" style="color: var(--primary);">Back to dashboard &rarr;</a>
     {% endif %}
