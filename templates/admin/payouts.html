@@ -92,6 +92,26 @@
   }
   .po-copy-hint { font-size: 0.8rem; color: var(--text-muted); }
 
+  /* Seller phone — Venmo asks for the last 4 digits to confirm the recipient */
+  .po-phone {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-radius: 10px;
+    background: var(--bg-cream); border: 1px solid var(--rule);
+  }
+  .po-phone-num {
+    font-size: 1.05rem; font-weight: 700; color: var(--card-ink);
+    font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .po-last4 {
+    font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;
+    padding-left: 8px; border-left: 1px solid var(--rule);
+  }
+  .po-last4 strong {
+    font-size: 1.05rem; color: var(--accent);
+    font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  }
+
   .po-warn {
     display: flex; align-items: center; gap: 8px;
     background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
@@ -180,6 +200,7 @@
     .po-amount-num { font-size: 2.6rem; }
     .po-seller-name { font-size: 1.35rem; }
     .po-handle-btn { font-size: 1.15rem; width: 100%; justify-content: center; }
+    .po-phone { width: 100%; justify-content: center; }
     .po-pay-btn, .po-confirm-yes { width: 100%; }
     .po-confirm { width: 100%; flex-direction: column; align-items: stretch; }
     .po-confirm form { width: 100%; }
@@ -257,6 +278,17 @@
           <span class="po-method">{{ seller.payout_method or 'Venmo' }}</span>
           <span>{{ seller.payout_handle }}</span>
         </button>
+        {% if seller.phone %}
+        {# Venmo asks for the last 4 digits to confirm the recipient #}
+        {% set digits = seller.phone | replace('-','') | replace(' ','') | replace('(','') | replace(')','') | replace('.','') | replace('+','') %}
+        <div class="po-phone">
+          <span class="po-method">phone</span>
+          <span class="po-phone-num">{{ seller.phone }}</span>
+          {% if digits|length >= 4 %}
+          <span class="po-last4" title="Venmo confirmation digits">last 4 &middot; <strong>{{ digits[-4:] }}</strong></span>
+          {% endif %}
+        </div>
+        {% endif %}
         <span class="po-copy-hint">tap to copy</span>
       </div>
       {% else %}
@@ -283,14 +315,9 @@
               #{{ item.id }} &middot; sold ${{ "%.2f"|format(item.price or 0) }}
               {% if item.sold_at %} &middot; {{ item.sold_at.strftime('%b %-d') }}{% endif %}
             </div>
-            {% if not row.has_intake or row.flag_type %}
+            {% if row.flag_type %}
             <div class="po-item-badges">
-              {% if not row.has_intake %}
-              <span class="po-badge"><i class="fas fa-exclamation-circle"></i> no intake record</span>
-              {% endif %}
-              {% if row.flag_type %}
               <span class="po-badge"><i class="fas fa-flag"></i> {{ row.flag_type|replace('_',' ') }}</span>
-              {% endif %}
             </div>
             {% endif %}
           </div>

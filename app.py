@@ -11919,16 +11919,10 @@ def admin_payouts():
 
     unpaid_item_ids = [i.id for i in unpaid_items]
 
-    # Batch intake check
-    intake_item_ids = set()
-    if unpaid_item_ids:
-        intake_item_ids = {
-            r.item_id for r in
-            IntakeRecord.query
-            .filter(IntakeRecord.item_id.in_(unpaid_item_ids))
-            .with_entities(IntakeRecord.item_id)
-            .all()
-        }
+    # NOTE: there is deliberately no "missing intake record" check here. IntakeRecord
+    # rows are only ever written by crew_intake_submit — the deprecated organizer
+    # intake page — so none exist, and the warning fired on every single item forever.
+    # An item that sold through the shop is by definition a real, received item.
 
     # Batch flag check (unresolved, item-linked flags only)
     flagged_item_ids = {}  # item_id -> flag_type
@@ -11968,7 +11962,6 @@ def admin_payouts():
             'item': item,
             'payout_amount': payout_amt,
             'payout_rate_pct': item.seller.payout_rate,
-            'has_intake': item.id in intake_item_ids,
             'flag_type': flagged_item_ids.get(item.id),
         })
         seller_groups[sid]['total'] = round(seller_groups[sid]['total'] + payout_amt, 2)
@@ -12008,7 +12001,6 @@ def admin_payouts():
     return render_template(
         'admin/payouts.html',
         sorted_sellers=sorted_sellers,
-        intake_item_ids=intake_item_ids,
         flagged_item_ids=flagged_item_ids,
         paid_rows=paid_rows,
         pagination=paid_pagination,

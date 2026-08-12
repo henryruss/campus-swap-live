@@ -125,6 +125,32 @@ class TestPayoutCardContent:
         assert 'No payout handle on file' in body, \
             'paying a seller with no handle must be blocked visibly'
 
+    def test_shows_seller_phone_and_last_four(self, payout_app, payout_fixtures):
+        """Venmo asks for the last 4 digits to confirm the recipient."""
+        from app import db
+        from models import User
+
+        with payout_app.app_context():
+            seller = User.query.get(payout_fixtures['seller_id'])
+            seller.phone = '7045893121'
+            db.session.commit()
+        # expire_on_commit=False + the request reusing the fixture's pushed app
+        # context means the page would otherwise render the stale User row.
+        db.session.expire_all()
+
+        body = _admin_client(payout_app).get('/admin/payouts').get_data(as_text=True)
+        assert '7045893121' in body
+        assert 'last 4' in body
+        assert '<strong>3121</strong>' in body
+
+    def test_no_dead_intake_warning(self, payout_app, payout_fixtures):
+        """IntakeRecord is only written by the deprecated organizer intake page, so
+        the 'no intake record' badge fired on every item forever."""
+        body = _admin_client(payout_app).get('/admin/payouts').get_data(as_text=True)
+        assert 'no intake record' not in body
+        src = open('app.py').read()
+        assert "'has_intake'" not in src, 'dead intake flag should be gone from the route'
+
     def test_every_item_is_listed_with_its_payout(self, payout_app, payout_fixtures):
         body = _admin_client(payout_app).get('/admin/payouts').get_data(as_text=True)
         for item_id in payout_fixtures['item_ids']:
