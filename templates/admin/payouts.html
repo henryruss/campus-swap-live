@@ -312,9 +312,22 @@
           <div class="po-item-main">
             <div class="po-item-title">{{ item.description or '(no description)' }}</div>
             <div class="po-item-meta">
-              #{{ item.id }} &middot; sold ${{ "%.2f"|format(item.price or 0) }}
+              #{{ item.id }} &middot;
+              {% if item.sold_in_person and item.amount_collected is not none %}
+                collected ${{ "%.2f"|format(item.amount_collected) }}
+                {% if item.price and item.amount_collected != item.price %}
+                <span style="text-decoration:line-through; opacity:0.6;">${{ "%.2f"|format(item.price) }}</span>
+                {% endif %}
+              {% else %}
+                sold ${{ "%.2f"|format(item.price or 0) }}
+              {% endif %}
               {% if item.sold_at %} &middot; {{ item.sold_at.strftime('%b %-d') }}{% endif %}
             </div>
+            {% if item.sold_in_person %}
+            <div class="po-item-badges">
+              <span class="po-badge"><i class="fas fa-handshake"></i> in person{% if item.sold_by %} &middot; {{ item.sold_by.full_name or item.sold_by.email }}{% endif %}</span>
+            </div>
+            {% endif %}
             {% if row.flag_type %}
             <div class="po-item-badges">
               <span class="po-badge"><i class="fas fa-flag"></i> {{ row.flag_type|replace('_',' ') }}</span>

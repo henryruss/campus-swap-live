@@ -1275,23 +1275,50 @@
     if (!btn) return;
     var itemId = btn.dataset.itemId;
     if (!itemId) return;
-    if (!confirm('Mark this item as sold?')) return;
+    // Prefilled with the list price, so the common "they paid asking" case is
+    // confirm-and-go, but a negotiated price can still be recorded truthfully.
+    var listPrice = btn.dataset.listPrice || '';
+    var entered = prompt(
+      'Amount collected for this item?\n\n' +
+      'The seller is paid their percentage of this amount, so enter what you ' +
+      'actually took — not the list price, if you discounted it.',
+      listPrice
+    );
+    if (entered === null) return;            // cancelled
+    entered = entered.trim().replace(/^\$/, '');
+    if (entered === '' || isNaN(parseFloat(entered)) || parseFloat(entered) < 0) {
+      alert('Enter the amount collected as a number, for example 100 or 100.00');
+      return;
+    }
     var fd = new FormData();
     fd.append('csrf_token', _itemDetailCsrf);
     fd.append('modal', '1');
+    fd.append('amount_collected', entered);
+    btn.disabled = true;
     fetch('/admin/item/' + itemId + '/mark-sold', { method: 'POST', body: fd })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.success) {
-          var row = document.querySelector('tr[data-item-id="' + itemId + '"]');
-          if (row) {
-            var pill = row.querySelector('.status-pill');
-            if (pill) { pill.className = 'status-pill status-sold'; pill.textContent = 'sold'; }
-          }
-          closeItemDetail();
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        btn.disabled = false;
+        if (!res.ok || !res.data.success) {
+          alert(res.data.error || 'Failed to mark sold. Try again.');
+          return;
         }
+        var data = res.data;
+        var row = document.querySelector('tr[data-item-id="' + itemId + '"]');
+        if (row) {
+          var pill = row.querySelector('.status-pill');
+          if (pill) { pill.className = 'status-pill status-sold'; pill.textContent = 'sold'; }
+        }
+        var msg = 'Marked sold for $' + data.sale_price.toFixed(2) +
+                  ' — $' + data.payout_amount.toFixed(2) + ' owed to the seller.';
+        if (data.carts_cleared > 0) {
+          msg += '\n\nRemoved from ' + data.carts_cleared + ' shopper cart' +
+                 (data.carts_cleared !== 1 ? 's' : '') + '.';
+        }
+        alert(msg);
+        closeItemDetail();
       })
-      .catch(function() { alert('Failed to mark sold. Try again.'); });
+      .catch(function() { btn.disabled = false; alert('Failed to mark sold. Try again.'); });
   });
 
   // Event delegation for delete button in detail partial

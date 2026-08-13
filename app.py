@@ -26,7 +26,7 @@ import stripe
 import resend
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 _EASTERN = ZoneInfo('America/New_York')
 
@@ -967,6 +967,26 @@ def _get_payout_percentage(item):
     return 0.50
 
 
+def _get_item_sale_price(item):
+    """What the item actually sold for, as a float.
+
+    Stripe sales sell at the listed price. In-person sales record what was actually
+    collected, which may be less if a worker negotiated to close the deal. Every
+    payout and revenue figure must read through here — using item.price directly
+    overpays the seller on every discounted sale.
+    """
+    if item is None:
+        return 0.0
+    if getattr(item, 'amount_collected', None) is not None:
+        return float(item.amount_collected)
+    return float(item.price or 0)
+
+
+def _get_payout_amount(item):
+    """Seller payout for one item, rounded to cents."""
+    return round(_get_item_sale_price(item) * _get_payout_percentage(item), 2)
+
+
 def _compute_seller_tracker(seller, items):
     """
     Computes account-level tracker state for the seller dashboard.
@@ -1072,9 +1092,8 @@ def _items_sold_email_html(items, seller):
     total_sale = 0.0
     total_payout = 0.0
     for itm in items:
-        sale_price = float(itm.price or 0)
-        payout_pct = _get_payout_percentage(itm)
-        payout_amount = round(sale_price * payout_pct, 2)
+        sale_price = _get_item_sale_price(itm)
+        payout_amount = _get_payout_amount(itm)
         total_sale += sale_price
         total_payout += payout_amount
         lines.append((itm, sale_price, payout_pct, payout_amount))
@@ -1158,7 +1177,7 @@ def _payout_sent_email_html(items, seller):
     total = 0.0
     rows = ''
     for itm in items:
-        amt = round(float(itm.price or 0) * _get_payout_percentage(itm), 2)
+        amt = _get_payout_amount(itm)
         total += amt
         rows += (
             f'<tr>'
@@ -4704,9 +4723,7 @@ def admin_panel():
                                         User.is_internal_account.is_(None)))
                          .all())
     unpaid_items_count = len(unpaid_sold_items)
-    unpaid_total = round(sum(
-        (i.price or 0) * _get_payout_percentage(i) for i in unpaid_sold_items
-    ), 2)
+    unpaid_total = round(sum(_get_payout_amount(i) for i in unpaid_sold_items), 2)
 
     return render_template('admin.html', commodities=commodities, all_cats=all_cats,
                            pending_items=pending_items, gallery_items=gallery_items,
@@ -6900,8 +6917,7 @@ def dashboard():
     earnings_subtext = "Based on your 50% payout rate"
     
     def _payout_for_item(it):
-        pct = _get_payout_percentage(it)
-        return (it.price or 0) * pct
+        return _get_payout_amount(it)
     
     estimated_payout = sum(_payout_for_item(i) for i in live_items)
     paid_out = sum(_payout_for_item(i) for i in sold_items if i.payout_sent)
@@ -9430,8 +9446,7 @@ def admin_preview_sales():
     rows = []
     total_payout = 0
     for item in sold_items:
-        pct = _get_payout_percentage(item)
-        payout_amount = (item.price or 0) * pct
+        payout_amount = _get_payout_amount(item)
         total_payout += payout_amount
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
@@ -9479,8 +9494,7 @@ def admin_export_sales():
     
     # Data rows
     for item in sold_items:
-        pct = _get_payout_percentage(item)
-        payout_amount = (item.price or 0) * pct
+        payout_amount = _get_payout_amount(item)
         seller_email = item.seller.email if item.seller else ''
         seller_name = item.seller.full_name if item.seller else ''
         payout_method = item.seller.payout_method if item.seller else ''
@@ -12005,8 +12019,7 @@ def admin_payouts():
         if not item.seller:
             continue
         sid = item.seller_id
-        pct = _get_payout_percentage(item)
-        payout_amt = round((item.price or 0) * pct, 2)
+        payout_amt = _get_payout_amount(item)
         if sid not in seller_groups:
             seller_groups[sid] = {
                 'seller': item.seller,
@@ -12047,12 +12060,12 @@ def admin_payouts():
     for item in paid_items_page:
         if not item.seller:
             continue
-        pct = _get_payout_percentage(item)
         paid_rows.append({
             'item': item,
             'seller': item.seller,
             'payout_rate_pct': item.seller.payout_rate,
-            'payout_amount': round((item.price or 0) * pct, 2),
+            'payout_amount': _get_payout_amount(item),
+            'sale_price': _get_item_sale_price(item),
         })
 
     active_tab = request.args.get('tab', 'unpaid')
@@ -12142,7 +12155,7 @@ def admin_payout_mark_seller_paid(seller_id):
     for item in items:
         item.payout_sent = True
         item.payout_sent_at = now
-        total += round(float(item.price or 0) * _get_payout_percentage(item), 2)
+        total += _get_payout_amount(item)
     db.session.commit()
     total = round(total, 2)
 
@@ -12213,15 +12226,15 @@ def admin_payouts_export():
     writer = csv.writer(output)
     writer.writerow([
         'item_id', 'item_title', 'seller_name', 'seller_email',
-        'payout_method', 'payout_handle', 'sale_price', 'payout_rate',
-        'payout_amount', 'sold_at', 'payout_sent', 'payout_sent_at',
+        'payout_method', 'payout_handle', 'list_price', 'sale_price', 'payout_rate',
+        'payout_amount', 'sold_at', 'sold_in_person', 'sold_by',
+        'payout_sent', 'payout_sent_at',
         'has_intake_record', 'has_unresolved_flag',
     ])
 
     for item in sold_items:
         seller = item.seller
-        pct = _get_payout_percentage(item)
-        payout_amount = round((item.price or 0) * pct, 2)
+        payout_amount = _get_payout_amount(item)
         payout_rate = seller.payout_rate if seller else ''
         writer.writerow([
             item.id,
@@ -12231,9 +12244,14 @@ def admin_payouts_export():
             seller.payout_method if seller else '',
             seller.payout_handle if seller else '',
             item.price or 0,
+            # What was actually collected — differs from list price on a negotiated
+            # in-person sale, and is what payout_amount is computed from.
+            _get_item_sale_price(item),
             payout_rate,
             payout_amount,
             item.sold_at.strftime('%Y-%m-%dT%H:%M:%S') if item.sold_at else '',
+            'True' if item.sold_in_person else 'False',
+            (item.sold_by.full_name or item.sold_by.email) if item.sold_by else '',
             'True' if item.payout_sent else 'False',
             item.payout_sent_at.strftime('%Y-%m-%dT%H:%M:%S') if item.payout_sent_at else '',
             'True' if item.id in intake_ids else 'False',
@@ -17503,7 +17521,7 @@ def admin_item_detail(item_id):
         .get_or_404(item_id)
     )
     payout_pct = _get_payout_percentage(item)
-    payout_amount = float(item.price or 0) * payout_pct if item.price else None
+    payout_amount = _get_payout_amount(item) if item.price else None
     return render_template(
         'admin/item_detail_partial.html',
         item=item,
@@ -17531,15 +17549,87 @@ def admin_item_pull_from_shop(item_id):
 @app.route('/admin/item/<int:item_id>/mark-sold', methods=['POST'])
 @login_required
 def admin_item_mark_sold(item_id):
-    """Mark an item as sold."""
-    if not current_user.is_admin:
+    """Mark an item sold outside Stripe — an in-person cash/Venmo handoff.
+
+    Ops access rather than is_admin, so a campus director can close a sale for their
+    own school. This does not weaken the rule that the Stripe webhook is the only
+    source of truth for *Stripe* payment state; it records a sale that Stripe was
+    never involved in, via an explicit human action.
+
+    Does everything the webhook does on a sale, because a half-marked item is exactly
+    how the same thing gets sold twice:
+      - flips status so the shop and cart both stop offering it
+      - stamps sold_at (payout ordering and the CSV read it)
+      - decrements category stock
+      - drops the item out of every other buyer's cart
+
+    `amount_collected` is optional; when present the sale is flagged in-person and the
+    seller's payout is computed from it rather than the list price.
+    """
+    if not _has_ops_access():
         abort(403)
     item = InventoryItem.query.get_or_404(item_id)
-    if item.status != 'sold':
-        item.status = 'sold'
-        db.session.commit()
-    if request.form.get('modal') == '1':
-        return jsonify({'success': True})
+    is_modal = request.form.get('modal') == '1'
+
+    # Idempotency: never let two people mark the same item and double-count stock.
+    if item.status == 'sold':
+        msg = "That item is already marked sold."
+        if is_modal:
+            return jsonify({'success': False, 'error': msg}), 409
+        flash(msg, "warning")
+        return redirect(url_for('admin_items', view='all'))
+
+    raw_amount = (request.form.get('amount_collected') or '').strip()
+    amount = None
+    if raw_amount:
+        try:
+            amount = Decimal(raw_amount).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            msg = "Enter the amount collected as a number."
+            if is_modal:
+                return jsonify({'success': False, 'error': msg}), 400
+            flash(msg, "error")
+            return redirect(url_for('admin_items', view='all'))
+        if amount < 0:
+            msg = "Amount collected cannot be negative."
+            if is_modal:
+                return jsonify({'success': False, 'error': msg}), 400
+            flash(msg, "error")
+            return redirect(url_for('admin_items', view='all'))
+
+    item.status = 'sold'
+    item.sold_at = datetime.utcnow()
+    item.sold_by_id = current_user.id
+    if amount is not None:
+        item.sold_in_person = True
+        item.amount_collected = amount
+    if item.category and item.category.count_in_stock > 0:
+        item.category.count_in_stock -= 1
+    db.session.commit()
+
+    # Anyone holding it in a cart can no longer check out with it. Without this they
+    # reach Stripe and the webhook's double-sale guard has to refund them.
+    removed = CartItem.query.filter_by(item_id=item.id).delete()
+    db.session.commit()
+
+    posthog.capture('item_sold_in_person', distinct_id=str(current_user.id), properties={
+        'item_id': item.id,
+        'seller_id': item.seller_id,
+        'list_price': float(item.price) if item.price else None,
+        'amount_collected': float(amount) if amount is not None else None,
+        'carts_cleared': removed,
+    })
+
+    payout = _get_payout_amount(item)
+    if is_modal:
+        return jsonify({
+            'success': True,
+            'sale_price': _get_item_sale_price(item),
+            'payout_amount': payout,
+            'carts_cleared': removed,
+        })
+    flash(f"Marked '{item.description}' sold for ${_get_item_sale_price(item):.2f} — "
+          f"${payout:.2f} now owed to the seller.", "success")
     return redirect(url_for('admin_items', view='all'))
 
 
