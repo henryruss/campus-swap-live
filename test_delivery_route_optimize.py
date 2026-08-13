@@ -454,6 +454,47 @@ class TestOptimizeDeliveryRoute:
             assert qs['origin'][0] == get_warehouse_address()
             assert len(qs['waypoints'][0].split('|')) == 3
 
+    def test_maps_url_uses_coordinates_not_address_text(self, route_client, delivery_shift):
+        """Waypoints must be lat,lng — address text is ambiguous without city/state."""
+        from app import app as _app, optimize_delivery_route
+        from models import Shift, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1)
+            plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=1).first()
+            qs = parse_qs(urlparse(plan.maps_url).query)
+            for wp in qs['waypoints'][0].split('|'):
+                lat, lng = wp.split(',')
+                assert 35.0 < float(lat) < 36.5
+                assert -80.0 < float(lng) < -78.5
+
+    def test_mid_run_maps_origin_is_never_a_bare_street(self, route_client, delivery_shift):
+        """Regression: anchor_label is display-only. Using it as the Maps origin sent a
+        Chapel Hill route to a same-named street in Louisiana."""
+        from app import app as _app, optimize_delivery_route, db
+        from models import Shift, DeliveryStop, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1)
+            plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=1).first()
+
+            # Display label stays human-readable...
+            assert plan.anchor_label == '12 Cameron Ave'
+            # ...but the link must carry coordinates, not that city-less string.
+            origin = parse_qs(urlparse(plan.maps_url).query)['origin'][0]
+            assert origin != '12 Cameron Ave'
+            lat, lng = origin.split(',')
+            assert round(float(lat), 4) == 35.9100
+            assert round(float(lng), 4) == -79.0550
+
     def test_no_stops_returns_not_ok(self, route_client, delivery_shift):
         from app import app as _app, optimize_delivery_route
         from models import Shift
@@ -516,6 +557,23 @@ class TestPlanCaching:
             mock_post.return_value = _routes_response([0, 1])
             result = optimize_delivery_route(shift, 1)
             assert mock_post.call_count == 2
+            assert result['reused'] is False
+
+    def test_version_bump_invalidates_stored_plans(self, route_client, delivery_shift):
+        """A stored plan whose URL format is now wrong must recompute, not be reused."""
+        from app import app as _app, optimize_delivery_route, db
+        from models import Shift, DeliveryRoutePlan
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1)
+            plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=1).first()
+
+            # Simulate a plan stored by the previous version
+            plan.plan_hash = plan.plan_hash.replace(plan.plan_hash[:4], 'old0')
+            db.session.commit()
+
+            result = optimize_delivery_route(shift, 1)
             assert result['reused'] is False
 
     def test_completing_a_stop_invalidates_the_plan(self, route_client, delivery_shift):

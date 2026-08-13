@@ -20433,10 +20433,16 @@ def _group_delivery_waypoints(stops):
     return groups, ungeocoded
 
 
+# Bump when a change makes previously stored plans wrong, not just stale. Every
+# cached plan then misses once and recomputes. v2: maps_url switched from address
+# text to coordinates after a city-less origin sent a route to another state.
+ROUTE_PLAN_VERSION = 'v2'
+
+
 def _route_plan_hash(anchor, groups):
     """Fingerprint of what we're solving, so an unchanged route skips the API call."""
     import hashlib
-    parts = [f"{anchor[0]:.5f},{anchor[1]:.5f}"]
+    parts = [ROUTE_PLAN_VERSION, f"{anchor[0]:.5f},{anchor[1]:.5f}"]
     # Sorted — the hash identifies the *set* of stops, not the order we happen to hold
     # them in. Otherwise every optimization would invalidate its own cache.
     parts.extend(sorted(
@@ -20563,19 +20569,24 @@ def _optimize_order_google(origin, points, destination):
         return None
 
 
-def _build_maps_directions_url(origin_label, groups_in_order, destination_label):
+def _build_maps_directions_url(origin, groups_in_order, destination_label):
     """
     Google Maps deep link so a driver can hand the whole loop to turn-by-turn nav.
 
-    Uses street addresses rather than coordinates — Maps shows the buyer's address in
-    the destination list, which is what the driver needs to recognise the stop.
+    Waypoints are sent as "lat,lng", never as address text. An address string is only
+    unambiguous if it carries city and state — a bare street line ("710 North Columbia
+    Street") resolves to whichever match Google likes best, which is how a Chapel Hill
+    route once picked up a stop in Louisiana. Coordinates also guarantee the link
+    follows exactly the geometry the optimizer solved on.
+
+    `origin` is either a (lat, lng) tuple or a fully-qualified address string.
     """
-    waypoints = [g['address'] for g in groups_in_order if g.get('address')]
+    waypoints = [f"{g['lat']},{g['lng']}" for g in groups_in_order]
     if not waypoints:
         return None
     params = {
         'api': '1',
-        'origin': origin_label,
+        'origin': f"{origin[0]},{origin[1]}" if isinstance(origin, (tuple, list)) else origin,
         # The loop closes at the warehouse, so every buyer stop is a waypoint.
         'destination': destination_label,
         'travelmode': 'driving',
@@ -20683,8 +20694,10 @@ def optimize_delivery_route(shift, truck_number, user=None):
     plan.distance_meters = distance_meters
     plan.duration_seconds = duration_seconds
     plan.anchor_label = anchor_label
+    # Origin is the anchor's coordinates when mid-run; the fully-qualified warehouse
+    # address otherwise. Never anchor_label — that is display-only and city-less.
     plan.maps_url = _build_maps_directions_url(
-        anchor_label if anchor != warehouse else warehouse_label,
+        warehouse_label if anchor == warehouse else anchor,
         ordered_groups,
         warehouse_label,
     )
