@@ -15598,7 +15598,10 @@ def admin_ops():
     if shift:
         _shift_del_stops = DeliveryStop.query.filter_by(shift_id=shift.id).all()
         has_delivery_stops = len(_shift_del_stops) > 0
-        delivery_unnotified_count = sum(1 for s in _shift_del_stops if s.notified_at is None)
+        # Count buyers, not stops. Notification sends one email per buyer order, so
+        # counting stops promised "3 buyers" for one person who bought three items.
+        delivery_unnotified_count = len(_group_stops_by_buyer_order(
+            [s for s in _shift_del_stops if s.notified_at is None]))
     # Upcoming delivery-eligible shifts for the assign form in the delivery queue panel
     _today_val = _today_eastern()
     _upcoming_del_shifts = sorted(
