@@ -20439,10 +20439,15 @@ def _group_delivery_waypoints(stops):
 ROUTE_PLAN_VERSION = 'v2'
 
 
-def _route_plan_hash(anchor, groups):
-    """Fingerprint of what we're solving, so an unchanged route skips the API call."""
+def _route_plan_hash(anchor, groups, mode='crew'):
+    """Fingerprint of what we're solving, so an unchanged route skips the API call.
+
+    `mode` is part of the key because ops and crew ask different questions of the
+    same truck — without it, an ops full-loop plan would be served to a driver who
+    asked to continue from where they are.
+    """
     import hashlib
-    parts = [ROUTE_PLAN_VERSION, f"{anchor[0]:.5f},{anchor[1]:.5f}"]
+    parts = [ROUTE_PLAN_VERSION, mode, f"{anchor[0]:.5f},{anchor[1]:.5f}"]
     # Sorted — the hash identifies the *set* of stops, not the order we happen to hold
     # them in. Otherwise every optimization would invalidate its own cache.
     parts.extend(sorted(
@@ -20597,9 +20602,16 @@ def _build_maps_directions_url(origin, groups_in_order, destination_label):
     return 'https://www.google.com/maps/dir/?' + urlencode(params)
 
 
-def optimize_delivery_route(shift, truck_number, user=None):
+def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False):
     """
     Recompute stop_order for one truck's pending delivery stops.
+
+    `from_warehouse=True` always plans the full loop out of and back to the warehouse,
+    ignoring how far the truck has actually got. That is what the ops screen wants —
+    it is planning the shift, not following the driver. The crew view leaves it False
+    so a mid-run click continues from the last completed stop.
+
+    Either way only pending stops are ordered; delivered ones stay frozen at the front.
 
     Returns a result dict: {'ok', 'message', 'method', 'plan', 'reused', 'stop_count',
     'ungeocoded'}. Writes stop_order and upserts the DeliveryRoutePlan row; the caller
@@ -20631,15 +20643,16 @@ def optimize_delivery_route(shift, truck_number, user=None):
     # and a mid-run "continue from here".
     anchor = warehouse
     anchor_label = 'Warehouse'
-    for s in reversed(completed):
-        coords = _delivery_stop_coords(s)
-        if coords:
-            anchor = coords
-            anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
-            break
+    if not from_warehouse:
+        for s in reversed(completed):
+            coords = _delivery_stop_coords(s)
+            if coords:
+                anchor = coords
+                anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
+                break
 
     groups, ungeocoded = _group_delivery_waypoints(pending)
-    plan_hash = _route_plan_hash(anchor, groups)
+    plan_hash = _route_plan_hash(anchor, groups, mode='ops' if from_warehouse else 'crew')
     plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=truck_number).first()
 
     if not groups:
@@ -20740,7 +20753,10 @@ def admin_optimize_delivery_route(shift_id, truck_number):
     if not _has_ops_access():
         abort(403)
     shift = Shift.query.get_or_404(shift_id)
-    result = optimize_delivery_route(shift, truck_number, user=current_user)
+    # Ops plans the whole shift — always the full warehouse-to-warehouse loop,
+    # never "continue from where the driver got to".
+    result = optimize_delivery_route(shift, truck_number, user=current_user,
+                                     from_warehouse=True)
     flash(f"Truck {truck_number}: {result['message']}",
           'success' if result['ok'] else 'info')
     return redirect(request.referrer or url_for('admin_ops', shift_id=shift_id))

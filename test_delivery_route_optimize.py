@@ -382,6 +382,43 @@ class TestOptimizeDeliveryRoute:
             plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=1).first()
             assert plan.anchor_label == '12 Cameron Ave'
 
+    def test_from_warehouse_ignores_completed_anchor(self, route_client, delivery_shift):
+        """Ops plans the shift, so the loop always starts and ends at the warehouse."""
+        from app import app as _app, optimize_delivery_route, db, get_warehouse_address
+        from models import Shift, DeliveryStop, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, from_warehouse=True)
+            plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=1).first()
+
+            assert plan.anchor_label == 'Warehouse'
+            qs = parse_qs(urlparse(plan.maps_url).query)
+            assert qs['origin'][0] == get_warehouse_address()
+            assert qs['destination'][0] == get_warehouse_address()
+
+    def test_ops_and_crew_plans_do_not_reuse_each_other(self, route_client, delivery_shift):
+        """Different questions about the same truck must not share a cached answer."""
+        from app import app as _app, optimize_delivery_route, db
+        from models import Shift, DeliveryStop
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, from_warehouse=True)
+            crew = optimize_delivery_route(shift, 1, from_warehouse=False)
+            assert crew['reused'] is False
+            ops = optimize_delivery_route(shift, 1, from_warehouse=True)
+            assert ops['reused'] is False
+
     def test_anchor_is_warehouse_when_nothing_delivered(self, route_client, delivery_shift):
         from app import app as _app, optimize_delivery_route
         from models import Shift, DeliveryRoutePlan

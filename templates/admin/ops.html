@@ -999,8 +999,9 @@
           <form method="POST" style="margin:0;"
                 action="{{ url_for('admin_optimize_delivery_route', shift_id=shift.id, truck_number=card.truck_number) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <button type="submit" class="btn-sm route-optimize-btn">
-              <i class="fas fa-route"></i> Optimize route
+            <button type="submit" class="btn-sm route-optimize-btn"
+                    title="Full loop out of and back to the warehouse">
+              <i class="fas fa-route"></i> Optimize full loop
             </button>
           </form>
           {% if card.route_plan %}
