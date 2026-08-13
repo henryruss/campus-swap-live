@@ -844,6 +844,7 @@ class Order(db.Model):
     bundle_free_delivery = db.Column(db.Boolean, default=False, server_default='0')
     is_flexible_delivery = db.Column(db.Boolean, default=False, server_default='0')
     flexible_discount = db.Column(db.Numeric(10, 2), default=0, server_default='0')
+    promo_code = db.Column(db.String(40), nullable=True)  # normalized code applied at checkout
     sales_tax = db.Column(db.Numeric(10, 2), default=0, server_default='0')
     items_subtotal = db.Column(db.Numeric(10, 2), default=0, server_default='0')
     total_paid = db.Column(db.Numeric(10, 2), default=0, server_default='0')

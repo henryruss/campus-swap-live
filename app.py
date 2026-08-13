@@ -250,6 +250,20 @@ def compute_sales_tax(item_price):
     return (Decimal(str(item_price)) * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
+def _free_delivery_promo_code():
+    """The currently active free-delivery promo code, normalized. Empty string disables promos."""
+    return (AppSetting.get('promo_free_delivery_code', 'pickup') or '').strip().lower()
+
+
+def _validate_promo_code(raw):
+    """Return the normalized promo code if `raw` matches the active one, else None."""
+    active = _free_delivery_promo_code()
+    if not active:
+        return None
+    entered = (raw or '').strip().lower()
+    return active if entered and entered == active else None
+
+
 def _to_cents(d):
     """Convert a Decimal dollar amount to integer cents for Stripe."""
     return int((Decimal(str(d)) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
@@ -3423,8 +3437,12 @@ def checkout_delivery():
     items_subtotal = sum(Decimal(str(ci.item.price or 0)) for ci in cart_items)
     sales_tax = sum(compute_sales_tax(ci.item.price) for ci in cart_items)
 
+    # An address edit rebuilds this dict — keep any promo the buyer already applied.
+    prior_promo = (session.get('pending_delivery') or {}).get('promo_code')
+
     session['pending_delivery'] = {
         'cart_id': cart.id,
+        'promo_code': _validate_promo_code(prior_promo),
         'street': street,
         'city': city,
         'state': state,
@@ -3439,6 +3457,30 @@ def checkout_delivery():
         'items_subtotal': str(items_subtotal),
         'sales_tax': str(sales_tax),
     }
+    return redirect(url_for('checkout_review'))
+
+
+@app.route('/checkout/promo', methods=['POST'])
+def checkout_apply_promo():
+    """Apply or remove a promo code on the pending order, then return to review."""
+    pending = session.get('pending_delivery')
+    if not pending or 'cart_id' not in pending:
+        return redirect(url_for('cart_view'))
+
+    if request.form.get('remove') == '1':
+        pending['promo_code'] = None
+        session['pending_delivery'] = pending
+        session.modified = True
+        return redirect(url_for('checkout_review'))
+
+    code = _validate_promo_code(request.form.get('promo_code'))
+    if code:
+        pending['promo_code'] = code
+        session['pending_delivery'] = pending
+        session.modified = True
+        flash("Promo code applied — delivery fee waived.", "success")
+    else:
+        flash("That promo code isn't valid.", "error")
     return redirect(url_for('checkout_review'))
 
 
@@ -3464,9 +3506,13 @@ def checkout_review():
     flexible_discount_amt = Decimal(AppSetting.get('flexible_delivery_discount', '5'))
     bundle_min = int(AppSetting.get('bundle_min_items', '2'))
 
+    # Re-validate on every load — the active code can change while a cart sits open.
+    promo_code = _validate_promo_code(pending.get('promo_code'))
+    promo_free_delivery = bool(promo_code)
+
     bundle_free = pending['bundle_free']
     zone = pending['zone']
-    zone_fee = Decimal('0') if bundle_free else Decimal(pending['zone_fee'])
+    zone_fee = Decimal('0') if (bundle_free or promo_free_delivery) else Decimal(pending['zone_fee'])
     items_subtotal = Decimal(pending['items_subtotal'])
     sales_tax = Decimal(pending['sales_tax'])
 
@@ -3485,6 +3531,10 @@ def checkout_review():
             total_flexible=total_flexible,
             flexible_discount=flexible_discount_amt,
             flexible_available=flexible_available,
+            promo_code=promo_code,
+            promo_free_delivery=promo_free_delivery,
+            promos_enabled=bool(_free_delivery_promo_code()),
+            full_zone_fee=Decimal(pending['zone_fee']),
             address=pending['address_string'],
             delivery_window=_delivery_window(),
         )
@@ -3507,7 +3557,7 @@ def checkout_review():
     # Recompute everything server-side
     item_count = len(live_items)
     bundle_free = item_count >= bundle_min
-    zone_fee_final = Decimal('0') if bundle_free else Decimal(pending['zone_fee'])
+    zone_fee_final = Decimal('0') if (bundle_free or promo_free_delivery) else Decimal(pending['zone_fee'])
     items_subtotal_final = sum(Decimal(str(ci.item.price or 0)) for ci in live_items)
     sales_tax_final = sum(compute_sales_tax(ci.item.price) for ci in live_items)
     flex_disc = flexible_discount_amt if is_flexible else Decimal('0')
@@ -3533,6 +3583,7 @@ def checkout_review():
         bundle_free_delivery=bundle_free,
         is_flexible_delivery=is_flexible,
         flexible_discount=flex_disc,
+        promo_code=promo_code,
         sales_tax=sales_tax_final,
         items_subtotal=items_subtotal_final,
         total_paid=total_paid,
@@ -12187,6 +12238,139 @@ def admin_payouts_export():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=campus_swap_payouts.csv'},
     )
+
+
+@app.route('/admin/crew/add', methods=['POST'])
+@login_required
+def admin_crew_add():
+    """Add a crew member directly, skipping the public application.
+
+    Creates (or promotes) a User, writes the WorkerApplication + initial
+    WorkerAvailability records the ops tooling expects, and marks them
+    approved in one step. New accounts get a temp password so they can log
+    in with email/password; Google sign-in also works since it matches on
+    email.
+    """
+    if not _has_ops_access():
+        flash("Access denied.", "error")
+        return redirect(url_for('index'))
+
+    full_name = (request.form.get('full_name') or '').strip()
+    email = (request.form.get('email') or '').strip().lower()
+    phone_raw = (request.form.get('phone') or '').strip()
+    unc_year = (request.form.get('unc_year') or '').strip()
+    why_blurb = (request.form.get('why_blurb') or '').strip()
+    send_welcome = request.form.get('send_welcome') == 'true'
+
+    if not full_name or not email or not phone_raw:
+        flash("Name, email, and phone are required.", "error")
+        return redirect(url_for('admin_crew_panel'))
+
+    if not validate_email(email):
+        flash("Invalid email address.", "error")
+        return redirect(url_for('admin_crew_panel'))
+
+    phone_valid, phone_result = validate_phone(phone_raw)
+    if not phone_valid:
+        flash(phone_result, "error")
+        return redirect(url_for('admin_crew_panel'))
+
+    if len(why_blurb) > 500:
+        why_blurb = why_blurb[:500]
+
+    temp_pw = None
+    user = User.query.filter_by(email=email).first()
+    if user:
+        if user.is_worker and user.worker_status == 'approved':
+            flash(f"{user.full_name or email} is already on the crew.", "error")
+            return redirect(url_for('admin_crew_panel'))
+        if not user.full_name:
+            user.full_name = full_name
+        if not user.phone:
+            user.phone = phone_result
+    else:
+        temp_pw = _gen_proxy_temp_password()
+        user = User(
+            email=email,
+            full_name=full_name,
+            phone=phone_result,
+            password_hash=generate_password_hash(temp_pw),
+            referral_code=_gen_referral_code(),
+        )
+        db.session.add(user)
+        db.session.flush()
+
+    user.is_worker = True
+    user.worker_status = 'approved'
+    user.worker_role = 'both'  # all movers are both roles; role_on_shift assigned per shift
+
+    # Application record — one per user, so reuse an existing one (e.g. a
+    # previously rejected applicant being added back).
+    application = user.worker_application
+    if not application:
+        application = WorkerApplication(user_id=user.id)
+        db.session.add(application)
+    application.unc_year = unc_year or application.unc_year
+    application.role_pref = 'both'
+    if why_blurb:
+        application.why_blurb = why_blurb
+    application.applied_at = application.applied_at or datetime.utcnow()
+    application.reviewed_at = datetime.utcnow()
+    application.reviewed_by = current_user.id
+
+    # Initial availability (week_start=None) — upsert so re-adds don't duplicate
+    avail_data = _availability_booleans(request.form)
+    availability = WorkerAvailability.query.filter_by(user_id=user.id, week_start=None).first()
+    if availability:
+        for field, value in avail_data.items():
+            setattr(availability, field, value)
+    else:
+        availability = WorkerAvailability(user_id=user.id, week_start=None, **avail_data)
+        db.session.add(availability)
+
+    db.session.commit()
+    logger.info(f"Crew member added directly: {email} (id={user.id}) by admin {current_user.id}")
+
+    if send_welcome:
+        try:
+            crew_url = url_for('crew_dashboard', _external=True)
+            login_block = ''
+            if temp_pw:
+                login_block = f"""
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Your login</strong></p>
+                    <p style="margin: 0 0 6px;">Email: {user.email}</p>
+                    <p style="margin: 0 0 6px;">Temporary password: <strong>{temp_pw}</strong></p>
+                    <p style="margin: 0; font-size: 0.9em; color: #64748b;">You can also just use "Sign in with Google" with this same email.</p>
+                </div>
+                """
+            email_content = f"""
+            <div style="font-family: sans-serif; padding: 20px; max-width: 500px;">
+                <h2 style="color: #1A3D1A;">You're on the Campus Swap Crew!</h2>
+                <p>Hi {user.full_name},</p>
+                <p>We've set up your crew account. Here's what's next:</p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
+                    <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
+                    <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
+                </div>
+                {login_block}
+                <p><a href="{crew_url}" style="background: #C8832A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Go to Crew Portal</a></p>
+                <p>See you out there!</p>
+                <p>— The Campus Swap Team</p>
+            </div>
+            """
+            send_email(user.email, "You're on the Campus Swap Crew — here's what's next", email_content)
+        except Exception as e:
+            logger.error(f"Failed to send crew welcome email to {user.email}: {e}")
+
+    msg = f"Added {user.full_name} to the crew."
+    if temp_pw:
+        msg += f" Temporary password: {temp_pw} (or they can sign in with Google)."
+    if send_welcome:
+        msg += " Welcome email sent."
+    flash(msg, "success")
+    return redirect(url_for('admin_crew_panel'))
 
 
 @app.route('/admin/crew/approve/<int:user_id>', methods=['POST'])

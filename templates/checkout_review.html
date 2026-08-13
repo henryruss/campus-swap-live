@@ -122,6 +122,38 @@
     background: #e2e8f0; color: var(--text-muted);
   }
   .delivery-option-tag.save { background: #d1fae5; color: #065f46; }
+  .promo-strike {
+    font-weight: 400; color: var(--text-muted); text-decoration: line-through; margin-left: 6px;
+  }
+  .promo-form { display: flex; gap: 8px; align-items: stretch; margin-bottom: 4px; }
+  .promo-input {
+    flex: 1; min-width: 0; width: auto;
+    padding: 11px 14px; font-size: 0.92rem;
+    border: 2px solid var(--rule); border-radius: 10px;
+    background: var(--bg-cream); color: var(--text-main);
+    text-transform: uppercase;
+  }
+  .promo-input::placeholder { text-transform: none; }
+  .promo-input:focus { outline: none; border-color: var(--primary); }
+  .promo-apply {
+    flex-shrink: 0; padding: 0 20px; font-size: 0.9rem; font-weight: 700;
+    border: 2px solid var(--primary); border-radius: 10px;
+    background: transparent; color: var(--primary); cursor: pointer;
+  }
+  .promo-apply:hover { background: var(--primary); color: #fff; }
+  .promo-applied {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #f0fdf4; border: 2px solid var(--primary); border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .promo-applied-label {
+    font-size: 0.9rem; color: #065f46; display: flex; align-items: center; gap: 8px;
+  }
+  .promo-remove {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; color: var(--text-muted); text-decoration: underline;
+  }
+  .promo-remove:hover { color: var(--text-main); }
   .btn--full {
     width: 100%; padding: 14px; font-size: 1.05rem; justify-content: center; margin-top: 16px;
   }
@@ -181,6 +213,11 @@
         <span>Delivery — Bundle &amp; Save</span>
         <span>FREE</span>
       </div>
+      {% elif promo_free_delivery %}
+      <div class="line-item free">
+        <span>Delivery — Zone {{ zone }} <span class="promo-strike">${{ "%.2f"|format(full_zone_fee) }}</span></span>
+        <span>FREE</span>
+      </div>
       {% else %}
       <div class="line-item muted">
         <span>Delivery — Zone {{ zone }}</span>
@@ -202,6 +239,30 @@
         <span id="total-display">${{ "%.2f"|format(total_standard) }}</span>
       </div>
     </div>
+
+    {% if promos_enabled %}
+    <div class="delivery-options-label">Promo code</div>
+    {% if promo_code %}
+    <div class="promo-applied">
+      <span class="promo-applied-label">
+        <i class="fas fa-tag"></i>
+        <strong>{{ promo_code|upper }}</strong> applied — delivery fee waived
+      </span>
+      <form method="POST" action="{{ url_for('checkout_apply_promo') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="remove" value="1">
+        <button type="submit" class="promo-remove">Remove</button>
+      </form>
+    </div>
+    {% else %}
+    <form method="POST" action="{{ url_for('checkout_apply_promo') }}" class="promo-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="promo_code" class="promo-input" placeholder="Enter promo code"
+             autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button type="submit" class="promo-apply">Apply</button>
+    </form>
+    {% endif %}
+    {% endif %}
 
     {% if flexible_available %}
     <div class="delivery-options-label">Choose your delivery speed</div>

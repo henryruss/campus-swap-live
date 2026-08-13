@@ -191,6 +191,43 @@
   .worker-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
   .assignment-count { font-size: 0.72rem; color: var(--text-muted); }
 
+  /* ── Add crew member modal ── */
+  #add-crew-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    z-index: 1000; display: none; align-items: center; justify-content: center;
+    padding: 20px; overflow-y: auto;
+  }
+  #add-crew-modal .modal-box { max-height: 90vh; overflow-y: auto; }
+  .add-crew-field { margin-bottom: 12px; }
+  .add-crew-field label {
+    display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px;
+  }
+  .add-crew-field input[type="text"],
+  .add-crew-field input[type="email"],
+  .add-crew-field input[type="tel"],
+  .add-crew-field select,
+  .add-crew-field textarea {
+    width: 100%; padding: 8px 10px; font-size: 0.88rem; font-family: inherit;
+    border: var(--card-border); border-radius: 6px;
+    background: var(--card-bg); color: var(--text-main);
+  }
+  .add-crew-field textarea { resize: vertical; min-height: 60px; }
+  /* style.css sets a global input width/padding — pin the checkbox explicitly */
+  .add-crew-checkbox {
+    width: 16px; height: 16px; padding: 0; margin: 0; flex: none;
+  }
+  /* Plain sentence-case label, not the uppercase field-label treatment above */
+  .add-crew-toggle {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 0.82rem; font-weight: 400; text-transform: none;
+    letter-spacing: normal; color: var(--text-main); margin-bottom: 16px;
+  }
+  @media (max-width: 640px) {
+    #add-crew-modal { padding: 10px; }
+    #add-crew-modal .modal-box { padding: 18px 18px 20px; max-height: 94vh; }
+  }
+
   /* ── Applications section ── */
   .crew-hq-applications {
     border: var(--card-border); border-radius: 10px;
@@ -266,6 +303,10 @@
         {% endif %}
       </span>
       <span class="workers-chevron" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 4px;">▾</span>
+      <button type="button" class="add-btn" style="margin-left: auto;"
+              onclick="event.preventDefault(); event.stopPropagation(); openAddCrewModal();">
+        + Add Crew Member
+      </button>
     </summary>
 
     {% if not approved_workers %}
@@ -439,6 +480,91 @@
     {% include 'admin/crew_shift_board_partial.html' %}
   </div>
 
+</div>
+
+{# ── Add crew member modal ── #}
+<div id="add-crew-modal">
+  <div class="modal-box">
+    <h3 style="margin: 0 0 4px; font-family: 'DM Serif Display', serif; font-size: 1.1rem; color: var(--primary);">Add Crew Member</h3>
+    <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 16px;">
+      Creates an approved crew account directly — no application needed.
+    </p>
+
+    <form method="POST" action="{{ url_for('admin_crew_add') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="add-crew-field">
+        <label for="add-crew-name">Full name *</label>
+        <input type="text" id="add-crew-name" name="full_name" required>
+      </div>
+
+      <div class="add-crew-field">
+        <label for="add-crew-email">Email *</label>
+        <input type="email" id="add-crew-email" name="email" required>
+      </div>
+
+      <div class="add-crew-field">
+        <label for="add-crew-phone">Phone *</label>
+        <input type="tel" id="add-crew-phone" name="phone" required>
+      </div>
+
+      <div class="add-crew-field">
+        <label for="add-crew-year">Year</label>
+        <select id="add-crew-year" name="unc_year">
+          <option value="">—</option>
+          {% for yr in ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate'] %}
+          <option value="{{ yr }}">{{ yr }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="add-crew-field">
+        <label for="add-crew-note">Note (optional)</label>
+        <textarea id="add-crew-note" name="why_blurb" maxlength="500" placeholder="How you know them, prior experience, etc."></textarea>
+      </div>
+
+      <div class="add-crew-field" style="margin-bottom: 4px;">
+        <label>Availability</label>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">
+          All slots start available. Tap any cell they <strong>cannot</strong> work to black it out.
+        </p>
+      </div>
+      <table class="avail-grid-admin">
+        <thead>
+          <tr>
+            <th></th>
+            {% for label in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              <th>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for slot in ['am', 'pm'] %}
+          <tr>
+            <td class="slot-label">{{ slot.upper() }}</td>
+            {% for day in ['mon','tue','wed','thu','fri','sat','sun'] %}
+              {% set field = day + '_' + slot %}
+              <td>
+                <input type="checkbox" name="{{ field }}" value="true" id="addcrew_{{ field }}" class="avail-checkbox" checked>
+                <label for="addcrew_{{ field }}" class="avail-cell-label"></label>
+              </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <label class="add-crew-toggle">
+        <input type="checkbox" name="send_welcome" value="true" class="add-crew-checkbox" checked>
+        Send them the welcome email (includes login details)
+      </label>
+
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <button type="submit" class="btn-primary" style="padding: 8px 18px; font-size: 0.85rem;">Add to Crew</button>
+        <a href="#" class="btn-link" onclick="closeAddCrewModal(); return false;" style="font-size: 0.85rem; color: var(--text-muted);">Cancel</a>
+      </div>
+    </form>
+  </div>
 </div>
 
 {# ── Availability override modal ── #}
@@ -615,6 +741,18 @@ function closeAvailModal() {
 
 document.getElementById('avail-modal').addEventListener('click', function(e) {
   if (e.target === this) closeAvailModal();
+});
+
+function openAddCrewModal() {
+  document.getElementById('add-crew-modal').style.display = 'flex';
+}
+
+function closeAddCrewModal() {
+  document.getElementById('add-crew-modal').style.display = 'none';
+}
+
+document.getElementById('add-crew-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeAddCrewModal();
 });
 
 function copyChip(btn) {
