@@ -987,6 +987,27 @@ def _get_payout_amount(item):
     return round(_get_item_sale_price(item) * _get_payout_percentage(item), 2)
 
 
+def _apply_offline_sale(item, amount=None, user=None):
+    """Record a sale that happened outside Stripe. Returns carts cleared.
+
+    Every side effect the Stripe webhook performs on a sale, in one place, because
+    there is more than one button that marks an item sold and any of them skipping a
+    step is how the same item gets sold twice. Caller commits.
+    """
+    item.status = 'sold'
+    item.sold_at = datetime.utcnow()
+    if user is not None and getattr(user, 'is_authenticated', False):
+        item.sold_by_id = user.id
+    if amount is not None:
+        item.sold_in_person = True
+        item.amount_collected = amount
+    if item.category and item.category.count_in_stock > 0:
+        item.category.count_in_stock -= 1
+    # Anyone holding it in a cart can no longer check out with it. Without this they
+    # reach Stripe and the webhook's double-sale guard has to refund them.
+    return CartItem.query.filter_by(item_id=item.id).delete()
+
+
 def _compute_seller_tracker(seller, items):
     """
     Computes account-level tracker state for the seller dashboard.
@@ -4504,10 +4525,10 @@ def admin_panel():
         elif 'mark_sold' in request.form:
             item = InventoryItem.query.get(request.form.get('mark_sold'))
             if item and item.status == 'available':
-                item.status = "sold"
-                item.sold_at = datetime.utcnow()  # Track when it sold
-                cat = InventoryCategory.query.get(item.category_id)
-                if cat and cat.count_in_stock > 0: cat.count_in_stock -= 1
+                # Shared with /admin/item/<id>/mark-sold so this legacy button cannot
+                # drift back into leaving the item sitting in shoppers' carts.
+                # No amount prompt on this page — payout falls back to the list price.
+                _apply_offline_sale(item, amount=None, user=current_user)
                 db.session.commit()
                 # Email seller (same as webhook - payout details)
                 if item.seller:
@@ -17597,19 +17618,7 @@ def admin_item_mark_sold(item_id):
             flash(msg, "error")
             return redirect(url_for('admin_items', view='all'))
 
-    item.status = 'sold'
-    item.sold_at = datetime.utcnow()
-    item.sold_by_id = current_user.id
-    if amount is not None:
-        item.sold_in_person = True
-        item.amount_collected = amount
-    if item.category and item.category.count_in_stock > 0:
-        item.category.count_in_stock -= 1
-    db.session.commit()
-
-    # Anyone holding it in a cart can no longer check out with it. Without this they
-    # reach Stripe and the webhook's double-sale guard has to refund them.
-    removed = CartItem.query.filter_by(item_id=item.id).delete()
+    removed = _apply_offline_sale(item, amount=amount, user=current_user)
     db.session.commit()
 
     posthog.capture('item_sold_in_person', distinct_id=str(current_user.id), properties={

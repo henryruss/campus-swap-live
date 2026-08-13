@@ -889,6 +889,17 @@
           <td style="white-space: nowrap;">
             <a href="{{ url_for('edit_item', item_id=item.id) }}"
                class="btn-outline" style="padding: 3px 8px; font-size: 0.74rem; text-decoration: none; display: inline-block;">Edit</a>
+            {% if item.status != 'sold' %}
+            {# In-person sale, right in the row — buried in the detail drawer, nobody
+               found it, and an unmarked item stays live in the shop and on Facebook. #}
+            <button type="button" class="btn-outline mark-sold-btn"
+                    data-item-id="{{ item.id }}"
+                    data-list-price="{{ '%.2f'|format(item.price) if item.price else '' }}"
+                    title="Sold in person — cash or Venmo"
+                    style="padding: 3px 8px; font-size: 0.74rem; color:#166534; border-color:#bbf7d0;">
+              Sold
+            </button>
+            {% endif %}
             {% if current_user.is_super_admin %}
             <form method="POST" action="{{ url_for('admin_delete_item_direct', item_id=item.id) }}"
                   style="display: inline-block; margin: 0;"
@@ -1308,6 +1319,9 @@
         if (row) {
           var pill = row.querySelector('.status-pill');
           if (pill) { pill.className = 'status-pill status-sold'; pill.textContent = 'sold'; }
+          // Drop the button so the row can't be marked twice
+          var rowBtn = row.querySelector('.mark-sold-btn');
+          if (rowBtn) rowBtn.remove();
         }
         var msg = 'Marked sold for $' + data.sale_price.toFixed(2) +
                   ' — $' + data.payout_amount.toFixed(2) + ' owed to the seller.';
@@ -1316,7 +1330,10 @@
                  (data.carts_cleared !== 1 ? 's' : '') + '.';
         }
         alert(msg);
-        closeItemDetail();
+        // Only when the click came from inside the drawer — the same button now also
+        // lives in the table row, where there is nothing open to close.
+        var drawerEl = document.getElementById('item-detail-drawer');
+        if (drawerEl && drawerEl.classList.contains('open')) closeItemDetail();
       })
       .catch(function() { btn.disabled = false; alert('Failed to mark sold. Try again.'); });
   });

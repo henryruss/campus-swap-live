@@ -76,8 +76,9 @@ def ips_data(ips_client):
     yield ctx
 
     from sqlalchemy import delete
-    from models import Cart, CartItem, TutorialSession
+    from models import Cart, CartItem, TutorialSession, ItemPhoto
     with _app.app_context():
+        db.session.execute(delete(ItemPhoto).where(ItemPhoto.item_id == ctx['item_id']))
         db.session.execute(delete(TutorialSession).where(
             TutorialSession.user_id.in_(ctx['user_ids'])))
         db.session.execute(delete(CartItem).where(CartItem.item_id == ctx['item_id']))
@@ -338,3 +339,98 @@ class TestPayoutSurfaces:
             item = InventoryItem.query.get(ips_data['item_id'])
             assert item.payout_sent is True
             assert item.payout_sent_at is not None
+
+
+# ---------------------------------------------------------------------------
+# Downstream: Facebook export
+# ---------------------------------------------------------------------------
+
+class TestFbExport:
+
+    def _make_exportable(self, app, item_id):
+        """Satisfy every clause in _shop_eligible_clauses().
+
+        Shop-ready means: AI approved + priced + storage assigned + re-photographed
+        (an ItemPhoto with captured_at set) + matched to a non-internal seller.
+        """
+        from app import db
+        from datetime import datetime as _dt
+        from models import InventoryItem, StorageLocation, ItemPhoto
+        with app.app_context():
+            loc = StorageLocation.query.first()
+            if not loc:
+                return False
+            item = InventoryItem.query.get(item_id)
+            item.ai_approved = True
+            item.needs_new_photo = False
+            item.storage_location_id = loc.id
+            item.rephoto_disposition = None
+            db.session.add(ItemPhoto(item_id=item.id, photo_url='ips_test.jpg',
+                                     captured_at=_dt.utcnow(), sort_order=0))
+            db.session.commit()
+            return True
+
+    def test_sold_item_drops_out_of_fb_export(self, ips_client, ips_data):
+        """An item sold at the door must not still be listable on Facebook."""
+        from app import app as _app, _fb_export_query
+        if not self._make_exportable(_app, ips_data['item_id']):
+            pytest.skip('no StorageLocation available in this database')
+
+        with _app.app_context():
+            before = {i.id for i in _fb_export_query(unposted_only=False).all()}
+
+        _login(ips_client, ips_data['admin_email'])
+        _mark_sold(ips_client, ips_data['item_id'], '100')
+        _logout(ips_client)
+
+        with _app.app_context():
+            after = {i.id for i in _fb_export_query(unposted_only=False).all()}
+
+        assert ips_data['item_id'] in before, 'fixture item was not exportable to begin with'
+        assert ips_data['item_id'] not in after
+
+    def test_eligible_count_drops_by_exactly_one(self, ips_client, ips_data):
+        """No sibling unit silently takes its place in the poster's queue."""
+        from app import app as _app, _fb_export_query
+        if not self._make_exportable(_app, ips_data['item_id']):
+            pytest.skip('no StorageLocation available in this database')
+
+        with _app.app_context():
+            before = _fb_export_query(unposted_only=False).count()
+
+        _login(ips_client, ips_data['admin_email'])
+        _mark_sold(ips_client, ips_data['item_id'], '100')
+        _logout(ips_client)
+
+        with _app.app_context():
+            assert _fb_export_query(unposted_only=False).count() == before - 1
+
+
+# ---------------------------------------------------------------------------
+# The legacy /admin page button shares the same logic
+# ---------------------------------------------------------------------------
+
+class TestLegacyMarkSold:
+
+    def test_legacy_button_also_clears_carts(self, ips_client, ips_data):
+        """The old dashboard's Sold button must not leave the item in carts either."""
+        from app import app as _app
+        from models import CartItem, InventoryItem
+
+        _login(ips_client, ips_data['shopper_email'])
+        ips_client.post(f"/cart/add/{ips_data['item_id']}", data={})
+        _logout(ips_client)
+        with _app.app_context():
+            assert CartItem.query.filter_by(item_id=ips_data['item_id']).count() == 1
+
+        _login(ips_client, ips_data['admin_email'])
+        with patch('app.send_email', return_value=True):
+            ips_client.post('/admin', data={'mark_sold': str(ips_data['item_id'])},
+                            follow_redirects=True)
+        _logout(ips_client)
+
+        with _app.app_context():
+            item = InventoryItem.query.get(ips_data['item_id'])
+            assert item.status == 'sold'
+            assert item.sold_at is not None
+            assert CartItem.query.filter_by(item_id=ips_data['item_id']).count() == 0
