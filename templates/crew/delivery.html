@@ -198,21 +198,25 @@
       </span>
       {% endif %}
     </div>
-    {% if route_plan and route_plan.anchor_label and route_plan.anchor_label != 'Warehouse' %}
-    <p class="route-card-anchor">Continues from {{ route_plan.anchor_label }} &rarr; back to the warehouse.</p>
+    {# A route that has already had a drop-off resumes from there, so it is not the
+       full loop — say so plainly rather than promising one. #}
+    {% set is_continuation = route_plan and route_plan.anchor_label and route_plan.anchor_label != 'Warehouse' %}
+    {% if is_continuation %}
+    <p class="route-card-anchor">Picks up from {{ route_plan.anchor_label }} &rarr; remaining stops &rarr; warehouse.</p>
     {% else %}
-    <p class="route-card-anchor">Full loop from the warehouse and back.</p>
+    <p class="route-card-anchor">Warehouse &rarr; all stops &rarr; back to the warehouse.</p>
     {% endif %}
     <form method="POST" action="{{ url_for('crew_optimize_delivery_route', shift_id=shift.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <button type="submit" class="btn-optimize-route">
         <i class="fas fa-route"></i>
-        {% if route_plan %}Recalculate route{% else %}Optimize route{% endif %}
+        {% if is_continuation %}Continue route{% elif route_plan %}Recalculate route{% else %}Plan route{% endif %}
       </button>
     </form>
     {% if route_plan and route_plan.maps_url %}
     <a href="{{ route_plan.maps_url }}" target="_blank" rel="noopener" class="btn-open-maps">
-      <i class="fas fa-map-marked-alt"></i> Open full loop in Google Maps
+      <i class="fas fa-map-marked-alt"></i>
+      {% if is_continuation %}Continue route in Google Maps{% else %}Open full loop in Google Maps{% endif %}
     </a>
     {% endif %}
   </div>

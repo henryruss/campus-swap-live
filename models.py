@@ -1021,6 +1021,10 @@ class DeliveryRoutePlan(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
     shift_id        = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
     truck_number    = db.Column(db.Integer, nullable=False)
+    # 'ops' = full warehouse-to-warehouse loop, 'crew' = continue from the last drop.
+    # Stored separately so a driver recalculating does not wipe the planning view.
+    mode            = db.Column(db.String(10), nullable=False, default='crew',
+                                server_default='crew')
     # Fingerprint of (anchor, pending stop set). Unchanged hash → skip the API call.
     plan_hash       = db.Column(db.String(64), nullable=False)
     method          = db.Column(db.String(20), nullable=False)  # google|nearest_neighbor
@@ -1036,7 +1040,7 @@ class DeliveryRoutePlan(db.Model):
     computed_by = db.relationship('User', foreign_keys=[computed_by_id])
 
     __table_args__ = (
-        db.UniqueConstraint('shift_id', 'truck_number', name='uq_route_plan_shift_truck'),
+        db.UniqueConstraint('shift_id', 'truck_number', 'mode', name='uq_route_plan_shift_truck_mode'),
     )
 
     @property

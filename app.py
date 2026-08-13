@@ -20399,6 +20399,14 @@ def _delivery_stop_coords(stop):
     return (float(bo.delivery_lat), float(bo.delivery_lng))
 
 
+def _normalize_address_key(address):
+    """Case/punctuation/whitespace-insensitive key for 'is this the same doorstep'."""
+    if not address:
+        return None
+    collapsed = re.sub(r'[^a-z0-9]+', ' ', address.lower()).strip()
+    return collapsed or None
+
+
 def _group_delivery_waypoints(stops):
     """
     Collapse stops that share an address into one waypoint.
@@ -20418,8 +20426,14 @@ def _group_delivery_waypoints(stops):
         if coords is None:
             ungeocoded.append(stop)
             continue
-        # 5dp ≈ 1 metre — same doorstep, not same block.
-        key = (round(coords[0], 5), round(coords[1], 5))
+        # Group on the address text first. Coordinates for the same building can differ
+        # slightly between orders (Places autocomplete vs the Nominatim fallback, or two
+        # buyers picking the same building from different suggestions), and a metre of
+        # drift used to split one doorstep into two Google Maps stops. Apartment numbers
+        # live in delivery_notes, not the address, so units in one building group too.
+        addr_key = _normalize_address_key(stop.buyer_order.delivery_address)
+        # 5dp ≈ 1 metre — only used when an order has no address text at all.
+        key = addr_key or (round(coords[0], 5), round(coords[1], 5))
         if key not in by_key:
             group = {
                 'lat': coords[0],
@@ -20651,9 +20665,11 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
                 anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
                 break
 
+    mode = 'ops' if from_warehouse else 'crew'
     groups, ungeocoded = _group_delivery_waypoints(pending)
-    plan_hash = _route_plan_hash(anchor, groups, mode='ops' if from_warehouse else 'crew')
-    plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=truck_number).first()
+    plan_hash = _route_plan_hash(anchor, groups, mode=mode)
+    plan = DeliveryRoutePlan.query.filter_by(
+        shift_id=shift.id, truck_number=truck_number, mode=mode).first()
 
     if not groups:
         return {'ok': False,
@@ -20699,7 +20715,7 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
         seq += 1
 
     if not plan:
-        plan = DeliveryRoutePlan(shift_id=shift.id, truck_number=truck_number)
+        plan = DeliveryRoutePlan(shift_id=shift.id, truck_number=truck_number, mode=mode)
         db.session.add(plan)
     plan.plan_hash = plan_hash
     plan.method = method
@@ -20738,11 +20754,15 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
             'reused': False, 'stop_count': len(pending), 'ungeocoded': len(ungeocoded)}
 
 
-def get_delivery_route_plans(shift_id):
-    """{truck_number: DeliveryRoutePlan} for a shift, for template rendering."""
+def get_delivery_route_plans(shift_id, mode='ops'):
+    """{truck_number: DeliveryRoutePlan} for a shift, for template rendering.
+
+    Defaults to the ops full-loop plan — the ops screen must keep showing its own
+    loop even after a driver recalculates their continue-from-here route.
+    """
     return {
         p.truck_number: p
-        for p in DeliveryRoutePlan.query.filter_by(shift_id=shift_id).all()
+        for p in DeliveryRoutePlan.query.filter_by(shift_id=shift_id, mode=mode).all()
     }
 
 
@@ -20843,7 +20863,8 @@ def crew_delivery_view(shift_id):
     if route_truck is None and stops:
         route_truck = stops[0].truck_number
     route_plan = (
-        DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=route_truck).first()
+        DeliveryRoutePlan.query.filter_by(
+            shift_id=shift.id, truck_number=route_truck, mode='crew').first()
         if route_truck is not None else None
     )
 

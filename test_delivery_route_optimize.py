@@ -167,6 +167,34 @@ class TestWaypointGrouping:
             sizes = sorted(len(g['stops']) for g in groups)
             assert sizes == [1, 1, 2]
 
+    def test_same_address_groups_despite_coordinate_drift(self, route_client, delivery_shift):
+        """Two orders at one building can geocode metres apart — still one Maps stop."""
+        from app import app as _app, _group_delivery_waypoints, db
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = DeliveryStop.query.filter_by(shift_id=delivery_shift['shift_id']).all()
+            same_addr = [s for s in stops if '900 MLK' in s.buyer_order.delivery_address]
+            assert len(same_addr) == 2
+            # Nudge one ~15 m away, as a Nominatim fallback vs Places would
+            same_addr[1].buyer_order.delivery_lat = 35.94513
+            same_addr[1].buyer_order.delivery_lng = -79.05512
+            db.session.commit()
+
+            groups, _ = _group_delivery_waypoints(stops)
+            assert len(groups) == 3
+            assert sorted(len(g['stops']) for g in groups) == [1, 1, 2]
+
+    def test_address_grouping_ignores_case_and_punctuation(self, route_client, delivery_shift):
+        from app import app as _app, _group_delivery_waypoints, db
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = DeliveryStop.query.filter_by(shift_id=delivery_shift['shift_id']).all()
+            same_addr = [s for s in stops if '900 MLK' in s.buyer_order.delivery_address]
+            same_addr[1].buyer_order.delivery_address = '900 mlk jr blvd,  chapel hill, nc  27514'
+            db.session.commit()
+            groups, _ = _group_delivery_waypoints(stops)
+            assert len(groups) == 3
+
     def test_ungeocoded_stops_separated(self, route_client, delivery_shift):
         from app import app as _app, _group_delivery_waypoints, db
         from models import DeliveryStop
@@ -402,8 +430,54 @@ class TestOptimizeDeliveryRoute:
             assert qs['origin'][0] == get_warehouse_address()
             assert qs['destination'][0] == get_warehouse_address()
 
-    def test_ops_and_crew_plans_do_not_reuse_each_other(self, route_client, delivery_shift):
-        """Different questions about the same truck must not share a cached answer."""
+    def test_crew_recalc_does_not_overwrite_the_ops_loop(self, route_client, delivery_shift):
+        """Regression: both modes shared one row, so a driver's recalc wiped ops' loop."""
+        from app import app as _app, optimize_delivery_route, db, get_warehouse_address
+        from models import Shift, DeliveryStop, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+            shift = Shift.query.get(delivery_shift['shift_id'])
+
+            optimize_delivery_route(shift, 1, from_warehouse=True)     # ops plans the loop
+            optimize_delivery_route(shift, 1, from_warehouse=False)    # driver recalculates
+
+            ops_plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='ops').first()
+            crew_plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='crew').first()
+
+            assert ops_plan is not None and crew_plan is not None
+            assert ops_plan.anchor_label == 'Warehouse'
+            assert crew_plan.anchor_label == '12 Cameron Ave'
+            # The ops link still describes the full loop
+            ops_qs = parse_qs(urlparse(ops_plan.maps_url).query)
+            assert ops_qs['origin'][0] == get_warehouse_address()
+
+    def test_ops_screen_reads_the_ops_plan(self, route_client, delivery_shift):
+        """get_delivery_route_plans defaults to the ops loop, not whatever ran last."""
+        from app import app as _app, optimize_delivery_route, get_delivery_route_plans, db
+        from models import Shift, DeliveryStop
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+            shift = Shift.query.get(delivery_shift['shift_id'])
+
+            optimize_delivery_route(shift, 1, from_warehouse=True)
+            optimize_delivery_route(shift, 1, from_warehouse=False)
+
+            plans = get_delivery_route_plans(shift.id)
+            assert plans[1].mode == 'ops'
+            assert plans[1].anchor_label == 'Warehouse'
+
+    def test_each_mode_caches_independently(self, route_client, delivery_shift):
+        """Alternating views must not invalidate each other, but must not share either:
+        a first click in a mode computes, a repeat click in that mode reuses."""
         from app import app as _app, optimize_delivery_route, db
         from models import Shift, DeliveryStop
         with _app.app_context(), \
@@ -413,11 +487,11 @@ class TestOptimizeDeliveryRoute:
             db.session.commit()
 
             shift = Shift.query.get(delivery_shift['shift_id'])
-            optimize_delivery_route(shift, 1, from_warehouse=True)
-            crew = optimize_delivery_route(shift, 1, from_warehouse=False)
-            assert crew['reused'] is False
-            ops = optimize_delivery_route(shift, 1, from_warehouse=True)
-            assert ops['reused'] is False
+            assert optimize_delivery_route(shift, 1, from_warehouse=True)['reused'] is False
+            assert optimize_delivery_route(shift, 1, from_warehouse=False)['reused'] is False
+            # Back to ops — its own plan is still valid, so no second billable call
+            assert optimize_delivery_route(shift, 1, from_warehouse=True)['reused'] is True
+            assert optimize_delivery_route(shift, 1, from_warehouse=False)['reused'] is True
 
     def test_anchor_is_warehouse_when_nothing_delivered(self, route_client, delivery_shift):
         from app import app as _app, optimize_delivery_route
@@ -708,5 +782,25 @@ class TestRoutes:
         resp = route_client.get(f"/crew/delivery/{delivery_shift['shift_id']}")
         _logout(route_client)
         assert resp.status_code == 200
-        assert b'Optimize route' in resp.data
-        assert b'Full loop from the warehouse and back' in resp.data
+        # No plan yet and nothing delivered → full loop wording
+        assert b'Plan route' in resp.data
+        assert b'Warehouse' in resp.data and b'back to the warehouse' in resp.data
+
+    def test_crew_page_says_continue_once_a_stop_is_delivered(self, route_client, delivery_shift):
+        """The crew link resumes mid-route, so it must not advertise a full loop."""
+        from app import app as _app, optimize_delivery_route, db
+        from models import Shift, DeliveryStop
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+            optimize_delivery_route(Shift.query.get(delivery_shift['shift_id']), 1)
+
+        _login(route_client, delivery_shift['worker_email'])
+        resp = route_client.get(f"/crew/delivery/{delivery_shift['shift_id']}")
+        _logout(route_client)
+
+        assert b'Continue route' in resp.data
+        assert b'Continue route in Google Maps' in resp.data
+        assert b'Open full loop in Google Maps' not in resp.data
