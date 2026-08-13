@@ -82,6 +82,11 @@
       <div class="detail-stop-addr">
         <i class="fas fa-map-marker-alt"></i> {{ order.delivery_address }}
       </div>
+      {% if order.delivery_notes %}
+      <div class="detail-stop-addr" style="color:#92400e;">
+        <i class="fas fa-note-sticky"></i> {{ order.delivery_notes }}
+      </div>
+      {% endif %}
       {% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
       {% set buyer_name = (order.order.buyer_name if order.order and order.order.buyer_name else None) %}
       <div class="detail-stop-addr">

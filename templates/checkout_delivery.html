@@ -104,6 +104,26 @@
     outline: none;
     border-color: var(--primary);
   }
+  .label-optional { font-weight: 400; color: var(--text-muted); }
+  .delivery-notes-input {
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 1rem;
+    font-family: inherit;
+    color: var(--text-main);
+    background: var(--bg-body);
+    resize: vertical;
+    min-height: 60px;
+    transition: border-color 0.15s;
+  }
+  .delivery-notes-input:focus { outline: none; border-color: var(--primary); }
+  .delivery-notes-hint {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.4;
+  }
   .btn--full {
     width: 100%;
     padding: 14px;
@@ -197,6 +217,16 @@
           <input type="text" id="zip" name="zip" required
                  value="{{ form.zip or '' }}" maxlength="10">
         </div>
+      </div>
+
+      <div class="form-group">
+        <label for="delivery_notes">Apartment, suite, or delivery notes <span class="label-optional">(optional)</span></label>
+        <textarea id="delivery_notes" name="delivery_notes" rows="2" maxlength="300"
+                  class="delivery-notes-input"
+                  placeholder="Apt 4B · gate code 1234 · leave at side door">{{ form.delivery_notes or '' }}</textarea>
+        <p class="delivery-notes-hint">
+          Anything the driver needs to find you — unit number, buzzer, parking, or where to leave it.
+        </p>
       </div>
 
       {# Verified-on-map confirmation + preview (shown only when the address is within range) #}

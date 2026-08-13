@@ -76,7 +76,7 @@ from sqlalchemy.exc import IntegrityError
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, Order, Cart, CartItem, MATTRESS_SIZES
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, DeliveryRoutePlan, Order, Cart, CartItem, MATTRESS_SIZES
 
 # Import Constants
 from constants import (
@@ -3391,7 +3391,11 @@ def checkout_delivery():
     city   = request.form.get('city', '').strip()
     state  = request.form.get('state', '').strip()
     zip_code = request.form.get('zip', '').strip()
-    form_data = {'street': street, 'city': city, 'state': state, 'zip': zip_code}
+    # Apartment/suite and access notes. Capped so a paste-bomb can't bloat the row
+    # or overflow the driver's stop card.
+    delivery_notes = request.form.get('delivery_notes', '').strip()[:300]
+    form_data = {'street': street, 'city': city, 'state': state, 'zip': zip_code,
+                 'delivery_notes': delivery_notes}
 
     if not all([street, city, state, zip_code]):
         return render_template('checkout_delivery.html', cart_items=cart_items,
@@ -3448,6 +3452,7 @@ def checkout_delivery():
         'state': state,
         'zip': zip_code,
         'address_string': f"{street}, {city}, {state} {zip_code}",
+        'delivery_notes': delivery_notes,
         'lat': lat,
         'lng': lng,
         'distance_miles': distance,
@@ -3536,6 +3541,7 @@ def checkout_review():
             promos_enabled=bool(_free_delivery_promo_code()),
             full_zone_fee=Decimal(pending['zone_fee']),
             address=pending['address_string'],
+            delivery_notes=pending.get('delivery_notes'),
             delivery_window=_delivery_window(),
         )
 
@@ -3577,6 +3583,7 @@ def checkout_review():
         delivery_zip=pending['zip'],
         delivery_lat=pending['lat'],
         delivery_lng=pending['lng'],
+        delivery_notes=pending.get('delivery_notes') or None,
         distance_miles=pending['distance_miles'],
         delivery_zone=pending['zone'] if not bundle_free else None,
         delivery_fee=zone_fee_final,
@@ -3909,6 +3916,7 @@ def webhook():
                         delivery_address=addr_str,
                         delivery_lat=order.delivery_lat,
                         delivery_lng=order.delivery_lng,
+                        delivery_notes=order.delivery_notes,
                         stripe_session_id=stripe_session_id,
                         stripe_checkout_session_id=stripe_session_id,
                         delivery_zone=order.delivery_zone,
@@ -15208,6 +15216,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
             movers_by_truck[a.truck_number].append(a)
 
     shift_run = ShiftRun.query.filter_by(shift_id=shift.id).first()
+    route_plans = get_delivery_route_plans(shift.id)
 
     cards = []
     for truck_num in range(1, shift.trucks + 1):
@@ -15308,6 +15317,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'delivery_stops': delivery_stops_for_truck,
                 'delivery_live': dlive,
                 'movers': movers_by_truck.get(truck_num, []),
+                'route_plan': route_plans.get(truck_num),
             })
         else:
             cards.append({
@@ -15323,6 +15333,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'delivery_stops': [],
                 'delivery_live': None,
                 'movers': movers_by_truck.get(truck_num, []),
+                'route_plan': None,
             })
     return cards, shift_run
 
@@ -20355,6 +20366,404 @@ def admin_ops_delivery_truck_detail():
     )
 
 
+# ── Delivery route optimization (Spec #D2) ────────────────────
+#
+# One click recomputes the loop for a single truck: start at the last completed stop
+# (or the warehouse, when nothing has been delivered yet), visit every pending stop,
+# end back at the warehouse. Completed stops are frozen — they keep their numbers and
+# never get reshuffled under a driver mid-run.
+#
+# Google Routes API is the primary solver (real drive time). Nearest-neighbour + 2-opt
+# over straight-line distance is the fallback, so the button always works: no key, no
+# network, or more stops than Google accepts still produces a sane route.
+
+ROUTES_API_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes'
+# Google caps intermediate waypoints per computeRoutes request. Above this we don't
+# even try — the fallback handles it rather than returning a 400 to the driver.
+ROUTES_MAX_WAYPOINTS = 25
+
+
+def _warehouse_coords():
+    """(lat, lng) floats for the delivery origin/terminus."""
+    return (
+        float(AppSetting.get('warehouse_lat') or WAREHOUSE_DEFAULT_LAT),
+        float(AppSetting.get('warehouse_lng') or WAREHOUSE_DEFAULT_LNG),
+    )
+
+
+def _delivery_stop_coords(stop):
+    """(lat, lng) for a DeliveryStop, or None when the order was never geocoded."""
+    bo = stop.buyer_order
+    if not bo or bo.delivery_lat is None or bo.delivery_lng is None:
+        return None
+    return (float(bo.delivery_lat), float(bo.delivery_lng))
+
+
+def _group_delivery_waypoints(stops):
+    """
+    Collapse stops that share an address into one waypoint.
+
+    BuyerOrder is per-item, so a buyer who bought three things is three DeliveryStop
+    rows at one doorstep. Optimizing them as three waypoints wastes Google's 25-waypoint
+    budget and produces a route that pretends to drive between them.
+
+    Returns (groups, ungeocoded) where each group is
+    {'lat', 'lng', 'address', 'stops': [...]}.
+    """
+    groups = []
+    by_key = {}
+    ungeocoded = []
+    for stop in stops:
+        coords = _delivery_stop_coords(stop)
+        if coords is None:
+            ungeocoded.append(stop)
+            continue
+        # 5dp ≈ 1 metre — same doorstep, not same block.
+        key = (round(coords[0], 5), round(coords[1], 5))
+        if key not in by_key:
+            group = {
+                'lat': coords[0],
+                'lng': coords[1],
+                'address': (stop.buyer_order.delivery_address or '').strip(),
+                'stops': [],
+            }
+            by_key[key] = group
+            groups.append(group)
+        by_key[key]['stops'].append(stop)
+    return groups, ungeocoded
+
+
+def _route_plan_hash(anchor, groups):
+    """Fingerprint of what we're solving, so an unchanged route skips the API call."""
+    import hashlib
+    parts = [f"{anchor[0]:.5f},{anchor[1]:.5f}"]
+    # Sorted — the hash identifies the *set* of stops, not the order we happen to hold
+    # them in. Otherwise every optimization would invalidate its own cache.
+    parts.extend(sorted(
+        ','.join(str(s.id) for s in sorted(g['stops'], key=lambda s: s.id))
+        for g in groups
+    ))
+    return hashlib.sha256('|'.join(parts).encode()).hexdigest()
+
+
+def _path_length_miles(origin, ordered_points, destination):
+    """Total straight-line miles for origin → points in order → destination."""
+    total = 0.0
+    cur = origin
+    for pt in ordered_points:
+        total += haversine_miles(cur[0], cur[1], pt[0], pt[1])
+        cur = pt
+    total += haversine_miles(cur[0], cur[1], destination[0], destination[1])
+    return total
+
+
+def _optimize_order_nearest_neighbour(origin, points, destination):
+    """
+    Nearest-neighbour seed refined by 2-opt. Returns a list of indices into `points`.
+
+    NN alone typically lands well above optimal; the 2-opt pass (repeatedly reversing
+    any segment that shortens the closed path) removes the crossings that cause most
+    of that gap. Bounded iterations so a pathological set can't spin.
+    """
+    n = len(points)
+    if n <= 1:
+        return list(range(n))
+
+    unvisited = set(range(n))
+    order = []
+    cur = origin
+    while unvisited:
+        nxt = min(unvisited, key=lambda i: haversine_miles(cur[0], cur[1], points[i][0], points[i][1]))
+        order.append(nxt)
+        cur = points[nxt]
+        unvisited.discard(nxt)
+
+    best = _path_length_miles(origin, [points[i] for i in order], destination)
+    for _ in range(60):  # generous ceiling; converges in a handful for realistic routes
+        improved = False
+        for a in range(n - 1):
+            for b in range(a + 1, n):
+                cand = order[:a] + order[a:b + 1][::-1] + order[b + 1:]
+                cand_len = _path_length_miles(origin, [points[i] for i in cand], destination)
+                if cand_len < best - 1e-9:
+                    order, best = cand, cand_len
+                    improved = True
+        if not improved:
+            break
+    return order
+
+
+def _optimize_order_google(origin, points, destination):
+    """
+    Ask the Routes API for an optimized waypoint order.
+
+    Returns (order, distance_meters, duration_seconds), or None on any failure so the
+    caller can fall back. Never raises — a maps outage must not break the ops screen.
+    """
+    # GOOGLE_MAPS_API_KEY is HTTP-referrer restricted for browser use (static maps,
+    # JS API). A server-side call carries no referrer, so that key gets a 403 —
+    # this needs its own key restricted by IP/API instead. Falls back to the browser
+    # key so an unrestricted setup still works without extra config.
+    api_key = os.environ.get('GOOGLE_ROUTES_API_KEY') or os.environ.get('GOOGLE_MAPS_API_KEY', '')
+    if not api_key or not points:
+        return None
+    if len(points) > ROUTES_MAX_WAYPOINTS:
+        logger.info(f"Route optimize: {len(points)} waypoints exceeds Google's cap — using fallback")
+        return None
+
+    import requests as _requests
+
+    def _waypoint(lat, lng):
+        return {'location': {'latLng': {'latitude': lat, 'longitude': lng}}}
+
+    body = {
+        'origin': _waypoint(*origin),
+        'destination': _waypoint(*destination),
+        'intermediates': [_waypoint(lat, lng) for lat, lng in points],
+        'travelMode': 'DRIVE',
+        'routingPreference': 'TRAFFIC_AWARE',
+        'optimizeWaypointOrder': True,
+    }
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': api_key,
+        'X-Goog-FieldMask': (
+            'routes.optimizedIntermediateWaypointIndex,'
+            'routes.distanceMeters,'
+            'routes.duration'
+        ),
+    }
+
+    try:
+        resp = _requests.post(ROUTES_API_URL, json=body, headers=headers, timeout=12)
+        if resp.status_code != 200:
+            logger.error(f"Routes API {resp.status_code}: {resp.text[:400]}")
+            return None
+        data = resp.json()
+        routes = data.get('routes') or []
+        if not routes:
+            logger.error(f"Routes API returned no routes: {str(data)[:400]}")
+            return None
+        route = routes[0]
+        order = route.get('optimizedIntermediateWaypointIndex')
+        # Trust nothing: a partial or malformed permutation would silently drop stops.
+        if not isinstance(order, list) or sorted(order) != list(range(len(points))):
+            logger.error(f"Routes API returned an unusable waypoint order: {order}")
+            return None
+
+        duration_raw = route.get('duration') or ''
+        try:
+            duration_seconds = int(str(duration_raw).rstrip('s')) if duration_raw else None
+        except ValueError:
+            duration_seconds = None
+
+        return order, route.get('distanceMeters'), duration_seconds
+    except Exception as e:
+        logger.error(f"Routes API call failed: {e}")
+        return None
+
+
+def _build_maps_directions_url(origin_label, groups_in_order, destination_label):
+    """
+    Google Maps deep link so a driver can hand the whole loop to turn-by-turn nav.
+
+    Uses street addresses rather than coordinates — Maps shows the buyer's address in
+    the destination list, which is what the driver needs to recognise the stop.
+    """
+    waypoints = [g['address'] for g in groups_in_order if g.get('address')]
+    if not waypoints:
+        return None
+    params = {
+        'api': '1',
+        'origin': origin_label,
+        # The loop closes at the warehouse, so every buyer stop is a waypoint.
+        'destination': destination_label,
+        'travelmode': 'driving',
+    }
+    # Maps accepts at most 9 waypoints in a URL. Beyond that the link silently fails
+    # to open, so truncate and let the on-screen list carry the rest.
+    params['waypoints'] = '|'.join(waypoints[:9])
+    return 'https://www.google.com/maps/dir/?' + urlencode(params)
+
+
+def optimize_delivery_route(shift, truck_number, user=None):
+    """
+    Recompute stop_order for one truck's pending delivery stops.
+
+    Returns a result dict: {'ok', 'message', 'method', 'plan', 'reused', 'stop_count',
+    'ungeocoded'}. Writes stop_order and upserts the DeliveryRoutePlan row; the caller
+    commits nothing else.
+    """
+    stops = (
+        DeliveryStop.query
+        .filter_by(shift_id=shift.id, truck_number=truck_number)
+        .order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc())
+        .all()
+    )
+    if not stops:
+        return {'ok': False, 'message': 'No delivery stops on this truck yet.',
+                'method': None, 'plan': None, 'reused': False,
+                'stop_count': 0, 'ungeocoded': 0}
+
+    completed = [s for s in stops if s.status in ('completed', 'issue')]
+    pending = [s for s in stops if s.status == 'pending']
+    if not pending:
+        return {'ok': False, 'message': 'Every stop on this truck is already resolved.',
+                'method': None, 'plan': None, 'reused': False,
+                'stop_count': 0, 'ungeocoded': 0}
+
+    warehouse = _warehouse_coords()
+    warehouse_label = get_warehouse_address()
+
+    # Anchor: where the truck actually is. The last resolved stop if the run is under
+    # way, otherwise the warehouse — one code path covers both the day-before preview
+    # and a mid-run "continue from here".
+    anchor = warehouse
+    anchor_label = 'Warehouse'
+    for s in reversed(completed):
+        coords = _delivery_stop_coords(s)
+        if coords:
+            anchor = coords
+            anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
+            break
+
+    groups, ungeocoded = _group_delivery_waypoints(pending)
+    plan_hash = _route_plan_hash(anchor, groups)
+    plan = DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=truck_number).first()
+
+    if not groups:
+        return {'ok': False,
+                'message': f'{len(ungeocoded)} stop(s) have no coordinates on file — nothing to optimize.',
+                'method': None, 'plan': plan, 'reused': False,
+                'stop_count': 0, 'ungeocoded': len(ungeocoded)}
+
+    # Unchanged route → re-serve the stored plan. Keeps a driver mashing the button
+    # off the metered API entirely.
+    if plan and plan.plan_hash == plan_hash:
+        return {'ok': True, 'message': 'Route is already optimized — nothing has changed.',
+                'method': plan.method, 'plan': plan, 'reused': True,
+                'stop_count': len(pending), 'ungeocoded': len(ungeocoded)}
+
+    points = [(g['lat'], g['lng']) for g in groups]
+    distance_meters = duration_seconds = None
+
+    google_result = _optimize_order_google(anchor, points, warehouse)
+    if google_result:
+        order, distance_meters, duration_seconds = google_result
+        method = 'google'
+    else:
+        order = _optimize_order_nearest_neighbour(anchor, points, warehouse)
+        method = 'nearest_neighbor'
+        distance_meters = int(
+            _path_length_miles(anchor, [points[i] for i in order], warehouse) * 1609.344
+        )
+
+    ordered_groups = [groups[i] for i in order]
+
+    # Completed stops keep the front of the list in the order they were actually done.
+    seq = 1
+    for s in completed:
+        s.stop_order = seq
+        seq += 1
+    for group in ordered_groups:
+        for s in sorted(group['stops'], key=lambda x: x.id):
+            s.stop_order = seq
+            seq += 1
+    # No coordinates → can't be routed, so park them at the end rather than dropping them.
+    for s in ungeocoded:
+        s.stop_order = seq
+        seq += 1
+
+    if not plan:
+        plan = DeliveryRoutePlan(shift_id=shift.id, truck_number=truck_number)
+        db.session.add(plan)
+    plan.plan_hash = plan_hash
+    plan.method = method
+    plan.stop_count = len(pending)
+    plan.distance_meters = distance_meters
+    plan.duration_seconds = duration_seconds
+    plan.anchor_label = anchor_label
+    plan.maps_url = _build_maps_directions_url(
+        anchor_label if anchor != warehouse else warehouse_label,
+        ordered_groups,
+        warehouse_label,
+    )
+    plan.computed_at = datetime.utcnow()
+    plan.computed_by_id = user.id if user and user.is_authenticated else None
+    db.session.commit()
+
+    # Stops and addresses differ whenever one buyer bought several items — say both,
+    # so "4 ordered" never contradicts the "5 stops" in the header.
+    routed_stops = sum(len(g['stops']) for g in ordered_groups)
+    if len(ordered_groups) == routed_stops:
+        bits = [f"{routed_stops} stop{'s' if routed_stops != 1 else ''} ordered"]
+    else:
+        bits = [f"{routed_stops} stops at {len(ordered_groups)} addresses"]
+    if plan.distance_miles:
+        bits.append(f"{plan.distance_miles} mi")
+    if plan.duration_display:
+        bits.append(plan.duration_display)
+    if method == 'nearest_neighbor':
+        bits.append('estimated (maps unavailable)')
+    if ungeocoded:
+        bits.append(f"{len(ungeocoded)} without an address on file, moved to the end")
+
+    return {'ok': True, 'message': ' · '.join(bits), 'method': method, 'plan': plan,
+            'reused': False, 'stop_count': len(pending), 'ungeocoded': len(ungeocoded)}
+
+
+def get_delivery_route_plans(shift_id):
+    """{truck_number: DeliveryRoutePlan} for a shift, for template rendering."""
+    return {
+        p.truck_number: p
+        for p in DeliveryRoutePlan.query.filter_by(shift_id=shift_id).all()
+    }
+
+
+@app.route('/admin/ops/delivery/<int:shift_id>/truck/<int:truck_number>/optimize', methods=['POST'])
+@login_required
+def admin_optimize_delivery_route(shift_id, truck_number):
+    """Ops-side route optimization for one delivery truck."""
+    if not _has_ops_access():
+        abort(403)
+    shift = Shift.query.get_or_404(shift_id)
+    result = optimize_delivery_route(shift, truck_number, user=current_user)
+    flash(f"Truck {truck_number}: {result['message']}",
+          'success' if result['ok'] else 'info')
+    return redirect(request.referrer or url_for('admin_ops', shift_id=shift_id))
+
+
+@app.route('/crew/delivery/<int:shift_id>/optimize', methods=['POST'])
+@login_required
+def crew_optimize_delivery_route(shift_id):
+    """Driver-side route optimization — scoped to the truck the worker is on."""
+    if (r := _require_delivery_worker(shift_id)):
+        return r
+    shift = Shift.query.get_or_404(shift_id)
+
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=shift.id, worker_id=current_user.id
+    ).first()
+    truck_number = assignment.truck_number if assignment else None
+    if truck_number is None:
+        # Admins previewing a shift they're not staffed on: fall back to the truck
+        # that actually has stops, so the button isn't dead for them.
+        if not current_user.is_admin:
+            abort(403)
+        first_stop = (
+            DeliveryStop.query.filter_by(shift_id=shift.id)
+            .order_by(DeliveryStop.truck_number.asc()).first()
+        )
+        if not first_stop:
+            flash("No delivery stops on this shift yet.", "info")
+            return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+        truck_number = first_stop.truck_number
+
+    result = optimize_delivery_route(shift, truck_number, user=current_user)
+    flash(result['message'], 'success' if result['ok'] else 'info')
+    return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+
+
 # ── Crew delivery routes ──────────────────────────────────────
 
 def _require_delivery_worker(shift_id):
@@ -20401,6 +20810,14 @@ def crew_delivery_view(shift_id):
     total_stops = len(stops)
     done_stops = sum(1 for s in stops if s.status in ('completed', 'issue'))
 
+    route_truck = my_truck_number
+    if route_truck is None and stops:
+        route_truck = stops[0].truck_number
+    route_plan = (
+        DeliveryRoutePlan.query.filter_by(shift_id=shift.id, truck_number=route_truck).first()
+        if route_truck is not None else None
+    )
+
     return render_template(
         'crew/delivery.html',
         shift=shift,
@@ -20411,6 +20828,7 @@ def crew_delivery_view(shift_id):
         is_past=is_past,
         total_stops=total_stops,
         done_stops=done_stops,
+        route_plan=route_plan,
     )
 
 

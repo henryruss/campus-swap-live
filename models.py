@@ -838,6 +838,9 @@ class Order(db.Model):
     delivery_zip = db.Column(db.String(20), nullable=True)
     delivery_lat = db.Column(db.Float, nullable=True)
     delivery_lng = db.Column(db.Float, nullable=True)
+    # Apartment/suite number and any access instructions the buyer gives at checkout.
+    # Kept out of the street address so geocoding is not affected.
+    delivery_notes = db.Column(db.Text, nullable=True)
     distance_miles = db.Column(db.Float, nullable=True)
     delivery_zone = db.Column(db.Integer, nullable=True)
     delivery_fee = db.Column(db.Numeric(10, 2), default=0, server_default='0')
@@ -867,6 +870,7 @@ class BuyerOrder(db.Model):
     delivery_address = db.Column(db.String(300), nullable=False)
     delivery_lat = db.Column(db.Float, nullable=True)
     delivery_lng = db.Column(db.Float, nullable=True)
+    delivery_notes = db.Column(db.Text, nullable=True)  # denormalized from Order for ops/crew views
     stripe_session_id = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     delivered_at = db.Column(db.DateTime, nullable=True)  # set when DeliveryStop completed; informational only
@@ -1003,6 +1007,52 @@ class DeliveryStop(db.Model):
     __table_args__ = (
         db.UniqueConstraint('shift_id', 'buyer_order_id', name='uq_delivery_stop_shift_order'),
     )
+
+
+class DeliveryRoutePlan(db.Model):
+    """
+    Cached result of the last route optimization for one truck on one delivery shift.
+
+    The ordering itself lives on DeliveryStop.stop_order — this row only records how
+    that ordering was produced, so the UI can show a summary and so a repeat click on
+    an unchanged route re-serves the stored plan instead of paying for another API call.
+    """
+    __tablename__ = 'delivery_route_plan'
+    id              = db.Column(db.Integer, primary_key=True)
+    shift_id        = db.Column(db.Integer, db.ForeignKey('shift.id'), nullable=False)
+    truck_number    = db.Column(db.Integer, nullable=False)
+    # Fingerprint of (anchor, pending stop set). Unchanged hash → skip the API call.
+    plan_hash       = db.Column(db.String(64), nullable=False)
+    method          = db.Column(db.String(20), nullable=False)  # google|nearest_neighbor
+    stop_count      = db.Column(db.Integer, default=0, nullable=False)
+    distance_meters = db.Column(db.Integer, nullable=True)
+    duration_seconds = db.Column(db.Integer, nullable=True)
+    maps_url        = db.Column(db.Text, nullable=True)
+    anchor_label    = db.Column(db.String(200), nullable=True)  # where the loop starts
+    computed_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    computed_by_id  = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    shift       = db.relationship('Shift', foreign_keys=[shift_id])
+    computed_by = db.relationship('User', foreign_keys=[computed_by_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('shift_id', 'truck_number', name='uq_route_plan_shift_truck'),
+    )
+
+    @property
+    def distance_miles(self):
+        if self.distance_meters is None:
+            return None
+        return round(self.distance_meters / 1609.344, 1)
+
+    @property
+    def duration_display(self):
+        if not self.duration_seconds:
+            return None
+        mins = int(round(self.duration_seconds / 60))
+        if mins < 60:
+            return f"{mins} min"
+        return f"{mins // 60}h {mins % 60}m"
 
 
 class DeliveryRun(db.Model):

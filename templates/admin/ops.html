@@ -373,6 +373,44 @@
     flex-wrap: wrap;
   }
 
+  /* Route optimization row (delivery trucks) */
+  .route-optimize-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    border-bottom: var(--card-border);
+    background: #f8fafc;
+  }
+  .route-optimize-btn { white-space: nowrap; }
+  .route-plan-summary {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .route-plan-estimated {
+    background: #e2e8f0;
+    color: var(--text-muted);
+    padding: 1px 5px;
+    border-radius: 6px;
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .route-maps-link {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #0d9488;
+    text-decoration: none;
+    border: 1px solid #0d9488;
+    border-radius: 6px;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  .route-maps-link:hover { background: #0d9488; color: #fff; }
+
   /* Live summary row */
   .live-summary-row {
     display: flex;
@@ -955,6 +993,33 @@
           </button>
         </div>
 
+        {# ── Route optimization ── #}
+        {% if card.delivery_stops %}
+        <div class="route-optimize-row">
+          <form method="POST" style="margin:0;"
+                action="{{ url_for('admin_optimize_delivery_route', shift_id=shift.id, truck_number=card.truck_number) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn-sm route-optimize-btn">
+              <i class="fas fa-route"></i> Optimize route
+            </button>
+          </form>
+          {% if card.route_plan %}
+          <span class="route-plan-summary">
+            {% if card.route_plan.distance_miles %}{{ card.route_plan.distance_miles }} mi{% endif %}
+            {% if card.route_plan.duration_display %} &middot; {{ card.route_plan.duration_display }}{% endif %}
+            {% if card.route_plan.method == 'nearest_neighbor' %}
+            <span class="route-plan-estimated" title="Google Routes was unavailable — straight-line estimate">est.</span>
+            {% endif %}
+          </span>
+          {% if card.route_plan.maps_url %}
+          <a href="{{ card.route_plan.maps_url }}" target="_blank" rel="noopener" class="route-maps-link">
+            <i class="fas fa-map-marked-alt"></i> Open loop in Maps
+          </a>
+          {% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+
         {# Delivery live state row #}
         {% if card.delivery_live %}
         <div class="live-summary-row">
@@ -1014,6 +1079,11 @@
                 {{ item.description }}
               </div>
               <div class="stop-address">{{ buyer_name }} &middot; {{ bo.delivery_address.split(',')[:2] | join(', ') }}</div>
+              {% if bo.delivery_notes %}
+              <div style="font-size:0.72rem; color:#92400e; margin-top:2px;">
+                <i class="fas fa-note-sticky"></i> {{ bo.delivery_notes }}
+              </div>
+              {% endif %}
               <div class="stop-badges">
                 {% if stop.status == 'completed' %}
                 <span style="background:#dcfce7;color:#166534;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">

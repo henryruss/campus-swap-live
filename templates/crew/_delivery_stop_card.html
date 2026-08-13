@@ -83,6 +83,15 @@
     {{ order.delivery_address }}
   </div>
 
+  {# Buyer's own instructions — unit number, gate code, where to leave it.
+     Highlighted because missing an apartment number is the #1 way a stop stalls. #}
+  {% if order.delivery_notes %}
+  <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem; color:#92400e;">
+    <i class="fas fa-note-sticky"></i>
+    <strong>Buyer notes:</strong> {{ order.delivery_notes }}
+  </div>
+  {% endif %}
+
   {# Always available — including before the run is started #}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 10px;">
     <a href="{{ directions_url }}" target="_blank" rel="noopener"

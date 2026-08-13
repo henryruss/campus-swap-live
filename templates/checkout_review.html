@@ -188,6 +188,11 @@
     </div>
     {% endfor %}
     <p class="review-address"><i class="fas fa-map-marker-alt" style="margin-right:4px;"></i>{{ address }}</p>
+    {% if delivery_notes %}
+    <p class="review-address" style="margin-top:2px;">
+      <i class="fas fa-note-sticky" style="margin-right:4px;"></i>{{ delivery_notes }}
+    </p>
+    {% endif %}
     <a href="{{ url_for('checkout_delivery') }}" style="font-size:0.82rem; color:var(--text-muted); text-decoration:none;">← Change address</a>
   </div>
 
