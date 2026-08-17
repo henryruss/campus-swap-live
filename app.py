@@ -753,7 +753,7 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
         footer = f"""
         <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 0.85rem; color: #64748b;">
             <p style="margin: 0 0 10px;">Campus Swap</p>
-            <p style="margin: 0 0 10px;">Physical address coming soon</p>
+            <p style="margin: 0 0 10px;">515 S Greensboro St, Carrboro, NC</p>
             <p style="margin: 0;">
                 <a href="{unsubscribe_url}" style="color: #64748b; text-decoration: underline;">Unsubscribe from these emails</a>
             </p>
@@ -764,7 +764,7 @@ def wrap_email_template(html_content, unsubscribe_url=None, is_marketing=False):
         footer = """
         <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 0.85rem; color: #64748b;">
             <p style="margin: 0 0 10px;">Campus Swap</p>
-            <p style="margin: 0;">Physical address coming soon</p>
+            <p style="margin: 0;">515 S Greensboro St, Carrboro, NC</p>
         </div>
         """
     
@@ -21335,6 +21335,20 @@ def _fb_export_query(unposted_only=True, category_id=None, subcategory_id=None):
     return q.order_by(InventoryItem.id)
 
 
+def _fb_takedown_query():
+    """Items sold on-site that are still live on Facebook Marketplace.
+
+    The reverse direction of the export queue: `status == 'sold'` naturally falls out
+    of `_fb_export_query()` (which filters to `_shop_eligible_clauses()`), so this is a
+    separate query rather than a flag on the same one. `fb_posted_at IS NOT NULL` is the
+    only signal we have that a listing might still be up — there's no FB API to check.
+    """
+    return InventoryItem.query.filter(
+        InventoryItem.status == 'sold',
+        InventoryItem.fb_posted_at.isnot(None),
+    ).order_by(InventoryItem.sold_at.desc())
+
+
 def _fb_export_category_options(unposted_only=True):
     """Category picker options, built from the eligible set itself.
 
@@ -21481,6 +21495,7 @@ def fb_export():
     # would collapse the dropdown to the current selection and strand the poster there.
     category_options = _fb_export_category_options(unposted_only=unposted_only)
     filter_label = _fb_export_filter_label(cat_id, sub_id)
+    takedown_count = _fb_takedown_query().count()
 
     common = dict(
         total_all=total_all,
@@ -21490,6 +21505,7 @@ def fb_export():
         sub_id=sub_id,
         category_options=category_options,
         filter_label=filter_label,
+        takedown_count=takedown_count,
     )
 
     if not items:
@@ -21539,6 +21555,20 @@ def fb_export_mark_posted(item_id):
     item.fb_listing_url = url_val if posted else None
     db.session.commit()
     return jsonify({'success': True, 'posted': posted})
+
+
+@app.route('/admin/fb-export/takedowns')
+@login_required
+def fb_takedowns():
+    """Sold-but-still-posted queue: which live FB listings need to come down.
+
+    Uses the same fb_export_mark_posted (posted=false) endpoint to clear the flag —
+    'taken down' and 'never posted' are the same state, fb_posted_at IS NULL.
+    """
+    if not _has_marketplace_access():
+        abort(403)
+    items = _fb_takedown_query().all()
+    return render_template('admin/fb_takedowns.html', items=items)
 
 
 @app.route('/admin/fb-export/<int:item_id>/photos.zip')

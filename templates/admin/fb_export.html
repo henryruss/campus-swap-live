@@ -104,6 +104,8 @@
   .fbx-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
   .fbx-toggle { font-size: 0.82rem; color: var(--text-muted); }
   .fbx-toggle a { color: var(--primary); font-weight: 600; }
+  .fbx-takedown { margin-top: 6px; font-size: 0.82rem; font-weight: 700; }
+  .fbx-takedown a { color: var(--accent); }
 
   .fbx-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .fbx-filter label {
@@ -152,6 +154,11 @@
       <div class="fbx-progress">
         {{ posted_count }} of {{ total_all }} posted{% if filter_label %} in {{ filter_label }}{% else %} to Facebook{% endif %}
       </div>
+      {% if takedown_count %}
+        <div class="fbx-takedown">
+          <a href="{{ url_for('fb_takedowns') }}">{{ takedown_count }} sold item{{ 's' if takedown_count != 1 else '' }} still posted &mdash; take down</a>
+        </div>
+      {% endif %}
       <div class="fbx-toggle">
         {% if unposted_only %}
           Showing unposted only &middot;
