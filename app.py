@@ -9621,7 +9621,7 @@ def admin_database_reset():
 @app.route('/admin/mass-email', methods=['POST'])
 @login_required
 def admin_mass_email():
-    """Send marketing email to all users in database (super admin only)"""
+    """Send marketing email to all users, sellers only, or a test to self (super admin only)"""
     if (r := require_super_admin()):
         return r
     if not current_user.is_admin:
@@ -9629,33 +9629,21 @@ def admin_mass_email():
             return jsonify({'success': False, 'message': "Access denied."}), 403
         flash("Access denied.", "error")
         return redirect(url_for('index'))
-    
+
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    
+
     subject = request.form.get('subject', '').strip()
     html_content = request.form.get('html_content', '').strip()
-    
+    sellers_only = request.form.get('sellers_only') == 'on'
+    test_only = request.form.get('test_only') == '1'
+
     if not subject or not html_content:
         error_msg = "Subject and email content are required."
         if is_ajax:
             return jsonify({'success': False, 'message': error_msg}), 400
         flash(error_msg, "error")
-        return redirect(url_for('admin_panel') + '#mass-email')
-    
-    # Get all users with email addresses, excluding unsubscribed users
-    users = User.query.filter(
-        User.email.isnot(None),
-        User.unsubscribed != True  # Filter out unsubscribed users
-    ).all()
-    total_users = len(users)
-    
-    if total_users == 0:
-        error_msg = "No users found in database (or all users have unsubscribed)."
-        if is_ajax:
-            return jsonify({'success': False, 'message': error_msg}), 400
-        flash(error_msg, "error")
-        return redirect(url_for('admin_panel') + '#mass-email')
-    
+        return redirect(url_for('admin_settings') + '#mass-email')
+
     # Check if Resend API key is configured
     if not resend.api_key:
         error_msg = "RESEND_API_KEY is not configured. Cannot send emails."
@@ -9663,9 +9651,49 @@ def admin_mass_email():
         if is_ajax:
             return jsonify({'success': False, 'message': error_msg}), 500
         flash(error_msg, "error")
-        return redirect(url_for('admin_panel') + '#mass-email')
-    
-    logger.info(f"Starting mass email send to {total_users} users (excluding unsubscribed)")
+        return redirect(url_for('admin_settings') + '#mass-email')
+
+    if test_only:
+        success = send_email(
+            to_email=current_user.email,
+            subject=f"[TEST] {subject}",
+            html_content=html_content,
+            is_marketing=True,
+            user=current_user
+        )
+        message = (f"Test email sent to {current_user.email}." if success
+                   else "Failed to send test email. Check server logs.")
+        if is_ajax:
+            return jsonify({'success': success, 'message': message}), (200 if success else 500)
+        flash(message, "success" if success else "error")
+        return redirect(url_for('admin_settings') + '#mass-email')
+
+    # Get users with email addresses, excluding unsubscribed users.
+    # Sellers-only means "gave us their email through anything other than
+    # buying" (is_seller) — excludes sandbox/tutorial and internal/proxy rows,
+    # neither of which are real people who should get marketing mail.
+    query = User.query.filter(
+        User.email.isnot(None),
+        User.unsubscribed != True  # Filter out unsubscribed users
+    )
+    if sellers_only:
+        query = query.filter(
+            User.is_seller == True,
+            User.is_tutorial_user != True,
+            User.is_internal_account != True,
+        )
+    users = query.all()
+    total_users = len(users)
+
+    if total_users == 0:
+        error_msg = "No users found in database (or all users have unsubscribed)."
+        if is_ajax:
+            return jsonify({'success': False, 'message': error_msg}), 400
+        flash(error_msg, "error")
+        return redirect(url_for('admin_settings') + '#mass-email')
+
+    scope_label = "sellers" if sellers_only else "users"
+    logger.info(f"Starting mass email send to {total_users} {scope_label} (excluding unsubscribed)")
     logger.info(f"Subject: {subject}")
     
     # Send emails using send_email function (handles unsubscribe links, headers, and filtering automatically)
@@ -9712,9 +9740,9 @@ def admin_mass_email():
     
     # Prepare response message
     if sent_count == total_users:
-        message = f"Successfully sent email to all {sent_count} users!"
+        message = f"Successfully sent email to all {sent_count} {scope_label}!"
     elif sent_count > 0:
-        message = f"Sent to {sent_count} users. {failed_count} failed."
+        message = f"Sent to {sent_count} {scope_label}. {failed_count} failed."
         if failed_emails:
             message += f" Failed emails: {', '.join(failed_emails[:5])}"
             if len(failed_emails) > 5:
@@ -9730,13 +9758,13 @@ def admin_mass_email():
             'failed': failed_count,
             'total': total_users
         })
-    
+
     if sent_count > 0:
         flash(message, "success")
     else:
         flash(message, "error")
-    
-    return redirect(url_for('admin_panel') + '#mass-email')
+
+    return redirect(url_for('admin_settings') + '#mass-email')
 
 # =========================================================
 # SECTION: CREW / OPS ROUTES

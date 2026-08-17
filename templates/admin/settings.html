@@ -570,7 +570,7 @@
       <h2>Mass email</h2>
     </div>
     <div class="settings-section-body">
-      <form method="POST" action="{{ url_for('admin_mass_email') }}">
+      <form method="POST" action="{{ url_for('admin_mass_email') }}" id="mass-email-form" onsubmit="return confirmMassEmailSend(event)">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="settings-field">
           <label>Subject</label>
@@ -578,19 +578,36 @@
         </div>
         <div class="settings-field">
           <label>Body (HTML allowed)</label>
-          <textarea name="body" rows="5" required
+          <textarea name="html_content" rows="5" required
                     style="width: 100%; max-width: 500px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 0.85rem; resize: vertical; font-family: monospace;"></textarea>
         </div>
         <div class="settings-field">
           <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" name="test_only" value="1"> Send test to myself only
+            <input type="checkbox" name="sellers_only" id="mass-email-sellers-only" checked> Sellers only <span style="color: var(--text-muted); font-weight: normal;">(everyone who's given us their email except pure buyers)</span>
+          </label>
+        </div>
+        <div class="settings-field">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" name="test_only" id="mass-email-test-only" value="1"> Send test to myself only
           </label>
         </div>
         <div class="save-row">
-          <button type="submit" class="btn-primary btn-save"
-                  onclick="return confirm('Send mass email to all users?')">Send mass email</button>
+          <button type="submit" class="btn-primary btn-save" id="mass-email-btn">Send mass email</button>
         </div>
       </form>
+      <script>
+        function confirmMassEmailSend(e) {
+          const testOnly = document.getElementById('mass-email-test-only').checked;
+          if (testOnly) return true;
+          const sellersOnly = document.getElementById('mass-email-sellers-only').checked;
+          const scope = sellersOnly ? 'every seller who has given us their email' : 'ALL users in the database, including buyers';
+          if (!confirm(`Send this email to ${scope}? This cannot be undone.`)) {
+            e.preventDefault();
+            return false;
+          }
+          return true;
+        }
+      </script>
     </div>
   </div>
 
