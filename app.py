@@ -9702,6 +9702,85 @@ def _save_mass_email_graphic(file):
     )
 
 
+def _preview_mass_email_graphic(file):
+    """Like _save_mass_email_graphic, but for the preview-only route — embeds
+    the image as a data URI instead of uploading, so repeatedly previewing
+    never writes to S3."""
+    if not file or not file.filename:
+        return None
+    ok, err = validate_file_upload(file)
+    if not ok:
+        raise ValueError(err)
+    file.seek(0)
+    b64 = base64.b64encode(file.read()).decode('ascii')
+    mime = file.content_type or 'image/jpeg'
+    return (
+        f'<img src="data:{mime};base64,{b64}" alt="" '
+        f'style="width: 100%; max-width: 600px; display: block; margin: 0 0 24px; border-radius: 8px;" />'
+    )
+
+
+_HTML_TAG_RE = re.compile(r'<[a-zA-Z][a-zA-Z0-9]*[\s/>]')
+_URL_RE = re.compile(r'(https?://[^\s<]+)')
+
+
+def _looks_like_html(content):
+    """True if the body already contains real markup, vs. plain typed text."""
+    return bool(_HTML_TAG_RE.search(content))
+
+
+def _format_plain_text_email_body(text):
+    """Turn plain typed paragraphs into the same styled look every other
+    Campus Swap marketing email uses, so a non-technical sender never has to
+    touch HTML. Blank lines separate paragraphs; single newlines become <br>;
+    bare URLs are auto-linked."""
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text.strip()) if p.strip()]
+    blocks = []
+    for para in paragraphs:
+        escaped = html_module.escape(para)
+        linked = _URL_RE.sub(
+            lambda m: f'<a href="{m.group(1)}" style="color: #1A3D1A; font-weight: 600;">{m.group(1)}</a>',
+            escaped
+        )
+        blocks.append(
+            f'<p style="margin: 0 0 18px; font-size: 1rem; line-height: 1.6; color: #3F4A3F;">'
+            f'{linked.replace(chr(10), "<br>")}</p>'
+        )
+    return '\n'.join(blocks)
+
+
+@app.route('/admin/mass-email/preview-render', methods=['POST'])
+@login_required
+def admin_mass_email_preview_render():
+    """Render the mass-email form's current fields exactly as send_email()
+    would produce them, and return the raw HTML page (opened in a new tab via
+    the form's formtarget, not fetched via AJAX — no JS needed)."""
+    if (r := require_super_admin()):
+        return r
+
+    subject = request.form.get('subject', '').strip()
+    html_content = request.form.get('html_content', '').strip()
+    if not subject or not html_content:
+        return "Fill in a subject and body first, then preview.", 400
+
+    if not _looks_like_html(html_content):
+        html_content = _format_plain_text_email_body(html_content)
+
+    try:
+        image_block = _preview_mass_email_graphic(request.files.get('graphic'))
+    except ValueError as e:
+        return str(e), 400
+    if image_block:
+        html_content = image_block + html_content
+
+    wrapped = wrap_email_template(
+        html_content,
+        unsubscribe_url='https://usecampusswap.com/unsubscribe?token=preview',
+        is_marketing=True
+    )
+    return Response(wrapped, mimetype='text/html')
+
+
 @app.route('/admin/mass-email', methods=['POST'])
 @login_required
 def admin_mass_email():
@@ -9718,8 +9797,9 @@ def admin_mass_email():
 
     subject = request.form.get('subject', '').strip()
     html_content = request.form.get('html_content', '').strip()
-    sellers_only = request.form.get('sellers_only') == 'on'
-    test_only = request.form.get('test_only') == '1'
+    audience = request.form.get('audience', 'sellers')
+    sellers_only = audience == 'sellers'
+    test_only = audience == 'test'
     scheduled_at_raw = request.form.get('scheduled_at', '').strip()
 
     if not subject or not html_content:
@@ -9728,6 +9808,9 @@ def admin_mass_email():
             return jsonify({'success': False, 'message': error_msg}), 400
         flash(error_msg, "error")
         return redirect(url_for('admin_settings') + '#mass-email')
+
+    if not _looks_like_html(html_content):
+        html_content = _format_plain_text_email_body(html_content)
 
     try:
         image_block = _save_mass_email_graphic(request.files.get('graphic'))

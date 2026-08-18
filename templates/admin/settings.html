@@ -577,41 +577,48 @@
           <input type="text" name="subject" placeholder="Your subject..." required>
         </div>
         <div class="settings-field">
-          <label>Body (HTML allowed)</label>
+          <label>Body</label>
           <textarea name="html_content" rows="5" required
                     style="width: 100%; max-width: 500px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 0.85rem; resize: vertical; font-family: monospace;"></textarea>
+          <small style="color: var(--text-muted); display: block; margin-top: 4px;">Plain text is fine — paste normal paragraphs (blank line between them) and we'll format them to match our other emails. Or write your own HTML for more control.</small>
         </div>
         <div class="settings-field">
           <label>Banner image (optional)</label>
-          <input type="file" name="graphic" accept="image/*">
+          <input type="file" name="graphic" accept="image/*" style="width: 100%;">
           <small style="color: var(--text-muted); display: block; margin-top: 4px;">Inserted above the body text. Left blank if not chosen.</small>
         </div>
         <div class="settings-field">
-          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" name="sellers_only" id="mass-email-sellers-only" checked> Sellers only <span style="color: var(--text-muted); font-weight: normal;">(everyone who's given us their email except pure buyers)</span>
+          <label style="display: block; margin-bottom: 8px;">Send to</label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px; font-weight: normal; text-transform: none;">
+            <input type="radio" name="audience" value="sellers" id="mass-email-audience-sellers" checked style="width: 16px; height: 16px; padding: 0; margin: 0; flex: 0 0 auto;">
+            Sellers only <span style="color: var(--text-muted);">(everyone who's given us their email except pure buyers)</span>
           </label>
-        </div>
-        <div class="settings-field">
-          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" name="test_only" id="mass-email-test-only" value="1"> Send test to myself only
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px; font-weight: normal; text-transform: none;">
+            <input type="radio" name="audience" value="all" id="mass-email-audience-all" style="width: 16px; height: 16px; padding: 0; margin: 0; flex: 0 0 auto;">
+            Everyone <span style="color: var(--text-muted);">(includes buyers)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal; text-transform: none;">
+            <input type="radio" name="audience" value="test" id="mass-email-audience-test" style="width: 16px; height: 16px; padding: 0; margin: 0; flex: 0 0 auto;">
+            Just me <span style="color: var(--text-muted);">(test send)</span>
           </label>
         </div>
         <div class="settings-field">
           <label for="mass-email-scheduled-at">Send at (optional)</label>
           <input type="datetime-local" name="scheduled_at" id="mass-email-scheduled-at">
-          <small style="color: var(--text-muted); display: block; margin-top: 4px;">Eastern time. Leave blank to send immediately. Combine with "test only" to schedule a test send to yourself.</small>
+          <small style="color: var(--text-muted); display: block; margin-top: 4px;">Eastern time. Leave blank to send immediately. Works with "Just me" too, to schedule a test send to yourself.</small>
         </div>
         <div class="save-row">
+          <button type="submit" formaction="{{ url_for('admin_mass_email_preview_render') }}" formtarget="_blank" class="btn-save" id="mass-email-preview-btn" style="background: white; border: 1px solid var(--rule); color: var(--text-main); margin-right: 10px;">Preview</button>
           <button type="submit" class="btn-primary btn-save" id="mass-email-btn">Send mass email</button>
         </div>
       </form>
       <script>
         function confirmMassEmailSend(e) {
-          const testOnly = document.getElementById('mass-email-test-only').checked;
-          if (testOnly) return true;
+          if (e.submitter && e.submitter.id === 'mass-email-preview-btn') return true;
+          const audience = document.querySelector('input[name="audience"]:checked').value;
+          if (audience === 'test') return true;
           const scheduledAt = document.getElementById('mass-email-scheduled-at').value;
-          const sellersOnly = document.getElementById('mass-email-sellers-only').checked;
-          const scope = sellersOnly ? 'every seller who has given us their email' : 'ALL users in the database, including buyers';
+          const scope = audience === 'sellers' ? 'every seller who has given us their email' : 'ALL users in the database, including buyers';
           const when = scheduledAt ? `at the time you scheduled` : 'right now';
           if (!confirm(`Send this email to ${scope}, ${when}? This cannot be undone.`)) {
             e.preventDefault();
