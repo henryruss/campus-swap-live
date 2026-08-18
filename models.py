@@ -1085,6 +1085,7 @@ class ScheduledMassEmail(db.Model):
     subject         = db.Column(db.String(300), nullable=False)
     html_content    = db.Column(db.Text, nullable=False)
     sellers_only    = db.Column(db.Boolean, default=True, nullable=False)
+    test_only       = db.Column(db.Boolean, default=False, nullable=False)  # send only to created_by, at fire time
     scheduled_at    = db.Column(db.DateTime, nullable=False)  # UTC
     status          = db.Column(db.String(20), default='pending', nullable=False)  # pending|sent|failed|canceled
     created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)

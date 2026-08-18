@@ -9746,22 +9746,9 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
-    if test_only:
-        success = send_email(
-            to_email=current_user.email,
-            subject=f"[TEST] {subject}",
-            html_content=html_content,
-            is_marketing=True,
-            user=current_user
-        )
-        message = (f"Test email sent to {current_user.email}." if success
-                   else "Failed to send test email. Check server logs.")
-        if is_ajax:
-            return jsonify({'success': success, 'message': message}), (200 if success else 500)
-        flash(message, "success" if success else "error")
-        return redirect(url_for('admin_settings') + '#mass-email')
-
     # Schedule for later instead of sending now, if a future send time was given.
+    # This branch runs before the immediate test-send below so "test only" and
+    # "send at" can combine — a scheduled email that fires to just yourself.
     if scheduled_at_raw:
         try:
             naive_eastern = datetime.strptime(scheduled_at_raw, '%Y-%m-%dT%H:%M')
@@ -9777,15 +9764,33 @@ def admin_mass_email():
             subject=subject,
             html_content=html_content,
             sellers_only=sellers_only,
+            test_only=test_only,
             scheduled_at=scheduled_utc,
             created_by_id=current_user.id,
         )
         db.session.add(scheduled)
         db.session.commit()
-        message = f"Scheduled for {scheduled_eastern.strftime('%b %-d, %Y at %-I:%M %p')} ET."
+        when = scheduled_eastern.strftime('%b %-d, %Y at %-I:%M %p')
+        message = (f"Test scheduled for {when} ET — will send to {current_user.email} only."
+                   if test_only else f"Scheduled for {when} ET.")
         if is_ajax:
             return jsonify({'success': True, 'message': message})
         flash(message, "success")
+        return redirect(url_for('admin_settings') + '#mass-email')
+
+    if test_only:
+        success = send_email(
+            to_email=current_user.email,
+            subject=f"[TEST] {subject}",
+            html_content=html_content,
+            is_marketing=True,
+            user=current_user
+        )
+        message = (f"Test email sent to {current_user.email}." if success
+                   else "Failed to send test email. Check server logs.")
+        if is_ajax:
+            return jsonify({'success': success, 'message': message}), (200 if success else 500)
+        flash(message, "success" if success else "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
     sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
@@ -9868,10 +9873,22 @@ def cron_send_scheduled_mass_emails():
         scheduled.status = 'sending'
         db.session.commit()
         try:
-            sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
-                scheduled.subject, scheduled.html_content, scheduled.sellers_only
-            )
-            scheduled.status = 'sent' if total_users > 0 else 'failed'
+            if scheduled.test_only:
+                if not scheduled.created_by:
+                    raise ValueError("test_only scheduled email has no created_by user")
+                success = send_email(
+                    to_email=scheduled.created_by.email,
+                    subject=f"[TEST] {scheduled.subject}",
+                    html_content=scheduled.html_content,
+                    is_marketing=True,
+                    user=scheduled.created_by,
+                )
+                sent_count, failed_count, total_users = (1, 0, 1) if success else (0, 1, 1)
+            else:
+                sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
+                    scheduled.subject, scheduled.html_content, scheduled.sellers_only
+                )
+            scheduled.status = 'sent' if total_users > 0 and failed_count < total_users else 'failed'
             scheduled.sent_count = sent_count
             scheduled.failed_count = failed_count
             scheduled.sent_at = datetime.utcnow()
