@@ -21449,7 +21449,11 @@ def _fb_photo_buckets(item):
 
 
 def _fb_export_query(unposted_only=True, category_id=None, subcategory_id=None):
-    """Eligible items, in stable id order.
+    """Eligible items, highest price first.
+
+    Price-desc so the poster works the highest-value items first, whether browsing the
+    whole catalog or a single category — the id tiebreaker keeps ties stable across
+    page loads rather than re-shuffling.
 
     Reuses the exact /shop visibility definition via the shared clause helpers so the
     export can never drift from what buyers actually see.
@@ -21475,7 +21479,7 @@ def _fb_export_query(unposted_only=True, category_id=None, subcategory_id=None):
         q = q.filter(InventoryItem.subcategory_id == subcategory_id)
     elif category_id:
         q = q.filter(InventoryItem.category_id == category_id)
-    return q.order_by(InventoryItem.id)
+    return q.order_by(InventoryItem.price.desc(), InventoryItem.id)
 
 
 def _fb_takedown_query():

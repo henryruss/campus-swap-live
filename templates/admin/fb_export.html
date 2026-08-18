@@ -226,53 +226,6 @@
   <div class="fbx-card" data-item-id="{{ item.id }}">
 
     <div class="fbx-field">
-      <span class="fbx-label">Title</span>
-      <div class="fbx-value-row">
-        <div class="fbx-value" id="fbx-title">{{ item.description }}</div>
-        <button type="button" class="fbx-copy" data-copy-from="fbx-title">Copy</button>
-      </div>
-    </div>
-
-    <div class="fbx-field">
-      <span class="fbx-label">Price</span>
-      <div class="fbx-value-row">
-        <div class="fbx-value fbx-value--price" id="fbx-price">{{ fb_price }}</div>
-        <button type="button" class="fbx-copy" data-copy-from="fbx-price">Copy</button>
-      </div>
-    </div>
-
-    <div class="fbx-field">
-      <span class="fbx-label">Category</span>
-      {% if fb_category %}
-        <div class="fbx-value-row">
-          <div class="fbx-value" id="fbx-category">{{ fb_category }}</div>
-          <button type="button" class="fbx-copy" data-copy-from="fbx-category">Copy</button>
-        </div>
-      {% else %}
-        {# No confident mapping — show guidance, never a pasteable guess. #}
-        <div class="fbx-value fbx-value--static">Pick the closest category on Facebook</div>
-        <span class="fbx-verify">This one isn't mapped (Campus Swap category: {{ cs_category }}). Choose the nearest Facebook category and let Henry know which you used.</span>
-      {% endif %}
-    </div>
-
-    <div class="fbx-field">
-      <span class="fbx-label">Condition</span>
-      <div class="fbx-value fbx-value--static">{{ fb_condition }}</div>
-    </div>
-
-    {% if stock_count and stock_count > 1 %}
-      {# Multi-unit stock collapses to one listing, so the count has to be visible here or
-         the poster has no idea there are more than one of these in the warehouse. #}
-      <div class="fbx-field">
-        <span class="fbx-label">Quantity available</span>
-        <div class="fbx-value fbx-value--static">
-          <strong>{{ stock_count }} identical units</strong> &mdash; post ONE listing.
-          Mention the quantity in your message replies, and relist after each sale.
-        </div>
-      </div>
-    {% endif %}
-
-    <div class="fbx-field">
       <span class="fbx-label">Listing photos &mdash; upload these to Facebook</span>
       {% if listing_keys %}
         <div class="fbx-photos">
@@ -307,6 +260,53 @@
         <p class="fbx-none">No extra photos available for this item.</p>
       {% endif %}
       <a class="fbx-zip" href="{{ url_for('fb_export_item_zip', item_id=item.id) }}">Download all photos (.zip)</a>
+    </div>
+
+    {% if stock_count and stock_count > 1 %}
+      {# Multi-unit stock collapses to one listing, so the count has to be visible here or
+         the poster has no idea there are more than one of these in the warehouse. #}
+      <div class="fbx-field">
+        <span class="fbx-label">Quantity available</span>
+        <div class="fbx-value fbx-value--static">
+          <strong>{{ stock_count }} identical units</strong> &mdash; post ONE listing.
+          Mention the quantity in your message replies, and relist after each sale.
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="fbx-field">
+      <span class="fbx-label">Title</span>
+      <div class="fbx-value-row">
+        <div class="fbx-value" id="fbx-title">{{ item.description }}</div>
+        <button type="button" class="fbx-copy" data-copy-from="fbx-title">Copy</button>
+      </div>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Price</span>
+      <div class="fbx-value-row">
+        <div class="fbx-value fbx-value--price" id="fbx-price">{{ fb_price }}</div>
+        <button type="button" class="fbx-copy" data-copy-from="fbx-price">Copy</button>
+      </div>
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Category</span>
+      {% if fb_category %}
+        <div class="fbx-value-row">
+          <div class="fbx-value" id="fbx-category">{{ fb_category }}</div>
+          <button type="button" class="fbx-copy" data-copy-from="fbx-category">Copy</button>
+        </div>
+      {% else %}
+        {# No confident mapping — show guidance, never a pasteable guess. #}
+        <div class="fbx-value fbx-value--static">Pick the closest category on Facebook</div>
+        <span class="fbx-verify">This one isn't mapped (Campus Swap category: {{ cs_category }}). Choose the nearest Facebook category and let Henry know which you used.</span>
+      {% endif %}
+    </div>
+
+    <div class="fbx-field">
+      <span class="fbx-label">Condition</span>
+      <div class="fbx-value fbx-value--static">{{ fb_condition }}</div>
     </div>
 
     <div class="fbx-field">
