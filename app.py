@@ -76,7 +76,7 @@ from sqlalchemy.exc import IntegrityError
 import posthog
 
 # Import Models
-from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, DeliveryRoutePlan, Order, Cart, CartItem, MATTRESS_SIZES
+from models import db, User, InventoryCategory, InventoryItem, ItemPhoto, ItemReservation, AppSetting, UploadSession, TempUpload, AdminEmail, SellerAlert, DigestLog, WorkerApplication, WorkerAvailability, ShiftWeek, Shift, ShiftAssignment, ShiftPickup, ShiftRun, WorkerPreference, StorageLocation, IntakeRecord, IntakeFlag, Referral, BuyerOrder, ShopNotifySignup, RescheduleToken, TutorialSession, DeliveryStop, DeliveryRun, DeliveryRoutePlan, Order, Cart, CartItem, MATTRESS_SIZES, ScheduledMassEmail
 
 # Import Constants
 from constants import (
@@ -9618,10 +9618,94 @@ def admin_database_reset():
         flash(f"Error resetting database: {str(e)}", "error")
         return redirect(url_for('admin_panel') + '#database')
 
+def _mass_email_audience(sellers_only):
+    """Users eligible for a mass email. Sellers-only means "gave us their email
+    through anything other than buying" (is_seller) — excludes sandbox/tutorial
+    and internal/proxy rows, neither of which are real people who should get
+    marketing mail."""
+    query = User.query.filter(
+        User.email.isnot(None),
+        User.unsubscribed != True  # Filter out unsubscribed users
+    )
+    if sellers_only:
+        query = query.filter(
+            User.is_seller == True,
+            User.is_tutorial_user != True,
+            User.is_internal_account != True,
+        )
+    return query.all()
+
+
+def _send_mass_email_batch(subject, html_content, sellers_only):
+    """Send a mass email to the given audience. Shared by the immediate-send
+    path and the scheduled-send cron so behavior never drifts between them.
+    Returns (sent_count, failed_count, failed_emails, total_users)."""
+    users = _mass_email_audience(sellers_only)
+    total_users = len(users)
+    scope_label = "sellers" if sellers_only else "users"
+
+    if total_users == 0:
+        return 0, 0, [], 0
+
+    logger.info(f"Starting mass email send to {total_users} {scope_label} (excluding unsubscribed)")
+    logger.info(f"Subject: {subject}")
+
+    sent_count = 0
+    failed_count = 0
+    failed_emails = []
+
+    # Send emails one by one (send_email handles rate limiting internally via Resend)
+    for idx, user in enumerate(users):
+        try:
+            success = send_email(
+                to_email=user.email,
+                subject=subject,
+                html_content=html_content,
+                is_marketing=True,
+                user=user
+            )
+            if success:
+                sent_count += 1
+            else:
+                failed_count += 1
+                failed_emails.append(user.email)
+
+            # Resend allows 2 req/s — small buffer between sends
+            if idx < len(users) - 1:
+                time.sleep(0.55)
+
+        except Exception as e:
+            error_type = type(e).__name__
+            logger.error(f"Error sending email to {user.email} ({error_type}): {str(e)}", exc_info=True)
+            failed_count += 1
+            failed_emails.append(user.email)
+
+    logger.info(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
+    return sent_count, failed_count, failed_emails, total_users
+
+
+def _save_mass_email_graphic(file):
+    """Validate and store an uploaded banner image for a mass email. Returns
+    an absolute <img> tag HTML block, or None if no file was provided.
+    Raises ValueError with a user-facing message on validation failure."""
+    if not file or not file.filename:
+        return None
+    ok, err = validate_file_upload(file)
+    if not ok:
+        raise ValueError(err)
+    key = f"mass_email_{uuid.uuid4().hex}.jpg"
+    photo_storage.save_photo(file, key)
+    image_url = photo_storage.get_photo_url(key, request_context={'_external': True})
+    return (
+        f'<img src="{image_url}" alt="" '
+        f'style="width: 100%; max-width: 600px; display: block; margin: 0 0 24px; border-radius: 8px;" />'
+    )
+
+
 @app.route('/admin/mass-email', methods=['POST'])
 @login_required
 def admin_mass_email():
-    """Send marketing email to all users, sellers only, or a test to self (super admin only)"""
+    """Send (or schedule) a marketing email to all users, sellers only, or a test to self (super admin only)"""
     if (r := require_super_admin()):
         return r
     if not current_user.is_admin:
@@ -9636,6 +9720,7 @@ def admin_mass_email():
     html_content = request.form.get('html_content', '').strip()
     sellers_only = request.form.get('sellers_only') == 'on'
     test_only = request.form.get('test_only') == '1'
+    scheduled_at_raw = request.form.get('scheduled_at', '').strip()
 
     if not subject or not html_content:
         error_msg = "Subject and email content are required."
@@ -9643,6 +9728,14 @@ def admin_mass_email():
             return jsonify({'success': False, 'message': error_msg}), 400
         flash(error_msg, "error")
         return redirect(url_for('admin_settings') + '#mass-email')
+
+    try:
+        image_block = _save_mass_email_graphic(request.files.get('graphic'))
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for('admin_settings') + '#mass-email')
+    if image_block:
+        html_content = image_block + html_content
 
     # Check if Resend API key is configured
     if not resend.api_key:
@@ -9668,22 +9761,37 @@ def admin_mass_email():
         flash(message, "success" if success else "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
-    # Get users with email addresses, excluding unsubscribed users.
-    # Sellers-only means "gave us their email through anything other than
-    # buying" (is_seller) — excludes sandbox/tutorial and internal/proxy rows,
-    # neither of which are real people who should get marketing mail.
-    query = User.query.filter(
-        User.email.isnot(None),
-        User.unsubscribed != True  # Filter out unsubscribed users
-    )
-    if sellers_only:
-        query = query.filter(
-            User.is_seller == True,
-            User.is_tutorial_user != True,
-            User.is_internal_account != True,
+    # Schedule for later instead of sending now, if a future send time was given.
+    if scheduled_at_raw:
+        try:
+            naive_eastern = datetime.strptime(scheduled_at_raw, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            flash("Invalid scheduled time.", "error")
+            return redirect(url_for('admin_settings') + '#mass-email')
+        scheduled_eastern = naive_eastern.replace(tzinfo=_EASTERN)
+        if scheduled_eastern <= _now_eastern():
+            flash("Scheduled time must be in the future.", "error")
+            return redirect(url_for('admin_settings') + '#mass-email')
+        scheduled_utc = scheduled_eastern.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+        scheduled = ScheduledMassEmail(
+            subject=subject,
+            html_content=html_content,
+            sellers_only=sellers_only,
+            scheduled_at=scheduled_utc,
+            created_by_id=current_user.id,
         )
-    users = query.all()
-    total_users = len(users)
+        db.session.add(scheduled)
+        db.session.commit()
+        message = f"Scheduled for {scheduled_eastern.strftime('%b %-d, %Y at %-I:%M %p')} ET."
+        if is_ajax:
+            return jsonify({'success': True, 'message': message})
+        flash(message, "success")
+        return redirect(url_for('admin_settings') + '#mass-email')
+
+    sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
+        subject, html_content, sellers_only
+    )
+    scope_label = "sellers" if sellers_only else "users"
 
     if total_users == 0:
         error_msg = "No users found in database (or all users have unsubscribed)."
@@ -9692,52 +9800,6 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
-    scope_label = "sellers" if sellers_only else "users"
-    logger.info(f"Starting mass email send to {total_users} {scope_label} (excluding unsubscribed)")
-    logger.info(f"Subject: {subject}")
-    
-    # Send emails using send_email function (handles unsubscribe links, headers, and filtering automatically)
-    sent_count = 0
-    failed_count = 0
-    failed_emails = []
-    
-    # Send emails one by one (send_email handles rate limiting internally via Resend)
-    # Note: Resend has rate limits, so we add a small delay between sends
-    for idx, user in enumerate(users):
-        try:
-            # send_email automatically:
-            # - Checks if user is unsubscribed (double-check)
-            # - Generates unsubscribe token if needed
-            # - Wraps content in email template
-            # - Adds unsubscribe link and headers
-            # - Includes plain text version
-            success = send_email(
-                to_email=user.email,
-                subject=subject,
-                html_content=html_content,
-                is_marketing=True,
-                user=user
-            )
-            
-            if success:
-                sent_count += 1
-            else:
-                failed_count += 1
-                failed_emails.append(user.email)
-            
-            # Rate limiting: Resend allows 2 req/s, so wait 0.5s between emails
-            # Add small buffer to be safe
-            if idx < len(users) - 1:  # Don't wait after last email
-                time.sleep(0.55)
-                
-        except Exception as e:
-            error_type = type(e).__name__
-            logger.error(f"Error sending email to {user.email} ({error_type}): {str(e)}", exc_info=True)
-            failed_count += 1
-            failed_emails.append(user.email)
-    
-    logger.info(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
-    
     # Prepare response message
     if sent_count == total_users:
         message = f"Successfully sent email to all {sent_count} {scope_label}!"
@@ -9765,6 +9827,67 @@ def admin_mass_email():
         flash(message, "error")
 
     return redirect(url_for('admin_settings') + '#mass-email')
+
+
+@app.route('/admin/mass-email/scheduled/<int:scheduled_id>/cancel', methods=['POST'])
+@login_required
+def admin_mass_email_cancel_scheduled(scheduled_id):
+    """Cancel a not-yet-sent scheduled mass email (super admin only)"""
+    if (r := require_super_admin()):
+        return r
+    scheduled = ScheduledMassEmail.query.get_or_404(scheduled_id)
+    if scheduled.status != 'pending':
+        flash("That email has already been sent or canceled.", "error")
+    else:
+        scheduled.status = 'canceled'
+        db.session.commit()
+        flash("Scheduled email canceled.", "success")
+    return redirect(url_for('admin_settings') + '#mass-email')
+
+
+@app.route('/admin/cron/send-scheduled-mass-emails', methods=['POST'])
+@csrf.exempt
+def cron_send_scheduled_mass_emails():
+    """
+    Poll cron — send any ScheduledMassEmail whose scheduled_at has passed.
+    Auth: Authorization: Bearer <CRON_SECRET>
+    Set up as a Render Cron Job hitting this URL every 5-15 minutes.
+    Idempotent: status flips away from 'pending' before send results are known,
+    so a row is only ever attempted once even if the cron overlaps itself.
+    """
+    if not _cron_auth_ok():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    due = ScheduledMassEmail.query.filter(
+        ScheduledMassEmail.status == 'pending',
+        ScheduledMassEmail.scheduled_at <= datetime.utcnow(),
+    ).all()
+
+    results = []
+    for scheduled in due:
+        scheduled.status = 'sending'
+        db.session.commit()
+        try:
+            sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
+                scheduled.subject, scheduled.html_content, scheduled.sellers_only
+            )
+            scheduled.status = 'sent' if total_users > 0 else 'failed'
+            scheduled.sent_count = sent_count
+            scheduled.failed_count = failed_count
+            scheduled.sent_at = datetime.utcnow()
+            if total_users == 0:
+                scheduled.error_message = "No eligible recipients."
+            db.session.commit()
+            results.append({'id': scheduled.id, 'sent': sent_count, 'failed': failed_count})
+        except Exception as e:
+            db.session.rollback()
+            scheduled.status = 'failed'
+            scheduled.error_message = str(e)
+            db.session.commit()
+            logger.error(f"Scheduled mass email {scheduled.id} failed: {e}", exc_info=True)
+            results.append({'id': scheduled.id, 'error': str(e)})
+
+    return jsonify({'processed': len(results), 'results': results})
 
 # =========================================================
 # SECTION: CREW / OPS ROUTES
@@ -12426,7 +12549,6 @@ def admin_crew_add():
                 <p>We've set up your crew account. Here's what's next:</p>
                 <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
                     <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
-                    <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
                     <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
                 </div>
                 {login_block}
@@ -12492,7 +12614,6 @@ def admin_crew_approve(user_id):
                 <p>Your application has been approved. Here's what's next:</p>
                 <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
                     <p style="margin: 0 0 8px;"><strong>Role:</strong> Mover</p>
-                    <p style="margin: 0 0 8px;"><strong>Pay:</strong> $130/shift</p>
                     <p style="margin: 0 0 8px;"><strong>Season:</strong> ~3 weeks (late April – mid May)</p>
                     <p style="margin: 0;"><strong>Next step:</strong> Submit your weekly availability by Tuesday — schedule posts by Thursday each week.</p>
                 </div>
@@ -18428,6 +18549,10 @@ def admin_settings():
         User.id.notin_(existing_pickup_ids),
     ).count()
 
+    scheduled_mass_emails = ScheduledMassEmail.query.filter_by(
+        status='pending'
+    ).order_by(ScheduledMassEmail.scheduled_at).all()
+
     return render_template(
         'admin/settings.html',
         categories=categories,
@@ -18436,6 +18561,7 @@ def admin_settings():
         campus_directors=campus_directors,
         marketplace_posters=marketplace_posters,
         week1_unassigned_count=week1_unassigned_count,
+        scheduled_mass_emails=scheduled_mass_emails,
         # Route settings
         truck_raw_capacity=AppSetting.get('truck_raw_capacity', '18'),
         truck_capacity_buffer_pct=AppSetting.get('truck_capacity_buffer_pct', '10'),

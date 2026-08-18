@@ -1077,3 +1077,30 @@ class DeliveryRun(db.Model):
 
     shift      = db.relationship('Shift', backref=db.backref('delivery_run', uselist=False))
     started_by = db.relationship('User', foreign_keys=[started_by_id])
+
+
+class ScheduledMassEmail(db.Model):
+    """A mass email queued to send at a future time via the send-scheduled-emails cron."""
+    id              = db.Column(db.Integer, primary_key=True)
+    subject         = db.Column(db.String(300), nullable=False)
+    html_content    = db.Column(db.Text, nullable=False)
+    sellers_only    = db.Column(db.Boolean, default=True, nullable=False)
+    scheduled_at    = db.Column(db.DateTime, nullable=False)  # UTC
+    status          = db.Column(db.String(20), default='pending', nullable=False)  # pending|sent|failed|canceled
+    created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at         = db.Column(db.DateTime, nullable=True)
+    sent_count      = db.Column(db.Integer, nullable=True)
+    failed_count    = db.Column(db.Integer, nullable=True)
+    error_message   = db.Column(db.Text, nullable=True)
+
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    @property
+    def scheduled_at_eastern_display(self):
+        from zoneinfo import ZoneInfo
+        if not self.scheduled_at:
+            return None
+        aware_utc = self.scheduled_at.replace(tzinfo=ZoneInfo('UTC'))
+        eastern = aware_utc.astimezone(ZoneInfo('America/New_York'))
+        return eastern.strftime('%b %-d, %Y at %-I:%M %p')
