@@ -804,3 +804,181 @@ class TestRoutes:
         assert b'Continue route' in resp.data
         assert b'Continue route in Google Maps' in resp.data
         assert b'Open full loop in Google Maps' not in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Driver GPS as the route origin
+#
+# The old behaviour anchored every route at the warehouse (or at best the last
+# completed stop), so a driver already out making drop-offs got a route — and a
+# Maps link — measured from a place they had left an hour ago.
+# ---------------------------------------------------------------------------
+
+# Somewhere between the Rosemary St and MLK stops, well away from the warehouse.
+# Deliberately not on a 3rd-decimal boundary — see test_gps_jitter_reuses_the_plan.
+DRIVER_GPS = (35.9212, -79.0582)
+
+
+class TestDriverGpsOrigin:
+
+    def test_gps_fix_becomes_the_anchor(self, route_client, delivery_shift):
+        from app import app as _app, optimize_delivery_route
+        from models import Shift, DeliveryRoutePlan
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            result = optimize_delivery_route(shift, 1, origin_coords=DRIVER_GPS)
+            assert result['ok']
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='crew').first()
+            assert plan.anchor_label == 'Current location'
+
+    def test_gps_beats_the_last_completed_stop(self, route_client, delivery_shift):
+        """A driver who skipped around the order is nowhere near the last drop-off."""
+        from app import app as _app, optimize_delivery_route, db
+        from models import Shift, DeliveryStop, DeliveryRoutePlan
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            done = DeliveryStop.query.get(delivery_shift['stop_ids'][1])
+            done.status = 'completed'
+            db.session.commit()
+
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, origin_coords=DRIVER_GPS)
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='crew').first()
+            assert plan.anchor_label == 'Current location'
+            assert plan.anchor_label != '12 Cameron Ave'
+
+    def test_maps_url_omits_origin_so_maps_uses_live_location(self, route_client, delivery_shift):
+        """A coordinate frozen at plan time goes stale; an absent origin never does."""
+        from app import app as _app, optimize_delivery_route, get_warehouse_address
+        from models import Shift, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, origin_coords=DRIVER_GPS)
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='crew').first()
+
+            qs = parse_qs(urlparse(plan.maps_url).query)
+            assert 'origin' not in qs
+            # The loop still closes at the warehouse and still carries the waypoints
+            assert qs['destination'][0] == get_warehouse_address()
+            assert len(qs['waypoints'][0].split('|')) == 3
+
+    def test_ops_loop_ignores_a_driver_gps_fix(self, route_client, delivery_shift):
+        """Ops is planning the shift, not following the truck."""
+        from app import app as _app, optimize_delivery_route, get_warehouse_address
+        from models import Shift, DeliveryRoutePlan
+        from urllib.parse import parse_qs, urlparse
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, from_warehouse=True, origin_coords=DRIVER_GPS)
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=shift.id, truck_number=1, mode='ops').first()
+            assert plan.anchor_label == 'Warehouse'
+            assert parse_qs(urlparse(plan.maps_url).query)['origin'][0] == get_warehouse_address()
+
+    def test_gps_jitter_reuses_the_plan(self, route_client, delivery_shift):
+        """The anchor is quantized to ~110m, so a parked truck re-serves the cached plan.
+
+        Without the rounding, plan_hash keys the anchor at 5dp and every tap of the
+        button on a stationary truck would be a fresh billed Routes API request.
+
+        Quantization is a grid, not a radius: a fix sitting exactly on a cell boundary
+        can still flip cells on a metre of jitter and pay for one more call. That is
+        the cheap failure mode and it is fine — the expensive one (every tap billed)
+        is what this guards.
+        """
+        from app import app as _app, optimize_delivery_route
+        from models import Shift
+        jittered = (DRIVER_GPS[0] + 0.00004, DRIVER_GPS[1] - 0.00004)
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            first = optimize_delivery_route(shift, 1, origin_coords=DRIVER_GPS)
+            assert first['reused'] is False
+            second = optimize_delivery_route(shift, 1, origin_coords=jittered)
+            assert second['reused'] is True
+
+    def test_real_movement_still_replans(self, route_client, delivery_shift):
+        from app import app as _app, optimize_delivery_route
+        from models import Shift
+        moved = (DRIVER_GPS[0] + 0.02, DRIVER_GPS[1] + 0.02)
+        with _app.app_context(), \
+             patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            shift = Shift.query.get(delivery_shift['shift_id'])
+            optimize_delivery_route(shift, 1, origin_coords=DRIVER_GPS)
+            assert optimize_delivery_route(shift, 1, origin_coords=moved)['reused'] is False
+
+
+class TestGpsCoordParsing:
+    """_form_gps_coords() reads browser-supplied values — treat them as hostile."""
+
+    @pytest.mark.parametrize('form,expected', [
+        ({'origin_lat': '35.921', 'origin_lng': '-79.0585'}, (35.921, -79.0585)),
+        ({}, None),                                                   # nothing posted
+        ({'origin_lat': '', 'origin_lng': ''}, None),                 # permission denied
+        ({'origin_lat': '35.921', 'origin_lng': ''}, None),           # half a fix
+        ({'origin_lat': 'nope', 'origin_lng': 'nope'}, None),         # not numbers
+        ({'origin_lat': '999', 'origin_lng': '0'}, None),             # off the planet
+        ({'origin_lat': '0', 'origin_lng': '-200'}, None),
+        ({'origin_lat': 'nan', 'origin_lng': 'nan'}, None),           # NaN must not pass
+    ])
+    def test_parses_or_rejects(self, form, expected):
+        from app import app as _app, _form_gps_coords
+        with _app.test_request_context('/', method='POST', data=form):
+            assert _form_gps_coords() == expected
+
+
+class TestCrewGpsRoutePost:
+
+    def test_posted_gps_anchors_the_route(self, route_client, delivery_shift):
+        from app import app as _app
+        from models import DeliveryRoutePlan
+        _login(route_client, delivery_shift['worker_email'])
+        with patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            resp = route_client.post(
+                f"/crew/delivery/{delivery_shift['shift_id']}/optimize",
+                data={'origin_lat': str(DRIVER_GPS[0]), 'origin_lng': str(DRIVER_GPS[1])})
+        _logout(route_client)
+
+        assert resp.status_code == 302
+        with _app.app_context():
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=delivery_shift['shift_id'], truck_number=1, mode='crew').first()
+            assert plan.anchor_label == 'Current location'
+
+    def test_denied_location_still_plans_a_route(self, route_client, delivery_shift):
+        """Location permission is optional — the button must never be dead."""
+        from app import app as _app
+        from models import DeliveryRoutePlan
+        _login(route_client, delivery_shift['worker_email'])
+        with patch.dict('os.environ', {'GOOGLE_MAPS_API_KEY': '', 'GOOGLE_ROUTES_API_KEY': ''}):
+            resp = route_client.post(
+                f"/crew/delivery/{delivery_shift['shift_id']}/optimize",
+                data={'origin_lat': '', 'origin_lng': ''})
+        _logout(route_client)
+
+        assert resp.status_code == 302
+        with _app.app_context():
+            plan = DeliveryRoutePlan.query.filter_by(
+                shift_id=delivery_shift['shift_id'], truck_number=1, mode='crew').first()
+            assert plan is not None
+            assert plan.anchor_label == 'Warehouse'   # nothing delivered yet
+
+    def test_stop_card_directions_start_from_the_phone(self, route_client, delivery_shift):
+        """Regression: the per-stop link hardcoded origin=warehouse, so every stop
+        after the first routed the driver back to Carrboro before the drop-off."""
+        from app import get_warehouse_address
+        _login(route_client, delivery_shift['worker_email'])
+        resp = route_client.get(f"/crew/delivery/{delivery_shift['shift_id']}")
+        _logout(route_client)
+
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'maps/dir/?api=1&amp;destination=' in html      # no origin= at all
+        assert get_warehouse_address().split(',')[0] not in html.split('maps/dir')[1][:200]

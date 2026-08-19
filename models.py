@@ -1000,6 +1000,15 @@ class DeliveryStop(db.Model):
     notes            = db.Column(db.Text, nullable=True)
     completed_at     = db.Column(db.DateTime, nullable=True)
     notified_at      = db.Column(db.DateTime, nullable=True)
+    # Loading state, tracked separately from delivery status: a stop is loaded at the
+    # storage unit long before it is delivered, and the crew works the truck one unit
+    # at a time. NULL = still in storage.
+    loaded_at        = db.Column(db.DateTime, nullable=True)
+    loaded_by_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    # Proof of delivery: the photo the crew takes at the drop-off. NULL on a completed
+    # stop means the driver explicitly skipped it and gave a reason in `notes`.
+    # The capture time is completed_at — the two are written in the same request.
+    pod_photo_url    = db.Column(db.String(300), nullable=True)
     # Set on every stop in a buyer order when the delivery-complete email goes out,
     # so re-marking a stop cannot re-send it.
     completed_email_sent_at = db.Column(db.DateTime, nullable=True)
@@ -1010,6 +1019,7 @@ class DeliveryStop(db.Model):
     shift        = db.relationship('Shift', backref='delivery_stops', foreign_keys=[shift_id])
     buyer_order  = db.relationship('BuyerOrder', backref=db.backref('delivery_stop', uselist=False))
     created_by   = db.relationship('User', foreign_keys=[created_by_id])
+    loaded_by    = db.relationship('User', foreign_keys=[loaded_by_id])
 
     __table_args__ = (
         db.UniqueConstraint('shift_id', 'buyer_order_id', name='uq_delivery_stop_shift_order'),
@@ -1086,6 +1096,7 @@ class ScheduledMassEmail(db.Model):
     html_content    = db.Column(db.Text, nullable=False)
     sellers_only    = db.Column(db.Boolean, default=True, nullable=False)
     test_only       = db.Column(db.Boolean, default=False, nullable=False)  # send only to created_by, at fire time
+    exclude_emails  = db.Column(db.Text, nullable=True)  # newline/comma-separated; skipped at send time
     scheduled_at    = db.Column(db.DateTime, nullable=False)  # UTC
     status          = db.Column(db.String(20), default='pending', nullable=False)  # pending|sent|failed|canceled
     created_by_id   = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)

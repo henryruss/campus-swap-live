@@ -607,6 +607,12 @@
           <input type="datetime-local" name="scheduled_at" id="mass-email-scheduled-at">
           <small style="color: var(--text-muted); display: block; margin-top: 4px;">Eastern time. Leave blank to send immediately. Works with "Just me" too, to schedule a test send to yourself.</small>
         </div>
+        <div class="settings-field">
+          <label for="mass-email-exclude-emails">Skip these addresses (optional)</label>
+          <textarea name="exclude_emails" id="mass-email-exclude-emails" rows="3"
+                    style="width: 100%; max-width: 500px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 0.85rem; resize: vertical; font-family: monospace;"></textarea>
+          <small style="color: var(--text-muted); display: block; margin-top: 4px;">One per line or comma-separated. Use this to resume a campaign without re-emailing people who already got it.</small>
+        </div>
         <div class="save-row">
           <button type="submit" formaction="{{ url_for('admin_mass_email_preview_render') }}" formtarget="_blank" class="btn-save" id="mass-email-preview-btn" style="background: white; border: 1px solid var(--rule); color: var(--text-main); margin-right: 10px;">Preview</button>
           <button type="submit" class="btn-primary btn-save" id="mass-email-btn">Send mass email</button>

@@ -141,6 +141,100 @@
 
   .back-link { display: block; text-align: center; margin-top: 20px; color: var(--text-muted); font-size: 0.875rem; text-decoration: none; }
 
+  /* Loading checklist */
+  .load-card {
+    background: white; border: var(--card-border); border-radius: 12px;
+    margin-bottom: 20px; overflow: hidden;
+  }
+  .load-card-head {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 16px; background: none; border: none; cursor: pointer;
+    text-align: left; font-family: inherit; min-height: 48px;
+  }
+  .load-card-title { font-weight: 700; font-size: 0.95rem; color: var(--primary); flex: 1; }
+  .load-progress { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+  .load-chevron { color: var(--text-muted); font-size: 0.8rem; transition: transform 0.2s; }
+  .load-card-head[aria-expanded="true"] .load-chevron { transform: rotate(180deg); }
+
+  .load-card-body { display: none; padding: 0 16px 8px; }
+  .load-card-body.open { display: block; }
+
+  .load-unit { margin-bottom: 18px; }
+  .load-unit-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  }
+  .load-unit-name { font-weight: 700; font-size: 0.9rem; color: #166534; }
+  .load-unit-count {
+    font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .load-unit-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+  .load-unit-note { font-style: italic; }
+  .load-row-label {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); margin: 12px 0 4px;
+  }
+
+  .load-item {
+    display: flex; align-items: center; gap: 12px; padding: 10px 4px;
+    border-bottom: 1px solid var(--bg-cream); cursor: pointer; min-height: 48px;
+  }
+  .load-item.is-loaded .load-item-title { text-decoration: line-through; color: var(--text-muted); }
+  .load-item.is-loaded .load-thumb { opacity: 0.45; }
+
+  /* style.css sets a global `input { width:100%; padding:12px 16px }`, which blows a
+     bare checkbox up to full width and pushes the whole row off screen on mobile.
+     Every checkbox added to this codebase has to pin its own box. */
+  .load-check {
+    width: 26px !important; height: 26px !important; padding: 0 !important;
+    margin: 0; flex-shrink: 0; accent-color: #0d9488; cursor: pointer;
+  }
+
+  .load-thumb {
+    width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+    border: 1px solid var(--rule); flex-shrink: 0;
+  }
+  .load-thumb-empty {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-cream); color: var(--text-muted);
+  }
+  .load-item-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .load-item-title {
+    font-size: 0.88rem; font-weight: 600; color: var(--text-main); line-height: 1.25;
+  }
+  .load-item-meta { font-size: 0.75rem; color: var(--text-muted); }
+
+  .stop-load-badge { background: #fef3c7; color: #92400e; }
+  .stop-load-badge.is-loaded { background: #ccfbf1; color: #0d9488; }
+
+  /* Proof-of-delivery capture */
+  .pod-label {
+    font-size: 0.85rem; font-weight: 600; color: var(--text-muted);
+    display: block; margin-bottom: 6px;
+  }
+  /* The real input is hidden and driven by its label — a bare file input inherits
+     the global `input { width:100%; padding:12px 16px }` and renders as an
+     unreadable stretched control on a phone. */
+  .pod-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .pod-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; min-height: 48px; padding: 12px; box-sizing: border-box;
+    background: white; color: #0d9488; border: 1.5px dashed #0d9488;
+    border-radius: 10px; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+  }
+  .pod-btn.has-photo { border-style: solid; background: #f0fdfa; }
+  .pod-preview {
+    display: none; width: 100%; max-height: 220px; object-fit: cover;
+    border-radius: 10px; border: 1px solid var(--rule); margin-top: 10px;
+  }
+  .pod-preview.shown { display: block; }
+  .pod-hint { font-size: 0.78rem; color: #92400e; margin: 6px 0 0; }
+  .pod-proof {
+    display: block; width: 100%; max-width: 260px; border-radius: 10px;
+    border: 1px solid var(--rule); margin-top: 8px;
+  }
+
   /* Route optimizer */
   .route-card {
     background: white; border: var(--card-border); border-radius: 12px;
@@ -184,6 +278,72 @@
   </div>
   {% endif %}
 
+  {# ── Loading checklist ──────────────────────────────────────────────────────
+       Grouped by storage unit, not by stop_order: the crew clears one unit before
+       moving to the next, while the stop list below stays in driving order. Two
+       different jobs, two different sorts. #}
+  {% if total_stops > 0 and not is_past %}
+  <div class="load-card" id="load-card">
+    <button type="button" class="load-card-head" id="load-toggle"
+            aria-expanded="{{ 'false' if loaded_stops >= total_stops else 'true' }}">
+      <span class="load-card-title"><i class="fas fa-dolly"></i> Load the truck</span>
+      <span class="load-progress">
+        <span id="loaded-count">{{ loaded_stops }}</span> / {{ total_stops }} loaded
+      </span>
+      <i class="fas fa-chevron-down load-chevron"></i>
+    </button>
+
+    {# Collapsed once everything is aboard — it is done, and the driver wants the
+       route next. Still reopenable to correct a mistake. #}
+    <div class="load-card-body{{ '' if loaded_stops >= total_stops else ' open' }}" id="load-body">
+      {% for group in storage_groups %}
+      <div class="load-unit">
+        <div class="load-unit-head">
+          <span class="load-unit-name">
+            <i class="fas fa-warehouse"></i> {{ group.name }}
+          </span>
+          <span class="load-unit-count" data-unit-count>
+            {{ group.loaded_count }} / {{ group.stops|length }}
+          </span>
+        </div>
+        {% if group.location and group.location.address %}
+        <div class="load-unit-meta">{{ group.location.address }}</div>
+        {% endif %}
+        {% if group.location and group.location.location_note %}
+        <div class="load-unit-meta load-unit-note">{{ group.location.location_note }}</div>
+        {% endif %}
+
+        {% for row in group.rows %}
+        <div class="load-row-label">{{ row.label }}</div>
+        {% for stop in row.stops %}
+        {% set item = stop.buyer_order.item %}
+        <label class="load-item{{ ' is-loaded' if stop.loaded_at else '' }}"
+               data-load-item data-stop-id="{{ stop.id }}">
+          <input type="checkbox" class="load-check"
+                 {{ 'checked' if stop.loaded_at else '' }}
+                 data-stop-id="{{ stop.id }}"/>
+          {% if item.photo_url %}
+          <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+               alt="{{ item.description }}" class="load-thumb">
+          {% else %}
+          <span class="load-thumb load-thumb-empty"><i class="fas fa-image"></i></span>
+          {% endif %}
+          <span class="load-item-text">
+            <span class="load-item-title">{{ item.description }}</span>
+            <span class="load-item-meta">
+              #{{ item.id }} &middot;
+              {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
+            </span>
+          </span>
+        </label>
+        {% endfor %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   {# ── Route optimizer — available before and during the run, so a driver can
        preview the loop days ahead and re-plan from wherever they are mid-shift. #}
   {% if total_stops > 0 %}
@@ -201,16 +361,27 @@
     {# A route that has already had a drop-off resumes from there, so it is not the
        full loop — say so plainly rather than promising one. #}
     {% set is_continuation = route_plan and route_plan.anchor_label and route_plan.anchor_label != 'Warehouse' %}
-    {% if is_continuation %}
+    {% set from_gps = route_plan and route_plan.anchor_label == 'Current location' %}
+    {% if from_gps %}
+    <p class="route-card-anchor">Your location &rarr; remaining stops &rarr; warehouse.</p>
+    {% elif is_continuation %}
     <p class="route-card-anchor">Picks up from {{ route_plan.anchor_label }} &rarr; remaining stops &rarr; warehouse.</p>
     {% else %}
     <p class="route-card-anchor">Warehouse &rarr; all stops &rarr; back to the warehouse.</p>
     {% endif %}
-    <form method="POST" action="{{ url_for('crew_optimize_delivery_route', shift_id=shift.id) }}">
+    <form method="POST" action="{{ url_for('crew_optimize_delivery_route', shift_id=shift.id) }}"
+          id="optimize-route-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-      <button type="submit" class="btn-optimize-route">
+      {# Filled from navigator.geolocation just before submit. Empty = the driver
+         denied location or the fix timed out; the route then falls back to anchoring
+         on the last completed stop, which is the old behaviour. #}
+      <input type="hidden" name="origin_lat" id="origin-lat" value=""/>
+      <input type="hidden" name="origin_lng" id="origin-lng" value=""/>
+      <button type="submit" class="btn-optimize-route" id="optimize-route-btn">
         <i class="fas fa-route"></i>
-        {% if is_continuation %}Continue route{% elif route_plan %}Recalculate route{% else %}Plan route{% endif %}
+        <span id="optimize-route-label">
+          {% if is_continuation %}Continue from my location{% elif route_plan %}Recalculate from my location{% else %}Plan route{% endif %}
+        </span>
       </button>
     </form>
     {% if route_plan and route_plan.maps_url %}
@@ -247,7 +418,7 @@
   {# Pre-run stop preview — same cards as the live run, minus the actions.
      Maps links work here so a driver can plan the route before starting. #}
   {% for stop in stops %}
-    {{ stop_card(stop, None, warehouse_address) }}
+    {{ stop_card(stop, None) }}
   {% endfor %}
 
   {% else %}
@@ -268,7 +439,7 @@
 
   <div id="stop-list">
   {% for stop in stops %}
-    {{ stop_card(stop, delivery_run, warehouse_address) }}
+    {{ stop_card(stop, delivery_run) }}
   {% endfor %}
   </div>{# end #stop-list #}
 
@@ -308,6 +479,175 @@ function closeNotes(id) {
   var el = document.getElementById(id);
   if (el) el.classList.remove('open');
 }
+
+// Proof-of-delivery capture. Bound to document so it survives the 30s partial swap
+// that replaces #stop-list wholesale — listeners bound to the cards themselves would
+// be thrown away with them.
+(function() {
+  function form(el) { return el.closest('[data-pod-form]'); }
+
+  // Preview the shot and switch the notes from optional to required-if-absent.
+  document.addEventListener('change', function(e) {
+    var input = e.target;
+    if (!input.matches('[data-pod-input]')) return;
+    var f = form(input);
+    var file = input.files && input.files[0];
+    var preview = f.querySelector('[data-pod-preview]');
+    var trigger = f.querySelector('[data-pod-trigger]');
+
+    if (file) {
+      preview.src = URL.createObjectURL(file);
+      preview.classList.add('shown');
+      trigger.classList.add('has-photo');
+      trigger.querySelector('span').textContent = 'Retake photo';
+      f.querySelector('[data-pod-warning]').hidden = true;
+      f.querySelector('[data-pod-notes-hint]').textContent = '(optional)';
+    } else {
+      preview.classList.remove('shown');
+      trigger.classList.remove('has-photo');
+      trigger.querySelector('span').textContent = 'Take photo';
+    }
+  });
+
+  // The server enforces this too; this is only so the driver finds out before the
+  // round trip rather than after it.
+  document.addEventListener('submit', function(e) {
+    var f = e.target;
+    if (!f.matches('[data-pod-form]')) return;
+    var input = f.querySelector('[data-pod-input]');
+    var notes = f.querySelector('[data-pod-notes]');
+    var hasPhoto = input && input.files && input.files.length > 0;
+    if (hasPhoto || notes.value.trim()) return;
+
+    e.preventDefault();
+    f.querySelector('[data-pod-warning]').hidden = false;
+    f.querySelector('[data-pod-notes-hint]').textContent = '(required — no photo)';
+    notes.focus();
+  });
+})();
+
+// Loading checklist. Each tap is a fetch POST so the crew keeps their place in a
+// list that can run to dozens of rows — a full reload between items would bounce
+// them back to the top of the page every time.
+(function() {
+  var card = document.getElementById('load-card');
+  if (!card) return;
+  var body = document.getElementById('load-body');
+  var toggle = document.getElementById('load-toggle');
+  var countEl = document.getElementById('loaded-count');
+  var csrf = '{{ csrf_token() }}';
+
+  toggle.addEventListener('click', function() {
+    var open = body.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  // Recount from the DOM rather than trusting a server total: an admin previewing a
+  // shift they aren't staffed on sees every truck, while the route counts one.
+  function recount() {
+    var boxes = card.querySelectorAll('.load-check');
+    var done = card.querySelectorAll('.load-check:checked');
+    countEl.textContent = done.length;
+    card.querySelectorAll('.load-unit').forEach(function(unit) {
+      var el = unit.querySelector('[data-unit-count]');
+      if (!el) return;
+      el.textContent = unit.querySelectorAll('.load-check:checked').length +
+                       ' / ' + unit.querySelectorAll('.load-check').length;
+    });
+    return { done: done.length, total: boxes.length };
+  }
+
+  // The same stop appears twice on this page — once in the checklist, once as a stop
+  // card further down. Without this the card would contradict the checkbox until the
+  // 30s sync caught up.
+  function paintStopBadge(stopId, loaded) {
+    var badge = document.querySelector(
+      '.stop-card[data-stop-id="' + stopId + '"] [data-load-badge]');
+    if (!badge) return;   // resolved stops don't carry one
+    badge.classList.toggle('is-loaded', loaded);
+    badge.innerHTML = loaded
+      ? '<i class="fas fa-check"></i> On truck'
+      : '<i class="fas fa-dolly"></i> Not loaded';
+  }
+
+  card.addEventListener('change', function(e) {
+    var box = e.target;
+    if (!box.classList.contains('load-check')) return;
+    var row = box.closest('[data-load-item]');
+    var wanted = box.checked;
+
+    // Paint immediately, reconcile on the response. At a storage unit on bad signal
+    // a spinner per tap makes the list feel broken.
+    row.classList.toggle('is-loaded', wanted);
+    recount();
+    box.disabled = true;
+
+    var data = new FormData();
+    data.append('csrf_token', csrf);
+    data.append('loaded', wanted ? '1' : '0');
+
+    fetch('/crew/delivery/stop/' + box.dataset.stopId + '/loaded',
+          { method: 'POST', body: data })
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function(j) {
+        box.checked = j.loaded;
+        row.classList.toggle('is-loaded', j.loaded);
+        paintStopBadge(box.dataset.stopId, j.loaded);
+      })
+      .catch(function() {
+        // Roll the optimistic paint back — a checkbox that says "loaded" when the
+        // server never heard about it is how an item gets left in the unit.
+        box.checked = !wanted;
+        row.classList.toggle('is-loaded', !wanted);
+        alert('Could not save that — check your signal and tap it again.');
+      })
+      .finally(function() {
+        box.disabled = false;
+        var c = recount();
+        if (c.total > 0 && c.done >= c.total) {
+          body.classList.remove('open');
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+  });
+})();
+
+// Route planning starts from where the truck actually is. We grab a GPS fix, drop it
+// into the hidden inputs, then let the form submit. Anything that goes wrong —
+// permission denied, no GPS hardware, a slow fix, a browser with no geolocation at
+// all — submits empty coordinates and the server falls back to its old anchor. The
+// route must never be un-plannable just because location is unavailable.
+(function() {
+  var form = document.getElementById('optimize-route-form');
+  if (!form) return;
+  var btn = document.getElementById('optimize-route-btn');
+  var label = document.getElementById('optimize-route-label');
+  var latEl = document.getElementById('origin-lat');
+  var lngEl = document.getElementById('origin-lng');
+  var located = false;
+
+  form.addEventListener('submit', function(e) {
+    if (located || !navigator.geolocation) return;  // second pass, or nothing to ask
+    e.preventDefault();
+    located = true;
+    if (btn) btn.disabled = true;
+    if (label) label.textContent = 'Finding you…';
+
+    var submit = function() {
+      if (btn) btn.disabled = false;
+      form.submit();
+    };
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        latEl.value = pos.coords.latitude;
+        lngEl.value = pos.coords.longitude;
+        submit();
+      },
+      submit,  // denied / unavailable / timed out — plan without it
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  });
+})();
 
 (function() {
   var syncBtn = document.getElementById('sync-stops-btn');

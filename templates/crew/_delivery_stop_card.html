@@ -13,14 +13,16 @@
 {% set ROW_LABELS = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left',
                      'back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
 
-{% macro stop_card(stop, delivery_run, warehouse_address) %}
+{% macro stop_card(stop, delivery_run) %}
 {% set order = stop.buyer_order %}
 {% set item = order.item %}
 {% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
-{# Directions always start at the warehouse. Storage rows store a bare street
-   ("515 S Greensboro St") with no city, which geocodes ambiguously — the
-   configured warehouse_address is fully qualified. #}
-{% set directions_url = 'https://www.google.com/maps/dir/?api=1&origin=' ~ (warehouse_address | urlencode) ~ '&destination=' ~ (order.delivery_address | urlencode) ~ '&travelmode=driving' %}
+{# No `origin` on purpose: Google Maps falls back to the device's current location,
+   which is the only correct start once the truck is out making drop-offs. This link
+   used to hardcode the warehouse, so every stop after the first routed the driver
+   back to Carrboro first. The destination is still sent as address text — that one
+   is fully qualified, unlike the bare storage-row street lines. #}
+{% set directions_url = 'https://www.google.com/maps/dir/?api=1&destination=' ~ (order.delivery_address | urlencode) ~ '&travelmode=driving' %}
 <div class="stop-card" data-stop-id="{{ stop.id }}">
   <div class="stop-card-header">
     <span>
@@ -109,6 +111,17 @@
   <span class="stop-unit-badge">
     {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
   </span>
+  {# Echoes the loading checklist so a driver at the door knows the item is aboard
+     without scrolling back up to it. #}
+  {% if stop.loaded_at %}
+  <span class="stop-unit-badge stop-load-badge is-loaded" data-load-badge>
+    <i class="fas fa-check"></i> On truck
+  </span>
+  {% elif stop.status == 'pending' %}
+  <span class="stop-unit-badge stop-load-badge" data-load-badge>
+    <i class="fas fa-dolly"></i> Not loaded
+  </span>
+  {% endif %}
 
   {% if stop.status == 'pending' and delivery_run and delivery_run.status == 'in_progress' %}
   <div class="stop-actions">
@@ -121,11 +134,32 @@
   </div>
 
   <div class="inline-notes-form" id="complete-{{ stop.id }}">
-    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+    {# enctype matters: without it the photo posts as a filename string and the
+       server sees no file at all. #}
+    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}"
+          enctype="multipart/form-data" data-pod-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <input type="hidden" name="status" value="completed"/>
-      <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Notes (optional)</label>
-      <textarea name="notes" placeholder="Any delivery notes…"></textarea>
+
+      <label class="pod-label">Photo of the drop-off</label>
+      {# capture="environment" opens the rear camera straight from the OS, which
+         sidesteps the getUserMedia resolution trap (no explicit width/height and
+         you silently get VGA) and gives a full-resolution shot for free. #}
+      <input type="file" name="pod_photo" accept="image/*" capture="environment"
+             class="pod-input" id="pod-input-{{ stop.id }}" data-pod-input/>
+      <label for="pod-input-{{ stop.id }}" class="pod-btn" data-pod-trigger>
+        <i class="fas fa-camera"></i> <span>Take photo</span>
+      </label>
+      <img class="pod-preview" data-pod-preview alt=""/>
+
+      <label class="pod-label" style="margin-top:12px;">
+        Notes <span data-pod-notes-hint>(optional)</span>
+      </label>
+      <textarea name="notes" placeholder="Any delivery notes…" data-pod-notes></textarea>
+      <p class="pod-hint" data-pod-warning hidden>
+        No photo? Say why here — it goes on the delivery record.
+      </p>
+
       <div class="confirm-row">
         <button type="submit" class="btn-confirm">Confirm Delivered</button>
         <button type="button" class="btn-cancel-inline" onclick="closeNotes('complete-{{ stop.id }}')">Cancel</button>
@@ -155,6 +189,15 @@
   {% if stop.completed_at %}
   <div style="font-size:0.8rem; color:#166534; margin-top:6px;">
     <i class="fas fa-check-circle"></i> {{ stop.completed_at.strftime('%-I:%M %p') }}
+  </div>
+  {% endif %}
+  {# The proof, once it exists — the crew can check what they sent the buyer. #}
+  {% if stop.pod_photo_url %}
+  <img src="{{ url_for('uploaded_file', filename=stop.pod_photo_url) }}"
+       alt="Photo taken at delivery" class="pod-proof">
+  {% elif stop.status == 'completed' %}
+  <div class="pod-hint" style="margin-top:6px;">
+    <i class="fas fa-camera"></i> No delivery photo taken
   </div>
   {% endif %}
   {% endif %}

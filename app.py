@@ -9618,11 +9618,20 @@ def admin_database_reset():
         flash(f"Error resetting database: {str(e)}", "error")
         return redirect(url_for('admin_panel') + '#database')
 
-def _mass_email_audience(sellers_only):
+def _parse_exclude_emails(raw):
+    """Parse a newline/comma-separated textarea of emails into a lowercased set."""
+    if not raw:
+        return set()
+    parts = re.split(r'[\n,]+', raw)
+    return {p.strip().lower() for p in parts if p.strip()}
+
+
+def _mass_email_audience(sellers_only, exclude_emails=None):
     """Users eligible for a mass email. Sellers-only means "gave us their email
     through anything other than buying" (is_seller) — excludes sandbox/tutorial
     and internal/proxy rows, neither of which are real people who should get
-    marketing mail."""
+    marketing mail. exclude_emails additionally skips specific addresses —
+    e.g. recipients from a prior partial send that's being resumed."""
     query = User.query.filter(
         User.email.isnot(None),
         User.unsubscribed != True  # Filter out unsubscribed users
@@ -9633,14 +9642,17 @@ def _mass_email_audience(sellers_only):
             User.is_tutorial_user != True,
             User.is_internal_account != True,
         )
-    return query.all()
+    users = query.all()
+    if exclude_emails:
+        users = [u for u in users if u.email.lower() not in exclude_emails]
+    return users
 
 
-def _send_mass_email_batch(subject, html_content, sellers_only):
+def _send_mass_email_batch(subject, html_content, sellers_only, exclude_emails=None):
     """Send a mass email to the given audience. Shared by the immediate-send
     path and the scheduled-send cron so behavior never drifts between them.
     Returns (sent_count, failed_count, failed_emails, total_users)."""
-    users = _mass_email_audience(sellers_only)
+    users = _mass_email_audience(sellers_only, exclude_emails)
     total_users = len(users)
     scope_label = "sellers" if sellers_only else "users"
 
@@ -9682,6 +9694,60 @@ def _send_mass_email_batch(subject, html_content, sellers_only):
 
     logger.info(f"Mass email complete. Sent: {sent_count}, Failed: {failed_count}, Total: {total_users}")
     return sent_count, failed_count, failed_emails, total_users
+
+
+def _run_immediate_mass_email_job(app, subject, html_content, sellers_only, exclude_emails=None):
+    """Background thread for an ad-hoc (not scheduled) bulk send, triggered
+    directly from the admin panel. See _run_scheduled_mass_email_job for why
+    this can't run inline in the request."""
+    with app.app_context():
+        _send_mass_email_batch(subject, html_content, sellers_only, exclude_emails)
+
+
+def _run_scheduled_mass_email_job(app, scheduled_id):
+    """Background thread that actually sends a due ScheduledMassEmail.
+
+    Must run off the request thread: a real audience takes minutes to send
+    (Resend's rate limit forces ~0.55s between sends), which is longer than
+    the gunicorn worker timeout. Running it inline got a worker SIGKILLed
+    mid-send in production — the row was stuck at status='sending' forever
+    since the kill happens outside Python's exception handling entirely.
+    """
+    with app.app_context():
+        scheduled = ScheduledMassEmail.query.get(scheduled_id)
+        if not scheduled:
+            return
+        try:
+            if scheduled.test_only:
+                if not scheduled.created_by:
+                    raise ValueError("test_only scheduled email has no created_by user")
+                success = send_email(
+                    to_email=scheduled.created_by.email,
+                    subject=f"[TEST] {scheduled.subject}",
+                    html_content=scheduled.html_content,
+                    is_marketing=True,
+                    user=scheduled.created_by,
+                )
+                sent_count, failed_count, total_users = (1, 0, 1) if success else (0, 1, 1)
+            else:
+                sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
+                    scheduled.subject, scheduled.html_content, scheduled.sellers_only,
+                    _parse_exclude_emails(scheduled.exclude_emails)
+                )
+            scheduled.status = 'sent' if total_users > 0 and failed_count < total_users else 'failed'
+            scheduled.sent_count = sent_count
+            scheduled.failed_count = failed_count
+            scheduled.sent_at = datetime.utcnow()
+            if total_users == 0:
+                scheduled.error_message = "No eligible recipients."
+            db.session.commit()
+            logger.info(f"Scheduled mass email {scheduled.id} complete: sent={sent_count} failed={failed_count}")
+        except Exception as e:
+            db.session.rollback()
+            scheduled.status = 'failed'
+            scheduled.error_message = str(e)
+            db.session.commit()
+            logger.error(f"Scheduled mass email {scheduled.id} failed: {e}", exc_info=True)
 
 
 def _save_mass_email_graphic(file):
@@ -9801,6 +9867,8 @@ def admin_mass_email():
     sellers_only = audience == 'sellers'
     test_only = audience == 'test'
     scheduled_at_raw = request.form.get('scheduled_at', '').strip()
+    exclude_emails_raw = request.form.get('exclude_emails', '').strip()
+    exclude_emails = _parse_exclude_emails(exclude_emails_raw)
 
     if not subject or not html_content:
         error_msg = "Subject and email content are required."
@@ -9848,6 +9916,7 @@ def admin_mass_email():
             html_content=html_content,
             sellers_only=sellers_only,
             test_only=test_only,
+            exclude_emails=exclude_emails_raw or None,
             scheduled_at=scheduled_utc,
             created_by_id=current_user.id,
         )
@@ -9876,9 +9945,11 @@ def admin_mass_email():
         flash(message, "success" if success else "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
-    sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
-        subject, html_content, sellers_only
-    )
+    # A real bulk send can take minutes (Resend's rate limit forces ~0.55s
+    # between sends) — long enough to exceed the gunicorn worker timeout if run
+    # inline. Count the audience synchronously (cheap), then hand the actual
+    # sending off to a background thread so this request returns immediately.
+    total_users = len(_mass_email_audience(sellers_only, exclude_emails))
     scope_label = "sellers" if sellers_only else "users"
 
     if total_users == 0:
@@ -9888,32 +9959,17 @@ def admin_mass_email():
         flash(error_msg, "error")
         return redirect(url_for('admin_settings') + '#mass-email')
 
-    # Prepare response message
-    if sent_count == total_users:
-        message = f"Successfully sent email to all {sent_count} {scope_label}!"
-    elif sent_count > 0:
-        message = f"Sent to {sent_count} {scope_label}. {failed_count} failed."
-        if failed_emails:
-            message += f" Failed emails: {', '.join(failed_emails[:5])}"
-            if len(failed_emails) > 5:
-                message += f" and {len(failed_emails) - 5} more."
-    else:
-        message = f"Failed to send emails. Check server logs for details."
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=_run_immediate_mass_email_job,
+        args=(app_obj, subject, html_content, sellers_only, exclude_emails),
+        daemon=True
+    ).start()
+    message = f"Sending to {total_users} {scope_label} now — this runs in the background and takes a few minutes. Check the server logs for the final count."
 
     if is_ajax:
-        return jsonify({
-            'success': sent_count > 0,
-            'message': message,
-            'sent': sent_count,
-            'failed': failed_count,
-            'total': total_users
-        })
-
-    if sent_count > 0:
-        flash(message, "success")
-    else:
-        flash(message, "error")
-
+        return jsonify({'success': True, 'message': message, 'total': total_users})
+    flash(message, "success")
     return redirect(url_for('admin_settings') + '#mass-email')
 
 
@@ -9951,43 +10007,21 @@ def cron_send_scheduled_mass_emails():
         ScheduledMassEmail.scheduled_at <= datetime.utcnow(),
     ).all()
 
-    results = []
+    # Flip status before dispatching (not after sending) so a second cron tick
+    # that overlaps this one never picks up the same row twice. The actual
+    # send happens in a background thread — see _run_scheduled_mass_email_job
+    # for why this can't run inline here.
+    app_obj = current_app._get_current_object()
+    dispatched = []
     for scheduled in due:
         scheduled.status = 'sending'
         db.session.commit()
-        try:
-            if scheduled.test_only:
-                if not scheduled.created_by:
-                    raise ValueError("test_only scheduled email has no created_by user")
-                success = send_email(
-                    to_email=scheduled.created_by.email,
-                    subject=f"[TEST] {scheduled.subject}",
-                    html_content=scheduled.html_content,
-                    is_marketing=True,
-                    user=scheduled.created_by,
-                )
-                sent_count, failed_count, total_users = (1, 0, 1) if success else (0, 1, 1)
-            else:
-                sent_count, failed_count, failed_emails, total_users = _send_mass_email_batch(
-                    scheduled.subject, scheduled.html_content, scheduled.sellers_only
-                )
-            scheduled.status = 'sent' if total_users > 0 and failed_count < total_users else 'failed'
-            scheduled.sent_count = sent_count
-            scheduled.failed_count = failed_count
-            scheduled.sent_at = datetime.utcnow()
-            if total_users == 0:
-                scheduled.error_message = "No eligible recipients."
-            db.session.commit()
-            results.append({'id': scheduled.id, 'sent': sent_count, 'failed': failed_count})
-        except Exception as e:
-            db.session.rollback()
-            scheduled.status = 'failed'
-            scheduled.error_message = str(e)
-            db.session.commit()
-            logger.error(f"Scheduled mass email {scheduled.id} failed: {e}", exc_info=True)
-            results.append({'id': scheduled.id, 'error': str(e)})
+        threading.Thread(
+            target=_run_scheduled_mass_email_job, args=(app_obj, scheduled.id), daemon=True
+        ).start()
+        dispatched.append(scheduled.id)
 
-    return jsonify({'processed': len(results), 'results': results})
+    return jsonify({'dispatched': dispatched})
 
 # =========================================================
 # SECTION: CREW / OPS ROUTES
@@ -20463,6 +20497,40 @@ def _send_delivery_completed_email(stops):
         items_html = f'<p><strong>Item:</strong> {desc}</p>'
         intro = "Your item has been delivered."
 
+    # Proof-of-delivery photos the crew took at the door. This is the buyer-facing
+    # half of the feature: it answers "where did you leave it?" before they have to
+    # ask. Stops whose driver skipped the photo simply contribute nothing.
+    pod_photos = ''
+    for stop in stops:
+        if not stop.pod_photo_url:
+            continue
+        url = _email_photo_url(stop.pod_photo_url)
+        if not url:
+            continue
+        caption = ''
+        if stop.buyer_order and stop.buyer_order.item:
+            caption = f'<div style="font-size:13px;color:#64748b;margin:4px 0 0;">{stop.buyer_order.item.description}</div>'
+        pod_photos += (
+            f'<div style="margin:0 0 14px;">'
+            f'<img src="{url}" alt="Photo taken at delivery" '
+            f'style="max-width:320px;width:100%;border-radius:8px;border:1px solid #e2e8f0;">'
+            f'{caption}</div>'
+        )
+    if pod_photos:
+        pod_html = (
+            '<p style="margin:20px 0 8px;"><strong>Where we left it:</strong></p>'
+            f'{pod_photos}'
+        )
+    else:
+        pod_html = ''
+
+    # Times are stored naive Eastern on this record, so print as-is — no conversion.
+    delivered_at = next((s.completed_at for s in stops if s.completed_at), None)
+    time_html = (
+        f'<p><strong>Delivered at:</strong> {delivered_at.strftime("%A, %B %-d at %-I:%M %p")}</p>'
+        if delivered_at else ''
+    )
+
     _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
     refund_policy_url = f"{_base}/refund-policy"
 
@@ -20472,6 +20540,8 @@ def _send_delivery_completed_email(stops):
 <p>{intro} Thanks for shopping with Campus Swap.</p>
 {items_html}
 <p><strong>Delivered to:</strong> {order.delivery_address}</p>
+{time_html}
+{pod_html}
 <p>Something not right? {_contact_link('Tell us within 48 hours')} and we'll make it right —
 see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.</p>
 <p>We hope you love it!</p>
@@ -20747,6 +20817,24 @@ def _warehouse_coords():
     )
 
 
+def _form_gps_coords():
+    """(lat, lng) from the posted origin_lat/origin_lng, or None.
+
+    The driver's browser supplies these from navigator.geolocation, so treat them as
+    untrusted: a denied permission posts empty strings, and a bad fix can post
+    anything. Returns None on anything that isn't a real coordinate pair rather than
+    letting a garbage anchor into the optimizer.
+    """
+    try:
+        lat = float(request.form.get('origin_lat', '') or 'nan')
+        lng = float(request.form.get('origin_lng', '') or 'nan')
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return None  # also catches NaN — every comparison against it is False
+    return (lat, lng)
+
+
 def _delivery_stop_coords(stop):
     """(lat, lng) for a DeliveryStop, or None when the order was never geocoded."""
     bo = stop.buyer_order
@@ -20954,25 +21042,30 @@ def _build_maps_directions_url(origin, groups_in_order, destination_label):
     route once picked up a stop in Louisiana. Coordinates also guarantee the link
     follows exactly the geometry the optimizer solved on.
 
-    `origin` is either a (lat, lng) tuple or a fully-qualified address string.
+    `origin` is either a (lat, lng) tuple, a fully-qualified address string, or None.
+    None omits the parameter entirely, which makes Maps start from the device's
+    current location when the driver opens the link — better than a coordinate
+    captured back when the plan was computed.
     """
     waypoints = [f"{g['lat']},{g['lng']}" for g in groups_in_order]
     if not waypoints:
         return None
     params = {
         'api': '1',
-        'origin': f"{origin[0]},{origin[1]}" if isinstance(origin, (tuple, list)) else origin,
         # The loop closes at the warehouse, so every buyer stop is a waypoint.
         'destination': destination_label,
         'travelmode': 'driving',
     }
+    if origin is not None:
+        params['origin'] = f"{origin[0]},{origin[1]}" if isinstance(origin, (tuple, list)) else origin
     # Maps accepts at most 9 waypoints in a URL. Beyond that the link silently fails
     # to open, so truncate and let the on-screen list carry the rest.
     params['waypoints'] = '|'.join(waypoints[:9])
     return 'https://www.google.com/maps/dir/?' + urlencode(params)
 
 
-def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False):
+def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False,
+                            origin_coords=None):
     """
     Recompute stop_order for one truck's pending delivery stops.
 
@@ -20980,6 +21073,11 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
     ignoring how far the truck has actually got. That is what the ops screen wants —
     it is planning the shift, not following the driver. The crew view leaves it False
     so a mid-run click continues from the last completed stop.
+
+    `origin_coords` is the driver's live GPS fix, when the browser gave us one. It
+    beats the last-completed-stop guess: a driver who has just left a drop-off, or
+    who skipped around the order, is nowhere near the stop we would have anchored to.
+    Ignored when `from_warehouse=True`.
 
     Either way only pending stops are ordered; delivered ones stay frozen at the front.
 
@@ -21008,18 +21106,27 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
     warehouse = _warehouse_coords()
     warehouse_label = get_warehouse_address()
 
-    # Anchor: where the truck actually is. The last resolved stop if the run is under
-    # way, otherwise the warehouse — one code path covers both the day-before preview
-    # and a mid-run "continue from here".
+    # Anchor: where the truck actually is. A live GPS fix if the driver's browser gave
+    # one, else the last resolved stop if the run is under way, else the warehouse —
+    # one code path covers the day-before preview and a mid-run "continue from here".
     anchor = warehouse
     anchor_label = 'Warehouse'
+    anchor_is_gps = False
     if not from_warehouse:
-        for s in reversed(completed):
-            coords = _delivery_stop_coords(s)
-            if coords:
-                anchor = coords
-                anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
-                break
+        if origin_coords:
+            # Quantized to ~110m. plan_hash keys on the anchor at 5dp, so a raw GPS
+            # fix would jitter a new hash out of every tap and bill a fresh Routes
+            # API call for a truck that has not moved.
+            anchor = (round(origin_coords[0], 3), round(origin_coords[1], 3))
+            anchor_label = 'Current location'
+            anchor_is_gps = True
+        else:
+            for s in reversed(completed):
+                coords = _delivery_stop_coords(s)
+                if coords:
+                    anchor = coords
+                    anchor_label = (s.buyer_order.delivery_address or 'Last completed stop').split(',')[0]
+                    break
 
     mode = 'ops' if from_warehouse else 'crew'
     groups, ungeocoded = _group_delivery_waypoints(pending)
@@ -21079,13 +21186,17 @@ def optimize_delivery_route(shift, truck_number, user=None, from_warehouse=False
     plan.distance_meters = distance_meters
     plan.duration_seconds = duration_seconds
     plan.anchor_label = anchor_label
-    # Origin is the anchor's coordinates when mid-run; the fully-qualified warehouse
-    # address otherwise. Never anchor_label — that is display-only and city-less.
-    plan.maps_url = _build_maps_directions_url(
-        warehouse_label if anchor == warehouse else anchor,
-        ordered_groups,
-        warehouse_label,
-    )
+    # Origin: omitted when we anchored on live GPS, so Maps re-reads the driver's
+    # position at the moment they open the link rather than freezing the fix we took
+    # when the plan was computed. Otherwise the anchor's coordinates mid-run, or the
+    # fully-qualified warehouse address. Never anchor_label — display-only, city-less.
+    if anchor_is_gps:
+        maps_origin = None
+    elif anchor == warehouse:
+        maps_origin = warehouse_label
+    else:
+        maps_origin = anchor
+    plan.maps_url = _build_maps_directions_url(maps_origin, ordered_groups, warehouse_label)
     plan.computed_at = datetime.utcnow()
     plan.computed_by_id = user.id if user and user.is_authenticated else None
     db.session.commit()
@@ -21164,12 +21275,69 @@ def crew_optimize_delivery_route(shift_id):
             return redirect(url_for('crew_delivery_view', shift_id=shift_id))
         truck_number = first_stop.truck_number
 
-    result = optimize_delivery_route(shift, truck_number, user=current_user)
+    result = optimize_delivery_route(shift, truck_number, user=current_user,
+                                     origin_coords=_form_gps_coords())
     flash(result['message'], 'success' if result['ok'] else 'info')
     return redirect(url_for('crew_delivery_view', shift_id=shift_id))
 
 
 # ── Crew delivery routes ──────────────────────────────────────
+
+# Front-to-back down each side — the order you actually walk a unit, which is not
+# the alphabetical order the enum sorts in.
+_STORAGE_ROW_ORDER = ['front_left', 'middle_left', 'back_left',
+                      'front_right', 'middle_right', 'back_right']
+
+
+def _group_stops_by_storage_unit(stops):
+    """Group delivery stops by storage unit, then by row within the unit.
+
+    Loading and delivering want opposite sorts. The stop list is ordered by
+    stop_order because that is the driving route; loading wants everything in one
+    unit together so the crew can clear it and move on. This builds the loading
+    view without disturbing the route order.
+
+    Returns [{'location', 'name', 'stops', 'loaded_count', 'rows': [{'key','label','stops'}]}],
+    units alphabetical, unlocated items last under a null location.
+    """
+    ROW_LABELS = {'back_left': 'Back Left', 'middle_left': 'Middle Left',
+                  'front_left': 'Front Left', 'back_right': 'Back Right',
+                  'middle_right': 'Middle Right', 'front_right': 'Front Right'}
+    buckets = {}
+    for stop in stops:
+        item = stop.buyer_order.item if stop.buyer_order else None
+        loc = item.storage_location if item else None
+        # Key on id, not the object: unlocated items must collapse into one group
+        # rather than each becoming its own.
+        key = loc.id if loc else None
+        buckets.setdefault(key, {'location': loc, 'stops': []})['stops'].append(stop)
+
+    groups = []
+    for key, bucket in buckets.items():
+        loc = bucket['location']
+        rows = {}
+        for stop in bucket['stops']:
+            item = stop.buyer_order.item if stop.buyer_order else None
+            rows.setdefault(getattr(item, 'storage_row', None), []).append(stop)
+        ordered_rows = [
+            {'key': rk, 'label': ROW_LABELS.get(rk, 'Row not set'), 'stops': rows[rk]}
+            for rk in sorted(
+                rows,
+                # Unknown/None rows sort last, inside their unit.
+                key=lambda r: (_STORAGE_ROW_ORDER.index(r) if r in _STORAGE_ROW_ORDER else 99),
+            )
+        ]
+        groups.append({
+            'location': loc,
+            'name': loc.name if loc else 'No storage unit assigned',
+            'stops': bucket['stops'],
+            'loaded_count': sum(1 for s in bucket['stops'] if s.loaded_at),
+            'rows': ordered_rows,
+        })
+    # Unlocated last — it is an exception list, not a unit to work through.
+    groups.sort(key=lambda g: (g['location'] is None, g['name'].lower()))
+    return groups
+
 
 def _require_delivery_worker(shift_id):
     """Guard for crew delivery routes: must be logged-in worker or admin."""
@@ -21235,6 +21403,8 @@ def crew_delivery_view(shift_id):
         total_stops=total_stops,
         done_stops=done_stops,
         route_plan=route_plan,
+        storage_groups=_group_stops_by_storage_unit(stops),
+        loaded_stops=sum(1 for s in stops if s.loaded_at),
     )
 
 
@@ -21292,6 +21462,46 @@ def crew_delivery_start(shift_id):
     return redirect(url_for('crew_delivery_view', shift_id=shift_id))
 
 
+@app.route('/crew/delivery/stop/<int:stop_id>/loaded', methods=['POST'])
+@login_required
+def crew_delivery_stop_loaded(stop_id):
+    """Toggle whether an item is on the truck. Returns JSON — the crew taps through a
+    unit item by item, and a full page reload between taps loses their scroll position
+    in a list that can run to dozens of rows.
+
+    Idempotent: posting loaded=1 twice keeps the first timestamp, so a double-tap or a
+    retry on flaky warehouse signal cannot rewrite who loaded it or when.
+    """
+    if not (current_user.is_worker or current_user.is_admin):
+        abort(403)
+    stop = DeliveryStop.query.get_or_404(stop_id)
+    assignment = ShiftAssignment.query.filter_by(
+        shift_id=stop.shift_id, worker_id=current_user.id
+    ).first()
+    if not assignment and not current_user.is_admin:
+        abort(403)
+
+    want_loaded = request.form.get('loaded') == '1'
+    if want_loaded and not stop.loaded_at:
+        stop.loaded_at = _now_eastern().replace(tzinfo=None)
+        stop.loaded_by_id = current_user.id
+    elif not want_loaded:
+        # Un-checking is a correction, not history — clear it completely so the next
+        # load records the person who actually did it.
+        stop.loaded_at = None
+        stop.loaded_by_id = None
+    db.session.commit()
+
+    siblings = DeliveryStop.query.filter_by(
+        shift_id=stop.shift_id, truck_number=stop.truck_number).all()
+    return jsonify({
+        'ok': True,
+        'loaded': stop.loaded_at is not None,
+        'loaded_count': sum(1 for s in siblings if s.loaded_at),
+        'total': len(siblings),
+    })
+
+
 @app.route('/crew/delivery/stop/<int:stop_id>/update', methods=['POST'])
 @login_required
 def crew_delivery_stop_update(stop_id):
@@ -21310,16 +21520,50 @@ def crew_delivery_stop_update(stop_id):
     notes = request.form.get('notes', '').strip()
     if status not in ('completed', 'issue'):
         abort(400)
+
+    # Proof of delivery. Required to complete a stop — that is the entire point of
+    # it — but a driver with a dead camera must still be able to close the run, so
+    # there is an explicit skip that costs them a written reason instead.
+    photo_filename = None
+    if status == 'completed':
+        photo = request.files.get('pod_photo')
+        if photo and photo.filename:
+            is_valid, error_msg = validate_file_upload(photo)
+            if not is_valid:
+                flash(f'Photo problem: {error_msg}', 'error')
+                return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+            try:
+                jpeg_bytes = _downscale_image(photo)
+                photo_filename = f"pod_{stop.id}_{uuid.uuid4().hex[:8]}.jpg"
+                photo_storage.save_photo_from_bytes(jpeg_bytes, photo_filename)
+            except Exception as e:
+                logger.error(f"POD photo save failed (stop {stop.id}): {e}", exc_info=True)
+                flash('Could not save that photo. Try again, or skip it with a reason.',
+                      'error')
+                return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+        elif not notes:
+            flash('Take a photo of the drop-off, or say why you could not.', 'error')
+            return redirect(url_for('crew_delivery_view', shift_id=shift_id))
+
     now = _now_eastern().replace(tzinfo=None)
     stop.status = status
     stop.notes = notes or None
     if status == 'completed':
+        # completed_at is the delivery timestamp that goes on the record and into the
+        # buyer's email — written in the same request as the photo, so they always agree.
         stop.completed_at = now
+        stop.pod_photo_url = photo_filename
         order = stop.buyer_order
         order.delivered_at = now
         db.session.flush()  # sibling status checks must see this stop as completed
         _maybe_send_delivery_completed_email(stop)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if photo_filename:
+            photo_storage.delete_photo(photo_filename)   # don't orphan it in S3
+        raise
     return redirect(url_for('crew_delivery_view', shift_id=shift_id))
 
 
