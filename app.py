@@ -9696,11 +9696,22 @@ def _send_mass_email_batch(subject, html_content, sellers_only, exclude_emails=N
     return sent_count, failed_count, failed_emails, total_users
 
 
+def _mass_email_base_url():
+    return (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
+
+
 def _run_immediate_mass_email_job(app, subject, html_content, sellers_only, exclude_emails=None):
     """Background thread for an ad-hoc (not scheduled) bulk send, triggered
     directly from the admin panel. See _run_scheduled_mass_email_job for why
-    this can't run inline in the request."""
-    with app.app_context():
+    this can't run inline in the request.
+
+    Uses test_request_context, not app_context — send_email() calls
+    url_for(..., _external=True) to build the unsubscribe link, which needs a
+    real request context. A bare app_context lets the ORM run but raises
+    RuntimeError on that url_for call, silently failing every single send
+    (each one caught and counted as "failed" by _send_mass_email_batch).
+    """
+    with app.test_request_context(base_url=_mass_email_base_url()):
         _send_mass_email_batch(subject, html_content, sellers_only, exclude_emails)
 
 
@@ -9712,8 +9723,11 @@ def _run_scheduled_mass_email_job(app, scheduled_id):
     the gunicorn worker timeout. Running it inline got a worker SIGKILLed
     mid-send in production — the row was stuck at status='sending' forever
     since the kill happens outside Python's exception handling entirely.
+
+    Uses test_request_context, not app_context — see _run_immediate_mass_email_job
+    for why a bare app_context silently fails every send here too.
     """
-    with app.app_context():
+    with app.test_request_context(base_url=_mass_email_base_url()):
         scheduled = ScheduledMassEmail.query.get(scheduled_id)
         if not scheduled:
             return
@@ -20546,7 +20560,18 @@ def _send_delivery_completed_email(stops):
 see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.</p>
 <p>We hope you love it!</p>
 """
-    send_email(order.buyer_email, 'Your Campus Swap order has been delivered', html)
+    success = send_email(order.buyer_email, 'Your Campus Swap order has been delivered', html)
+    if not success:
+        # Leave completed_email_sent_at unset so this is honestly visible as
+        # un-sent rather than silently marked done. There's no automatic retry
+        # for this specific case (all sibling stops are already 'completed',
+        # so nothing re-triggers _maybe_send_delivery_completed_email) — a
+        # failure here needs a human to notice via this log line and resend.
+        logger.error(
+            f"Delivery-complete email to {order.buyer_email} failed "
+            f"(stops {', '.join(str(s.id) for s in stops)})"
+        )
+        return False
     now = _now_eastern().replace(tzinfo=None)
     for stop in stops:
         stop.completed_email_sent_at = now
