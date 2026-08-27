@@ -12,3 +12,4 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+discount_snapshot_*.csv
