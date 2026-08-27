@@ -15928,6 +15928,7 @@ def admin_ops():
     )
 
     delivery_queue = _build_delivery_queue()
+    pickup_queue = _build_pickup_queue()
     # Delivery stops on the CURRENT shift — drives the "Notify Buyers" button in the header
     has_delivery_stops = False
     delivery_unnotified_count = 0
@@ -15963,6 +15964,7 @@ def admin_ops():
         tutorial_mode=tutorial_mode,
         tutorial_step=tutorial_step,
         delivery_queue=delivery_queue,
+        pickup_queue=pickup_queue,
         upcoming_delivery_shifts=_upcoming_del_shifts,
         has_delivery_stops=has_delivery_stops,
         delivery_unnotified_count=delivery_unnotified_count,
@@ -16069,6 +16071,7 @@ def admin_ops_truck_detail():
             movers=movers,
             effective_cap=effective_cap,
             load=del_load,
+            move_options=move_options,
         )
 
     return render_template(
@@ -20196,9 +20199,108 @@ def _get_delivery_item_unit_size(item):
     return 1.0
 
 
+def _order_is_pickup(buyer_order):
+    """True when this sold line is a buyer pickup rather than a delivery.
+
+    Two ways a sale becomes a pickup:
+      1. The buyer entered the free-delivery promo code at checkout (`Order.promo_code`),
+         which is how we sell to someone who is coming to the warehouse themselves.
+      2. We marked the item sold by hand — a FB/in-person deal. Those never create a
+         BuyerOrder at all, so `buyer_order is None` is itself the signal.
+    Anything else is a delivery and belongs on a truck.
+    """
+    if buyer_order is None:
+        return True
+    order = buyer_order.order
+    return bool(order and order.promo_code)
+
+
+def _build_pickup_queue():
+    """Sold items the buyer is collecting themselves, not yet handed over.
+
+    Mirrors _build_delivery_queue's group shape so the sidebar partials stay parallel:
+    promo-code cart orders collapse into one group per Order; hand-marked sales each
+    get their own group (they have no buyer record to group on).
+    """
+    from flask import url_for as _url_for
+    from collections import OrderedDict
+
+    def _photo(item):
+        return {
+            'description': item.description or '',
+            'status': item.status,
+            'cover_url': _url_for('uploaded_file', filename=item.photo_url) if item.photo_url else '',
+            'gallery_urls': [],
+        }
+
+    result = []
+
+    # 1. Promo-code orders — a real BuyerOrder exists, so we have buyer contact details.
+    promo_rows = (
+        BuyerOrder.query
+        .join(InventoryItem, BuyerOrder.item_id == InventoryItem.id)
+        .join(Order, BuyerOrder.order_id == Order.id)
+        .filter(
+            InventoryItem.status == 'sold',
+            InventoryItem.picked_up_by_buyer_at.is_(None),
+            Order.promo_code.isnot(None),
+        )
+        .options(joinedload(BuyerOrder.item), joinedload(BuyerOrder.order))
+        .order_by(BuyerOrder.created_at.asc())
+        .all()
+    )
+    groups = OrderedDict()
+    for bo in promo_rows:
+        groups.setdefault(('order', bo.order_id), []).append(bo)
+    for bos in groups.values():
+        primary = bos[0]
+        result.append({
+            'source': 'promo',
+            'item_ids': [bo.item_id for bo in bos],
+            'line_items': bos,
+            'buyer_name': (primary.order.buyer_name if primary.order else None) or primary.buyer_email,
+            'buyer_email': primary.buyer_email,
+            'buyer_phone': primary.buyer_phone or (primary.order.buyer_phone if primary.order else None),
+            'promo_code': primary.order.promo_code if primary.order else None,
+            'sold_at': min([bo.item.sold_at for bo in bos if bo.item.sold_at] or [None]),
+            'item_photos': [_photo(bo.item) for bo in bos],
+            'unit_total': sum(_get_delivery_item_unit_size(bo.item) for bo in bos),
+        })
+
+    # 2. Hand-marked sales — no BuyerOrder, so nothing to group on and no buyer contact.
+    manual_items = (
+        InventoryItem.query
+        .filter(
+            InventoryItem.status == 'sold',
+            InventoryItem.picked_up_by_buyer_at.is_(None),
+            ~InventoryItem.buyer_order.has(),
+        )
+        .order_by(InventoryItem.sold_at.asc().nullslast(), InventoryItem.id.asc())
+        .all()
+    )
+    for item in manual_items:
+        result.append({
+            'source': 'manual',
+            'item_ids': [item.id],
+            'line_items': [],
+            'items': [item],
+            'buyer_name': None,
+            'buyer_email': None,
+            'buyer_phone': None,
+            'promo_code': None,
+            'sold_at': item.sold_at,
+            'item_photos': [_photo(item)],
+            'unit_total': _get_delivery_item_unit_size(item),
+        })
+
+    result.sort(key=lambda g: (g['sold_at'] is None, g['sold_at']))
+    return result
+
+
 def _build_delivery_queue():
     """Unassigned BuyerOrders grouped into delivery stops.
     Cart orders (same order_id) collapse into one group; legacy solo orders each get their own.
+    Pickup orders (free-delivery promo code) are excluded — they go to _build_pickup_queue().
     Returns list of group dicts consumed by ops_delivery_queue_partial.html.
     """
     from flask import url_for as _url_for
@@ -20207,10 +20309,14 @@ def _build_delivery_queue():
     raw = (
         BuyerOrder.query
         .join(InventoryItem, BuyerOrder.item_id == InventoryItem.id)
+        .outerjoin(Order, BuyerOrder.order_id == Order.id)
         .filter(
             InventoryItem.status == 'sold',
             ~BuyerOrder.delivery_stop.has(),
             BuyerOrder.delivered_at.is_(None),
+            # Promo-code orders are buyer pickups — they belong in the pickup queue,
+            # never on a truck. See _order_is_pickup().
+            db.or_(Order.id.is_(None), Order.promo_code.is_(None)),
         )
         .options(joinedload(BuyerOrder.item), joinedload(BuyerOrder.order))
         .order_by(BuyerOrder.created_at.asc())
@@ -20381,6 +20487,165 @@ def admin_delivery_add_stop(shift_id):
     return jsonify(stop_id=stop.id, unit_total=round(truck_load + unit_size, 2))
 
 
+@app.route('/admin/ops/pickup-queue')
+@login_required
+def admin_ops_pickup_queue():
+    """HTML partial: sold items the buyer is collecting themselves."""
+    if not _has_ops_access():
+        abort(403)
+    return render_template(
+        'admin/ops_pickup_queue_partial.html',
+        pickup_orders=_build_pickup_queue(),
+    )
+
+
+@app.route('/admin/pickup/mark-picked-up', methods=['POST'])
+@login_required
+def admin_pickup_mark_picked_up():
+    """Mark one pickup group as handed over to the buyer.
+
+    Stamps every item in the group so it drops out of the pickup queue. Does not touch
+    sale state — the item is already sold; this only records the physical handoff.
+    """
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    ids_str = request.form.get('item_ids', '')
+    try:
+        item_ids = [int(x) for x in ids_str.split(',') if x.strip()]
+    except ValueError:
+        return jsonify(error='Bad item_ids'), 400
+    if not item_ids:
+        return jsonify(error='No items given'), 400
+
+    items = InventoryItem.query.filter(InventoryItem.id.in_(item_ids)).all()
+    now = datetime.utcnow()
+    marked = 0
+    for item in items:
+        if item.picked_up_by_buyer_at:
+            continue  # idempotent — two people clicking must not restamp
+        item.picked_up_by_buyer_at = now
+        item.picked_up_by_buyer_by_id = current_user.id
+        marked += 1
+    db.session.commit()
+    if request.form.get('ajax') == '1':
+        return jsonify(success=True, marked=marked)
+    flash(f'Marked {marked} item(s) picked up.', 'success')
+    return redirect(request.referrer or url_for('admin_ops'))
+
+
+@app.route('/admin/pickup/undo-picked-up', methods=['POST'])
+@login_required
+def admin_pickup_undo_picked_up():
+    """Clear the pickup stamp — misclick recovery, puts the group back in the queue."""
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    ids_str = request.form.get('item_ids', '')
+    try:
+        item_ids = [int(x) for x in ids_str.split(',') if x.strip()]
+    except ValueError:
+        return jsonify(error='Bad item_ids'), 400
+    for item in InventoryItem.query.filter(InventoryItem.id.in_(item_ids)).all():
+        item.picked_up_by_buyer_at = None
+        item.picked_up_by_buyer_by_id = None
+    db.session.commit()
+    if request.form.get('ajax') == '1':
+        return jsonify(success=True)
+    return redirect(request.referrer or url_for('admin_ops'))
+
+
+@app.route('/admin/delivery/stop/<int:stop_id>/move', methods=['POST'])
+@login_required
+def admin_delivery_move_stop(stop_id):
+    """Move a failed delivery stop onto a different route.
+
+    Only `issue` stops move. A stop that was attempted and failed is the one case where
+    the route it sits on is already closed out but the item still owes the buyer a
+    delivery — removing and re-adding is blocked once a DeliveryRun exists, and
+    BuyerOrder.delivery_stop is one-to-one so a second row is not an option.
+
+    So the row itself moves: new shift/truck, order reset to pending, and every trace of
+    the failed attempt (completion, POD photo, notification, load state) cleared so the
+    new route treats it as fresh. The old attempt survives as a dated line in `notes` —
+    the driver on the new route needs to know why it bounced the first time.
+    """
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    stop = DeliveryStop.query.get_or_404(stop_id)
+
+    if stop.status != 'issue':
+        return jsonify(error='Only stops flagged with an issue can be moved to another route.'), 409
+
+    shift_truck = request.form.get('shift_truck', '') or ''
+    try:
+        target_shift_id_str, truck_str = shift_truck.split('_', 1)
+        target_shift_id = int(target_shift_id_str)
+        target_truck = int(truck_str)
+    except (ValueError, AttributeError):
+        return jsonify(error='Pick a route and truck.'), 400
+
+    target_shift = Shift.query.get_or_404(target_shift_id)
+
+    if target_shift_id == stop.shift_id and target_truck == stop.truck_number:
+        return jsonify(error='That stop is already on this route and truck.'), 409
+
+    # Mixed-truck guard, same rule as add-stop: a truck is pickup or delivery, never both.
+    if ShiftPickup.query.filter_by(shift_id=target_shift_id, truck_number=target_truck).count() > 0:
+        return jsonify(error='That truck already has pickup stops. A truck can only be used for pickup or delivery, not both.'), 409
+
+    # Unique(shift_id, buyer_order_id): another stop for the same order on the target
+    # shift would collide. Cannot happen today (one stop per order) but the constraint
+    # is what the DB enforces, so check it rather than trust the invariant.
+    clash = DeliveryStop.query.filter(
+        DeliveryStop.shift_id == target_shift_id,
+        DeliveryStop.buyer_order_id == stop.buyer_order_id,
+        DeliveryStop.id != stop.id,
+    ).first()
+    if clash:
+        return jsonify(error='This order already has a stop on that route.'), 409
+
+    old_shift = stop.shift
+    old_date = _ops_shift_date(old_shift) if old_shift else None
+    attempt_label = old_date.strftime('%b %-d') if old_date else 'Previous'
+    prior_note = (stop.notes or '').strip()
+    history_line = f"{attempt_label} attempt: {prior_note}" if prior_note else f"{attempt_label} attempt failed"
+
+    # Capacity is a soft warning everywhere else in ops; keep it that way here.
+    existing_stops = DeliveryStop.query.filter(
+        DeliveryStop.shift_id == target_shift_id,
+        DeliveryStop.truck_number == target_truck,
+        DeliveryStop.id != stop.id,
+    ).all()
+    truck_load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in existing_stops)
+    unit_size = _get_delivery_item_unit_size(stop.buyer_order.item)
+    max_order = db.session.query(db.func.max(DeliveryStop.stop_order)).filter(
+        DeliveryStop.shift_id == target_shift_id,
+        DeliveryStop.id != stop.id,
+    ).scalar() or 0
+
+    stop.shift_id = target_shift_id
+    stop.truck_number = target_truck
+    stop.stop_order = max_order + 1
+    stop.status = 'pending'
+    stop.notes = history_line
+    stop.completed_at = None
+    stop.pod_photo_url = None
+    stop.notified_at = None
+    stop.completed_email_sent_at = None
+    stop.loaded_at = None
+    stop.loaded_by_id = None
+    stop.capacity_warning = (truck_load + unit_size) > get_effective_capacity()
+    # The buyer never received it, so nothing downstream should read it as delivered.
+    stop.buyer_order.delivered_at = None
+    db.session.commit()
+
+    target_date = _ops_shift_date(target_shift)
+    label = f"{target_date.strftime('%a %b %-d')} Truck {target_truck}" if target_date else f"Truck {target_truck}"
+    if request.form.get('ajax') == '1':
+        return jsonify(success=True, shift_id=target_shift_id, truck_number=target_truck, label=label)
+    flash(f'Stop moved to {label}.', 'success')
+    return redirect(url_for('admin_ops', shift_id=target_shift_id))
+
+
 @app.route('/admin/delivery/shift/<int:shift_id>/remove-stop/<int:stop_id>', methods=['POST'])
 @login_required
 def admin_delivery_remove_stop(shift_id, stop_id):
@@ -20485,45 +20750,83 @@ def _send_delivery_scheduled_email(stops):
     return True
 
 
-def _send_delivery_completed_email(stops):
-    """Send one 'delivered' email covering every stop in a buyer's order.
+def _send_delivery_completed_email(stops, failed_stops=None):
+    """Send one 'delivered' email covering the stops that were delivered.
 
-    Stamps completed_email_sent_at on each stop so re-marking a stop cannot
+    `failed_stops` are stops on the same order the crew flagged as an issue. When
+    present the email becomes a partial-delivery notice: it reports what arrived and
+    names what did not, rather than claiming the whole order landed.
+
+    Stamps completed_email_sent_at on each delivered stop so re-marking cannot
     re-send. Caller is responsible for committing the session.
     """
     stops = [stops] if isinstance(stops, DeliveryStop) else list(stops)
+    failed_stops = list(failed_stops or [])
     if not stops:
         return False
     if any(s.completed_email_sent_at for s in stops):
-        return False  # already sent for this order
+        return False  # already sent for these stops
 
     order = stops[0].buyer_order
     if not order or not order.buyer_email:
         return False
 
     items = [s.buyer_order.item for s in stops if s.buyer_order and s.buyer_order.item]
+    failed_items = [s.buyer_order.item for s in failed_stops
+                    if s.buyer_order and s.buyer_order.item]
+
     if len(items) > 1:
         listed = ''.join(f'<li>{item.description}</li>' for item in items)
         items_html = f'<ul style="margin:8px 0 16px;padding-left:20px;">{listed}</ul>'
-        intro = f"All {len(items)} of your items have been delivered."
+        # "All 2 of your items" would be a lie when a third was flagged.
+        intro = (f"{len(items)} of your items have been delivered." if failed_items
+                 else f"All {len(items)} of your items have been delivered.")
     else:
         desc = items[0].description if items else 'Your order'
         items_html = f'<p><strong>Item:</strong> {desc}</p>'
         intro = "Your item has been delivered."
 
+    # What did not make it, and what happens next. Deliberately vague on the reason —
+    # the crew's note is internal and often shorthand ("nobody home", "wrong bldg").
+    if failed_items:
+        listed = ''.join(f'<li>{item.description}</li>' for item in failed_items)
+        pending_html = (
+            '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+            'padding:14px;margin:16px 0;">'
+            '<p style="margin:0 0 8px;color:#92400e;"><strong>Still to come:</strong> '
+            f"we could not deliver {'these items' if len(failed_items) > 1 else 'this item'} "
+            'today.</p>'
+            f'<ul style="margin:0;padding-left:20px;color:#92400e;">{listed}</ul>'
+            '<p style="margin:8px 0 0;color:#92400e;">Our team will be in touch to '
+            'rearrange — you do not need to do anything.</p></div>'
+        )
+    else:
+        pending_html = ''
+
     # Proof-of-delivery photos the crew took at the door. This is the buyer-facing
     # half of the feature: it answers "where did you leave it?" before they have to
     # ask. Stops whose driver skipped the photo simply contribute nothing.
-    pod_photos = ''
+    # One photo covers a whole drop-off, so several stops share a filename. Group by
+    # filename and caption with everything it shows — otherwise a three-item order
+    # would repeat the identical picture three times.
+    from collections import OrderedDict
+    by_photo = OrderedDict()
     for stop in stops:
         if not stop.pod_photo_url:
             continue
-        url = _email_photo_url(stop.pod_photo_url)
+        entry = by_photo.setdefault(stop.pod_photo_url, [])
+        if stop.buyer_order and stop.buyer_order.item:
+            entry.append(stop.buyer_order.item.description)
+
+    pod_photos = ''
+    for filename, descriptions in by_photo.items():
+        url = _email_photo_url(filename)
         if not url:
             continue
         caption = ''
-        if stop.buyer_order and stop.buyer_order.item:
-            caption = f'<div style="font-size:13px;color:#64748b;margin:4px 0 0;">{stop.buyer_order.item.description}</div>'
+        if descriptions:
+            caption = (f'<div style="font-size:13px;color:#64748b;margin:4px 0 0;">'
+                       f'{", ".join(descriptions)}</div>')
         pod_photos += (
             f'<div style="margin:0 0 14px;">'
             f'<img src="{url}" alt="Photo taken at delivery" '
@@ -20548,25 +20851,30 @@ def _send_delivery_completed_email(stops):
     _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL') or 'https://usecampusswap.com').rstrip('/')
     refund_policy_url = f"{_base}/refund-policy"
 
+    heading = 'Partly delivered' if failed_items else 'Delivered!'
+    subject = ('Part of your Campus Swap order has been delivered' if failed_items
+               else 'Your Campus Swap order has been delivered')
+
     # NOTE: pass raw content — send_email() wraps it in the template (logo/footer).
     html = f"""
-<h2 style="color:#1a3d1a;">Delivered!</h2>
+<h2 style="color:#1a3d1a;">{heading}</h2>
 <p>{intro} Thanks for shopping with Campus Swap.</p>
 {items_html}
 <p><strong>Delivered to:</strong> {order.delivery_address}</p>
 {time_html}
 {pod_html}
+{pending_html}
 <p>Something not right? {_contact_link('Tell us within 48 hours')} and we'll make it right —
 see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.</p>
 <p>We hope you love it!</p>
 """
-    success = send_email(order.buyer_email, 'Your Campus Swap order has been delivered', html)
+    success = send_email(order.buyer_email, subject, html)
     if not success:
         # Leave completed_email_sent_at unset so this is honestly visible as
-        # un-sent rather than silently marked done. There's no automatic retry
-        # for this specific case (all sibling stops are already 'completed',
-        # so nothing re-triggers _maybe_send_delivery_completed_email) — a
-        # failure here needs a human to notice via this log line and resend.
+        # un-sent rather than silently marked done. In practice there is no retry:
+        # every sibling stop is already resolved, so nothing calls
+        # _maybe_send_delivery_completed_email again unless a stop is re-marked.
+        # A failure here needs a human to notice this log line and resend.
         logger.error(
             f"Delivery-complete email to {order.buyer_email} failed "
             f"(stops {', '.join(str(s.id) for s in stops)})"
@@ -20578,12 +20886,82 @@ see our <a href="{refund_policy_url}" style="color:#166534;">refund policy</a>.<
     return True
 
 
+def _notify_admin_delivery_issue(stop):
+    """Tell every super admin a driver flagged a delivery stop.
+
+    A flagged stop needs a person: the item is still on the truck and the buyer has
+    been told we will be in touch. Nothing else surfaces this, so without an email it
+    relies on somebody happening to open the ops view. Never raises — a failed
+    notification must not break the crew's stop update.
+    """
+    try:
+        admins = User.query.filter(
+            User.is_super_admin == True,          # noqa: E712 — SQLAlchemy needs ==
+            User.unsubscribed == False,
+        ).all()
+        if not admins:
+            logger.warning("Delivery issue alert: no super admin recipients found.")
+            return False
+
+        bo = stop.buyer_order
+        item = bo.item if bo else None
+        buyer_name = (bo.order.buyer_name if bo and bo.order else None) or '—'
+        buyer_phone = (bo.buyer_phone if bo else None) or (
+            bo.order.buyer_phone if bo and bo.order else None) or '—'
+        shift_date = _ops_shift_date(stop.shift)
+
+        _base = (os.environ.get('APP_BASE_URL') or os.environ.get('BASE_URL')
+                 or 'https://usecampusswap.com').rstrip('/')
+        html = f"""
+    <div style="font-family: sans-serif; padding: 20px; max-width: 550px;">
+        <h2 style="color:#92400e;">Delivery issue flagged</h2>
+        <p><strong>{current_user.full_name or current_user.email}</strong> flagged a stop on the
+           {shift_date.strftime('%A, %B %-d') if shift_date else 'current'} delivery run.</p>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;margin:16px 0;">
+            <p style="margin:0 0 8px;"><strong>Item:</strong>
+               #{item.id if item else '—'} {item.description if item else '—'}</p>
+            <p style="margin:0 0 8px;"><strong>Buyer:</strong> {buyer_name}
+               &nbsp;·&nbsp; {bo.buyer_email if bo else '—'}</p>
+            <p style="margin:0 0 8px;"><strong>Phone:</strong> {buyer_phone}</p>
+            <p style="margin:0 0 8px;"><strong>Address:</strong> {bo.delivery_address if bo else '—'}</p>
+            <p style="margin:0;"><strong>Reason given:</strong> {stop.notes or '(none)'}</p>
+        </div>
+        <p>The buyer has been told we will be in touch to rearrange.</p>
+        <p><a href="{_base}/admin/ops" style="background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;">Open ops</a></p>
+        <p style="font-size:0.85rem;color:#64748b;margin-top:20px;">You're receiving this because you're a super admin at Campus Swap.</p>
+    </div>
+    """
+        subject = f"Delivery issue: {item.description if item else 'stop'} — {buyer_name}"
+        for admin in admins:
+            try:
+                send_email(admin.email, subject, html)
+            except Exception as e:
+                logger.error(f"Delivery issue alert failed for {admin.email}: {e}",
+                             exc_info=True)
+        return True
+    except Exception as e:
+        logger.error(f"Delivery issue alert failed (stop {stop.id}): {e}", exc_info=True)
+        return False
+
+
 def _maybe_send_delivery_completed_email(stop):
-    """After a stop is marked completed, email the buyer once their whole order is done.
+    """Email the buyer once nothing more is going to happen to their order today.
 
     A buyer with three items has three stops; they should hear from us when the last
-    one is delivered, not three times. Never raises — a failed email must not break
-    the crew's stop update.
+    one is settled, not three times. So this waits until no sibling stop is still
+    `pending`, then reports on whatever was actually delivered.
+
+    A flagged stop no longer buries the whole order. Previously any 'issue' meant
+    `all(completed)` was False and the email never sent at all — so a buyer whose
+    second item couldn't be delivered was never told the first one had arrived.
+    Now that case sends a partial email naming what did not make it.
+
+    Stamps completed_email_sent_at only on the stops an email actually covered, so a
+    stop resolved later (a re-attempt on the same shift) can still send its own.
+    Never raises — a failed email must not break the crew's stop update.
+
+    Called for both 'completed' and 'issue' updates: flagging the last stop of an
+    order is exactly the moment the buyer needs to hear about the rest of it.
     """
     bo = stop.buyer_order
     if not bo:
@@ -20598,14 +20976,21 @@ def _maybe_send_delivery_completed_email(stop):
             .all()
         ) or [stop]
 
-    # Only when every stop in the order is done. A flagged 'issue' stop holds the
-    # email back — that order needs a human, not an automated "delivered!".
-    if not all(s.status == 'completed' for s in sibling_stops):
+    # Something on this order may still be delivered in the next ten minutes — say
+    # nothing until the crew has resolved every stop one way or the other.
+    if any(s.status == 'pending' for s in sibling_stops):
         return False
+
+    delivered = [s for s in sibling_stops
+                 if s.status == 'completed' and not s.completed_email_sent_at]
+    if not delivered:
+        return False  # nothing new to tell them (already emailed, or nothing arrived)
+    failed = [s for s in sibling_stops if s.status == 'issue']
+
     try:
-        return _send_delivery_completed_email(sibling_stops)
+        return _send_delivery_completed_email(delivered, failed_stops=failed)
     except Exception as e:
-        stop_ids = ', '.join(str(s.id) for s in sibling_stops)
+        stop_ids = ', '.join(str(s.id) for s in delivered)
         logger.error(f"Failed delivery-complete email for stops {stop_ids}: {e}", exc_info=True)
         return False
 
@@ -21314,6 +21699,86 @@ _STORAGE_ROW_ORDER = ['front_left', 'middle_left', 'back_left',
                       'front_right', 'middle_right', 'back_right']
 
 
+def _delivery_visit_key(stop):
+    """Identity of the drop-off a stop belongs to.
+
+    Stops are per item (BuyerOrder is one row per item), but a visit is per buyer:
+    three items for one buyer at one door is one knock, one photo, one email. Keyed
+    on the parent Order where there is one, falling back to the BuyerOrder for legacy
+    single-item purchases. Truck is part of the key because a buyer's items split
+    across two trucks are genuinely two separate visits.
+    """
+    bo = stop.buyer_order
+    if not bo:
+        return ('stop', stop.id, stop.truck_number)
+    if bo.order_id:
+        return ('order', bo.order_id, stop.truck_number)
+    return ('solo', bo.id, stop.truck_number)
+
+
+def _group_stops_into_visits(stops):
+    """Collapse per-item stops into one visit per buyer, preserving route order.
+
+    Returns [{'key', 'stops', 'order', 'items', 'primary', 'status', 'loaded_count'}].
+    `primary` is the lowest-id pending stop (or lowest-id overall) — the one the crew
+    action posts against, from which the server re-derives the whole visit.
+
+    `status` is the visit's rolled-up state: 'pending' while any stop is unresolved,
+    'completed' when all arrived, 'issue' when none did, 'partial' when it is mixed.
+    """
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for stop in stops:
+        groups.setdefault(_delivery_visit_key(stop), []).append(stop)
+
+    visits = []
+    for key, group in groups.items():
+        group = sorted(group, key=lambda s: s.id)
+        pending = [s for s in group if s.status == 'pending']
+        done = [s for s in group if s.status == 'completed']
+        failed = [s for s in group if s.status == 'issue']
+        if pending:
+            status = 'pending'
+        elif done and failed:
+            status = 'partial'
+        elif done:
+            status = 'completed'
+        else:
+            status = 'issue'
+        visits.append({
+            'key': key,
+            'stops': group,
+            'order': group[0].buyer_order,
+            'items': [s.buyer_order.item for s in group
+                      if s.buyer_order and s.buyer_order.item],
+            'primary': (pending or group)[0],
+            'status': status,
+            'loaded_count': sum(1 for s in group if s.loaded_at),
+        })
+    # Keep the driving order the optimizer solved: a visit sits where its earliest
+    # stop sits. Sorting by anything else would scramble the route.
+    visits.sort(key=lambda v: min(
+        (s.stop_order if s.stop_order is not None else 10**6) for s in v['stops']))
+    return visits
+
+
+def _visit_siblings(stop):
+    """Every stop in `stop`'s drop-off visit, re-derived from the database.
+
+    Deliberately not taken from the request: the crew form posts one stop id and the
+    server works out what else that covers, so a tampered or stale form cannot mark
+    somebody else's items delivered.
+    """
+    key = _delivery_visit_key(stop)
+    candidates = (
+        DeliveryStop.query
+        .filter_by(shift_id=stop.shift_id, truck_number=stop.truck_number)
+        .all()
+    )
+    return sorted((s for s in candidates if _delivery_visit_key(s) == key),
+                  key=lambda s: s.id)
+
+
 def _group_stops_by_storage_unit(stops):
     """Group delivery stops by storage unit, then by row within the unit.
 
@@ -21428,6 +21893,7 @@ def crew_delivery_view(shift_id):
         total_stops=total_stops,
         done_stops=done_stops,
         route_plan=route_plan,
+        visits=_group_stops_into_visits(stops),
         storage_groups=_group_stops_by_storage_unit(stops),
         loaded_stops=sum(1 for s in stops if s.loaded_at),
     )
@@ -21455,6 +21921,7 @@ def crew_delivery_stops_partial(shift_id):
         'crew/delivery_stops_partial.html',
         shift=shift,
         stops=stops,
+        visits=_group_stops_into_visits(stops),
         delivery_run=delivery_run,
     )
 
@@ -21546,6 +22013,21 @@ def crew_delivery_stop_update(stop_id):
     if status not in ('completed', 'issue'):
         abort(400)
 
+    # Scope: the whole drop-off visit, or just this one item.
+    #
+    # Delivering is a visit-level act — three items left at one door is one knock and
+    # one photo, and the crew should not photograph the same pile three times. So a
+    # completion covers every pending stop in the visit by default.
+    #
+    # Flagging stays item-level: "the sofa did not fit through the door" is about the
+    # sofa, not the order. `scope=visit` on an issue is available for the case where
+    # the whole drop-off failed (nobody home), which is the common one.
+    scope = request.form.get('scope', 'visit' if status == 'completed' else 'item')
+    if scope == 'visit':
+        targets = [s for s in _visit_siblings(stop) if s.status == 'pending'] or [stop]
+    else:
+        targets = [stop]
+
     # Proof of delivery. Required to complete a stop — that is the entire point of
     # it — but a driver with a dead camera must still be able to close the run, so
     # there is an explicit skip that costs them a written reason instead.
@@ -21571,17 +22053,24 @@ def crew_delivery_stop_update(stop_id):
             return redirect(url_for('crew_delivery_view', shift_id=shift_id))
 
     now = _now_eastern().replace(tzinfo=None)
-    stop.status = status
-    stop.notes = notes or None
-    if status == 'completed':
-        # completed_at is the delivery timestamp that goes on the record and into the
-        # buyer's email — written in the same request as the photo, so they always agree.
-        stop.completed_at = now
-        stop.pod_photo_url = photo_filename
-        order = stop.buyer_order
-        order.delivered_at = now
-        db.session.flush()  # sibling status checks must see this stop as completed
-        _maybe_send_delivery_completed_email(stop)
+    for target in targets:
+        target.status = status
+        target.notes = notes or None
+        if status == 'completed':
+            # completed_at is the delivery timestamp on the record and in the buyer's
+            # email — written in the same request as the photo, so they always agree.
+            target.completed_at = now
+            # One photo, referenced by every item it shows. The email de-duplicates
+            # by filename so the buyer sees the pile once, not once per item.
+            target.pod_photo_url = photo_filename
+            target.buyer_order.delivered_at = now
+    db.session.flush()  # sibling status checks must see the new statuses
+    # Run for both outcomes. Flagging the last stop of a part-delivered order is the
+    # moment the buyer needs their email — waiting for a 'completed' that is never
+    # coming is how an order goes silent.
+    _maybe_send_delivery_completed_email(stop)
+    if status == 'issue':
+        _notify_admin_delivery_issue(stop)
     try:
         db.session.commit()
     except Exception:

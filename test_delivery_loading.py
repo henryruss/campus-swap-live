@@ -23,12 +23,27 @@ fixture parameter here — that repoints the URI and drop_all()s campusswap_prod
 
 import pytest
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import uuid
 
 
 def _uid():
     return uuid.uuid4().hex[:10]
+
+
+@pytest.fixture(autouse=True)
+def _never_send_real_email():
+    """Hard block on outbound mail for every test in this module.
+
+    Not optional. The local .env carries a live RESEND_API_KEY, and these routes
+    now email real super admins on an issue flag — a test that resolves a stop
+    outside its own patch() block sends Henry an actual email. That happened.
+    Tests that need to inspect the calls still nest their own patch() inside this
+    one; the inner mock wins for the duration of its block.
+    """
+    from unittest.mock import patch
+    with patch('app.send_email', return_value=True) as m:
+        yield m
 
 
 @pytest.fixture(scope='module')
@@ -69,12 +84,20 @@ def loading_shift(load_client):
         db.session.add_all([unit_a, unit_b])
         db.session.flush()
 
-        week = ShiftWeek.query.filter_by(week_start=date(2026, 8, 24), is_tutorial=False).first()
+        # Anchored to the current week, not a fixed date. The loading checklist is
+        # hidden on a past shift (`is_past`), so a hardcoded date silently stops
+        # exercising it the day it rolls into the past.
+        from app import _today_eastern
+        _today = _today_eastern()
+        _week_start = _today - timedelta(days=_today.weekday())
+        _dow = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][_today.weekday()]
+
+        week = ShiftWeek.query.filter_by(week_start=_week_start, is_tutorial=False).first()
         if not week:
-            week = ShiftWeek(week_start=date(2026, 8, 24), status='published')
+            week = ShiftWeek(week_start=_week_start, status='published')
             db.session.add(week)
             db.session.flush()
-        shift = Shift(week_id=week.id, day_of_week='tue', slot='am', trucks=1)
+        shift = Shift(week_id=week.id, day_of_week=_dow, slot='am', trucks=1)
         db.session.add(shift)
         db.session.flush()
         db.session.add(ShiftAssignment(shift_id=shift.id, worker_id=worker.id,
@@ -419,24 +442,39 @@ class TestCrewPageRendering:
         assert 'Not loaded' in html      # the other four
 
     def test_checklist_hidden_on_a_past_shift(self, load_client, loading_shift):
-        """Nothing left to load on a delivery that already happened."""
+        """Nothing left to load on a delivery that already happened.
+
+        Moves the shift onto a throwaway past week rather than rewriting the
+        week_start of the shared current week — that week may hold real shifts, and
+        a failure between the mutation and the restore would leave them misdated.
+        """
         from app import app as _app, db
         from models import Shift, ShiftWeek
         with _app.app_context():
             shift = Shift.query.get(loading_shift['shift_id'])
-            week = ShiftWeek.query.get(shift.week_id)
-            original = week.week_start
-            week.week_start = date(2020, 1, 6)      # a Monday, long past
+            original_week_id = shift.week_id
+            past_week = ShiftWeek.query.filter_by(week_start=date(2020, 1, 6),
+                                                  is_tutorial=False).first()
+            temp_week_created = past_week is None
+            if temp_week_created:
+                past_week = ShiftWeek(week_start=date(2020, 1, 6), status='published')
+                db.session.add(past_week)
+                db.session.flush()
+            past_week_id = past_week.id
+            shift.week_id = past_week_id
             db.session.commit()
 
-        _login(load_client, loading_shift['worker_email'])
-        resp = load_client.get(f"/crew/delivery/{loading_shift['shift_id']}")
-        _logout(load_client)
-
-        with _app.app_context():
-            week = ShiftWeek.query.get(Shift.query.get(loading_shift['shift_id']).week_id)
-            week.week_start = original
-            db.session.commit()
+        try:
+            _login(load_client, loading_shift['worker_email'])
+            resp = load_client.get(f"/crew/delivery/{loading_shift['shift_id']}")
+            _logout(load_client)
+        finally:
+            with _app.app_context():
+                Shift.query.get(loading_shift['shift_id']).week_id = original_week_id
+                db.session.commit()
+                if temp_week_created:
+                    db.session.delete(ShiftWeek.query.get(past_week_id))
+                    db.session.commit()
 
         assert b'Load the truck' not in resp.data
 
@@ -594,10 +632,13 @@ class TestProofOfDelivery:
         from app import app as _app, db
         from models import DeliveryStop
         with _app.app_context():
-            stop = DeliveryStop.query.get(loading_shift['stop_ids'][0])
-            stop.status = 'completed'
-            stop.completed_at = datetime.utcnow()
-            stop.pod_photo_url = None
+            # The whole visit has to be resolved — a card with anything still pending
+            # is showing action buttons, not an outcome.
+            for stop_id in loading_shift['stop_ids']:
+                stop = DeliveryStop.query.get(stop_id)
+                stop.status = 'completed'
+                stop.completed_at = datetime.utcnow()
+                stop.pod_photo_url = None
             db.session.commit()
 
         _login(load_client, loading_shift['worker_email'])
@@ -649,3 +690,342 @@ class TestDeliveredEmail:
         assert 'Delivered!' in html
         assert 'Where we left it' not in html
         assert 'Delivered at' in html
+
+
+# ---------------------------------------------------------------------------
+# When the buyer hears from us
+#
+# One stop per item, marked individually, so a multi-item order is only settled
+# once every one of its stops is resolved. The email fires on stop update — never
+# on End Run — so a crew member who forgets to close the run cannot mute a buyer.
+# ---------------------------------------------------------------------------
+
+class TestWhenTheBuyerIsEmailed:
+    """All five fixture stops are one buyer on one truck — i.e. a single visit.
+
+    So a default (visit-scoped) completion settles the whole order in one post, which
+    is the point of the visit model: the crew cannot leave two of three items silently
+    unresolved. Tests that need per-item behaviour pass scope='item' explicitly.
+    """
+
+    def _resolve(self, client, stop_id, status, notes='ok', scope=None):
+        data = {'status': status, 'notes': notes}
+        if scope:
+            data['scope'] = scope
+        return client.post(f'/crew/delivery/stop/{stop_id}/update', data=data)
+
+    @pytest.fixture
+    def run(self, load_client, loading_shift):
+        _start_run(__import__('app').app, loading_shift['shift_id'],
+                   loading_shift['worker_id'])
+        _login(load_client, loading_shift['worker_email'])
+        yield
+        _logout(load_client)
+
+    def test_one_post_settles_the_whole_visit_and_emails_once(self, load_client, loading_shift, run):
+        """One knock, one photo, one email — no leftover pending siblings to forget."""
+        from unittest.mock import patch
+        from app import app as _app
+        from models import DeliveryStop
+        with patch('app.send_email') as mock:
+            self._resolve(load_client, loading_shift['stop_ids'][0], 'completed')
+
+        with _app.app_context():
+            statuses = [DeliveryStop.query.get(i).status for i in loading_shift['stop_ids']]
+        assert statuses == ['completed'] * 5
+
+        delivered = [c[0][1] for c in mock.call_args_list if 'has been delivered' in c[0][1]]
+        assert delivered == ['Your Campus Swap order has been delivered']
+
+    def test_one_photo_covers_every_item_in_the_visit(self, load_client, loading_shift, run):
+        """The driver photographs the pile once, not once per item."""
+        from app import app as _app, photo_storage
+        from models import DeliveryStop
+        resp = load_client.post(
+            f"/crew/delivery/stop/{loading_shift['stop_ids'][0]}/update",
+            data={'status': 'completed', 'notes': '',
+                  'pod_photo': (_jpeg_bytes(), 'porch.jpg')},
+            content_type='multipart/form-data')
+        assert resp.status_code == 302
+
+        with _app.app_context():
+            urls = {DeliveryStop.query.get(i).pod_photo_url
+                    for i in loading_shift['stop_ids']}
+            assert len(urls) == 1                  # one file, shared by all five
+            filename = urls.pop()
+            assert filename is not None
+            photo_storage.delete_photo(filename)
+
+    def test_the_email_shows_the_shared_photo_once(self, load_client, loading_shift, run):
+        """De-duplicated by filename, captioned with everything it shows."""
+        from unittest.mock import patch
+        with patch('app.send_email') as mock:
+            load_client.post(
+                f"/crew/delivery/stop/{loading_shift['stop_ids'][0]}/update",
+                data={'status': 'completed', 'notes': '',
+                      'pod_photo': (_jpeg_bytes(), 'porch.jpg')},
+                content_type='multipart/form-data')
+        body = next(c[0][2] for c in mock.call_args_list
+                    if 'has been delivered' in c[0][1])
+        assert body.count('alt="Photo taken at delivery"') == 1
+        # ...but every item it covers is named under it
+        for i in range(5):
+            assert f'Load Item {i}' in body
+
+    def test_end_run_is_not_what_sends_it(self, load_client, loading_shift, run):
+        """A driver who never taps End Run must not leave the buyer uninformed."""
+        from unittest.mock import patch
+        from app import app as _app
+        from models import DeliveryRun
+        self._resolve(load_client, loading_shift['stop_ids'][0], 'completed')
+        with _app.app_context():
+            assert DeliveryRun.query.filter_by(
+                shift_id=loading_shift['shift_id']).first().ended_at is None
+        with patch('app.send_email') as mock:
+            load_client.post(f"/crew/delivery/{loading_shift['shift_id']}/end")
+        assert [c for c in mock.call_args_list if 'delivered' in c[0][1].lower()] == []
+
+    def test_no_email_while_an_item_is_still_pending(self, load_client, loading_shift, run):
+        """Item-scoped completion leaves siblings pending, so nothing sends yet."""
+        from unittest.mock import patch
+        with patch('app.send_email') as mock:
+            for stop_id in loading_shift['stop_ids'][:4]:
+                self._resolve(load_client, stop_id, 'completed', scope='item')
+        assert [c for c in mock.call_args_list if 'delivered' in c[0][1].lower()] == []
+
+    def test_a_flagged_item_no_longer_buries_the_whole_order(self, load_client, loading_shift, run):
+        """Regression: any 'issue' used to mean the email never sent at all, so a
+        buyer was never told about the items that did arrive."""
+        from unittest.mock import patch
+        ids = loading_shift['stop_ids']
+        with patch('app.send_email') as mock:
+            for stop_id in ids[:4]:
+                self._resolve(load_client, stop_id, 'completed', scope='item')
+            self._resolve(load_client, ids[4], 'issue', notes='Sofa would not fit',
+                          scope='item')
+        subjects = [c[0][1] for c in mock.call_args_list]
+        assert subjects.count('Part of your Campus Swap order has been delivered') == 1
+
+    def test_partial_email_names_what_did_not_arrive(self, load_client, loading_shift, run):
+        from unittest.mock import patch
+        from app import app as _app
+        from models import DeliveryStop
+        ids = loading_shift['stop_ids']
+        with _app.app_context():
+            missing = DeliveryStop.query.get(ids[4]).buyer_order.item.description
+        with patch('app.send_email') as mock:
+            for stop_id in ids[:4]:
+                self._resolve(load_client, stop_id, 'completed', scope='item')
+            self._resolve(load_client, ids[4], 'issue', notes='Sofa would not fit',
+                          scope='item')
+
+        body = next(c[0][2] for c in mock.call_args_list
+                    if c[0][1].startswith('Part of your'))
+        assert 'Still to come' in body
+        assert missing in body
+        assert 'be in touch to rearrange' in body
+        # The crew's internal shorthand must not leak to the buyer
+        assert 'Sofa would not fit' not in body
+        # And it must not claim the whole order landed
+        assert 'All 4 of your items' not in body
+
+    def test_flagging_the_visit_flags_every_pending_item(self, load_client, loading_shift, run):
+        """Nobody home applies to the whole doorstep, not one box on it."""
+        from unittest.mock import patch
+        from app import app as _app
+        from models import DeliveryStop
+        with patch('app.send_email'):
+            self._resolve(load_client, loading_shift['stop_ids'][0], 'issue',
+                          notes='Nobody home', scope='visit')
+        with _app.app_context():
+            statuses = [DeliveryStop.query.get(i).status for i in loading_shift['stop_ids']]
+        assert statuses == ['issue'] * 5
+
+    def test_every_item_flagged_means_no_delivered_email(self, load_client, loading_shift, run):
+        """Nothing arrived, so there is nothing to congratulate them on."""
+        from unittest.mock import patch
+        with patch('app.send_email') as mock:
+            self._resolve(load_client, loading_shift['stop_ids'][0], 'issue',
+                          notes='Access denied', scope='visit')
+        subjects = [c[0][1] for c in mock.call_args_list]
+        assert [s for s in subjects if 'delivered' in s.lower()] == []
+
+    def test_a_later_re_attempt_sends_its_own_email(self, load_client, loading_shift, run):
+        """After a partial email, resolving the flagged item must still tell the buyer.
+
+        This is why completed_email_sent_at is stamped only on the stops an email
+        actually covered — stamping the whole group would mute the follow-up.
+        """
+        from unittest.mock import patch
+        ids = loading_shift['stop_ids']
+        with patch('app.send_email'):
+            for stop_id in ids[:4]:
+                self._resolve(load_client, stop_id, 'completed', scope='item')
+            self._resolve(load_client, ids[4], 'issue', notes='Nobody home', scope='item')
+
+        with patch('app.send_email') as mock:
+            self._resolve(load_client, ids[4], 'completed', notes='Re-attempted',
+                          scope='item')
+        subjects = [c[0][1] for c in mock.call_args_list]
+        assert 'Your Campus Swap order has been delivered' in subjects
+
+    def test_re_marking_a_delivered_visit_does_not_re_email(self, load_client, loading_shift, run):
+        from unittest.mock import patch
+        self._resolve(load_client, loading_shift['stop_ids'][0], 'completed')
+        with patch('app.send_email') as mock:
+            self._resolve(load_client, loading_shift['stop_ids'][0], 'completed')
+        assert [c for c in mock.call_args_list if 'delivered' in c[0][1].lower()] == []
+
+
+class TestVisitGrouping:
+    """One card per drop-off, and the server derives the group — never the form."""
+
+    def test_one_visit_for_one_buyers_items(self, load_client, loading_shift):
+        from app import app as _app, _group_stops_into_visits
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = (DeliveryStop.query.filter_by(shift_id=loading_shift['shift_id'])
+                     .order_by(DeliveryStop.stop_order).all())
+            visits = _group_stops_into_visits(stops)
+        assert len(visits) == 1
+        assert len(visits[0]['stops']) == 5
+        assert visits[0]['status'] == 'pending'
+
+    def test_visit_status_rolls_up(self, load_client, loading_shift):
+        from app import app as _app, db, _group_stops_into_visits
+        from models import DeliveryStop
+        ids = loading_shift['stop_ids']
+        with _app.app_context():
+            DeliveryStop.query.get(ids[0]).status = 'completed'
+            DeliveryStop.query.get(ids[1]).status = 'issue'
+            for i in ids[2:]:
+                DeliveryStop.query.get(i).status = 'completed'
+            db.session.commit()
+            stops = DeliveryStop.query.filter_by(shift_id=loading_shift['shift_id']).all()
+            assert _group_stops_into_visits(stops)[0]['status'] == 'partial'
+
+    def test_items_split_across_trucks_are_separate_visits(self, load_client, loading_shift):
+        """Two trucks means two doorsteps' worth of work and two photos."""
+        from app import app as _app, db, _group_stops_into_visits
+        from models import DeliveryStop
+        with _app.app_context():
+            DeliveryStop.query.get(loading_shift['stop_ids'][0]).truck_number = 2
+            db.session.commit()
+            stops = DeliveryStop.query.filter_by(shift_id=loading_shift['shift_id']).all()
+            visits = _group_stops_into_visits(stops)
+            assert len(visits) == 2
+            assert sorted(len(v['stops']) for v in visits) == [1, 4]
+
+    def test_visits_keep_the_optimized_route_order(self, load_client, loading_shift):
+        """A visit sits where its earliest stop sits — grouping must not scramble
+        the ordering the route optimizer solved."""
+        from app import app as _app, db, _group_stops_into_visits
+        from models import DeliveryStop
+        with _app.app_context():
+            # Put one item on truck 2 with an early stop_order, so if grouping
+            # ignored stop_order the two visits would come back the other way round.
+            first = DeliveryStop.query.get(loading_shift['stop_ids'][4])
+            first.truck_number = 2
+            first.stop_order = 0
+            db.session.commit()
+            stops = DeliveryStop.query.filter_by(shift_id=loading_shift['shift_id']).all()
+            visits = _group_stops_into_visits(stops)
+            assert visits[0]['stops'][0].id == loading_shift['stop_ids'][4]
+
+    def test_the_group_is_derived_server_side_not_posted(self, load_client, loading_shift):
+        """The form sends one stop id; a tampered scope cannot reach other buyers.
+
+        Posting against a stop on truck 2 must settle only truck 2's stop, even
+        though the same Order owns four more stops on truck 1.
+        """
+        from app import app as _app, db
+        from models import DeliveryStop
+        ids = loading_shift['stop_ids']
+        _start_run(_app, loading_shift['shift_id'], loading_shift['worker_id'])
+        with _app.app_context():
+            DeliveryStop.query.get(ids[0]).truck_number = 2
+            db.session.commit()
+
+        _login(load_client, loading_shift['worker_email'])
+        load_client.post(f'/crew/delivery/stop/{ids[0]}/update',
+                         data={'status': 'completed', 'notes': 'left it', 'scope': 'visit'})
+        _logout(load_client)
+
+        with _app.app_context():
+            assert DeliveryStop.query.get(ids[0]).status == 'completed'
+            assert [DeliveryStop.query.get(i).status for i in ids[1:]] == ['pending'] * 4
+
+
+
+class TestAdminIssueAlert:
+
+    @pytest.fixture
+    def super_admin(self, loading_shift):
+        from app import app as _app, db
+        from models import User
+        tag = _uid()
+        with _app.app_context():
+            sa = User(email=f'ld_super_{tag}@test.com', full_name='Super Admin',
+                      is_admin=True, is_super_admin=True)
+            sa.set_password('testpass123')
+            db.session.add(sa)
+            db.session.commit()
+            sa_id, sa_email = sa.id, sa.email
+        yield sa_email
+        with _app.app_context():
+            db.session.execute(__import__('sqlalchemy').delete(User).where(User.id == sa_id))
+            db.session.commit()
+
+    def test_flagging_a_stop_emails_the_super_admin(self, load_client, loading_shift, super_admin):
+        from unittest.mock import patch
+        from app import app as _app
+        _start_run(_app, loading_shift['shift_id'], loading_shift['worker_id'])
+        _login(load_client, loading_shift['worker_email'])
+        with patch('app.send_email') as mock:
+            load_client.post(
+                f"/crew/delivery/stop/{loading_shift['stop_ids'][0]}/update",
+                data={'status': 'issue', 'notes': 'Truck could not fit down the street'})
+        _logout(load_client)
+
+        alerts = [c for c in mock.call_args_list if c[0][1].startswith('Delivery issue:')]
+        # Every super admin gets it, and each gets it exactly once. The snapshot DB
+        # already holds real super admins, so don't assume this fixture is the only one.
+        with _app.app_context():
+            from models import User
+            expected = {u.email for u in User.query.filter(
+                User.is_super_admin == True, User.unsubscribed == False).all()}
+        recipients = [c[0][0] for c in alerts]
+        assert super_admin in recipients
+        assert sorted(recipients) == sorted(expected)
+        body = alerts[0][0][2]
+        # The crew's reason is exactly what the admin needs, unlike the buyer
+        assert 'Truck could not fit down the street' in body
+        assert 'Load Driver' in body           # who flagged it
+
+    def test_completing_a_stop_does_not_alert(self, load_client, loading_shift, super_admin):
+        from unittest.mock import patch
+        from app import app as _app
+        _start_run(_app, loading_shift['shift_id'], loading_shift['worker_id'])
+        _login(load_client, loading_shift['worker_email'])
+        with patch('app.send_email') as mock:
+            load_client.post(f"/crew/delivery/stop/{loading_shift['stop_ids'][0]}/update",
+                             data={'status': 'completed', 'notes': 'Left on porch'})
+        _logout(load_client)
+        assert [c for c in mock.call_args_list if c[0][1].startswith('Delivery issue:')] == []
+
+    def test_a_failing_alert_does_not_break_the_stop_update(self, load_client, loading_shift, super_admin):
+        """The crew's work must survive a broken mail provider."""
+        from unittest.mock import patch
+        from app import app as _app
+        from models import DeliveryStop
+        stop_id = loading_shift['stop_ids'][0]
+        _start_run(_app, loading_shift['shift_id'], loading_shift['worker_id'])
+        _login(load_client, loading_shift['worker_email'])
+        with patch('app.send_email', side_effect=RuntimeError('resend is down')):
+            resp = load_client.post(f'/crew/delivery/stop/{stop_id}/update',
+                                    data={'status': 'issue', 'notes': 'Nobody home'})
+        _logout(load_client)
+
+        assert resp.status_code == 302
+        with _app.app_context():
+            assert DeliveryStop.query.get(stop_id).status == 'issue'

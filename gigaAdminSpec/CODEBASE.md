@@ -744,11 +744,17 @@ Bundle & Save: when `item_count >= bundle_min_items` (AppSetting, default 2) the
 ### Delivery Routes (Spec D1)
 Delivery vs pickup is determined at the truck level by the presence of `DeliveryStop` (delivery) vs `ShiftPickup` (pickup) records — `shift_type` is NOT a stored column. A truck cannot mix both (guarded in the add-stop and assign-seller routes).
 
+**Pickup vs delivery orders.** A sold item is a *buyer pickup* — never routed onto a truck — when either (a) the buyer used the free-delivery promo code at checkout (`Order.promo_code` is set) or (b) we marked it sold by hand, which creates no `BuyerOrder` at all. `_order_is_pickup(buyer_order)` is the single classifier; `_build_pickup_queue()` feeds the "Pickup" tab of the ops sidebar and `_build_delivery_queue()` filters those orders out. Handoff is recorded on `InventoryItem.picked_up_by_buyer_at` / `picked_up_by_buyer_by_id` (migration `39737a4ac282`) — pickups never produce a `DeliveryStop`, so that stamp is the only record the buyer took the item.
+
 | Route | Function | Notes |
 |---|---|---|
-| `GET /admin/ops/delivery-queue` | `admin_ops_delivery_queue` | HTML partial — paid BuyerOrders awaiting delivery assignment. `_has_ops_access()`. |
+| `GET /admin/ops/delivery-queue` | `admin_ops_delivery_queue` | HTML partial — paid BuyerOrders awaiting delivery assignment. Excludes pickup orders. `_has_ops_access()`. |
+| `GET /admin/ops/pickup-queue` | `admin_ops_pickup_queue` | HTML partial — sold items the buyer collects themselves (`_build_pickup_queue()`). `_has_ops_access()`. |
+| `POST /admin/pickup/mark-picked-up` | `admin_pickup_mark_picked_up` | Stamp `InventoryItem.picked_up_by_buyer_at` on a pickup group. Idempotent. Form: `item_ids` (comma-separated). |
+| `POST /admin/pickup/undo-picked-up` | `admin_pickup_undo_picked_up` | Clear the pickup stamp — misclick recovery. |
 | `POST /admin/delivery/shift/<shift_id>/add-stop` | `admin_delivery_add_stop` | Add a DeliveryStop (buyer order) to a shift+truck. Blocks if the truck has ShiftPickups. |
 | `POST /admin/delivery/shift/<shift_id>/remove-stop/<stop_id>` | `admin_delivery_remove_stop` | Remove a DeliveryStop. |
+| `POST /admin/delivery/stop/<stop_id>/move` | `admin_delivery_move_stop` | Move an `issue` stop onto a different shift+truck. Moves the row (BuyerOrder.delivery_stop is 1:1), resets it to pending, clears completion/POD/notification/load state, and keeps the failed attempt as a dated line in `notes`. Issue stops only. |
 | `POST /admin/delivery/stop/<stop_id>/notify` | `admin_delivery_notify_stop` | Notify buyer of delivery window (per-stop). |
 | `POST /admin/crew/shift/<shift_id>/notify-buyers` | `admin_shift_notify_buyers` | Bulk-send the "delivery scheduled" email to every unnotified buyer on the shift's delivery route. Flashes count, redirects to `admin_ops`. `_has_ops_access()`. |
 | `GET /admin/ops/delivery-truck-detail` | `admin_ops_delivery_truck_detail` | HTML partial for delivery truck drawer. Params: shift_id, truck. |

@@ -480,6 +480,48 @@
   }
   .unassigned-sublabel { font-size: 0.75rem; color: var(--text-muted); }
 
+  /* ── Queue tabs: delivery vs buyer pickup ── */
+  .ops-queue-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 3px;
+  }
+  .ops-queue-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 5px 8px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .ops-queue-tab:hover { color: var(--text-main); }
+  .ops-queue-tab.active {
+    background: var(--card-bg);
+    color: var(--text-main);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+  .ops-queue-tab-badge {
+    background: var(--primary);
+    color: var(--text-light);
+    border-radius: 20px;
+    padding: 0 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  .ops-queue-tab.active .ops-queue-tab-badge { background: var(--accent); }
+
   .cluster-header {
     font-size: 0.68rem;
     font-weight: 700;
@@ -1407,25 +1449,44 @@
 
     {% endif %}
 
-    {# ── Unassigned Deliveries ── #}
+    {# ── Unassigned sold items: deliveries vs buyer pickups ──
+       Pickup orders (free-delivery promo code, or sold by hand) never go on a truck, so
+       they get their own tab rather than sitting in the delivery queue as noise. #}
     <div style="border-top: var(--card-border); padding: 14px 12px 10px; position:sticky; top:0; background:white; z-index:9;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
-        <h3 style="font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin:0;">
-          Unassigned Deliveries
-        </h3>
-        {% if delivery_queue %}
-        <span style="background:#0d9488; color:white; border-radius:20px; padding:1px 8px; font-size:0.72rem; font-weight:700;">
-          {{ delivery_queue | length }}
-        </span>
-        {% endif %}
+      <h3 style="font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin:0 0 8px;">
+        Unassigned Sales
+      </h3>
+      <div class="ops-queue-tabs" role="tablist">
+        <button type="button" class="ops-queue-tab active" data-queue-tab="delivery" role="tab">
+          Delivery
+          {% if delivery_queue %}
+          <span class="ops-queue-tab-badge" id="delivery-count-badge">{{ delivery_queue | length }}</span>
+          {% endif %}
+        </button>
+        <button type="button" class="ops-queue-tab" data-queue-tab="pickup" role="tab">
+          Pickup
+          {% if pickup_queue %}
+          <span class="ops-queue-tab-badge" id="pickup-count-badge">{{ pickup_queue | length }}</span>
+          {% endif %}
+        </button>
       </div>
-      <div style="font-size:0.75rem; color:var(--text-muted);">Sold items awaiting delivery assignment</div>
+      <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;"
+           id="ops-queue-sublabel"
+           data-delivery-label="Sold items awaiting delivery assignment"
+           data-pickup-label="Buyer is collecting these &mdash; no truck needed">
+        Sold items awaiting delivery assignment
+      </div>
     </div>
-    <div id="delivery-queue-list">
+    <div id="delivery-queue-list" data-queue-panel="delivery">
       {# The partial loops over `orders` and `upcoming_shifts`; the ops route names them
          `delivery_queue` / `upcoming_delivery_shifts`, so map them here. #}
       {% with orders = delivery_queue, upcoming_shifts = upcoming_delivery_shifts %}
         {% include 'admin/ops_delivery_queue_partial.html' with context %}
+      {% endwith %}
+    </div>
+    <div id="pickup-queue-list" data-queue-panel="pickup" style="display:none;">
+      {% with pickup_orders = pickup_queue %}
+        {% include 'admin/ops_pickup_queue_partial.html' with context %}
       {% endwith %}
     </div>
   </aside>
@@ -1771,6 +1832,25 @@
     chip.replaceWith(newChip);
     _pickerCurrentUnitId = unitId;
   }
+
+  // ── Delivery / Pickup queue tabs ──
+  (function() {
+    var tabs = document.querySelectorAll('.ops-queue-tab');
+    if (!tabs.length) return;
+    var sublabel = document.getElementById('ops-queue-sublabel');
+    tabs.forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        var which = tab.dataset.queueTab;
+        tabs.forEach(function(t) { t.classList.toggle('active', t === tab); });
+        document.querySelectorAll('[data-queue-panel]').forEach(function(panel) {
+          panel.style.display = (panel.dataset.queuePanel === which) ? '' : 'none';
+        });
+        if (sublabel) {
+          sublabel.innerHTML = sublabel.dataset[which === 'pickup' ? 'pickupLabel' : 'deliveryLabel'];
+        }
+      });
+    });
+  })();
 
   // ── Intercept unassigned panel assign forms to use fetch (enables 422 unit_required gate) ──
   document.addEventListener('submit', function(e) {

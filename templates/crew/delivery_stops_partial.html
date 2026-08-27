@@ -2,10 +2,10 @@
    the full page — including the action buttons — via the shared macro. Before
    they were unified, this partial omitted the buttons, so Mark Delivered and
    Flag Issue disappeared 30 seconds after page load. #}
-{% from "crew/_delivery_stop_card.html" import stop_card with context %}
+{% from "crew/_delivery_stop_card.html" import visit_card with context %}
 <div id="stop-list" data-delivery-stops-partial="1">
-{% for stop in stops %}
-  {{ stop_card(stop, delivery_run) }}
+{% for visit in visits %}
+  {{ visit_card(visit, delivery_run) }}
 {% else %}
 <p style="color:var(--text-muted); font-size:0.875rem; text-align:center; padding:24px 0;">No stops assigned.</p>
 {% endfor %}

@@ -144,6 +144,15 @@
           {% endif %}
         </button>
 
+        {# Move to another route — issue stops only. A failed attempt still owes the
+           buyer a delivery, and Remove is blocked once the run has started. #}
+        {% if stop.status == 'issue' %}
+        <button type="button" class="btn-xs" id="move-btn-{{ stop.id }}"
+                onclick="toggleMoveStopForm({{ stop.id }})">
+          <i class="fas fa-route"></i> Move to another route
+        </button>
+        {% endif %}
+
         {# Remove button — pre-run only #}
         {% if not delivery_run and stop.status == 'pending' %}
         <form method="POST"
@@ -157,6 +166,27 @@
         </form>
         {% endif %}
       </div>
+
+      {% if stop.status == 'issue' %}
+      <div id="move-stop-form-{{ stop.id }}" style="display:none; margin-top:6px;">
+        <div style="display:flex; gap:6px; width:100%;">
+          <select id="move-stop-target-{{ stop.id }}"
+                  style="flex:1; font-size:0.75rem; padding:4px; border:1px solid var(--rule); border-radius:6px;">
+            {% for opt in move_options %}
+            {% if not (opt.shift.id == stop.shift_id and opt.truck_number == stop.truck_number) %}
+            <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+          <button type="button" class="btn-sm primary" style="flex-shrink:0;"
+                  onclick="moveDeliveryStop({{ stop.id }})">Move</button>
+        </div>
+        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
+          Resets the stop to pending and clears the delivery photo and buyer notification.
+          The failed attempt is kept in the stop notes.
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
@@ -187,6 +217,33 @@ function editBuyerPhone(buyerOrderId) {
       }
     })
     .catch(function() { alert('Could not save the phone number.'); });
+}
+
+function toggleMoveStopForm(stopId) {
+  var form = document.getElementById('move-stop-form-' + stopId);
+  if (!form) return;
+  form.style.display = (form.style.display === 'none') ? 'block' : 'none';
+}
+
+function moveDeliveryStop(stopId) {
+  var select = document.getElementById('move-stop-target-' + stopId);
+  if (!select || !select.value) { alert('Pick a route and truck.'); return; }
+  var label = select.options[select.selectedIndex].text;
+  if (!confirm('Move this stop to ' + label + '?')) return;
+
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  var csrf = csrfMeta ? csrfMeta.content : (document.querySelector('input[name="csrf_token"]') || {}).value || '';
+  var fd = new FormData();
+  fd.append('csrf_token', csrf);
+  fd.append('shift_truck', select.value);
+  fd.append('ajax', '1');
+  fetch('/admin/delivery/stop/' + stopId + '/move', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert(data.error); return; }
+      window.location.href = '/admin/ops?shift_id=' + data.shift_id;
+    })
+    .catch(function() { alert('Could not move that stop.'); });
 }
 
 function notifyDeliveryBuyer(stopId) {

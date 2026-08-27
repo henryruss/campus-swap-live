@@ -223,6 +223,12 @@ class InventoryItem(db.Model):
     sold_in_person = db.Column(db.Boolean, default=False, server_default='0', nullable=False)
     amount_collected = db.Column(db.Numeric(10, 2), nullable=True)
     sold_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    # Buyer-pickup fulfillment. A sale is a pickup when the buyer used the free-delivery
+    # promo code at checkout, or when we marked the item sold by hand (a FB/in-person
+    # deal that never had a BuyerOrder). Those sales never get a DeliveryStop, so this
+    # is the only record that the buyer actually took the item.
+    picked_up_by_buyer_at = db.Column(db.DateTime, nullable=True)
+    picked_up_by_buyer_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     payout_sent = db.Column(db.Boolean, default=False)  # Whether seller has been paid
     payout_sent_at = db.Column(db.DateTime, nullable=True)  # When payout was marked sent (set by admin via /admin/payouts)
     
@@ -260,6 +266,7 @@ class InventoryItem(db.Model):
     quick_capture_shift = db.relationship('Shift', foreign_keys=[quick_capture_shift_id], backref='quick_captured_items')
     captured_by = db.relationship('User', foreign_keys=[captured_by_id])
     sold_by = db.relationship('User', foreign_keys=[sold_by_id])
+    picked_up_by_buyer_by = db.relationship('User', foreign_keys=[picked_up_by_buyer_by_id])
 
     # DRIVER PLACEMENT (set during driver placement step after shift)
     placement_status = db.Column(db.String(20), nullable=True)  # None | 'placed' | 'not_picked_up'

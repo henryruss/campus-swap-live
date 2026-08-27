@@ -1,79 +1,138 @@
 {#
-  Single source of truth for a crew delivery stop card.
+  Single source of truth for a crew delivery card.
 
-  Used by three renderings that previously each had their own copy:
+  A card is one DROP-OFF VISIT, not one item. DeliveryStop rows are per item
+  (BuyerOrder is one row per item), so a buyer with three items used to get three
+  cards, three Mark Delivered buttons and three photos of the same pile at the same
+  door. Now `visit` carries all the stops for one buyer at one address on one truck:
+  one knock, one photo, one email.
+
+  Loading stays per item — you carry each piece onto the truck separately — so the
+  loading checklist in delivery.html still works stop by stop.
+
+  Used by three renderings:
     - delivery.html pre-run preview   (delivery_run is None)
     - delivery.html in-progress list  (delivery_run set)
     - delivery_stops_partial.html     (the 30s auto-refresh)
 
-  They had drifted: the auto-refresh partial rendered no action buttons, so
-  Mark Delivered / Flag Issue silently vanished 30 seconds after page load.
-  Keep this macro as the only place a stop card is defined.
+  They had drifted once: the auto-refresh partial rendered no action buttons, so
+  Mark Delivered / Flag Issue silently vanished 30 seconds after page load. Keep
+  this macro as the only place a card is defined.
 #}
 {% set ROW_LABELS = {'back_left':'Back Left','middle_left':'Middle Left','front_left':'Front Left',
                      'back_right':'Back Right','middle_right':'Middle Right','front_right':'Front Right'} %}
 
-{% macro stop_card(stop, delivery_run) %}
-{% set order = stop.buyer_order %}
-{% set item = order.item %}
+{% macro visit_card(visit, delivery_run) %}
+{% set order = visit.order %}
+{% set primary = visit.primary %}
+{% set stops = visit.stops %}
 {% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
+{% set buyer_name = (order.order.buyer_name if order.order and order.order.buyer_name else None) %}
+{% set is_live = delivery_run and delivery_run.status == 'in_progress' %}
+{% set pending_stops = stops | selectattr('status', 'equalto', 'pending') | list %}
 {# No `origin` on purpose: Google Maps falls back to the device's current location,
    which is the only correct start once the truck is out making drop-offs. This link
    used to hardcode the warehouse, so every stop after the first routed the driver
    back to Carrboro first. The destination is still sent as address text — that one
    is fully qualified, unlike the bare storage-row street lines. #}
 {% set directions_url = 'https://www.google.com/maps/dir/?api=1&destination=' ~ (order.delivery_address | urlencode) ~ '&travelmode=driving' %}
-<div class="stop-card" data-stop-id="{{ stop.id }}">
+
+<div class="stop-card" data-visit-id="{{ primary.id }}">
   <div class="stop-card-header">
-    <span>
-      <span class="stop-id-badge">#{{ item.id }}</span>
-      <span class="stop-item-title">{{ item.description }}</span>
+    <span class="stop-item-title">
+      {{ buyer_name or order.buyer_email or 'Buyer' }}
+      {% if stops | length > 1 %}
+      <span class="visit-count">{{ stops | length }} items</span>
+      {% endif %}
     </span>
-    <span class="stop-badge badge-{{ stop.status }}">{{ stop.status }}</span>
+    <span class="stop-badge badge-{{ visit.status }}">{{ visit.status }}</span>
   </div>
 
-  {% if item.photo_url %}
-  <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}" class="stop-thumb">
-  {% else %}
-  <div class="stop-thumb" style="background:var(--bg-cream); display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
-    <i class="fas fa-image" style="font-size:1.8rem;"></i>
-  </div>
-  {% endif %}
-
-  {# Where to load it from #}
-  {% if item.storage_location %}
-  <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.85rem;">
-    <div style="font-weight:700; color:#166534; margin-bottom:2px;">
-      <i class="fas fa-warehouse"></i>
-      {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ ROW_LABELS.get(item.storage_row, item.storage_row) }}{% endif %}
+  {# Every item going to this door, each with where to load it from. #}
+  {% for stop in stops %}
+  {% set item = stop.buyer_order.item %}
+  <div class="visit-item" data-stop-id="{{ stop.id }}">
+    {% if item.photo_url %}
+    <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+         alt="{{ item.description }}" class="visit-item-thumb">
+    {% else %}
+    <span class="visit-item-thumb visit-item-thumb-empty"><i class="fas fa-image"></i></span>
+    {% endif %}
+    <div class="visit-item-body">
+      <div class="visit-item-title">
+        <span class="stop-id-badge">#{{ item.id }}</span> {{ item.description }}
+      </div>
+      <div class="visit-item-meta">
+        {% if item.storage_location %}
+        <i class="fas fa-warehouse"></i>
+        {{ item.storage_location.name }}{% if item.storage_row %} &middot; {{ ROW_LABELS.get(item.storage_row, item.storage_row) }}{% endif %}
+        {% else %}
+        <i class="fas fa-warehouse"></i> Storage not assigned
+        {% endif %}
+        &nbsp;&middot;&nbsp;
+        {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
+      </div>
+      <div class="visit-item-badges">
+        {# Echoes the loading checklist so a driver at the door knows the item is
+           aboard without scrolling back up to it. #}
+        {% if stop.loaded_at %}
+        <span class="stop-unit-badge stop-load-badge is-loaded" data-load-badge>
+          <i class="fas fa-check"></i> On truck
+        </span>
+        {% elif stop.status == 'pending' %}
+        <span class="stop-unit-badge stop-load-badge" data-load-badge>
+          <i class="fas fa-dolly"></i> Not loaded
+        </span>
+        {% endif %}
+        {# Per-item outcome, so a mixed visit is legible at a glance. #}
+        {% if stop.status == 'completed' %}
+        <span class="stop-unit-badge" style="background:#dcfce7; color:#166534;">
+          <i class="fas fa-check-circle"></i> Delivered
+          {%- if stop.completed_at %} {{ stop.completed_at.strftime('%-I:%M %p') }}{% endif %}
+        </span>
+        {% elif stop.status == 'issue' %}
+        <span class="stop-unit-badge" style="background:#fef3c7; color:#92400e;">
+          <i class="fas fa-exclamation-triangle"></i> Issue
+        </span>
+        {% endif %}
+      </div>
+      {% if stop.notes and stop.status != 'pending' %}
+      <div class="visit-item-note"><i class="fas fa-sticky-note"></i> {{ stop.notes }}</div>
+      {% endif %}
+      {# Item-level exception: this one piece could not go, the rest did. #}
+      {% if stop.status == 'pending' and is_live and stops | length > 1 %}
+      <button type="button" class="visit-item-issue"
+              onclick="openNotes('issue-{{ stop.id }}')">
+        Can't deliver this item
+      </button>
+      <div class="inline-notes-form" id="issue-{{ stop.id }}">
+        <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="status" value="issue"/>
+          <input type="hidden" name="scope" value="item"/>
+          <label class="pod-label">What happened with {{ item.description }}?</label>
+          <textarea name="notes" placeholder="What happened?"></textarea>
+          <div class="confirm-row">
+            <button type="submit" class="btn-confirm issue-confirm">Flag this item</button>
+            <button type="button" class="btn-cancel-inline"
+                    onclick="closeNotes('issue-{{ stop.id }}')">Cancel</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
     </div>
-    {% if item.storage_location.address %}
-    <div style="color:#166534; font-size:0.8rem;">{{ item.storage_location.address }}</div>
-    {% endif %}
-    {% if item.storage_location.location_note %}
-    <div style="color:#15803d; font-size:0.78rem; margin-top:2px; font-style:italic;">{{ item.storage_location.location_note }}</div>
-    {% endif %}
   </div>
-  {% else %}
-  <div style="font-size:0.8rem; color:var(--text-muted); margin:6px 0;">
-    <i class="fas fa-warehouse"></i> Storage location not yet assigned
-  </div>
-  {% endif %}
+  {% endfor %}
 
   {# Who it's going to — the driver needs this at the door #}
-  {% set buyer_name = (order.order.buyer_name if order.order and order.order.buyer_name else None) %}
-  <div style="background:#f8fafc; border:1px solid var(--rule); border-radius:8px; padding:8px 12px; margin:8px 0; font-size:0.875rem;">
-    <div style="font-weight:700; color:var(--text-main);">
-      <i class="fas fa-user" style="color:var(--text-muted); font-weight:400;"></i>
-      {{ buyer_name or order.buyer_email or 'Buyer' }}
-    </div>
+  <div style="background:#f8fafc; border:1px solid var(--rule); border-radius:8px; padding:8px 12px; margin:10px 0 8px; font-size:0.875rem;">
     {% if buyer_phone %}
-    <div style="margin-top:2px;">
+    <div>
       <i class="fas fa-phone" style="color:var(--text-muted);"></i>
       <a href="tel:{{ buyer_phone }}" style="color:#0d9488; font-weight:600;">{{ buyer_phone }}</a>
     </div>
     {% else %}
-    <div style="margin-top:2px; color:var(--text-muted); font-size:0.8rem;">
+    <div style="color:var(--text-muted); font-size:0.8rem;">
       <i class="fas fa-phone-slash"></i> No phone on file
     </div>
     {% endif %}
@@ -108,46 +167,40 @@
     {% endif %}
   </div>
 
-  <span class="stop-unit-badge">
-    {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u
-  </span>
-  {# Echoes the loading checklist so a driver at the door knows the item is aboard
-     without scrolling back up to it. #}
-  {% if stop.loaded_at %}
-  <span class="stop-unit-badge stop-load-badge is-loaded" data-load-badge>
-    <i class="fas fa-check"></i> On truck
-  </span>
-  {% elif stop.status == 'pending' %}
-  <span class="stop-unit-badge stop-load-badge" data-load-badge>
-    <i class="fas fa-dolly"></i> Not loaded
-  </span>
-  {% endif %}
-
-  {% if stop.status == 'pending' and delivery_run and delivery_run.status == 'in_progress' %}
+  {% if pending_stops and is_live %}
   <div class="stop-actions">
-    <button class="btn-stop-action btn-complete" onclick="openNotes('complete-{{ stop.id }}')">
-      <i class="fas fa-check"></i> Mark Delivered
+    <button class="btn-stop-action btn-complete" onclick="openNotes('complete-{{ primary.id }}')">
+      <i class="fas fa-check"></i>
+      {% if pending_stops | length > 1 %}Delivered — all {{ pending_stops | length }}{% else %}Mark Delivered{% endif %}
     </button>
-    <button class="btn-stop-action btn-issue" onclick="openNotes('issue-{{ stop.id }}')">
+    <button class="btn-stop-action btn-issue" onclick="openNotes('visit-issue-{{ primary.id }}')">
       <i class="fas fa-exclamation"></i> Flag Issue
     </button>
   </div>
 
-  <div class="inline-notes-form" id="complete-{{ stop.id }}">
+  <div class="inline-notes-form" id="complete-{{ primary.id }}">
     {# enctype matters: without it the photo posts as a filename string and the
        server sees no file at all. #}
-    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}"
+    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=primary.id) }}"
           enctype="multipart/form-data" data-pod-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <input type="hidden" name="status" value="completed"/>
+      {# The server re-derives which stops this covers from primary.id — the form
+         never sends the list, so it cannot be tampered into marking other items. #}
+      <input type="hidden" name="scope" value="visit"/>
 
-      <label class="pod-label">Photo of the drop-off</label>
+      <label class="pod-label">
+        Photo of the drop-off
+        {% if pending_stops | length > 1 %}
+        <span style="font-weight:400;">— one photo covers all {{ pending_stops | length }}</span>
+        {% endif %}
+      </label>
       {# capture="environment" opens the rear camera straight from the OS, which
          sidesteps the getUserMedia resolution trap (no explicit width/height and
          you silently get VGA) and gives a full-resolution shot for free. #}
       <input type="file" name="pod_photo" accept="image/*" capture="environment"
-             class="pod-input" id="pod-input-{{ stop.id }}" data-pod-input/>
-      <label for="pod-input-{{ stop.id }}" class="pod-btn" data-pod-trigger>
+             class="pod-input" id="pod-input-{{ primary.id }}" data-pod-input/>
+      <label for="pod-input-{{ primary.id }}" class="pod-btn" data-pod-trigger>
         <i class="fas fa-camera"></i> <span>Take photo</span>
       </label>
       <img class="pod-preview" data-pod-preview alt=""/>
@@ -162,44 +215,42 @@
 
       <div class="confirm-row">
         <button type="submit" class="btn-confirm">Confirm Delivered</button>
-        <button type="button" class="btn-cancel-inline" onclick="closeNotes('complete-{{ stop.id }}')">Cancel</button>
+        <button type="button" class="btn-cancel-inline" onclick="closeNotes('complete-{{ primary.id }}')">Cancel</button>
       </div>
     </form>
   </div>
 
-  <div class="inline-notes-form" id="issue-{{ stop.id }}">
-    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=stop.id) }}">
+  <div class="inline-notes-form" id="visit-issue-{{ primary.id }}">
+    <form method="POST" action="{{ url_for('crew_delivery_stop_update', stop_id=primary.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <input type="hidden" name="status" value="issue"/>
-      <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Describe the issue</label>
-      <textarea name="notes" placeholder="What happened?"></textarea>
+      <input type="hidden" name="scope" value="visit"/>
+      <label class="pod-label">
+        Describe the issue
+        {% if pending_stops | length > 1 %}
+        <span style="font-weight:400;">— applies to all {{ pending_stops | length }} items</span>
+        {% endif %}
+      </label>
+      <textarea name="notes" placeholder="Nobody home, no access, wrong address…"></textarea>
       <div class="confirm-row">
         <button type="submit" class="btn-confirm issue-confirm">Confirm Issue</button>
-        <button type="button" class="btn-cancel-inline" onclick="closeNotes('issue-{{ stop.id }}')">Cancel</button>
+        <button type="button" class="btn-cancel-inline" onclick="closeNotes('visit-issue-{{ primary.id }}')">Cancel</button>
       </div>
     </form>
   </div>
+  {% endif %}
 
-  {% elif stop.status != 'pending' %}
-  {% if stop.notes %}
-  <div class="stop-notes-resolved">
-    <i class="fas fa-sticky-note"></i> {{ stop.notes }}
-  </div>
-  {% endif %}
-  {% if stop.completed_at %}
-  <div style="font-size:0.8rem; color:#166534; margin-top:6px;">
-    <i class="fas fa-check-circle"></i> {{ stop.completed_at.strftime('%-I:%M %p') }}
-  </div>
-  {% endif %}
-  {# The proof, once it exists — the crew can check what they sent the buyer. #}
-  {% if stop.pod_photo_url %}
-  <img src="{{ url_for('uploaded_file', filename=stop.pod_photo_url) }}"
+  {# The proof, once it exists — the crew can check what they sent the buyer.
+     De-duplicated: one photo covers the whole visit, so several stops share it. #}
+  {% set proof_photos = stops | map(attribute='pod_photo_url') | select | unique | list %}
+  {% for filename in proof_photos %}
+  <img src="{{ url_for('uploaded_file', filename=filename) }}"
        alt="Photo taken at delivery" class="pod-proof">
-  {% elif stop.status == 'completed' %}
+  {% endfor %}
+  {% if not proof_photos and visit.status in ('completed', 'partial') %}
   <div class="pod-hint" style="margin-top:6px;">
     <i class="fas fa-camera"></i> No delivery photo taken
   </div>
-  {% endif %}
   {% endif %}
 </div>
 {% endmacro %}

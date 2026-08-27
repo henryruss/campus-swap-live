@@ -1,0 +1,130 @@
+{# Buyer-pickup queue — sold items the buyer collects themselves, so they never get a truck.
+   Two sources, distinguished by the `source` key: 'promo' (free-delivery promo code at
+   checkout, so we have buyer contact details) and 'manual' (we marked it sold by hand —
+   an in-person or FB deal that never created a BuyerOrder). #}
+
+{% if not pickup_orders %}
+<div style="padding: 20px 12px; font-size: 0.83rem; color: var(--text-muted); text-align: center;">
+  No pickups awaiting handoff.
+</div>
+{% endif %}
+
+{% for group in pickup_orders %}
+{% set primary_item = group.item_photos[0] if group.item_photos else None %}
+{% set group_key = group.item_ids[0] %}
+<div class="unassigned-pickup-card" data-item-ids="{{ group.item_ids | join(',') }}"
+     id="pickup-card-{{ group_key }}"
+     style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; font-size: 0.82rem;">
+  <div style="display:flex; align-items:flex-start; gap:8px;">
+    {% if primary_item and primary_item.cover_url %}
+    <img src="{{ primary_item.cover_url }}" alt="{{ primary_item.description }}"
+         style="width:44px; height:44px; border-radius:6px; object-fit:cover; flex-shrink:0; border:1px solid var(--rule);">
+    {% else %}
+    <div style="width:44px; height:44px; border-radius:6px; background:var(--bg-cream); border:1px solid var(--rule); flex-shrink:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
+      <i class="fas fa-box"></i>
+    </div>
+    {% endif %}
+    <div style="flex:1; min-width:0;">
+      <div style="font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:4px;">
+        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          {% if group.item_ids | length > 1 %}
+            {{ group.item_ids | length }} items
+          {% else %}
+            {{ primary_item.description if primary_item else 'Item' }}
+            <span style="font-size:0.68rem; background:#f1f5f9; color:var(--text-muted); border-radius:6px; padding:1px 5px; margin-left:4px;">#{{ group_key }}</span>
+          {% endif %}
+        </span>
+        <button class="ops-photo-btn"
+                data-seller-name="{{ group.buyer_name or 'Buyer pickup' }}"
+                data-items='{{ group.item_photos | tojson }}'
+                aria-label="View items"
+                onclick="event.stopPropagation(); openPhotoModal(this)">
+          <i class="fas fa-camera"></i>
+        </button>
+      </div>
+
+      {# Source chip — tells you at a glance whether there is a buyer on file to call. #}
+      <div style="margin-top:3px;">
+        {% if group.source == 'promo' %}
+        <span style="font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+                     background:#fef3c7; color:#92400e; border-radius:6px; padding:1px 6px;">
+          Promo {{ group.promo_code | upper }}
+        </span>
+        {% else %}
+        <span style="font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+                     background:#e0e7ff; color:#3730a3; border-radius:6px; padding:1px 6px;">
+          Sold by hand
+        </span>
+        {% endif %}
+      </div>
+
+      {% if group.buyer_name %}
+      <div style="font-size:0.74rem; color:var(--text-main); font-weight:600; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        <i class="fas fa-user" style="color:var(--text-muted); font-weight:400;"></i>
+        {{ group.buyer_name }}
+      </div>
+      {% endif %}
+      {% if group.buyer_email %}
+      <div style="font-size:0.73rem; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        <i class="fas fa-envelope"></i>
+        <a href="mailto:{{ group.buyer_email }}" style="color:inherit;">{{ group.buyer_email }}</a>
+      </div>
+      {% endif %}
+      {% if group.buyer_phone %}
+      <div style="font-size:0.73rem; color:var(--text-muted); margin-top:2px; white-space:nowrap;">
+        <i class="fas fa-phone"></i>
+        <a href="tel:{{ group.buyer_phone }}" style="color:inherit;">{{ group.buyer_phone }}</a>
+      </div>
+      {% endif %}
+      <div style="font-size:0.73rem; color:var(--text-muted); margin-top:1px;">
+        {{ group.unit_total | round(1) }}u
+        {% if group.sold_at %}&middot; sold {{ group.sold_at.strftime('%b %-d') }}{% endif %}
+      </div>
+
+      <div style="margin-top:6px;">
+        <button type="button" class="btn-sm primary" style="font-size:0.72rem; padding:3px 10px;"
+                onclick="markPickedUp('{{ group.item_ids | join(',') }}', {{ group_key }})">
+          <i class="fas fa-check"></i> Mark picked up
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+(function() {
+  if (window.__pickupQueueInit) return;
+  window.__pickupQueueInit = true;
+
+  function csrf() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta) return meta.content;
+    var input = document.querySelector('input[name="csrf_token"]');
+    return input ? input.value : '';
+  }
+
+  function markPickedUp(itemIds, groupKey) {
+    if (!confirm('Mark this handed over to the buyer?')) return;
+    var fd = new FormData();
+    fd.append('csrf_token', csrf());
+    fd.append('item_ids', itemIds);
+    fd.append('ajax', '1');
+    fetch('/admin/pickup/mark-picked-up', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        var card = document.getElementById('pickup-card-' + groupKey);
+        if (card) card.remove();
+        var badge = document.getElementById('pickup-count-badge');
+        if (badge) {
+          var n = Math.max(0, parseInt(badge.textContent, 10) - 1);
+          badge.textContent = n;
+          if (n === 0) badge.style.display = 'none';
+        }
+      })
+      .catch(function() { alert('Could not mark that picked up.'); });
+  }
+  window.markPickedUp = markPickedUp;
+})();
+</script>
