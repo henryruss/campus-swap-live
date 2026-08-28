@@ -187,6 +187,16 @@
       <span class="review-item-price">${{ "%.2f"|format(ci.item.price) if ci.item.price else "—" }}</span>
     </div>
     {% endfor %}
+    {% if is_pickup %}
+    <p class="review-address">
+      <i class="fas fa-store" style="margin-right:4px;"></i>
+      <strong>Pick up</strong> at {{ warehouse_address }}
+    </p>
+    <p class="review-address" style="margin-top:2px;">
+      We'll email you when your order is ready to collect.
+    </p>
+    <a href="{{ url_for('checkout_delivery') }}" style="font-size:0.82rem; color:var(--text-muted); text-decoration:none;">← Have it delivered instead</a>
+    {% else %}
     <p class="review-address"><i class="fas fa-map-marker-alt" style="margin-right:4px;"></i>{{ address }}</p>
     {% if delivery_notes %}
     <p class="review-address" style="margin-top:2px;">
@@ -194,6 +204,7 @@
     </p>
     {% endif %}
     <a href="{{ url_for('checkout_delivery') }}" style="font-size:0.82rem; color:var(--text-muted); text-decoration:none;">← Change address</a>
+    {% endif %}
   </div>
 
   <div class="card review-card">
@@ -213,7 +224,12 @@
         <span>${{ "%.2f"|format(sales_tax) }}</span>
       </div>
 
-      {% if bundle_free %}
+      {% if is_pickup %}
+      <div class="line-item free">
+        <span>Pickup — no delivery</span>
+        <span>FREE</span>
+      </div>
+      {% elif bundle_free %}
       <div class="line-item free">
         <span>Delivery — Bundle &amp; Save</span>
         <span>FREE</span>
@@ -246,17 +262,17 @@
     </div>
 
     {% if promos_enabled %}
-    <div class="delivery-options-label">Promo code</div>
+    <div class="delivery-options-label">{{ 'Pickup' if is_pickup else 'Pickup code' }}</div>
     {% if promo_code %}
     <div class="promo-applied">
       <span class="promo-applied-label">
         <i class="fas fa-tag"></i>
-        <strong>{{ promo_code|upper }}</strong> applied — delivery fee waived
+        <strong>{{ promo_code|upper }}</strong> — collecting it yourself
       </span>
       <form method="POST" action="{{ url_for('checkout_apply_promo') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="remove" value="1">
-        <button type="submit" class="promo-remove">Remove</button>
+        <button type="submit" class="promo-remove">Switch to delivery</button>
       </form>
     </div>
     {% else %}
@@ -269,7 +285,17 @@
     {% endif %}
     {% endif %}
 
-    {% if flexible_available %}
+    {% if is_pickup %}
+    <div class="delivery-options-label">Pickup</div>
+    <div class="delivery-option" style="cursor:default; border-color:var(--rule); background:var(--bg-cream);">
+      <div class="delivery-option-body">
+        <div class="delivery-option-title">Collect from our warehouse</div>
+        <div class="delivery-option-desc">
+          {{ warehouse_address }} — we'll email you when it's ready and arrange a time.
+        </div>
+      </div>
+    </div>
+    {% elif flexible_available %}
     <div class="delivery-options-label">Choose your delivery speed</div>
     <div class="delivery-options">
       <label class="delivery-option">

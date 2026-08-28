@@ -441,6 +441,62 @@ class TestCrewPageRendering:
         assert 'On truck' in html
         assert 'Not loaded' in html      # the other four
 
+    def test_pending_visit_card_is_not_collapsed(self, load_client, loading_shift):
+        """A stop still to be made must stay open — it is the driver's next job."""
+        _login(load_client, loading_shift['worker_email'])
+        resp = load_client.get(f"/crew/delivery/{loading_shift['shift_id']}")
+        _logout(load_client)
+
+        html = resp.data.decode()
+        assert 'class="stop-card is-resolved collapsed"' not in html
+        assert 'data-card-toggle aria-expanded' not in html
+
+    def test_settled_visit_card_renders_collapsed(self, load_client, loading_shift):
+        """Driver feedback: a delivered stop should get out of the way.
+
+        Collapsed state is server-rendered from the visit status, not a JS flag, so
+        it survives the 30s partial swap that replaces every card.
+        """
+        from app import app as _app, db
+        from models import DeliveryStop
+        # Every stop here belongs to one buyer at one door, so the visit only settles
+        # when all of them do — one pending item keeps the card open, by design.
+        with _app.app_context():
+            for stop_id in loading_shift['stop_ids']:
+                stop = DeliveryStop.query.get(stop_id)
+                stop.status = 'completed'
+                stop.completed_at = datetime.utcnow()
+            db.session.commit()
+
+        _login(load_client, loading_shift['worker_email'])
+        resp = load_client.get(f"/crew/delivery/{loading_shift['shift_id']}")
+        _logout(load_client)
+
+        html = resp.data.decode()
+        assert 'class="stop-card is-resolved collapsed"' in html
+        assert 'data-card-toggle aria-expanded' in html
+        # The collapsed header still names the stop, so it is identifiable shut.
+        assert 'class="stop-card-summary"' in html
+        # ...and everything else is inside the body the CSS hides.
+        assert 'class="stop-card-body"' in html
+
+    def test_flagged_visit_also_collapses(self, load_client, loading_shift):
+        """An issue is settled too — it is not the driver's next job either."""
+        from app import app as _app, db
+        from models import DeliveryStop
+        with _app.app_context():
+            for stop_id in loading_shift['stop_ids']:
+                stop = DeliveryStop.query.get(stop_id)
+                stop.status = 'issue'
+                stop.notes = 'Nobody home'
+            db.session.commit()
+
+        _login(load_client, loading_shift['worker_email'])
+        resp = load_client.get(f"/crew/delivery/{loading_shift['shift_id']}")
+        _logout(load_client)
+
+        assert 'class="stop-card is-resolved collapsed"' in resp.data.decode()
+
     def test_checklist_hidden_on_a_past_shift(self, load_client, loading_shift):
         """Nothing left to load on a delivery that already happened.
 

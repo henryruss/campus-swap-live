@@ -66,6 +66,34 @@
     margin: 0 0 24px;
     line-height: 1.5;
   }
+  .pickup-block { margin-top: 22px; }
+  .pickup-divider {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-muted); font-size: 0.8rem; margin-bottom: 14px;
+  }
+  .pickup-divider::before, .pickup-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--rule);
+  }
+  .pickup-toggle {
+    width: 100%; padding: 12px 16px; border: 1.5px solid var(--rule);
+    background: var(--card-bg); border-radius: 10px; cursor: pointer;
+    font-size: 0.92rem; font-weight: 700; color: var(--primary);
+  }
+  .pickup-toggle:hover { border-color: var(--primary); }
+  .pickup-panel {
+    margin-top: 12px; padding: 16px; border: 1.5px solid var(--primary);
+    border-radius: 10px; background: var(--bg-cream);
+  }
+  .pickup-copy { font-size: 0.88rem; color: var(--text-main); margin: 0 0 12px; line-height: 1.5; }
+  .pickup-form { display: flex; gap: 8px; align-items: stretch; }
+  /* style.css sets a global `input { width:100% }`; flex needs it to shrink instead. */
+  .pickup-input {
+    flex: 1; min-width: 0; width: auto !important; text-transform: uppercase;
+    border: 1.5px solid var(--rule); border-radius: 8px;
+  }
+  .pickup-input::placeholder { text-transform: none; }
+  .pickup-submit { width: auto !important; flex-shrink: 0; white-space: nowrap; }
+
   .alert-error {
     background: #fef2f2;
     border: 1px solid #fecaca;
@@ -249,9 +277,50 @@
       {% if google_maps_key %}Select your address from the dropdown so we can confirm it on the map.{% else %}Your address is only used to schedule your delivery.{% endif %}
       It is never shared or sold.
     </p>
+
+    {# Collecting in person. Offered here, before any address is asked for, because a
+       pickup buyer has no delivery address to give — and running them through the
+       radius check is what was turning away people happy to drive further than we
+       deliver. Their order still needs an address, so it gets ours. #}
+    {% if promos_enabled %}
+    <div class="pickup-block">
+      <div class="pickup-divider"><span>or</span></div>
+      <button type="button" class="pickup-toggle" id="pickup-toggle"
+              aria-expanded="false" aria-controls="pickup-panel">
+        <i class="fas fa-store"></i> I'm picking up my order
+      </button>
+      <div class="pickup-panel" id="pickup-panel" hidden>
+        <p class="pickup-copy">
+          Collect from <strong>{{ warehouse_address }}</strong>. No delivery fee, and no
+          distance limit &mdash; enter your pickup code to continue.
+        </p>
+        <form method="POST" class="pickup-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="pickup" value="1">
+          <input type="text" name="pickup_code" class="pickup-input"
+                 placeholder="Pickup code" autocomplete="off" required>
+          <button type="submit" class="btn-primary pickup-submit">Continue&nbsp;&rarr;</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
 </div>
+
+<script>
+(function() {
+  var toggle = document.getElementById('pickup-toggle');
+  var panel = document.getElementById('pickup-panel');
+  if (!toggle || !panel) return;
+  toggle.addEventListener('click', function() {
+    var open = panel.hidden;
+    panel.hidden = !open;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) panel.querySelector('.pickup-input').focus();
+  });
+})();
+</script>
 
 <script>
 (function() {

@@ -37,8 +37,16 @@
    is fully qualified, unlike the bare storage-row street lines. #}
 {% set directions_url = 'https://www.google.com/maps/dir/?api=1&destination=' ~ (order.delivery_address | urlencode) ~ '&travelmode=driving' %}
 
-<div class="stop-card" data-visit-id="{{ primary.id }}">
-  <div class="stop-card-header">
+{# A settled visit collapses to its header. The driver works a list that can run to
+   a dozen doors; a stop they already closed is history, and leaving it open pushes
+   the next one off the screen. Collapsed state comes from the server status, not a
+   JS flag, so it survives the 30s partial swap. Tap the header to reopen. #}
+{% set is_resolved = visit.status != 'pending' %}
+{% set completed_times = stops | selectattr('completed_at') | map(attribute='completed_at') | list %}
+{% set resolved_at = completed_times | min if completed_times else None %}
+<div class="stop-card{% if is_resolved %} is-resolved collapsed{% endif %}" data-visit-id="{{ primary.id }}">
+  <div class="stop-card-header"{% if is_resolved %} role="button" tabindex="0"
+       data-card-toggle aria-expanded="false"{% endif %}>
     <span class="stop-item-title">
       {{ buyer_name or order.buyer_email or 'Buyer' }}
       {% if stops | length > 1 %}
@@ -46,7 +54,21 @@
       {% endif %}
     </span>
     <span class="stop-badge badge-{{ visit.status }}">{{ visit.status }}</span>
+    {% if is_resolved %}
+    <i class="fas fa-chevron-down card-chevron"></i>
+    {% endif %}
   </div>
+
+  {# Enough to identify the stop while collapsed, without reopening it. #}
+  {% if is_resolved %}
+  <div class="stop-card-summary">
+    <i class="fas fa-map-marker-alt"></i>
+    {{ order.delivery_address.split(',')[:2] | join(', ') }}
+    {% if resolved_at %}&middot; {{ resolved_at.strftime('%-I:%M %p') }}{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="stop-card-body">
 
   {# Every item going to this door, each with where to load it from. #}
   {% for stop in stops %}
@@ -252,5 +274,6 @@
     <i class="fas fa-camera"></i> No delivery photo taken
   </div>
   {% endif %}
+  </div>{# end .stop-card-body #}
 </div>
 {% endmacro %}

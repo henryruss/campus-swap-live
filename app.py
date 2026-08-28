@@ -3423,9 +3423,27 @@ def checkout_delivery():
         'max_delivery_miles': max_delivery_miles,
     }
 
+    # The pickup option is only offered when a code is actually configured; an empty
+    # `promo_free_delivery_code` disables promos entirely.
+    map_ctx['promos_enabled'] = bool(_free_delivery_promo_code())
+    map_ctx['warehouse_address'] = get_warehouse_address()
+
     if request.method == 'GET':
         return render_template('checkout_delivery.html', cart_items=cart_items, form={},
                                error=None, **map_ctx)
+
+    # Buyer collecting the order themselves. Handled before any address parsing on
+    # purpose: the whole point is that a pickup buyer has no delivery address to give
+    # and must not be run through the radius check, which is what was turning away
+    # people happy to drive further than we deliver.
+    if request.form.get('pickup') == '1':
+        code = _validate_promo_code(request.form.get('pickup_code'))
+        if not code:
+            return render_template('checkout_delivery.html', cart_items=cart_items,
+                                   form={}, error="That pickup code isn't valid.",
+                                   **map_ctx)
+        session['pending_delivery'] = _pickup_pending_payload(cart, cart_items, code)
+        return redirect(url_for('checkout_review'))
 
     street = request.form.get('street', '').strip()
     city   = request.form.get('city', '').strip()
@@ -3481,12 +3499,15 @@ def checkout_delivery():
     items_subtotal = sum(Decimal(str(ci.item.price or 0)) for ci in cart_items)
     sales_tax = sum(compute_sales_tax(ci.item.price) for ci in cart_items)
 
-    # An address edit rebuilds this dict — keep any promo the buyer already applied.
-    prior_promo = (session.get('pending_delivery') or {}).get('promo_code')
-
     session['pending_delivery'] = {
         'cart_id': cart.id,
-        'promo_code': _validate_promo_code(prior_promo),
+        # The promo code means "I am collecting this myself", not "waive my delivery
+        # fee". Giving us a real delivery address is how a buyer changes their mind
+        # back to delivery, so the code cannot survive that — an order carrying both a
+        # pickup code and a home address is the ambiguity that put a buyer who was
+        # never expecting a truck onto a route.
+        'promo_code': None,
+        'is_pickup': False,
         'street': street,
         'city': city,
         'state': state,
@@ -3505,25 +3526,97 @@ def checkout_delivery():
     return redirect(url_for('checkout_review'))
 
 
+def _warehouse_address_parts():
+    """(street, city, state, zip) for the storage unit the buyer collects from.
+
+    A pickup order is a real order to a real address — ours. Splitting the configured
+    warehouse address into the same four fields a delivery uses keeps Order.delivery_*
+    populated exactly the way every downstream consumer already expects (the webhook
+    rebuilds BuyerOrder.delivery_address from these, and that column is NOT NULL), so
+    nothing downstream needs a null-address special case.
+    """
+    raw = (get_warehouse_address() or WAREHOUSE_DEFAULT_ADDRESS).strip()
+    parts = [p.strip() for p in raw.split(',') if p.strip()]
+    if len(parts) >= 3:
+        street = ', '.join(parts[:-2])
+        city = parts[-2]
+        tail = parts[-1].split()
+        state = tail[0] if tail else ''
+        zip_code = tail[1] if len(tail) > 1 else ''
+        if street and city and state:
+            return street, city, state, zip_code
+    # An address someone hand-edited into an unexpected shape must not break checkout.
+    return '515 S Greensboro St', 'Carrboro', 'NC', '27510'
+
+
+def _pickup_pending_payload(cart, cart_items, promo_code):
+    """The `pending_delivery` dict for a buyer collecting their own order.
+
+    Same shape as the delivery path so checkout_review needs no branch for the money:
+    the address is the warehouse, the distance is zero, and there is no zone — which
+    is the point, since the zone check is exactly what was blocking a buyer willing to
+    drive further than we deliver.
+    """
+    street, city, state, zip_code = _warehouse_address_parts()
+    try:
+        wh_lat = float(AppSetting.get('warehouse_lat') or WAREHOUSE_DEFAULT_LAT)
+        wh_lng = float(AppSetting.get('warehouse_lng') or WAREHOUSE_DEFAULT_LNG)
+    except (TypeError, ValueError):
+        wh_lat, wh_lng = float(WAREHOUSE_DEFAULT_LAT), float(WAREHOUSE_DEFAULT_LNG)
+
+    bundle_min = int(AppSetting.get('bundle_min_items', '2'))
+    return {
+        'cart_id': cart.id,
+        'promo_code': promo_code,
+        'is_pickup': True,
+        'street': street,
+        'city': city,
+        'state': state,
+        'zip': zip_code,
+        'address_string': f"{street}, {city}, {state} {zip_code}".strip(', '),
+        # Nothing to tell a driver — nobody is driving.
+        'delivery_notes': None,
+        'lat': wh_lat,
+        'lng': wh_lng,
+        'distance_miles': 0.0,
+        'zone': None,
+        'zone_fee': '0',
+        # Bundle & Save waives a delivery fee that is already zero here, but the flag
+        # still has to be right: checkout_review reads it when it recomputes.
+        'bundle_free': len(cart_items) >= bundle_min,
+        'items_subtotal': str(sum(Decimal(str(ci.item.price or 0)) for ci in cart_items)),
+        'sales_tax': str(sum(compute_sales_tax(ci.item.price) for ci in cart_items)),
+    }
+
+
 @app.route('/checkout/promo', methods=['POST'])
 def checkout_apply_promo():
-    """Apply or remove a promo code on the pending order, then return to review."""
+    """Switch the pending order to pickup with the code, or back to delivery.
+
+    The code identifies a buyer who is collecting from the warehouse, so applying it
+    is not a discount on a delivery — it replaces the destination with ours. Removing
+    it leaves the order with no address at all, so the buyer goes back to the address
+    form rather than silently reverting to a delivery we have no address for.
+    """
     pending = session.get('pending_delivery')
     if not pending or 'cart_id' not in pending:
         return redirect(url_for('cart_view'))
 
+    cart = Cart.query.get(pending['cart_id'])
+    cart_items = CartItem.query.filter_by(cart_id=cart.id).all() if cart else []
+    if not cart_items:
+        session.pop('pending_delivery', None)
+        return redirect(url_for('cart_view'))
+
     if request.form.get('remove') == '1':
-        pending['promo_code'] = None
-        session['pending_delivery'] = pending
-        session.modified = True
-        return redirect(url_for('checkout_review'))
+        session.pop('pending_delivery', None)
+        flash("Pickup removed — enter a delivery address.", "info")
+        return redirect(url_for('checkout_delivery'))
 
     code = _validate_promo_code(request.form.get('promo_code'))
     if code:
-        pending['promo_code'] = code
-        session['pending_delivery'] = pending
-        session.modified = True
-        flash("Promo code applied — delivery fee waived.", "success")
+        session['pending_delivery'] = _pickup_pending_payload(cart, cart_items, code)
+        flash("Pickup confirmed — collect your order at our warehouse.", "success")
     else:
         flash("That promo code isn't valid.", "error")
     return redirect(url_for('checkout_review'))
@@ -3554,6 +3647,12 @@ def checkout_review():
     # Re-validate on every load — the active code can change while a cart sits open.
     promo_code = _validate_promo_code(pending.get('promo_code'))
     promo_free_delivery = bool(promo_code)
+    is_pickup = bool(pending.get('is_pickup')) and promo_free_delivery
+    # Flexible Delivery buys a wider delivery window for $5 off. There is no window to
+    # widen when the buyer is driving to us, so the option is withdrawn rather than
+    # sold — offering it would discount an order for a service it never receives.
+    if is_pickup:
+        flexible_available = False
 
     bundle_free = pending['bundle_free']
     zone = pending['zone']
@@ -3579,6 +3678,8 @@ def checkout_review():
             promo_code=promo_code,
             promo_free_delivery=promo_free_delivery,
             promos_enabled=bool(_free_delivery_promo_code()),
+            is_pickup=is_pickup,
+            warehouse_address=get_warehouse_address(),
             full_zone_fee=Decimal(pending['zone_fee']),
             address=pending['address_string'],
             delivery_notes=pending.get('delivery_notes'),

@@ -77,6 +77,22 @@
   .badge-issue    { background: #fef3c7; color: #92400e; }
   .badge-partial  { background: #ffedd5; color: #9a3412; }
 
+  /* A settled visit collapses to its header so the next door is on screen. */
+  .stop-card.is-resolved { padding: 14px 20px; background: #fcfcfb; }
+  .stop-card.is-resolved .stop-card-header { cursor: pointer; margin-bottom: 0; align-items: center; }
+  .stop-card.is-resolved .stop-item-title { font-size: 0.98rem; }
+  .card-chevron {
+    color: var(--text-muted); font-size: 0.8rem; margin-left: 10px; flex-shrink: 0;
+    transition: transform 0.18s ease;
+  }
+  .stop-card.is-resolved:not(.collapsed) .card-chevron { transform: rotate(180deg); }
+  .stop-card-summary {
+    font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; padding-right: 26px;
+  }
+  .stop-card.is-resolved:not(.collapsed) .stop-card-summary { display: none; }
+  .stop-card.is-resolved.collapsed .stop-card-body { display: none; }
+  .stop-card.is-resolved .stop-card-body { margin-top: 10px; }
+
   /* A card is one drop-off visit; these are the items within it. */
   .visit-count {
     display: inline-block; background: #ccfbf1; color: #0d9488;
@@ -218,7 +234,17 @@
     border-bottom: 1px solid var(--bg-cream); cursor: pointer; min-height: 48px;
   }
   .load-item.is-loaded .load-item-title { text-decoration: line-through; color: var(--text-muted); }
-  .load-item.is-loaded .load-thumb { opacity: 0.45; }
+  /* A loaded item shrinks out of the way — it is on the truck, and what the crew
+     needs to see is what is still in the unit. The row stays tappable to undo. */
+  .load-item.is-loaded {
+    min-height: 0; padding: 5px 4px; gap: 8px; opacity: 0.55;
+  }
+  .load-item.is-loaded .load-thumb { display: none; }
+  .load-item.is-loaded .load-item-meta { display: none; }
+  .load-item.is-loaded .load-item-title { font-size: 0.8rem; }
+  .load-item.is-loaded .load-check {
+    width: 18px !important; height: 18px !important;
+  }
 
   /* style.css sets a global `input { width:100%; padding:12px 16px }`, which blows a
      bare checkbox up to full width and pushes the whole row off screen on mobile.
@@ -521,11 +547,67 @@ function closeNotes(id) {
   if (el) el.classList.remove('open');
 }
 
+// Expand/collapse a settled visit card. Delegated to document so it keeps working
+// after the 30s partial swap replaces every card.
+document.addEventListener('click', function(e) {
+  var head = e.target.closest('[data-card-toggle]');
+  if (!head) return;
+  var card = head.closest('.stop-card');
+  if (!card) return;
+  var collapsed = card.classList.toggle('collapsed');
+  head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var head = e.target.closest && e.target.closest('[data-card-toggle]');
+  if (!head) return;
+  e.preventDefault();
+  head.click();
+});
+
 // Proof-of-delivery capture. Bound to document so it survives the 30s partial swap
 // that replaces #stop-list wholesale — listeners bound to the cards themselves would
 // be thrown away with them.
 (function() {
   function form(el) { return el.closest('[data-pod-form]'); }
+
+  // Phone cameras produce 4-12MB HEIC/JPEG originals. The server caps uploads at 10MB
+  // and only accepts jpg/jpeg/png/webp, so a straight-through upload could be rejected
+  // for size or for being HEIC — after the driver already waited out the upload on a
+  // kerbside connection, and with a redirect that threw their notes away. Re-encoding
+  // to a bounded JPEG here makes the payload small and always an accepted type.
+  // max edge 1600 matches the server's own _downscale_image, so nothing is lost.
+  function shrink(file) {
+    return new Promise(function(resolve) {
+      if (!file.type || file.type.indexOf('image/') !== 0) return resolve(file);
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function() {
+        URL.revokeObjectURL(url);
+        try {
+          var max = 1600;
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) return resolve(file);
+          if (w > max || h > max) {
+            if (w > h) { h = Math.round(h * (max / w)); w = max; }
+            else { w = Math.round(w * (max / h)); h = max; }
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          canvas.toBlob(function(blob) {
+            // Anything unexpected and we send the original — the server downscales
+            // too, so the worst case is a slower upload, not a lost delivery.
+            if (!blob) return resolve(file);
+            resolve(new File([blob], 'pod.jpg', { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.85);
+        } catch (err) { resolve(file); }
+      };
+      // HEIC on a browser that cannot decode it, or a corrupt file: send as-is.
+      img.onerror = function() { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
 
   // Preview the shot and switch the notes from optional to required-if-absent.
   document.addEventListener('change', function(e) {
@@ -536,18 +618,42 @@ function closeNotes(id) {
     var preview = f.querySelector('[data-pod-preview]');
     var trigger = f.querySelector('[data-pod-trigger]');
 
-    if (file) {
-      preview.src = URL.createObjectURL(file);
-      preview.classList.add('shown');
-      trigger.classList.add('has-photo');
-      trigger.querySelector('span').textContent = 'Retake photo';
-      f.querySelector('[data-pod-warning]').hidden = true;
-      f.querySelector('[data-pod-notes-hint]').textContent = '(optional)';
-    } else {
+    // Free the previous preview. Without this every retake leaks another blob, and
+    // a driver who reshoots a dozen doors is holding all of them.
+    if (preview.dataset.objectUrl) {
+      URL.revokeObjectURL(preview.dataset.objectUrl);
+      delete preview.dataset.objectUrl;
+    }
+
+    if (!file) {
       preview.classList.remove('shown');
+      preview.removeAttribute('src');
       trigger.classList.remove('has-photo');
       trigger.querySelector('span').textContent = 'Take photo';
+      return;
     }
+
+    trigger.classList.add('has-photo');
+    trigger.querySelector('span').textContent = 'Compressing…';
+    f.querySelector('[data-pod-warning]').hidden = true;
+    f.querySelector('[data-pod-notes-hint]').textContent = '(optional)';
+
+    shrink(file).then(function(out) {
+      // Swap the shrunken file back into the input so the normal multipart submit
+      // carries it — no manual FormData, no second code path to keep in sync.
+      if (out !== file && window.DataTransfer) {
+        try {
+          var dt = new DataTransfer();
+          dt.items.add(out);
+          input.files = dt.files;
+        } catch (err) { /* keep the original; the server downscales anyway */ }
+      }
+      var url = URL.createObjectURL(input.files[0] || out);
+      preview.dataset.objectUrl = url;
+      preview.src = url;
+      preview.classList.add('shown');
+      trigger.querySelector('span').textContent = 'Retake photo';
+    });
   });
 
   // The server enforces this too; this is only so the driver finds out before the
@@ -558,12 +664,23 @@ function closeNotes(id) {
     var input = f.querySelector('[data-pod-input]');
     var notes = f.querySelector('[data-pod-notes]');
     var hasPhoto = input && input.files && input.files.length > 0;
-    if (hasPhoto || notes.value.trim()) return;
 
-    e.preventDefault();
-    f.querySelector('[data-pod-warning]').hidden = false;
-    f.querySelector('[data-pod-notes-hint]').textContent = '(required — no photo)';
-    notes.focus();
+    if (!hasPhoto && !notes.value.trim()) {
+      e.preventDefault();
+      f.querySelector('[data-pod-warning]').hidden = false;
+      f.querySelector('[data-pod-notes-hint]').textContent = '(required — no photo)';
+      notes.focus();
+      return;
+    }
+
+    // Uploading a photo over a kerbside connection takes long enough that an
+    // impatient second tap is inevitable, and two posts race to mark the same visit.
+    var btn = f.querySelector('.btn-confirm');
+    if (btn) {
+      if (btn.disabled) { e.preventDefault(); return; }
+      btn.disabled = true;
+      btn.textContent = hasPhoto ? 'Uploading…' : 'Saving…';
+    }
   });
 })();
 
@@ -693,10 +810,30 @@ function closeNotes(id) {
 (function() {
   var syncBtn = document.getElementById('sync-stops-btn');
   if (!syncBtn) return;
-  syncBtn.addEventListener('click', function() {
+
+  // The refresh replaces #stop-list wholesale, which destroys any card inside it —
+  // including an open Confirm Delivered form holding a photo the driver just took
+  // and notes they are still typing. On a 30s timer that is a near-certainty: the
+  // camera alone often takes longer than one interval to open, shoot and confirm.
+  // This was the "glitchy photo" the crew reported. Never blow away live work.
+  function workInProgress() {
+    if (document.querySelector('.inline-notes-form.open')) return true;
+    var staged = document.querySelectorAll('[data-pod-input]');
+    for (var i = 0; i < staged.length; i++) {
+      if (staged[i].files && staged[i].files.length) return true;
+    }
+    var notes = document.querySelectorAll('#stop-list textarea');
+    for (var j = 0; j < notes.length; j++) {
+      if (notes[j].value.trim()) return true;
+    }
+    var active = document.activeElement;
+    return !!(active && active.closest && active.closest('#stop-list'));
+  }
+
+  function refresh() {
     syncBtn.disabled = true;
     syncBtn.textContent = 'Syncing…';
-    fetch('/crew/delivery/{{ shift.id }}/stops-partial')
+    return fetch('/crew/delivery/{{ shift.id }}/stops-partial')
       .then(function(r) { return r.ok ? r.text() : Promise.reject(); })
       .then(function(html) {
         if (html && html.indexOf('data-delivery-stops-partial') !== -1) {
@@ -709,10 +846,25 @@ function closeNotes(id) {
         syncBtn.disabled = false;
         syncBtn.textContent = '↻ Sync';
       });
+  }
+
+  // A deliberate tap still wins, but not silently — the driver gets to keep what
+  // they were in the middle of.
+  syncBtn.addEventListener('click', function() {
+    if (workInProgress() &&
+        !confirm('You have a delivery open. Syncing will discard the photo and notes. Sync anyway?')) {
+      return;
+    }
+    refresh();
   });
 
-  // Auto-refresh every 30s
-  setInterval(function() { if (syncBtn) syncBtn.click(); }, 30000);
+  // Auto-refresh every 30s, but only when there is nothing to lose. Also skipped
+  // while the tab is hidden — taking a photo backgrounds the browser, and firing
+  // into a backgrounded page is how the shot came back to a reset form.
+  setInterval(function() {
+    if (document.hidden || workInProgress()) return;
+    refresh();
+  }, 30000);
 })();
 </script>
 {% endblock %}
