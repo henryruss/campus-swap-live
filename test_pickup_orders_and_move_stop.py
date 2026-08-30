@@ -6,7 +6,10 @@ Coverage:
 - Pickup classification: promo-code orders and hand-marked sales, delivery orders are not
 - Pickup orders are kept out of the delivery queue (they never go on a truck)
 - Mark picked up / undo, idempotency, and auth
-- Moving an `issue` stop: state reset, notes history, guards (status, mixed truck, no-op)
+- Moving a stop to another route: state reset, notes history, guards (status, mixed truck,
+  no-op), and the rescheduled-buyer email
+- Moving a whole buyer (every item they have on the route) in one action, one email
+- Grouping a truck's stops by buyer for the ops route list
 """
 
 import pytest
@@ -28,6 +31,16 @@ def pk_client():
     _app.config['SERVER_NAME'] = 'localhost'
     with _app.test_client() as client:
         yield client
+
+
+@pytest.fixture(autouse=True)
+def sent_emails(monkeypatch):
+    """Capture outbound email instead of hitting Resend."""
+    import app as app_module
+    captured = []
+    monkeypatch.setattr(app_module, 'send_email',
+                        lambda to, subject, html, **kw: captured.append((to, subject, html)) or True)
+    return captured
 
 
 @pytest.fixture
@@ -115,6 +128,36 @@ def pk_data(pk_client):
                             notified_at=datetime.utcnow(), loaded_at=datetime.utcnow(),
                             pod_photo_url='pod_test.jpg')
         db.session.add(stop)
+
+        # One buyer, three items bought together — three stops at one door. This is the
+        # shape the ops route list groups on and the whole-buyer move exists for.
+        multi_order = _order()
+        multi_order.buyer_email = f'multi_{tag}@test.com'
+        multi_items, multi_bos, multi_stops = [], [], []
+        for n in (1, 2, 3):
+            it = _item(f'Multi {n}')
+            db.session.flush()
+            bo = _line(multi_order, it)
+            bo.buyer_email = multi_order.buyer_email
+            st = DeliveryStop(shift_id=old_shift.id, buyer_order_id=bo.id, truck_number=1,
+                              stop_order=3 + n, status='pending',
+                              notified_at=datetime.utcnow())
+            db.session.add(st)
+            multi_items.append(it)
+            multi_bos.append(bo)
+            multi_stops.append(st)
+
+        # Same person, a second separate checkout. Still one door on the route.
+        second_order = _order()
+        second_order.buyer_email = multi_order.buyer_email
+        second_item = _item('Multi 4')
+        db.session.flush()
+        second_bo = _line(second_order, second_item)
+        second_bo.buyer_email = multi_order.buyer_email
+        second_stop = DeliveryStop(shift_id=old_shift.id, buyer_order_id=second_bo.id,
+                                   truck_number=1, stop_order=7, status='pending',
+                                   notified_at=datetime.utcnow())
+        db.session.add(second_stop)
         db.session.commit()
 
         ctx = {
@@ -124,10 +167,18 @@ def pk_data(pk_client):
             'manual_item_id': manual_item.id, 'routed_item_id': routed_item.id,
             'delivery_bo_id': delivery_bo.id, 'promo_bo_id': promo_bo.id,
             'routed_bo_id': routed_bo.id,
-            'order_ids': [delivery_order.id, promo_order.id, routed_order.id],
-            'bo_ids': [delivery_bo.id, promo_bo.id, routed_bo.id],
-            'item_ids': [delivery_item.id, promo_item.id, manual_item.id, routed_item.id],
+            'order_ids': [delivery_order.id, promo_order.id, routed_order.id,
+                          multi_order.id, second_order.id],
+            'bo_ids': ([delivery_bo.id, promo_bo.id, routed_bo.id, second_bo.id]
+                       + [b.id for b in multi_bos]),
+            'item_ids': ([delivery_item.id, promo_item.id, manual_item.id, routed_item.id,
+                          second_item.id] + [i.id for i in multi_items]),
+            'second_stop_id': second_stop.id,
             'stop_id': stop.id,
+            'multi_stop_ids': [st.id for st in multi_stops],
+            'multi_item_ids': [i.id for i in multi_items],
+            'multi_bo_ids': [b.id for b in multi_bos],
+            'multi_email': multi_order.buyer_email,
             'old_shift_id': old_shift.id, 'new_shift_id': new_shift.id,
             'week_id': week.id,
             'user_ids': [admin.id, civilian.id, seller.id],
@@ -318,7 +369,7 @@ class TestMoveStop:
         return client.post(f'/admin/delivery/stop/{stop_id}/move',
                            data={'shift_truck': f'{shift_id}_{truck}', 'ajax': '1'})
 
-    def test_move_resets_stop_onto_new_route(self, pk_client, pk_data):
+    def test_move_resets_stop_onto_new_route(self, pk_client, pk_data, sent_emails):
         from app import app as _app
         from models import DeliveryStop
         _login(pk_client, pk_data['admin_email'])
@@ -331,7 +382,6 @@ class TestMoveStop:
             assert stop.status == 'pending'
             assert stop.completed_at is None
             assert stop.pod_photo_url is None
-            assert stop.notified_at is None
             assert stop.completed_email_sent_at is None
             assert stop.loaded_at is None
             assert stop.buyer_order.delivered_at is None
@@ -362,17 +412,74 @@ class TestMoveStop:
             assert stop.stop_order == others + 1
         _logout(pk_client)
 
-    def test_pending_stop_cannot_be_moved(self, pk_client, pk_data):
-        """Only a failed attempt moves; a pending stop is removed and re-assigned."""
+    def test_pending_stop_moves_too(self, pk_client, pk_data, sent_emails):
+        """A route that will not run has to shed its scheduled stops, notified or not."""
         from app import app as _app, db
         from models import DeliveryStop
         with _app.app_context():
-            DeliveryStop.query.get(pk_data['stop_id']).status = 'pending'
+            stop = DeliveryStop.query.get(pk_data['stop_id'])
+            stop.status = 'pending'
+            stop.completed_at = None
+            stop.pod_photo_url = None
             db.session.commit()
         _login(pk_client, pk_data['admin_email'])
         resp = self._move(pk_client, pk_data['stop_id'], pk_data['new_shift_id'], 2)
-        assert resp.status_code == 409
-        assert 'issue' in resp.get_json()['error']
+        assert resp.status_code == 200, resp.data
+        with _app.app_context():
+            stop = DeliveryStop.query.get(pk_data['stop_id'])
+            assert stop.shift_id == pk_data['new_shift_id']
+            assert stop.truck_number == 2
+            assert stop.status == 'pending'
+            assert stop.loaded_at is None
+        _logout(pk_client)
+
+    def test_notified_buyer_is_emailed_the_new_date(self, pk_client, pk_data, sent_emails):
+        """The buyer was told the old date — moving quietly would leave them waiting."""
+        from app import app as _app
+        from models import DeliveryStop
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['stop_id'], pk_data['new_shift_id'], 2)
+        assert resp.get_json()['emailed'] is True
+        assert len(sent_emails) == 1
+        to, subject, html = sent_emails[0]
+        assert subject == 'Your Campus Swap delivery has been rescheduled'
+        # The new route's date, not the one they were originally given.
+        assert 'Thursday, January 10, 2030' in html
+        # notified_at is re-stamped so the new route does not double-notify.
+        with _app.app_context():
+            assert DeliveryStop.query.get(pk_data['stop_id']).notified_at is not None
+        _logout(pk_client)
+
+    def test_unnotified_buyer_gets_no_email(self, pk_client, pk_data, sent_emails):
+        """Nothing was promised, so nothing needs correcting — Notify Buyers covers it."""
+        from app import app as _app, db
+        from models import DeliveryStop
+        with _app.app_context():
+            DeliveryStop.query.get(pk_data['stop_id']).notified_at = None
+            db.session.commit()
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['stop_id'], pk_data['new_shift_id'], 2)
+        assert resp.get_json()['emailed'] is False
+        assert sent_emails == []
+        with _app.app_context():
+            assert DeliveryStop.query.get(pk_data['stop_id']).notified_at is None
+        _logout(pk_client)
+
+    def test_email_failure_does_not_block_the_move(self, pk_client, pk_data, monkeypatch):
+        """Resend being down is not a reason to strand the stop on a dead route."""
+        import app as app_module
+        from app import app as _app
+        from models import DeliveryStop
+
+        def boom(*a, **kw):
+            raise RuntimeError('resend down')
+        monkeypatch.setattr(app_module, 'send_email', boom)
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['stop_id'], pk_data['new_shift_id'], 2)
+        assert resp.status_code == 200, resp.data
+        assert resp.get_json()['emailed'] is False
+        with _app.app_context():
+            assert DeliveryStop.query.get(pk_data['stop_id']).shift_id == pk_data['new_shift_id']
         _logout(pk_client)
 
     def test_completed_stop_cannot_be_moved(self, pk_client, pk_data):
@@ -427,4 +534,194 @@ class TestMoveStop:
             f"/admin/ops/truck-detail?shift_id={pk_data['new_shift_id']}&truck=2")
         assert resp.status_code == 200
         assert f"#{pk_data['routed_item_id']}" in resp.data.decode()
+        _logout(pk_client)
+
+
+# ---------------------------------------------------------------------------
+# Whole-buyer moves and buyer-grouped display
+# ---------------------------------------------------------------------------
+
+class TestMoveBuyerStops:
+    """A cart order is one stop row per item. Ops moves a buyer, not an item."""
+
+    def _move(self, client, stop_ids, shift_id, truck):
+        return client.post('/admin/delivery/stops/move',
+                           data={'stop_ids': ','.join(str(i) for i in stop_ids),
+                                 'shift_truck': f'{shift_id}_{truck}', 'ajax': '1'})
+
+    def test_all_three_items_move_together(self, pk_client, pk_data, sent_emails):
+        from app import app as _app
+        from models import DeliveryStop
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['multi_stop_ids'], pk_data['new_shift_id'], 2)
+        assert resp.status_code == 200, resp.data
+        assert resp.get_json()['moved'] == 3
+        with _app.app_context():
+            for sid in pk_data['multi_stop_ids']:
+                st = DeliveryStop.query.get(sid)
+                assert st.shift_id == pk_data['new_shift_id']
+                assert st.truck_number == 2
+                assert st.status == 'pending'
+        _logout(pk_client)
+
+    def test_buyer_gets_one_email_not_three(self, pk_client, pk_data, sent_emails):
+        """Three emails for one rescheduled delivery is how you look disorganized."""
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['multi_stop_ids'], pk_data['new_shift_id'], 2)
+        assert resp.get_json()['emailed'] == 1
+        assert len(sent_emails) == 1
+        to, subject, html = sent_emails[0]
+        assert to == pk_data['multi_email']
+        assert subject == 'Your Campus Swap delivery has been rescheduled'
+        # Every item they are still waiting on is named in that one email.
+        assert html.count('<li>') == 3
+        _logout(pk_client)
+
+    def test_moved_items_keep_their_order_on_the_new_route(self, pk_client, pk_data, sent_emails):
+        from app import app as _app
+        from models import DeliveryStop
+        _login(pk_client, pk_data['admin_email'])
+        self._move(pk_client, pk_data['multi_stop_ids'], pk_data['new_shift_id'], 2)
+        with _app.app_context():
+            orders = [DeliveryStop.query.get(sid).stop_order for sid in pk_data['multi_stop_ids']]
+        assert orders == sorted(orders)
+        assert len(set(orders)) == 3  # no two stops share a position
+        _logout(pk_client)
+
+    def test_some_items_can_be_left_behind(self, pk_client, pk_data, sent_emails):
+        """Ops unticks what still fits on today's truck — the rest moves."""
+        from app import app as _app
+        from models import DeliveryStop
+        stay_id = pk_data['multi_stop_ids'][0]
+        move_ids = pk_data['multi_stop_ids'][1:]
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, move_ids, pk_data['new_shift_id'], 2)
+        assert resp.get_json()['moved'] == 2
+        with _app.app_context():
+            assert DeliveryStop.query.get(stay_id).shift_id == pk_data['old_shift_id']
+            for sid in move_ids:
+                assert DeliveryStop.query.get(sid).shift_id == pk_data['new_shift_id']
+        assert len(sent_emails) == 1  # still one buyer, still one email
+        _logout(pk_client)
+
+    def test_a_completed_item_blocks_the_move(self, pk_client, pk_data, sent_emails):
+        from app import app as _app, db
+        from models import DeliveryStop
+        with _app.app_context():
+            DeliveryStop.query.get(pk_data['multi_stop_ids'][0]).status = 'completed'
+            db.session.commit()
+        _login(pk_client, pk_data['admin_email'])
+        resp = self._move(pk_client, pk_data['multi_stop_ids'], pk_data['new_shift_id'], 2)
+        assert resp.status_code == 409
+        assert 'delivered' in resp.get_json()['error']
+        _logout(pk_client)
+
+    def test_empty_selection_is_rejected(self, pk_client, pk_data, sent_emails):
+        _login(pk_client, pk_data['admin_email'])
+        resp = pk_client.post('/admin/delivery/stops/move',
+                              data={'stop_ids': '', 'shift_truck':
+                                    f"{pk_data['new_shift_id']}_2", 'ajax': '1'})
+        assert resp.status_code == 400
+        _logout(pk_client)
+
+    def test_requires_ops_access(self, pk_client, pk_data, sent_emails):
+        _login(pk_client, pk_data['civilian_email'])
+        resp = self._move(pk_client, pk_data['multi_stop_ids'], pk_data['new_shift_id'], 2)
+        assert resp.status_code == 403
+        _logout(pk_client)
+
+
+class TestBuyerGrouping:
+
+    def test_one_group_per_buyer_with_items_nested(self, pk_data):
+        from app import app as _app, _group_delivery_stops_for_display
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = DeliveryStop.query.filter_by(
+                shift_id=pk_data['old_shift_id'], truck_number=1).all()
+            groups = _group_delivery_stops_for_display(stops)
+            # The repeat buyer (2 checkouts, 4 items) plus the single-item `issue` buyer.
+            assert len(groups) == 2
+            assert sum(len(g['stops']) for g in groups) == 5
+            multi = next(g for g in groups if len(g['stops']) == 4)
+            assert multi['buyer_email'] == pk_data['multi_email']
+            assert sorted(multi['movable_stop_ids']) == sorted(
+                pk_data['multi_stop_ids'] + [pk_data['second_stop_id']])
+            assert multi['notified'] is True
+
+    def test_groups_are_ordered_by_stop_order(self, pk_data):
+        from app import app as _app, _group_delivery_stops_for_display
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = DeliveryStop.query.filter_by(
+                shift_id=pk_data['old_shift_id'], truck_number=1).all()
+            groups = _group_delivery_stops_for_display(stops)
+        assert [g['stop_order'] for g in groups] == [3, 4]
+
+    def test_a_delivered_item_is_not_movable(self, pk_data):
+        from app import app as _app, db, _group_delivery_stops_for_display
+        from models import DeliveryStop
+        with _app.app_context():
+            done_id = pk_data['multi_stop_ids'][0]
+            DeliveryStop.query.get(done_id).status = 'completed'
+            db.session.commit()
+            stops = DeliveryStop.query.filter_by(
+                shift_id=pk_data['old_shift_id'], truck_number=1).all()
+            multi = next(g for g in _group_delivery_stops_for_display(stops)
+                         if len(g['stops']) == 4)
+            assert done_id not in multi['movable_stop_ids']
+            assert multi['done_count'] == 1
+
+    def test_two_checkouts_by_one_person_are_one_stop(self, pk_data):
+        """Two orders, same email and address — the truck still stops once."""
+        from app import app as _app, _group_delivery_stops_for_display
+        from models import DeliveryStop
+        with _app.app_context():
+            stops = DeliveryStop.query.filter_by(
+                shift_id=pk_data['old_shift_id'], truck_number=1).all()
+            multi = next(g for g in _group_delivery_stops_for_display(stops)
+                         if g['buyer_email'] == pk_data['multi_email'])
+            order_ids = {s.buyer_order.order_id for s in multi['stops']}
+        assert len(order_ids) == 2
+        assert pk_data['second_stop_id'] in multi['movable_stop_ids']
+
+
+class TestNotifyBuyerStops:
+
+    def test_one_email_covers_every_item_the_buyer_has(self, pk_client, pk_data, sent_emails):
+        from app import app as _app, db
+        from models import DeliveryStop
+        ids = pk_data['multi_stop_ids'] + [pk_data['second_stop_id']]
+        with _app.app_context():
+            for sid in ids:
+                DeliveryStop.query.get(sid).notified_at = None
+            db.session.commit()
+        _login(pk_client, pk_data['admin_email'])
+        resp = pk_client.post('/admin/delivery/stops/notify',
+                              data={'stop_ids': ','.join(str(i) for i in ids)})
+        assert resp.status_code == 200, resp.data
+        assert len(sent_emails) == 1
+        to, subject, html = sent_emails[0]
+        assert to == pk_data['multi_email']
+        assert html.count('<td') == 4  # one row per item, both checkouts
+        with _app.app_context():
+            for sid in ids:
+                assert DeliveryStop.query.get(sid).notified_at is not None
+        _logout(pk_client)
+
+    def test_mixed_buyers_are_rejected(self, pk_client, pk_data, sent_emails):
+        """A single email cannot honestly cover two different people."""
+        _login(pk_client, pk_data['admin_email'])
+        ids = [pk_data['multi_stop_ids'][0], pk_data['stop_id']]
+        resp = pk_client.post('/admin/delivery/stops/notify',
+                              data={'stop_ids': ','.join(str(i) for i in ids)})
+        assert resp.status_code == 400
+        assert sent_emails == []
+        _logout(pk_client)
+
+    def test_requires_ops_access(self, pk_client, pk_data, sent_emails):
+        _login(pk_client, pk_data['civilian_email'])
+        resp = pk_client.post('/admin/delivery/stops/notify',
+                              data={'stop_ids': str(pk_data['multi_stop_ids'][0])})
+        assert resp.status_code == 403
         _logout(pk_client)

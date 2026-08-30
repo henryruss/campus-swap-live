@@ -1,4 +1,167 @@
 {# Delivery truck detail modal partial — no layout wrapper, inserted into ops-drawer #}
+<style>
+  .drawer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 18px 20px 14px;
+    border-bottom: var(--card-border);
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+  }
+  .drawer-title { font-size: 1rem; font-weight: 700; color: var(--primary); margin: 0 0 4px; }
+  .drawer-subtitle { font-size: 0.8rem; color: var(--text-muted); }
+  .drawer-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    padding: 4px 6px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .drawer-close:hover { background: #f1f5f9; color: var(--text-main); }
+
+  .drawer-section { padding: 14px 20px; border-bottom: var(--card-border); }
+  .drawer-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .mover-chip-detail {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    margin: 3px;
+  }
+
+  .detail-cap-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .detail-cap-outer { flex: 1; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .detail-cap-inner { height: 100%; border-radius: 4px; }
+  .detail-cap-inner.green { background: #22c55e; }
+  .detail-cap-inner.amber { background: #f59e0b; }
+  .detail-cap-inner.red { background: #ef4444; }
+
+  .detail-stop-list { padding: 8px 0; }
+  .detail-stop-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 20px;
+    font-size: 0.83rem;
+  }
+  .detail-stop-circle {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .detail-stop-circle.pending { background: #e5e7eb; color: #374151; }
+  .detail-stop-circle.completed { background: #dcfce7; color: #166534; }
+  .detail-stop-circle.issue { background: #fee2e2; color: #991b1b; }
+
+  .detail-stop-info { flex: 1; min-width: 0; }
+  .detail-stop-name { font-weight: 600; color: var(--text-main); }
+  .detail-stop-addr { font-size: 0.76rem; color: var(--text-muted); margin-top: 1px; }
+  .detail-stop-meta { font-size: 0.76rem; color: var(--text-muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .issue-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #991b1b;
+  }
+
+  .detail-stop-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .btn-xs {
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    background: white;
+    cursor: pointer;
+    color: var(--text-main);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn-xs:hover { background: #f1f5f9; }
+  .btn-xs.danger { color: #dc2626; border-color: #fecaca; }
+  .btn-xs.danger:hover { background: #fef2f2; }
+
+  /* Buyer grouping — the truck makes one stop per buyer, not one per item. */
+  .buyer-stop-group { border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+  .buyer-stop-group:last-child { border-bottom: none; }
+  .buyer-item-count {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 1px 7px;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+  .buyer-badge {
+    font-size: 0.66rem;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 1px 6px;
+    margin-left: 3px;
+    white-space: nowrap;
+  }
+  .buyer-badge.notified { background: #ccfbf1; color: #0d9488; }
+
+  .buyer-item-list { padding: 2px 20px 8px 56px; }
+  .buyer-item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px dashed #e5e7eb;
+  }
+  .buyer-item-row:first-child { border-top: none; }
+  .buyer-item-name { font-size: 0.8rem; color: var(--text-main); }
+  .buyer-item-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    flex-shrink: 0;
+    background: var(--bg-cream);
+    display: block;
+  }
+  .buyer-item-thumb.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+  .move-stop-form { padding: 0 20px 12px 56px; }
+</style>
 
 <div class="drawer-header">
   <div>
@@ -52,142 +215,178 @@
 </div>
 {% endif %}
 
-{# Stop list #}
+{# Stop list — one row per buyer, their items nested inside.
+
+   A cart order is one DeliveryStop per item, so listing stops flat repeated the same
+   name and address two or three times in a row. The truck makes one stop at one door;
+   the items are what comes off it. #}
 <div class="detail-stop-list">
-  {% if not stops %}
+  {% if not stop_groups %}
   <div style="padding: 24px 20px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
     No delivery stops on this truck.
   </div>
   {% endif %}
 
-  {% for stop in stops %}
-  {% set order = stop.buyer_order %}
-  {% set item = order.item %}
-  <div class="detail-stop-row">
-    <div class="detail-stop-circle {{ stop.status }}">
-      {% if stop.status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
-      {% elif stop.status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
-      {% else %}{{ stop.stop_order if stop.stop_order is not none else '–' }}
-      {% endif %}
+  {% for g in stop_groups %}
+  {% set bo = g.buyer_order %}
+  {% set circle_status = 'issue' if g.issue_count else ('completed' if g.done_count == g.stops|length else 'pending') %}
+  <div class="buyer-stop-group">
+
+    {# ── Buyer: the actual stop ── #}
+    <div class="detail-stop-row" style="border-bottom:none; padding-bottom:4px;">
+      <div class="detail-stop-circle {{ circle_status }}">
+        {% if circle_status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
+        {% elif circle_status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
+        {% else %}{{ g.stop_order if g.stop_order is not none else '–' }}
+        {% endif %}
+      </div>
+      <div class="detail-stop-info">
+        <div class="detail-stop-name">
+          {{ g.buyer_name or g.buyer_email or 'Buyer' }}
+          <span class="buyer-item-count">{{ g.stops|length }} item{{ 's' if g.stops|length != 1 }} &middot; {{ g.units | round(1) }}u</span>
+          {% if g.notified %}
+          <span class="buyer-badge notified"><i class="fas fa-envelope"></i> notified</span>
+          {% endif %}
+        </div>
+        <div class="detail-stop-addr">
+          <i class="fas fa-map-marker-alt"></i> {{ g.address }}
+        </div>
+        {% if g.delivery_notes %}
+        <div class="detail-stop-addr" style="color:#92400e;">
+          <i class="fas fa-note-sticky"></i> {{ g.delivery_notes }}
+        </div>
+        {% endif %}
+        {% if g.buyer_email %}
+        <div class="detail-stop-addr">
+          <i class="fas fa-envelope"></i> <a href="mailto:{{ g.buyer_email }}">{{ g.buyer_email }}</a>
+        </div>
+        {% endif %}
+        {# Phone — editable, since orders before 2026-08-11 have none and buyers
+           sometimes give a better number over the phone. Writes through to every
+           line of the order, so editing it here covers all their items. #}
+        <div class="detail-stop-addr" id="phone-row-{{ bo.id }}">
+          <i class="fas fa-phone"></i>
+          <span id="phone-val-{{ bo.id }}">
+            {% if g.buyer_phone %}<a href="tel:{{ g.buyer_phone }}">{{ g.buyer_phone }}</a>{% else %}<em style="color:var(--text-muted);">no phone</em>{% endif %}
+          </span>
+          <button type="button" class="btn-xs" style="margin-left:6px;"
+                  onclick="editBuyerPhone({{ bo.id }})">
+            {% if g.buyer_phone %}Edit{% else %}+ Add phone{% endif %}
+          </button>
+        </div>
+        {# Driving directions from the warehouse to this stop #}
+        <div style="margin:6px 0 2px;">
+          <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ g.address | urlencode }}&travelmode=driving"
+             target="_blank" rel="noopener" class="btn-xs">
+            <i class="fas fa-map-marked-alt"></i> Open in Maps
+          </a>
+        </div>
+      </div>
     </div>
-    <div class="detail-stop-info">
-      <div class="detail-stop-name">
+
+    {# ── Their items ── #}
+    <div class="buyer-item-list" id="buyer-items-{{ g.key }}">
+      {% for stop in g.stops %}
+      {% set item = stop.buyer_order.item %}
+      <div class="buyer-item-row">
+        {% if stop.status != 'completed' %}
+        {# Checked by default: the usual move is "take this buyer off the route entirely".
+           style.css sets input{width:100%} globally, so the box needs explicit sizing. #}
+        <input type="checkbox" class="buyer-item-check" data-group="{{ g.key }}"
+               value="{{ stop.id }}" checked
+               style="width:16px; height:16px; min-width:16px; padding:0; margin:2px 0 0; flex-shrink:0;">
+        {% else %}
+        <span style="width:16px; flex-shrink:0;"></span>
+        {% endif %}
         {% if item.photo_url %}
         <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}" alt="{{ item.description }}"
-             style="width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid var(--rule); vertical-align:middle; margin-right:6px;">
+             class="buyer-item-thumb" loading="lazy">
+        {% else %}
+        <div class="buyer-item-thumb placeholder"><i class="fas fa-image"></i></div>
         {% endif %}
-        <span style="font-size:0.72rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
-        {{ item.description }}
-      </div>
-      <div class="detail-stop-addr">
-        <i class="fas fa-map-marker-alt"></i> {{ order.delivery_address }}
-      </div>
-      {% if order.delivery_notes %}
-      <div class="detail-stop-addr" style="color:#92400e;">
-        <i class="fas fa-note-sticky"></i> {{ order.delivery_notes }}
-      </div>
-      {% endif %}
-      {% set buyer_phone = order.buyer_phone or (order.order.buyer_phone if order.order else None) %}
-      {% set buyer_name = (order.order.buyer_name if order.order and order.order.buyer_name else None) %}
-      <div class="detail-stop-addr">
-        {% if buyer_name %}<i class="fas fa-user"></i> {{ buyer_name }}{% endif %}
-        {% if order.buyer_email %}
-        <i class="fas fa-envelope" style="margin-left:6px;"></i>
-        <a href="mailto:{{ order.buyer_email }}">{{ order.buyer_email }}</a>
-        {% endif %}
-      </div>
-      {# Phone — editable, since orders before 2026-08-11 have none and buyers
-         sometimes give a better number over the phone. #}
-      <div class="detail-stop-addr" id="phone-row-{{ order.id }}">
-        <i class="fas fa-phone"></i>
-        <span id="phone-val-{{ order.id }}">
-          {% if buyer_phone %}<a href="tel:{{ buyer_phone }}">{{ buyer_phone }}</a>{% else %}<em style="color:var(--text-muted);">no phone</em>{% endif %}
-        </span>
-        <button type="button" class="btn-xs" style="margin-left:6px;"
-                onclick="editBuyerPhone({{ order.id }})">
-          {% if buyer_phone %}Edit{% else %}+ Add phone{% endif %}
-        </button>
-      </div>
-      {# Driving directions from the warehouse to this stop #}
-      <div style="margin:6px 0 2px;">
-        <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ order.delivery_address | urlencode }}&travelmode=driving"
-           target="_blank" rel="noopener" class="btn-xs">
-          <i class="fas fa-map-marked-alt"></i> Open in Maps
-        </a>
-      </div>
-      <div class="detail-stop-meta">
-        <span>{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</span>
-        {% if stop.status == 'completed' and stop.completed_at %}
-        <span style="color: #166534;"><i class="fas fa-check"></i> {{ stop.completed_at.strftime('%-I:%M %p') }}</span>
-        {% endif %}
-        {% if stop.notified_at %}
-        <span style="color:#0d9488;"><i class="fas fa-envelope"></i> Notified</span>
-        {% endif %}
-      </div>
-
-      {% if stop.status == 'issue' and stop.notes %}
-      <div class="issue-box">
-        <strong>Issue:</strong> {{ stop.notes }}
-      </div>
-      {% endif %}
-
-      {# Actions #}
-      <div class="detail-stop-actions" style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-        {# Notify button #}
-        <button class="btn-xs"
-                id="notify-btn-{{ stop.id }}"
-                onclick="notifyDeliveryBuyer({{ stop.id }})">
-          {% if stop.notified_at %}
-          <i class="fas fa-envelope-open"></i> Resend Notification
-          {% else %}
-          <i class="fas fa-envelope"></i> Notify Buyer
+        <div style="flex:1; min-width:0;">
+          <div class="buyer-item-name">
+            <span style="font-size:0.7rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
+            {{ item.description }}
+          </div>
+          <div class="detail-stop-meta">
+            <span>{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</span>
+            {% if stop.status == 'completed' %}
+            <span style="color:#166534;"><i class="fas fa-check"></i>
+              delivered{% if stop.completed_at %} {{ stop.completed_at.strftime('%-I:%M %p') }}{% endif %}</span>
+            {% elif stop.status == 'issue' %}
+            <span style="color:#991b1b;"><i class="fas fa-exclamation-triangle"></i> issue</span>
+            {% endif %}
+            {% if stop.loaded_at %}<span style="color:#0d9488;"><i class="fas fa-dolly"></i> loaded</span>{% endif %}
+          </div>
+          {% if stop.status == 'issue' and stop.notes %}
+          <div class="issue-box">{{ stop.notes }}</div>
           {% endif %}
-        </button>
-
-        {# Move to another route — issue stops only. A failed attempt still owes the
-           buyer a delivery, and Remove is blocked once the run has started. #}
-        {% if stop.status == 'issue' %}
-        <button type="button" class="btn-xs" id="move-btn-{{ stop.id }}"
-                onclick="toggleMoveStopForm({{ stop.id }})">
-          <i class="fas fa-route"></i> Move to another route
-        </button>
-        {% endif %}
-
-        {# Remove button — pre-run only #}
+        </div>
+        {# Remove — pre-run only, and only for a stop nothing has happened to yet. #}
         {% if not delivery_run and stop.status == 'pending' %}
         <form method="POST"
               action="{{ url_for('admin_delivery_remove_stop', shift_id=shift.id, stop_id=stop.id) }}"
-              onsubmit="return confirm('Remove this delivery stop?')"
-              style="display:inline;">
+              onsubmit="return confirm('Remove this item from the route?')"
+              style="display:inline; flex-shrink:0;">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-          <button type="submit" class="btn-xs danger">
-            <i class="fas fa-times"></i> Remove
+          <button type="submit" class="btn-xs danger" title="Remove from route">
+            <i class="fas fa-times"></i>
           </button>
         </form>
         {% endif %}
       </div>
+      {% endfor %}
+    </div>
 
-      {% if stop.status == 'issue' %}
-      <div id="move-stop-form-{{ stop.id }}" style="display:none; margin-top:6px;">
-        <div style="display:flex; gap:6px; width:100%;">
-          <select id="move-stop-target-{{ stop.id }}"
-                  style="flex:1; font-size:0.75rem; padding:4px; border:1px solid var(--rule); border-radius:6px;">
-            {% for opt in move_options %}
-            {% if not (opt.shift.id == stop.shift_id and opt.truck_number == stop.truck_number) %}
-            <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
-            {% endif %}
-            {% endfor %}
-          </select>
-          <button type="button" class="btn-sm primary" style="flex-shrink:0;"
-                  onclick="moveDeliveryStop({{ stop.id }})">Move</button>
-        </div>
-        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
-          Resets the stop to pending and clears the delivery photo and buyer notification.
-          The failed attempt is kept in the stop notes.
-        </div>
-      </div>
+    {# ── Buyer-level actions ── #}
+    <div class="detail-stop-actions" style="padding: 0 20px 12px 56px; flex-wrap:wrap;">
+      <button class="btn-xs" id="notify-btn-{{ g.key }}"
+              onclick="notifyDeliveryBuyer('{{ g.key }}', '{{ g.stops | map(attribute='id') | join(',') }}')">
+        {% if g.notified %}
+        <i class="fas fa-envelope-open"></i> Resend Notification
+        {% else %}
+        <i class="fas fa-envelope"></i> Notify Buyer
+        {% endif %}
+      </button>
+
+      {# Move to another route — anything not yet delivered. A failed attempt still owes
+         the buyer a delivery, and a route that will not run has to shed its stops even
+         after buyers were notified; Remove is blocked once the run has started. #}
+      {% if g.movable_stop_ids %}
+      <button type="button" class="btn-xs" onclick="toggleMoveStopForm('{{ g.key }}')">
+        <i class="fas fa-route"></i> Move to another route
+      </button>
       {% endif %}
     </div>
+
+    {% if g.movable_stop_ids %}
+    <div id="move-stop-form-{{ g.key }}" class="move-stop-form" style="display:none;">
+      <div style="display:flex; gap:6px; width:100%;">
+        <select id="move-stop-target-{{ g.key }}"
+                style="flex:1; font-size:0.75rem; padding:4px; border:1px solid var(--rule); border-radius:6px;">
+          {% for opt in move_options %}
+          {% if not (opt.shift.id == shift.id and opt.truck_number == truck_number) %}
+          <option value="{{ opt.shift.id }}_{{ opt.truck_number }}">{{ opt.label }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+        <button type="button" class="btn-sm primary" style="flex-shrink:0;"
+                onclick="moveBuyerStops('{{ g.key }}')">Move</button>
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
+        Moves the ticked items{% if g.stops|length > 1 %} — untick any that should stay on this route{% endif %}.
+        Resets them to pending and clears the loaded state and delivery photo.
+        {% if g.issue_count %}The failed attempt is kept in the item's notes.{% endif %}
+        {% if g.notified %}
+        The buyer gets one email telling them their delivery has been rescheduled.
+        {% else %}
+        This buyer has not been notified yet, so no email goes out — use Notify Buyers on
+        the new route.
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -219,41 +418,51 @@ function editBuyerPhone(buyerOrderId) {
     .catch(function() { alert('Could not save the phone number.'); });
 }
 
-function toggleMoveStopForm(stopId) {
-  var form = document.getElementById('move-stop-form-' + stopId);
+function toggleMoveStopForm(groupKey) {
+  var form = document.getElementById('move-stop-form-' + groupKey);
   if (!form) return;
   form.style.display = (form.style.display === 'none') ? 'block' : 'none';
 }
 
-function moveDeliveryStop(stopId) {
-  var select = document.getElementById('move-stop-target-' + stopId);
+function moveBuyerStops(groupKey) {
+  var select = document.getElementById('move-stop-target-' + groupKey);
   if (!select || !select.value) { alert('Pick a route and truck.'); return; }
+
+  var boxes = document.querySelectorAll('.buyer-item-check[data-group="' + groupKey + '"]');
+  var ids = [];
+  for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) ids.push(boxes[i].value); }
+  if (!ids.length) { alert('Tick at least one item to move.'); return; }
+
   var label = select.options[select.selectedIndex].text;
-  if (!confirm('Move this stop to ' + label + '?')) return;
+  var what = ids.length === 1 ? 'this item' : ids.length + ' items';
+  if (!confirm('Move ' + what + ' to ' + label + '?')) return;
 
   var csrfMeta = document.querySelector('meta[name="csrf-token"]');
   var csrf = csrfMeta ? csrfMeta.content : (document.querySelector('input[name="csrf_token"]') || {}).value || '';
   var fd = new FormData();
   fd.append('csrf_token', csrf);
   fd.append('shift_truck', select.value);
+  fd.append('stop_ids', ids.join(','));
   fd.append('ajax', '1');
-  fetch('/admin/delivery/stop/' + stopId + '/move', { method: 'POST', body: fd })
+  fetch('/admin/delivery/stops/move', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.error) { alert(data.error); return; }
+      if (data.emailed) { alert('Moved. The buyer was emailed the new delivery date.'); }
       window.location.href = '/admin/ops?shift_id=' + data.shift_id;
     })
-    .catch(function() { alert('Could not move that stop.'); });
+    .catch(function() { alert('Could not move those stops.'); });
 }
 
-function notifyDeliveryBuyer(stopId) {
-  var btn = document.getElementById('notify-btn-' + stopId);
+function notifyDeliveryBuyer(groupKey, stopIds) {
+  var btn = document.getElementById('notify-btn-' + groupKey);
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   var csrfMeta = document.querySelector('meta[name="csrf-token"]');
   var csrf = csrfMeta ? csrfMeta.content : (document.querySelector('input[name="csrf_token"]') || {}).value || '';
   var fd = new FormData();
   fd.append('csrf_token', csrf);
-  fetch('/admin/delivery/stop/' + stopId + '/notify', { method: 'POST', body: fd })
+  fd.append('stop_ids', stopIds);
+  fetch('/admin/delivery/stops/notify', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.error) {

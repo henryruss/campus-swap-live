@@ -1098,63 +1098,80 @@
             No delivery stops assigned — assign from the delivery queue.
           </div>
           {% endif %}
-          {% for stop in card.delivery_stops %}
-          {% set item = stop.buyer_order.item %}
-          {% set bo = stop.buyer_order %}
-          {% set buyer_name = (bo.order.buyer_name if bo.order and bo.order.buyer_name else bo.buyer_email) %}
-          {% set buyer_phone = bo.buyer_phone or (bo.order.buyer_phone if bo.order else None) %}
+          {# One row per buyer, their items nested — the truck makes one stop per door. #}
+          {% for g in card.delivery_groups %}
+          {% set circle_status = 'issue' if g.issue_count else ('completed' if g.done_count == g.stops|length else 'pending') %}
           <div class="stop-row">
-            <div class="stop-num-circle {{ stop.status }}">
-              {% if stop.status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
-              {% elif stop.status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
-              {% else %}{{ stop.stop_order if stop.stop_order is not none else '–' }}
+            <div class="stop-num-circle {{ circle_status }}">
+              {% if circle_status == 'completed' %}<i class="fas fa-check" style="font-size:0.6rem;"></i>
+              {% elif circle_status == 'issue' %}<i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
+              {% else %}{{ g.stop_order if g.stop_order is not none else '–' }}
               {% endif %}
             </div>
-            {% if item.photo_url %}
-            <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
-                 alt="{{ item.description }}" class="stop-thumb-sm" loading="lazy">
-            {% else %}
-            <div class="stop-thumb-sm placeholder"><i class="fas fa-image"></i></div>
-            {% endif %}
             <div class="stop-info">
               <div class="stop-seller-name">
-                <span style="font-size:0.68rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
-                {{ item.description }}
-              </div>
-              <div class="stop-address">{{ buyer_name }} &middot; {{ bo.delivery_address.split(',')[:2] | join(', ') }}</div>
-              {% if bo.delivery_notes %}
-              <div style="font-size:0.72rem; color:#92400e; margin-top:2px;">
-                <i class="fas fa-note-sticky"></i> {{ bo.delivery_notes }}
-              </div>
-              {% endif %}
-              <div class="stop-badges">
-                {% if stop.status == 'completed' %}
-                <span style="background:#dcfce7;color:#166534;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">
-                  delivered{% if stop.completed_at %} {{ stop.completed_at.strftime('%-I:%M %p') }}{% endif %}
+                {{ g.buyer_name or g.buyer_email }}
+                <span style="font-size:0.68rem; font-weight:700; color:var(--text-muted); background:#f1f5f9; border-radius:8px; padding:1px 6px; margin-left:3px;">
+                  {{ g.stops|length }} item{{ 's' if g.stops|length != 1 }}
                 </span>
-                {% elif stop.status == 'issue' %}
-                <span style="background:#fee2e2;color:#991b1b;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">issue</span>
-                {% endif %}
-                {% if stop.notified_at %}<span style="background:#ccfbf1;color:#0d9488;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">notified</span>{% endif %}
               </div>
-              {% if stop.status == 'issue' and stop.notes %}
-              <div style="font-size:0.72rem; color:#991b1b; margin-top:3px; font-style:italic;">{{ stop.notes }}</div>
+              <div class="stop-address">{{ g.address.split(',')[:2] | join(', ') }}</div>
+              {% if g.delivery_notes %}
+              <div style="font-size:0.72rem; color:#92400e; margin-top:2px;">
+                <i class="fas fa-note-sticky"></i> {{ g.delivery_notes }}
+              </div>
               {% endif %}
-              <div class="stop-badges" style="margin-top:4px;">
-                <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ bo.delivery_address | urlencode }}&travelmode=driving"
+
+              {# The items coming off the truck at this stop #}
+              <div style="margin-top:6px; display:flex; flex-direction:column; gap:5px;">
+                {% for stop in g.stops %}
+                {% set item = stop.buyer_order.item %}
+                <div style="display:flex; align-items:flex-start; gap:8px;">
+                  {% if item.photo_url %}
+                  <img src="{{ url_for('uploaded_file', filename=item.photo_url) }}"
+                       alt="{{ item.description }}" class="stop-thumb-sm" loading="lazy">
+                  {% else %}
+                  <div class="stop-thumb-sm placeholder"><i class="fas fa-image"></i></div>
+                  {% endif %}
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:0.8rem;">
+                      <span style="font-size:0.68rem; font-family:monospace; color:var(--text-muted);">#{{ item.id }}</span>
+                      {{ item.description }}
+                      <span style="color:var(--text-muted);">&middot; {{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</span>
+                    </div>
+                    <div class="stop-badges">
+                      {% if stop.status == 'completed' %}
+                      <span style="background:#dcfce7;color:#166534;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">
+                        delivered{% if stop.completed_at %} {{ stop.completed_at.strftime('%-I:%M %p') }}{% endif %}
+                      </span>
+                      {% elif stop.status == 'issue' %}
+                      <span style="background:#fee2e2;color:#991b1b;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">issue</span>
+                      {% endif %}
+                    </div>
+                    {% if stop.status == 'issue' and stop.notes %}
+                    <div style="font-size:0.72rem; color:#991b1b; margin-top:3px; font-style:italic;">{{ stop.notes }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+
+              <div class="stop-badges" style="margin-top:5px;">
+                {% if g.notified %}<span style="background:#ccfbf1;color:#0d9488;padding:1px 5px;border-radius:6px;font-size:0.67rem;font-weight:700;">notified</span>{% endif %}
+                <a href="https://www.google.com/maps/dir/?api=1&origin={{ warehouse_address | urlencode }}&destination={{ g.address | urlencode }}&travelmode=driving"
                    target="_blank" rel="noopener"
                    style="font-size:0.68rem; font-weight:700; color:#0d9488; text-decoration:none; border:1px solid #0d9488; border-radius:6px; padding:1px 6px;">
                   <i class="fas fa-map-marked-alt"></i> Maps
                 </a>
-                {% if buyer_phone %}
-                <a href="tel:{{ buyer_phone }}"
+                {% if g.buyer_phone %}
+                <a href="tel:{{ g.buyer_phone }}"
                    style="font-size:0.68rem; font-weight:700; color:#0d9488; text-decoration:none; border:1px solid #0d9488; border-radius:6px; padding:1px 6px;">
                   <i class="fas fa-phone"></i> Call
                 </a>
                 {% endif %}
               </div>
             </div>
-            <div class="stop-units">{{ (item.unit_size or (item.category.default_unit_size if item.category else 1.0)) | round(1) }}u</div>
+            <div class="stop-units">{{ g.units | round(1) }}u</div>
           </div>
           {% endfor %}
         </div>

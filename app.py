@@ -15752,6 +15752,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'map_url': None,
                 'is_delivery': True,
                 'delivery_stops': delivery_stops_for_truck,
+                'delivery_groups': _group_delivery_stops_for_display(delivery_stops_for_truck),
                 'delivery_live': dlive,
                 'movers': movers_by_truck.get(truck_num, []),
                 'route_plan': route_plans.get(truck_num),
@@ -15768,6 +15769,7 @@ def _ops_build_truck_cards(shift, pickups, effective_cap):
                 'map_url': build_static_map_url(truck_stops, storage_loc) if storage_loc else None,
                 'is_delivery': False,
                 'delivery_stops': [],
+                'delivery_groups': [],
                 'delivery_live': None,
                 'movers': movers_by_truck.get(truck_num, []),
                 'route_plan': None,
@@ -16036,9 +16038,9 @@ def admin_ops():
     if shift:
         _shift_del_stops = DeliveryStop.query.filter_by(shift_id=shift.id).all()
         has_delivery_stops = len(_shift_del_stops) > 0
-        # Count buyers, not stops. Notification sends one email per buyer order, so
-        # counting stops promised "3 buyers" for one person who bought three items.
-        delivery_unnotified_count = len(_group_stops_by_buyer_order(
+        # Count buyers, not stops. Notification sends one email per person, so counting
+        # stops promised "3 buyers" for one person who bought three items.
+        delivery_unnotified_count = len(_group_stops_by_buyer(
             [s for s in _shift_del_stops if s.notified_at is None]))
     # Upcoming delivery-eligible shifts for the assign form in the delivery queue panel
     _today_val = _today_eastern()
@@ -16168,6 +16170,7 @@ def admin_ops_truck_detail():
             shift_date=shift_date,
             truck_number=truck_num,
             stops=delivery_stops,
+            stop_groups=_group_delivery_stops_for_display(delivery_stops),
             delivery_run=delivery_run,
             movers=movers,
             effective_cap=effective_cap,
@@ -20654,97 +20657,220 @@ def admin_pickup_undo_picked_up():
     return redirect(request.referrer or url_for('admin_ops'))
 
 
+def _route_label(shift, truck_number):
+    """'Thu Sep 4 Truck 2' — how a route+truck is named back to ops in flashes and JSON."""
+    d = _ops_shift_date(shift)
+    return f"{d.strftime('%a %b %-d')} Truck {truck_number}" if d else f"Truck {truck_number}"
+
+
+def _parse_move_target(shift_truck):
+    """Parse a '<shift_id>_<truck_number>' route-picker value.
+
+    Returns (shift, truck_number, error) — error is a ready (json, status) tuple.
+    """
+    try:
+        shift_id_str, truck_str = (shift_truck or '').split('_', 1)
+        target_shift_id = int(shift_id_str)
+        target_truck = int(truck_str)
+    except (ValueError, AttributeError):
+        return None, None, (jsonify(error='Pick a route and truck.'), 400)
+
+    target_shift = Shift.query.get(target_shift_id)
+    if not target_shift:
+        return None, None, (jsonify(error='That route no longer exists.'), 404)
+
+    # Mixed-truck guard, same rule as add-stop: a truck is pickup or delivery, never both.
+    if ShiftPickup.query.filter_by(shift_id=target_shift_id, truck_number=target_truck).count() > 0:
+        return None, None, (jsonify(
+            error='That truck already has pickup stops. A truck can only be used for '
+                  'pickup or delivery, not both.'), 409)
+
+    return target_shift, target_truck, None
+
+
+def _check_stops_movable(stops, target_shift, target_truck):
+    """Guards shared by the single-stop and whole-buyer move. Returns an error tuple or None."""
+    moving_ids = {s.id for s in stops}
+    for stop in stops:
+        if stop.status == 'completed':
+            return (jsonify(error='That item is already delivered. Completed stops cannot be moved.'), 409)
+        if stop.status not in ('pending', 'issue'):
+            return (jsonify(error='Only pending or issue stops can be moved to another route.'), 409)
+        if stop.shift_id == target_shift.id and stop.truck_number == target_truck:
+            return (jsonify(error='That stop is already on this route and truck.'), 409)
+        # Unique(shift_id, buyer_order_id): another stop for the same order already on the
+        # target shift would collide. The DB enforces it, so check rather than assume.
+        clash = DeliveryStop.query.filter(
+            DeliveryStop.shift_id == target_shift.id,
+            DeliveryStop.buyer_order_id == stop.buyer_order_id,
+            DeliveryStop.id.notin_(moving_ids),
+        ).first()
+        if clash:
+            return (jsonify(error='This order already has a stop on that route.'), 409)
+    return None
+
+
+def _move_stops_to_route(stops, target_shift, target_truck):
+    """Relocate stops onto another route and tell the buyers whose plans just changed.
+
+    Two cases need the row itself to move rather than a delete-and-re-add: a stop that was
+    attempted and failed (`issue`), and a scheduled stop being pulled off a route that is
+    not going to run (`pending`). Remove is blocked once a DeliveryRun exists, and
+    BuyerOrder.delivery_stop is one-to-one so a second row is not an option.
+
+    Each stop gets a new shift/truck, status reset to pending, and every trace of the old
+    route (completion, POD photo, notification, load state) cleared so the new route treats
+    it as fresh. A failed attempt survives as a dated line in `notes` — the driver on the
+    new route needs to know why it bounced the first time.
+
+    Buyers already told the old date get one rescheduled email each covering every item of
+    theirs that moved, never one per item. Buyers who were never notified move quietly and
+    show up unnotified on the new route for the usual Notify Buyers pass.
+
+    Returns (moved_stops, emailed_buyer_count). Caller commits.
+    """
+    stops = list(stops)
+    if not stops:
+        return [], 0
+
+    moving_ids = {s.id for s in stops}
+    # Snapshot what the buyer was promised before the fields are overwritten.
+    notified_before = {s.id: s.notified_at is not None for s in stops}
+    old_dates = {s.id: (_ops_shift_date(s.shift) if s.shift else None) for s in stops}
+
+    # Capacity is a soft warning everywhere else in ops; keep it that way here.
+    truck_load = sum(
+        _get_delivery_item_unit_size(s.buyer_order.item)
+        for s in DeliveryStop.query.filter(
+            DeliveryStop.shift_id == target_shift.id,
+            DeliveryStop.truck_number == target_truck,
+            DeliveryStop.id.notin_(moving_ids),
+        ).all()
+    )
+    next_order = (db.session.query(db.func.max(DeliveryStop.stop_order)).filter(
+        DeliveryStop.shift_id == target_shift.id,
+        DeliveryStop.id.notin_(moving_ids),
+    ).scalar() or 0)
+    capacity = get_effective_capacity()
+
+    for stop in stops:
+        old_date = old_dates[stop.id]
+        attempt_label = old_date.strftime('%b %-d') if old_date else 'Previous'
+        prior_note = (stop.notes or '').strip()
+        if stop.status == 'issue':
+            # A failed attempt is why the stop is moving — record it for the next driver.
+            history_line = (f"{attempt_label} attempt: {prior_note}" if prior_note
+                            else f"{attempt_label} attempt failed")
+        else:
+            # Nothing was attempted. Keep whatever the note said (ops context, not attempt
+            # history) and record the reschedule alongside it.
+            moved_line = f"Moved off {attempt_label} route"
+            history_line = f"{prior_note} — {moved_line}" if prior_note else moved_line
+
+        next_order += 1
+        truck_load += _get_delivery_item_unit_size(stop.buyer_order.item)
+
+        # Assign the relationship, not just the FK — the already-loaded stop.shift would
+        # otherwise still hand back the old route (and the old date) to the buyer email.
+        stop.shift = target_shift
+        stop.truck_number = target_truck
+        stop.stop_order = next_order
+        stop.status = 'pending'
+        stop.notes = history_line
+        stop.completed_at = None
+        stop.pod_photo_url = None
+        stop.notified_at = None
+        stop.completed_email_sent_at = None
+        stop.loaded_at = None
+        stop.loaded_by_id = None
+        stop.capacity_warning = truck_load > capacity
+        # The buyer never received it, so nothing downstream should read it as delivered.
+        stop.buyer_order.delivered_at = None
+
+    # Flush before emailing so the new shift is what the email reads back.
+    db.session.flush()
+
+    emailed = 0
+    for group in _group_stops_by_buyer(stops):
+        if not any(notified_before[s.id] for s in group):
+            continue  # nothing was promised, so there is nothing to correct
+        try:
+            if _send_delivery_rescheduled_email(group, old_dates[group[0].id]):
+                emailed += 1
+        except Exception as e:
+            ids = ', '.join(str(s.id) for s in group)
+            logger.error(f"Failed to send delivery-rescheduled email for stops {ids}: {e}")
+    return stops, emailed
+
+
 @app.route('/admin/delivery/stop/<int:stop_id>/move', methods=['POST'])
 @login_required
 def admin_delivery_move_stop(stop_id):
-    """Move a failed delivery stop onto a different route.
-
-    Only `issue` stops move. A stop that was attempted and failed is the one case where
-    the route it sits on is already closed out but the item still owes the buyer a
-    delivery — removing and re-adding is blocked once a DeliveryRun exists, and
-    BuyerOrder.delivery_stop is one-to-one so a second row is not an option.
-
-    So the row itself moves: new shift/truck, order reset to pending, and every trace of
-    the failed attempt (completion, POD photo, notification, load state) cleared so the
-    new route treats it as fresh. The old attempt survives as a dated line in `notes` —
-    the driver on the new route needs to know why it bounced the first time.
-    """
+    """Move one delivery stop onto a different route. See _move_stops_to_route()."""
     if not _has_ops_access():
         return jsonify(error='Forbidden'), 403
     stop = DeliveryStop.query.get_or_404(stop_id)
 
-    if stop.status != 'issue':
-        return jsonify(error='Only stops flagged with an issue can be moved to another route.'), 409
+    target_shift, target_truck, err = _parse_move_target(request.form.get('shift_truck'))
+    if err:
+        return err
+    err = _check_stops_movable([stop], target_shift, target_truck)
+    if err:
+        return err
 
-    shift_truck = request.form.get('shift_truck', '') or ''
-    try:
-        target_shift_id_str, truck_str = shift_truck.split('_', 1)
-        target_shift_id = int(target_shift_id_str)
-        target_truck = int(truck_str)
-    except (ValueError, AttributeError):
-        return jsonify(error='Pick a route and truck.'), 400
-
-    target_shift = Shift.query.get_or_404(target_shift_id)
-
-    if target_shift_id == stop.shift_id and target_truck == stop.truck_number:
-        return jsonify(error='That stop is already on this route and truck.'), 409
-
-    # Mixed-truck guard, same rule as add-stop: a truck is pickup or delivery, never both.
-    if ShiftPickup.query.filter_by(shift_id=target_shift_id, truck_number=target_truck).count() > 0:
-        return jsonify(error='That truck already has pickup stops. A truck can only be used for pickup or delivery, not both.'), 409
-
-    # Unique(shift_id, buyer_order_id): another stop for the same order on the target
-    # shift would collide. Cannot happen today (one stop per order) but the constraint
-    # is what the DB enforces, so check it rather than trust the invariant.
-    clash = DeliveryStop.query.filter(
-        DeliveryStop.shift_id == target_shift_id,
-        DeliveryStop.buyer_order_id == stop.buyer_order_id,
-        DeliveryStop.id != stop.id,
-    ).first()
-    if clash:
-        return jsonify(error='This order already has a stop on that route.'), 409
-
-    old_shift = stop.shift
-    old_date = _ops_shift_date(old_shift) if old_shift else None
-    attempt_label = old_date.strftime('%b %-d') if old_date else 'Previous'
-    prior_note = (stop.notes or '').strip()
-    history_line = f"{attempt_label} attempt: {prior_note}" if prior_note else f"{attempt_label} attempt failed"
-
-    # Capacity is a soft warning everywhere else in ops; keep it that way here.
-    existing_stops = DeliveryStop.query.filter(
-        DeliveryStop.shift_id == target_shift_id,
-        DeliveryStop.truck_number == target_truck,
-        DeliveryStop.id != stop.id,
-    ).all()
-    truck_load = sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in existing_stops)
-    unit_size = _get_delivery_item_unit_size(stop.buyer_order.item)
-    max_order = db.session.query(db.func.max(DeliveryStop.stop_order)).filter(
-        DeliveryStop.shift_id == target_shift_id,
-        DeliveryStop.id != stop.id,
-    ).scalar() or 0
-
-    stop.shift_id = target_shift_id
-    stop.truck_number = target_truck
-    stop.stop_order = max_order + 1
-    stop.status = 'pending'
-    stop.notes = history_line
-    stop.completed_at = None
-    stop.pod_photo_url = None
-    stop.notified_at = None
-    stop.completed_email_sent_at = None
-    stop.loaded_at = None
-    stop.loaded_by_id = None
-    stop.capacity_warning = (truck_load + unit_size) > get_effective_capacity()
-    # The buyer never received it, so nothing downstream should read it as delivered.
-    stop.buyer_order.delivered_at = None
+    _, emailed = _move_stops_to_route([stop], target_shift, target_truck)
     db.session.commit()
 
-    target_date = _ops_shift_date(target_shift)
-    label = f"{target_date.strftime('%a %b %-d')} Truck {target_truck}" if target_date else f"Truck {target_truck}"
+    label = _route_label(target_shift, target_truck)
     if request.form.get('ajax') == '1':
-        return jsonify(success=True, shift_id=target_shift_id, truck_number=target_truck, label=label)
-    flash(f'Stop moved to {label}.', 'success')
-    return redirect(url_for('admin_ops', shift_id=target_shift_id))
+        return jsonify(success=True, shift_id=target_shift.id, truck_number=target_truck,
+                       label=label, emailed=bool(emailed))
+    flash(f"Stop moved to {label}." + (' Buyer emailed the new date.' if emailed else ''), 'success')
+    return redirect(url_for('admin_ops', shift_id=target_shift.id))
+
+
+@app.route('/admin/delivery/stops/move', methods=['POST'])
+@login_required
+def admin_delivery_move_stops():
+    """Move several stops — normally every item one buyer has on a route — at once.
+
+    A buyer with three items is three DeliveryStop rows; moving them one at a time would
+    send three reschedule emails and risk splitting the order across two days. Ops picks
+    the items, this moves them together and sends the buyer one email.
+    """
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+
+    try:
+        stop_ids = [int(x) for x in (request.form.get('stop_ids') or '').split(',') if x.strip()]
+    except ValueError:
+        return jsonify(error='Bad stop_ids.'), 400
+    if not stop_ids:
+        return jsonify(error='Pick at least one item to move.'), 400
+
+    stops = DeliveryStop.query.filter(DeliveryStop.id.in_(stop_ids)).all()
+    if len(stops) != len(set(stop_ids)):
+        return jsonify(error='One of those stops no longer exists — reload the page.'), 404
+
+    target_shift, target_truck, err = _parse_move_target(request.form.get('shift_truck'))
+    if err:
+        return err
+    err = _check_stops_movable(stops, target_shift, target_truck)
+    if err:
+        return err
+
+    moved, emailed = _move_stops_to_route(stops, target_shift, target_truck)
+    db.session.commit()
+
+    label = _route_label(target_shift, target_truck)
+    if request.form.get('ajax') == '1':
+        return jsonify(success=True, shift_id=target_shift.id, truck_number=target_truck,
+                       label=label, moved=len(moved), emailed=emailed)
+    noun = 'item' if len(moved) == 1 else 'items'
+    flash(f"Moved {len(moved)} {noun} to {label}."
+          + (f" {emailed} buyer{'s' if emailed != 1 else ''} emailed the new date." if emailed else ''),
+          'success')
+    return redirect(url_for('admin_ops', shift_id=target_shift.id))
 
 
 @app.route('/admin/delivery/shift/<int:shift_id>/remove-stop/<int:stop_id>', methods=['POST'])
@@ -20780,6 +20906,63 @@ def _group_stops_by_buyer_order(stops):
         key = ('order', bo.order_id) if bo.order_id else ('solo', bo.id)
         groups.setdefault(key, []).append(stop)
     return list(groups.values())
+
+
+def _group_stops_by_buyer(stops):
+    """Group stops by the person receiving them: same email, same address, one door.
+
+    Coarser than _group_stops_by_buyer_order() on purpose. A buyer who checked out twice
+    has two Orders but is still one stop on the route, and telling them twice about the
+    same truck on the same day reads as disorganized. Used for the ops route list and for
+    anything the buyer hears about a whole visit.
+    """
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for stop in stops:
+        bo = stop.buyer_order
+        if not bo:
+            continue
+        key = ((bo.buyer_email or '').strip().lower(),
+               (bo.delivery_address or '').strip().lower())
+        groups.setdefault(key, []).append(stop)
+    return list(groups.values())
+
+
+def _group_delivery_stops_for_display(stops):
+    """Collapse a truck's stops into one row per buyer, with their items nested inside.
+
+    A cart order is one DeliveryStop per item, so a buyer with three things bought at once
+    was three separate rows repeating the same name and address. Ops reads a route by
+    door, not by item: one stop at one address, several boxes coming off the truck.
+    """
+    groups = []
+    for stops_for_buyer in _group_stops_by_buyer(stops):
+        stops_for_buyer = sorted(
+            stops_for_buyer,
+            key=lambda s: (s.stop_order is None, s.stop_order or 0, s.id))
+        first = stops_for_buyer[0]
+        bo = first.buyer_order
+        order = bo.order
+        statuses = [s.status for s in stops_for_buyer]
+        groups.append({
+            'key': f"b{first.id}",   # first stop's id — stable, unique per rendered group
+            'buyer_order': bo,          # phone edits write through to every line of the order
+            'buyer_name': (order.buyer_name if order and order.buyer_name else None),
+            'buyer_email': bo.buyer_email,
+            'buyer_phone': bo.buyer_phone or (order.buyer_phone if order else None),
+            'address': bo.delivery_address,
+            'delivery_notes': bo.delivery_notes,
+            'stops': stops_for_buyer,
+            'movable_stop_ids': [s.id for s in stops_for_buyer if s.status != 'completed'],
+            'units': sum(_get_delivery_item_unit_size(s.buyer_order.item) for s in stops_for_buyer),
+            'stop_order': next((s.stop_order for s in stops_for_buyer if s.stop_order is not None), None),
+            'notified': any(s.notified_at for s in stops_for_buyer),
+            'done_count': statuses.count('completed'),
+            'issue_count': statuses.count('issue'),
+        })
+    # Driving order, not insertion order — an unordered stop sinks to the bottom.
+    groups.sort(key=lambda g: (g['stop_order'] is None, g['stop_order'] or 0))
+    return groups
 
 
 def _send_delivery_scheduled_email(stops):
@@ -20845,6 +21028,59 @@ def _send_delivery_scheduled_email(stops):
 <p>Questions? {_contact_link()} — we usually reply within a day.</p>
 """
     send_email(order.buyer_email, 'Your Campus Swap delivery is scheduled', html)
+    notified = _now_eastern().replace(tzinfo=None)
+    for stop in stops:
+        stop.notified_at = notified
+    return True
+
+
+def _send_delivery_rescheduled_email(stops, old_date=None):
+    """Tell a buyer their already-scheduled delivery moved to a new date.
+
+    Sent when ops pulls a stop off a route the buyer was already notified about — the
+    plain "your delivery is scheduled" email would read as a duplicate and leave them
+    expecting the truck on the old day. Re-stamps notified_at so the new route shows the
+    buyer as notified and the bulk Notify Buyers pass skips them.
+
+    Accepts a single DeliveryStop or a list belonging to the same buyer order. Caller is
+    responsible for committing the session.
+    """
+    stops = [stops] if isinstance(stops, DeliveryStop) else list(stops)
+    if not stops:
+        return False
+
+    order = stops[0].buyer_order
+    if not order or not order.buyer_email:
+        return False
+
+    items = [s.buyer_order.item for s in stops if s.buyer_order and s.buyer_order.item]
+    shift_date = _ops_shift_date(stops[0].shift)
+
+    if len(items) > 1:
+        listed = ''.join(f'<li>{item.description}</li>' for item in items)
+        items_html = f'<ul style="margin:8px 0 16px;padding-left:20px;">{listed}</ul>'
+    else:
+        desc = items[0].description if items else 'Your order'
+        items_html = f'<p><strong>Item:</strong> {desc}</p>'
+
+    was_line = (f'<p>We had you down for <s>{old_date.strftime("%A, %B %-d")}</s>.</p>'
+                if old_date else '')
+
+    # NOTE: pass raw content — send_email() wraps it in the template (logo/footer).
+    html = f"""
+<h2 style="color:#1a3d1a;">Your Campus Swap delivery has been rescheduled</h2>
+<p>We're sorry — we had to move your delivery to a new date.</p>
+{items_html}
+{was_line}
+<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin:16px 0;">
+  <p style="margin:0;"><strong>New delivery date:</strong> {shift_date.strftime('%A, %B %-d, %Y')}</p>
+</div>
+<p><strong>Delivery address:</strong> {order.delivery_address}</p>
+<p>Nothing else changes — you don't need to do anything, and we'll email you again before
+your new delivery date.</p>
+<p>Questions? {_contact_link()} — we usually reply within a day.</p>
+"""
+    send_email(order.buyer_email, 'Your Campus Swap delivery has been rescheduled', html)
     notified = _now_eastern().replace(tzinfo=None)
     for stop in stops:
         stop.notified_at = notified
@@ -21129,6 +21365,40 @@ def admin_delivery_notify_buyer(stop_id):
     )
 
 
+@app.route('/admin/delivery/stops/notify', methods=['POST'])
+@login_required
+def admin_delivery_notify_buyer_stops():
+    """Notify one buyer about every item of theirs on a route, in a single email.
+
+    The per-stop route only covers siblings from the same checkout. A buyer who ordered
+    twice is one stop on the truck, so the ops route list groups them as one and notifies
+    them as one.
+    """
+    if not _has_ops_access():
+        return jsonify(error='Forbidden'), 403
+    try:
+        stop_ids = [int(x) for x in (request.form.get('stop_ids') or '').split(',') if x.strip()]
+    except ValueError:
+        return jsonify(error='Bad stop_ids.'), 400
+    if not stop_ids:
+        return jsonify(error='Nothing to notify.'), 400
+
+    stops = (DeliveryStop.query
+             .filter(DeliveryStop.id.in_(stop_ids))
+             .order_by(DeliveryStop.stop_order.asc().nullslast(), DeliveryStop.id.asc())
+             .all())
+    if not stops:
+        return jsonify(error='Those stops no longer exist — reload the page.'), 404
+    if len(_group_stops_by_buyer(stops)) > 1:
+        return jsonify(error='Those stops belong to different buyers.'), 400
+
+    if not _send_delivery_scheduled_email(stops):
+        return jsonify(error='This buyer has no email on file.'), 400
+    db.session.commit()
+    return jsonify(notified_at=stops[0].notified_at.strftime('%-I:%M %p'),
+                   stop_ids=[s.id for s in stops])
+
+
 @app.route('/admin/crew/shift/<int:shift_id>/notify-buyers', methods=['POST'])
 @login_required
 def admin_shift_notify_buyers(shift_id):
@@ -21139,8 +21409,8 @@ def admin_shift_notify_buyers(shift_id):
     stops = DeliveryStop.query.filter_by(shift_id=shift_id).filter(
         DeliveryStop.notified_at == None).all()
     sent = 0
-    # One email per buyer order, not per item
-    for order_stops in _group_stops_by_buyer_order(stops):
+    # One email per person, not per item and not per checkout
+    for order_stops in _group_stops_by_buyer(stops):
         try:
             if _send_delivery_scheduled_email(order_stops):
                 sent += 1
