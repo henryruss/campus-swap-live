@@ -246,6 +246,15 @@
                     Shop Teaser: {% if teaser_on %}ON{% else %}OFF{% endif %}
                 </button>
             </form>
+            <form method="POST" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="toggle_shop_closed" value="true"/>
+                {% set closed_on = shop_closed_mode == 'true' %}
+                <button type="submit" class="btn" style="background: {% if closed_on %}#fee2e2{% else %}#f1f5f9{% endif %}; color: {% if closed_on %}#991b1b{% else %}#475569{% endif %}; border: 2px solid {% if closed_on %}#fecaca{% else %}#cbd5e1{% endif %};" title="Toggle Shop Closed (end of season — blocks buyer purchasing)">
+                    <i class="fas fa-store-slash"></i>
+                    Shop Closed: {% if closed_on %}ON{% else %}OFF{% endif %}
+                </button>
+            </form>
             <form method="POST" style="margin: 0; display: flex; align-items: center; gap: 6px;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="update_store_open_date" value="true"/>

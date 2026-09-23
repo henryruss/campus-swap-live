@@ -138,6 +138,12 @@ def store_is_open():
     val = AppSetting.get('store_open_date', '2026-06-07')
     return _date.today() >= _date.fromisoformat(val)
 
+def shop_is_closed_for_season():
+    """True if the shop has been manually closed for the season — blocks all buyer
+    purchasing (cart/checkout/buy-now) while leaving browsing, seller, and admin
+    flows untouched. Distinct from shop_teaser_mode (pre-launch)."""
+    return AppSetting.get('shop_closed_mode', 'false') == 'true'
+
 def store_open_date():
     """Return the store open date as a human-readable string (e.g. 'June 7th')."""
     from datetime import date as _date
@@ -1804,7 +1810,10 @@ def _homepage_state():
         return {'mode': forced, 'pickups_on': pickups_on, 'shop_live': shop_live}
     # 'auto' (or unknown) → derive from the live flags.
     pickups_on = AppSetting.get('pickup_period_active', 'false').lower() == 'true'
-    shop_live = AppSetting.get('shop_teaser_mode', 'false').lower() != 'true'
+    shop_live = (
+        AppSetting.get('shop_teaser_mode', 'false').lower() != 'true'
+        and not shop_is_closed_for_season()
+    )
     if pickups_on and shop_live:
         mode = 'dual'
     elif shop_live:
@@ -2445,6 +2454,10 @@ def _shop_filter_qs(args):
 def inventory():
     """Display inventory with pagination, search, and optimized queries"""
     from sqlalchemy import case as sa_case
+    # Shop closed for the season — buyers see a "check back next season" page.
+    # Admin/seller/crew surfaces are untouched by this flag.
+    if shop_is_closed_for_season():
+        return render_template('shop_closed.html')
     # Shop Drop teaser — renders blurred mosaic + email capture before launch
     if AppSetting.get('shop_teaser_mode', 'false') == 'true' and not store_is_open():
         preview_items_raw = InventoryItem.query.filter_by(
@@ -2657,6 +2670,9 @@ def product_quickview(item_id):
 
 @app.route('/item/<int:item_id>')
 def product_detail(item_id):
+    # Shop closed for the season — send buyers to the closed-shop page.
+    if shop_is_closed_for_season():
+        return redirect(url_for('inventory'))
     # Redirect to teaser page when shop is in pre-launch mode
     if AppSetting.get('shop_teaser_mode', 'false') == 'true' and not store_is_open():
         flash(f'Items go on sale {store_open_date()} — sign up to be notified.', 'info')
@@ -3244,6 +3260,8 @@ def cart_add(item_id):
         return jsonify({'error': msg}), code
 
     # Gate: store must be open
+    if shop_is_closed_for_season():
+        return fail('The shop is closed for the season. Check back next season!', 403)
     if not store_is_open():
         return fail('Store is not open yet.', 403)
     if AppSetting.get('reserve_only_mode') == 'true':
@@ -3360,6 +3378,9 @@ def cart_checkout():
         flash(f"{len(dead)} item(s) were removed because they're no longer available.", "error")
         return redirect(url_for('cart_view'))
 
+    if shop_is_closed_for_season():
+        flash("The shop is closed for the season. Check back next season!", "info")
+        return redirect(url_for('cart_view'))
     if not store_is_open():
         flash("The store isn't open yet.", "info")
         return redirect(url_for('cart_view'))
@@ -3625,6 +3646,9 @@ def checkout_apply_promo():
 @app.route('/checkout/review', methods=['GET', 'POST'])
 def checkout_review():
     """Show order breakdown (GET) or create Stripe Checkout Session (POST)."""
+    if shop_is_closed_for_season():
+        flash("The shop is closed for the season. Check back next season!", "info")
+        return redirect(url_for('inventory'))
     pending = session.get('pending_delivery')
     if not pending or 'cart_id' not in pending:
         return redirect(url_for('cart_view'))
@@ -3825,7 +3849,7 @@ def checkout_delivery_legacy(item_id):
         # Don't try to process the form; just send to cart
         return redirect(url_for('product_detail', item_id=item_id))
     item = InventoryItem.query.get_or_404(item_id)
-    if item.status == 'available' and store_is_open():
+    if item.status == 'available' and store_is_open() and not shop_is_closed_for_season():
         # Silently add to cart and redirect
         cart = _get_active_cart(create=True)
         if not CartItem.query.filter_by(cart_id=cart.id, item_id=item.id).first():
@@ -3855,6 +3879,9 @@ def checkout_review_legacy(item_id):
 @app.route('/buy_item/<int:item_id>')
 def buy_item(item_id):
     """Create Stripe checkout session for item purchase. Only available when store is live."""
+    if shop_is_closed_for_season():
+        flash("The shop is closed for the season. Check back next season!", "info")
+        return redirect(url_for('inventory'))
     if not store_is_open():
         flash("The store isn't live yet. Check back on " + store_open_date() + ".", "info")
         return redirect(url_for('product_detail', item_id=item_id))
@@ -4371,6 +4398,13 @@ def admin_panel():
         AppSetting.set('shop_teaser_mode', new_val)
         flash(f"Shop Teaser Mode {'enabled' if new_val == 'true' else 'disabled'}.", "success")
 
+    # Admin can toggle shop closed mode (end-of-season — blocks buyer purchasing)
+    if request.method == 'POST' and 'toggle_shop_closed' in request.form:
+        current = AppSetting.get('shop_closed_mode', 'false')
+        new_val = 'false' if current == 'true' else 'true'
+        AppSetting.set('shop_closed_mode', new_val)
+        flash(f"Shop Closed Mode {'enabled' if new_val == 'true' else 'disabled'}.", "success")
+
     # Admin can update store go-live date (controls when items become purchaseable)
     if request.method == 'POST' and 'update_store_open_date' in request.form:
         new_date = request.form.get('store_open_date_value', '').strip()
@@ -4862,7 +4896,8 @@ def admin_panel():
                            crew_approved_workers=crew_approved_workers,
                            unpaid_items_count=unpaid_items_count,
                            unpaid_total=unpaid_total,
-                           shop_teaser_mode=AppSetting.get('shop_teaser_mode', 'false'))
+                           shop_teaser_mode=AppSetting.get('shop_teaser_mode', 'false'),
+                           shop_closed_mode=AppSetting.get('shop_closed_mode', 'false'))
 
 
 @app.route('/admin/approve', methods=['GET', 'POST'])
@@ -18709,6 +18744,10 @@ def admin_settings():
             current = AppSetting.get('shop_teaser_mode', 'false')
             AppSetting.set('shop_teaser_mode', 'false' if current == 'true' else 'true')
             flash("Shop Teaser Mode updated.", "success")
+        elif action == 'toggle_shop_closed':
+            current = AppSetting.get('shop_closed_mode', 'false')
+            AppSetting.set('shop_closed_mode', 'false' if current == 'true' else 'true')
+            flash("Shop Closed Mode updated.", "success")
         elif action == 'save_shop_settings':
             new_date = request.form.get('store_open_date_value', '').strip()
             if new_date:
@@ -18838,6 +18877,7 @@ def admin_settings():
         reserve_only=AppSetting.get('reserve_only_mode', 'false') == 'true',
         store_open_date=AppSetting.get('store_open_date', ''),
         shop_teaser_mode=AppSetting.get('shop_teaser_mode', 'false'),
+        shop_closed_mode=AppSetting.get('shop_closed_mode', 'false'),
     )
 
 

@@ -141,6 +141,26 @@
           </label>
         </form>
       </div>
+      <div class="toggle-row" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
+        <div>
+          <div class="toggle-label-text">Shop closed for the season</div>
+          <div class="toggle-label-sub">
+            {% if shop_closed_mode == 'true' %}
+              Shop is <strong>closed</strong> — /shop shows a "check back next season" page and all purchasing (cart, buy-now, checkout) is blocked. Admin and seller tools are unaffected.
+            {% else %}
+              Shop is <strong>open for purchasing</strong>.
+            {% endif %}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_settings') }}" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <input type="hidden" name="_action" value="toggle_shop_closed">
+          <label class="toggle-switch" title="Toggle shop closed (end of season)">
+            <input type="checkbox" onchange="this.form.submit()" {% if shop_closed_mode == 'true' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+        </form>
+      </div>
       <form method="POST" action="{{ url_for('admin_settings') }}" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="_action" value="save_shop_settings">
