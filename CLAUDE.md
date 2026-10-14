@@ -2,10 +2,10 @@
 
 ## Before Every Session
 Read these files in order before writing any code:
-1. `CODEBASE.md` — full route map, models, templates, existing patterns
-2. `OPS_SYSTEM.md` — ops platform master reference (glossary, staffing model, roadmap)
-3. `HANDOFF.md` — current build state, what's done, what changed from specs
-4. The active spec file for this session (told to you at session start)
+1. `docs/CODEBASE.md` — full route map, models, templates, existing patterns
+2. `docs/OPS_SYSTEM.md` — ops platform master reference (glossary, staffing model, roadmap)
+3. `docs/HANDOFF.md` — current build state, what's done, what changed from specs
+4. The active spec file for this session (told to you at session start). Shipped specs are archived in `archive/specs/`.
 
 Never assume a route, model field, or template doesn't exist — check CODEBASE.md first.
 

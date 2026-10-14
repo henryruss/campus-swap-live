@@ -1908,8 +1908,8 @@ None — built exactly as specced.
 1. Open Claude Code (Sonnet, standard mode)
 2. Paste these files in order:
    - `CODEBASE.md`
-   - `gigaAdminSpec/OPS_SYSTEM.md`
-   - `gigaAdminSpec/HANDOFF.md`
+   - `docs/OPS_SYSTEM.md`
+   - `docs/HANDOFF.md`
    - The active spec file
 3. Tell Claude Code: "Read all four files before writing any code. Start with
    CODEBASE.md to understand the existing patterns, then implement the spec.
