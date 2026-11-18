@@ -1,0 +1,10 @@
+{# One job card. Done cards are green and not draggable. #}
+<div class="jr-card{{ ' jr-card--done' if job.completed_at }}" data-job-id="{{ job.id }}" tabindex="0" role="button"
+     aria-label="{{ job.display_name }}{{ ', done' if job.completed_at }}">
+  <div class="jr-card-body">
+    <div class="jr-card-name{{ ' is-untitled' if not job.customer_name }}">{{ job.display_name }}</div>
+    {% if job.address %}<div class="jr-card-addr">{{ job.address }}</div>{% endif %}
+  </div>
+  {% if job.needs_quote %}<span class="jr-tag">Needs quote</span>
+  {% else %}<span class="jr-card-quote">{{ job.quote_amount|jr_money }}</span>{% endif %}
+</div>

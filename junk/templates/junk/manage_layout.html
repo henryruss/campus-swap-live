@@ -1,0 +1,27 @@
+{% extends 'junk/base.html' %}
+
+{% block body %}
+  <header class="jr-top">
+    <nav class="jr-nav">
+      <a href="{{ url_for('junk.manage') }}" class="jr-tab is-active">Calendar</a>
+    </nav>
+    <div class="jr-user">
+      <span>{{ (current_user.full_name or current_user.email).split(' ')[0] }}</span>
+      <a href="{{ url_for('junk.logout') }}">Log out</a>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="jr-flashes">
+        {% for category, message in messages %}
+          <div class="jr-flash jr-flash--{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="jr-main">
+    {% block content %}{% endblock %}
+  </main>
+{% endblock %}

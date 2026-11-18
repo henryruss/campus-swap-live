@@ -467,6 +467,10 @@ migrate = Migrate(app, db)
 # CSRF Protection (exempt webhook - Stripe sends raw POST without token)
 csrf = CSRFProtect(app)
 
+# Junk removal portal (self-contained Blueprint in junk/, mounted at /junk)
+from junk import junk_bp
+app.register_blueprint(junk_bp)
+
 # Rate Limiting
 _ratelimit_enabled = os.environ.get('RATELIMIT_ENABLED', 'true').lower() != 'false'
 try:
@@ -591,7 +595,17 @@ def get_user_dashboard():
     """Helper function to determine where user should be redirected"""
     if current_user.is_authenticated and current_user.is_admin:
         return url_for('admin_panel')
+    if current_user.is_authenticated and _is_junk_manager_only(current_user):
+        return url_for('junk.manage')
     return url_for('dashboard')
+
+
+def _is_junk_manager_only(user):
+    """Junk manager with no admin/CD role — their home is the junk portal, never seller onboarding."""
+    return (getattr(user, 'is_junk_manager', False)
+            and not getattr(user, 'is_admin', False)
+            and not getattr(user, 'is_super_admin', False)
+            and not getattr(user, 'is_campus_director', False))
 
 
 def apply_admin_email_if_pending(user):
@@ -7034,6 +7048,10 @@ def dashboard():
         # Admins should use admin panel, not seller dashboard
         if current_user.is_admin:
             return redirect(url_for('admin_panel'))
+
+        # Junk managers live in the junk removal portal
+        if _is_junk_manager_only(current_user):
+            return redirect(url_for('junk.manage'))
 
         # Campus directors default to admin ops
         if getattr(current_user, 'is_campus_director', False):

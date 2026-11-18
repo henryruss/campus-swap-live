@@ -1,0 +1,118 @@
+{# Modal contents for create/edit. Fetched by manage.js, injected into the <dialog>. #}
+{% set is_new = job is none %}
+{% set d = (job.scheduled_date if job else prefill_date) %}
+<div class="jr-form-head">
+  <h2>{{ 'New job' if is_new else job.display_name }}</h2>
+  {% if job and job.completed_at %}<span class="jr-pill jr-pill--done">Done</span>{% endif %}
+  <button type="button" class="jr-icon-btn jr-close" data-close aria-label="Close">&times;</button>
+</div>
+
+<form class="jr-form" id="jr-job-form" method="post"
+      action="{{ url_for('junk.job_create') if is_new else url_for('junk.job_update', job_id=job.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="return_to" value="{{ return_to }}">
+
+  <div class="jr-row">
+    <div class="jr-field">
+      <label for="jr-name">Name</label>
+      <input id="jr-name" name="customer_name" maxlength="120" autocomplete="off"
+             value="{{ job.customer_name or '' if job else '' }}">
+    </div>
+    <div class="jr-field">
+      <label for="jr-phone">Phone</label>
+      <input id="jr-phone" name="customer_phone" type="tel" maxlength="30" autocomplete="off"
+             value="{{ job.customer_phone or '' if job else '' }}">
+    </div>
+  </div>
+
+  <div class="jr-field">
+    <label for="jr-address">Address</label>
+    <input id="jr-address" name="address" maxlength="255" autocomplete="off" data-places
+           value="{{ job.address or '' if job else '' }}">
+  </div>
+
+  <div class="jr-row">
+    <div class="jr-field">
+      <label for="jr-quote">Quote</label>
+      <div class="jr-money">
+        <span>$</span>
+        <input id="jr-quote" name="quote_amount" inputmode="decimal" autocomplete="off" placeholder="Needs quote"
+               value="{{ job.quote_amount|jr_plain if job else '' }}">
+      </div>
+    </div>
+    <div class="jr-field">
+      <label for="jr-date">Date</label>
+      <input id="jr-date" name="scheduled_date" type="date" value="{{ d.isoformat() if d else '' }}">
+    </div>
+  </div>
+
+  <div class="jr-field">
+    <label for="jr-notes">Notes</label>
+    <textarea id="jr-notes" name="notes" rows="3">{{ job.notes or '' if job else '' }}</textarea>
+  </div>
+</form>
+
+<div class="jr-form-foot">
+  {% if job %}
+    <div class="jr-form-secondary">
+      {% if job.completed_at %}
+        <form method="post" action="{{ url_for('junk.job_done', job_id=job.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <input type="hidden" name="undo" value="1">
+          <button type="submit" class="jr-btn jr-btn--quiet">Undo done</button>
+        </form>
+      {% elif job.scheduled_date %}
+        <form method="post" action="{{ url_for('junk.job_done', job_id=job.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <button type="submit" class="jr-btn jr-btn--quiet">Mark done</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('junk.job_delete', job_id=job.id) }}"
+            data-confirm="Delete this job? This can't be undone.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <button type="submit" class="jr-link-btn">Delete</button>
+      </form>
+    </div>
+  {% else %}
+    <span></span>
+  {% endif %}
+  <div class="jr-form-primary">
+    <button type="button" class="jr-btn jr-btn--quiet" data-close>Cancel</button>
+    <button type="submit" form="jr-job-form" class="jr-btn jr-btn--primary">{{ 'Add job' if is_new else 'Save' }}</button>
+  </div>
+</div>
+
+{% if job %}
+  {% set events = job.events.all() %}
+  {% if events %}
+    <details class="jr-history">
+      <summary>History</summary>
+      <ol>
+        {% for ev in events %}
+          <li>
+            <div class="jr-history-meta">
+              <strong>{{ ((ev.user.full_name or ev.user.email).split(' ')[0]) if ev.user else 'Someone' }}</strong>
+              {{ {'created': 'created the job', 'updated': 'edited', 'done': 'marked it done',
+                  'undone': 'undid done'}.get(ev.action, ev.action) }}
+              <span>· {{ ev.created_at|jr_eastern }}</span>
+            </div>
+            {% if ev.changes %}
+              <ul>
+                {% for field in field_order if field in ev.changes %}
+                  {% set ch = ev.changes[field] %}
+                  <li>{{ field_labels[field] }}:
+                    {% if ev.action == 'created' %}{{ format_value(field, ch[1]) }}
+                    {% else %}{{ format_value(field, ch[0]) }} &rarr; {{ format_value(field, ch[1]) }}{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </details>
+  {% endif %}
+{% endif %}

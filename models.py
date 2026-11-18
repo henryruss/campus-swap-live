@@ -67,6 +67,10 @@ class User(UserMixin, db.Model):
     # in the crew staffing pool via /crew/availability. Never grants ops, payouts, or scheduling.
     is_marketplace_poster = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
 
+    # JUNK REMOVAL MANAGER — access to the junk removal manager portal (/junk/manage).
+    # Independent of is_admin / is_campus_director / is_worker. Super admins also pass the guard.
+    is_junk_manager = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
+
     # REFERRAL PROGRAM
     referral_code = db.Column(db.String(8), unique=True, nullable=True)
     # 8-char uppercase alphanumeric code (no 0,O,I,1). Generated at account creation.

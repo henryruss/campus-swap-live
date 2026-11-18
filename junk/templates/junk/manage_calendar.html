@@ -1,0 +1,88 @@
+{% extends 'junk/manage_layout.html' %}
+{% block title %}Calendar{% endblock %}
+
+{% block content %}
+{# Everything inside [data-cal] is swapped in place by manage.js on navigation and saves. #}
+<div class="jr-cal" data-cal data-view="{{ view }}" data-return-to="{{ return_to }}">
+  <div class="jr-toolbar">
+    <div class="jr-toolbar-nav">
+      <a class="jr-icon-btn" href="{{ prev_url }}" data-nav aria-label="Previous {{ view }}">&#8249;</a>
+      {% if not showing_today %}<a class="jr-btn jr-btn--quiet" href="{{ today_url }}" data-nav>Today</a>{% endif %}
+      <a class="jr-icon-btn" href="{{ next_url }}" data-nav aria-label="Next {{ view }}">&#8250;</a>
+      <h1 class="jr-label">{{ label }}</h1>
+    </div>
+    <div class="jr-toolbar-actions">
+      <div class="jr-seg" role="group" aria-label="View">
+        <a href="{{ week_url }}" data-nav class="{{ 'is-on' if view == 'week' }}">Week</a>
+        <a href="{{ month_url }}" data-nav class="{{ 'is-on' if view == 'month' }}">Month</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="jr-board jr-board--{{ view }}">
+    <aside class="jr-side">
+      <button type="button" class="jr-btn jr-btn--primary jr-btn--block jr-side-add" data-new-job>+ Job</button>
+      <header class="jr-side-head">
+        <h2>Unscheduled</h2>
+        <span class="jr-count" data-unscheduled-count>{{ unscheduled|length or '' }}</span>
+      </header>
+      <div class="jr-list jr-list--unscheduled" data-date="">
+        {%- for job in unscheduled %}{% include 'junk/_card.html' %}{% endfor -%}
+      </div>
+      <p class="jr-side-hint">Drag a job here to take it off the calendar.</p>
+    </aside>
+
+    {% if view == 'week' %}
+    <div class="jr-week">
+      {% for d in days %}
+        <section class="jr-day jr-drop{{ ' is-today' if d == today }}{{ ' is-past' if d < today }}" data-date="{{ d.isoformat() }}">
+          <header class="jr-day-head">
+            <span class="jr-dow">{{ d.strftime('%a') }}</span>
+            <span class="jr-dnum">{{ d.day }}</span>
+          </header>
+          <div class="jr-list" data-date="{{ d.isoformat() }}">
+            {%- for job in jobs.get(d, []) %}{% include 'junk/_card.html' %}{% endfor -%}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="jr-month">
+      <div class="jr-month-head">
+        {% for name in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<span>{{ name }}</span>{% endfor %}
+      </div>
+      {% for week in weeks %}
+        <div class="jr-mweek" data-week-href="{{ url_for('junk.manage', date=week[0].isoformat()) }}">
+          {% for d in week %}
+            <div class="jr-mcell jr-drop{{ ' is-out' if d.month != month }}{{ ' is-today' if d == today }}" data-date="{{ d.isoformat() }}">
+              <span class="jr-mnum">{{ d.day }}</span>
+              <div class="jr-list jr-mlist" data-date="{{ d.isoformat() }}">
+                {%- for job in jobs.get(d, []) %}{% include 'junk/_card.html' %}{% endfor -%}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="jr-app" hidden data-form-url="{{ url_for('junk.job_form') }}" data-move-url="{{ url_for('junk.board_move') }}"></div>
+<div class="jr-modal" id="jr-modal" hidden>
+  <div class="jr-modal-backdrop" data-close></div>
+  <div class="jr-modal-panel" role="dialog" aria-modal="true" aria-label="Job">
+    <div class="jr-modal-body" data-modal-body></div>
+  </div>
+</div>
+<div class="jr-toast" id="jr-toast" role="status" aria-live="polite"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="{{ url_for('junk.static', filename='manage.js') }}"></script>
+{% if google_maps_key %}
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places&loading=async&callback=__jrPlacesReady"></script>
+{% endif %}
+{% endblock %}

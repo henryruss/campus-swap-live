@@ -1,0 +1,288 @@
+/* Junk removal — manager portal.
+   Colors come only from static/style.css tokens. Everything is scoped under body.jr. */
+
+body.jr {
+  --jr-shadow-sm: 0 1px 2px rgba(var(--primary-rgb), 0.06);
+  --jr-shadow-lift: 0 14px 28px -8px rgba(var(--primary-rgb), 0.28), 0 4px 10px -4px rgba(var(--primary-rgb), 0.14);
+  --jr-radius: 10px;
+  --jr-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: var(--bg-cream);
+  color: var(--text-main);
+  line-height: 1.4;
+  min-height: 100vh;
+}
+
+/* ── Top bar ───────────────────────────────────────────── */
+.jr-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  height: 56px; padding: 0 24px;
+  background: var(--bg-body);
+  border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; z-index: 30;
+}
+.jr-nav { display: flex; align-items: center; gap: 4px; }
+.jr-user { display: flex; gap: 14px; align-items: center; font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
+.jr-user a:hover { color: var(--primary); }
+
+.jr-tab { padding: 6px 12px; border-radius: 8px; font-size: 0.92rem; font-weight: 500; color: var(--text-muted); }
+.jr-tab:hover { color: var(--primary); background: var(--bg-cream); }
+.jr-tab.is-active { color: var(--primary); font-weight: 600; }
+
+/* ── Flash + toast ─────────────────────────────────────── */
+.jr-flashes { position: fixed; top: 68px; left: 50%; transform: translateX(-50%); z-index: 60; display: grid; gap: 8px; pointer-events: none; }
+.jr-flash, .jr-toast {
+  padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;
+  background: var(--primary); color: var(--text-light); box-shadow: var(--jr-shadow-lift);
+  animation: jr-fade 3.6s var(--jr-ease) forwards;
+}
+.jr-flash--error { background: var(--accent-hover); }
+@keyframes jr-fade { 0% { opacity: 0; transform: translateY(-6px); } 8%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.jr-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 60; opacity: 0; animation: none; pointer-events: none; transition: opacity 0.2s; }
+.jr-toast.is-on { opacity: 1; }
+
+/* ── Layout ────────────────────────────────────────────── */
+.jr-main { padding: 20px 24px 40px; width: 100%; }
+
+.jr-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; min-height: 36px; }
+.jr-toolbar-nav, .jr-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.jr-label { font-family: 'DM Serif Display', Georgia, serif; font-size: 1.6rem !important; margin: 0 6px 0 8px; line-height: 1; }
+
+/* ── Buttons ───────────────────────────────────────────── */
+.jr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid transparent;
+  font: 600 0.88rem 'DM Sans', system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.jr-btn--sm { height: 30px; padding: 0 11px; font-size: 0.82rem; }
+.jr-btn--block { width: 100%; height: 42px; }
+.jr-btn--primary { background: var(--primary); color: var(--text-light); }
+.jr-btn--primary:hover { background: var(--primary-light); }
+.jr-btn--quiet { background: var(--bg-body); color: var(--primary); border-color: var(--rule); }
+.jr-btn--quiet:hover { border-color: var(--sage); }
+.jr-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--rule);
+  background: var(--bg-body); color: var(--primary); font-size: 1.35rem; line-height: 1; cursor: pointer;
+}
+.jr-icon-btn:hover { border-color: var(--sage); }
+.jr-link-btn { background: none; border: none; padding: 0; width: auto; font: 500 0.85rem 'DM Sans', system-ui, sans-serif; color: var(--text-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.jr-link-btn:hover { color: var(--accent-hover); }
+
+.jr-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--bg-body); border: 1px solid var(--rule); }
+.jr-seg a { padding: 0 12px; height: 28px; display: inline-flex; align-items: center; border-radius: 7px; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+.jr-seg a.is-on { background: var(--bg-cream); color: var(--primary); }
+
+/* ── Week board ────────────────────────────────────────── */
+.jr-board { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; }
+.jr-week {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
+  min-height: calc(100vh - 160px);
+}
+.jr-day { display: flex; flex-direction: column; border-right: 1px solid var(--rule); min-width: 0; cursor: pointer; padding-bottom: 10px; }
+.jr-day:last-child { border-right: none; }
+.jr-day.is-past { background: rgba(var(--primary-rgb), 0.015); }
+
+.jr-day-head { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px 10px; cursor: default; }
+.jr-dow { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.jr-dnum { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-size: 1.05rem; font-weight: 600; color: var(--primary); }
+.jr-day.is-today .jr-dow { color: var(--primary); }
+.jr-day.is-today .jr-dnum { background: var(--primary); color: var(--text-light); }
+
+/* The day's line fills the whole column, so a drop anywhere in the column lands. */
+.jr-list { display: flex; flex-direction: column; gap: 6px; padding: 0 8px; flex: 1; min-height: 60px; }
+.jr-day .jr-list::after {
+  content: '+ Add job'; display: block; padding: 8px 0; text-align: center;
+  font-size: 0.8rem; font-weight: 600; color: var(--text-muted); opacity: 0; transition: opacity 0.15s;
+}
+.jr-day:hover .jr-list::after { opacity: 0.8; }
+body.jr-dragging .jr-day .jr-list::after { opacity: 0 !important; }
+body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none; }
+
+/* ── Cards ─────────────────────────────────────────────── */
+.jr-card {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 9px 10px; border-radius: var(--jr-radius);
+  background: var(--bg-body); border: 1px solid var(--rule); box-shadow: var(--jr-shadow-sm);
+  cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.jr-card:hover { border-color: var(--sage); }
+.jr-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.jr-card-body { min-width: 0; flex: 1 1 96px; }  /* tag wraps below when the column is narrow */
+.jr-card-name { font-size: 0.88rem; font-weight: 600; color: var(--card-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-card-name.is-untitled { color: var(--text-muted); font-style: italic; font-weight: 500; }
+.jr-card-addr { font-size: 0.78rem; color: var(--card-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.jr-card-quote { flex: none; font-size: 0.82rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
+.jr-tag {
+  flex: none; padding: 2px 7px; border-radius: 6px; background: var(--amber-lt); color: var(--accent-hover);
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
+}
+
+/* Done: same card, gone green. */
+.jr-card--done { cursor: pointer; background: var(--sage-lt); border-color: var(--sage); box-shadow: none; }
+.jr-card--done:hover { border-color: var(--primary-light); }
+.jr-card--done .jr-card-name, .jr-card--done .jr-card-quote { color: var(--primary); }
+.jr-card--done .jr-card-addr { color: var(--primary-light); }
+
+/* Drag states (SortableJS).
+   The lifted card follows the mouse. The dashed slot showing where it will land snaps
+   instantly into the day under the pointer (stacking from the top of the day) — it never
+   slides across the gap, so it can't look like it's sitting between two days. */
+.jr-card.is-drag { box-shadow: var(--jr-shadow-lift); border-color: var(--sage); opacity: 1 !important; }
+.jr-card.is-ghost {
+  background: var(--bg-cream); border: 1px dashed var(--sage); box-shadow: none;
+  transition: none !important; transform: none !important;
+}
+.jr-card.is-ghost > * { visibility: hidden; }
+.jr-card.is-parked { display: none; }
+.jr-side.is-drop-target .jr-side-hint {
+  border-style: solid; border-color: var(--primary-light); background: var(--sage-lt);
+  color: var(--primary); font-weight: 600;
+}
+body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
+.jr-card.is-saving { opacity: 0.6; }
+
+/* ── Unscheduled panel ─────────────────────────────────── */
+.jr-side {
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 14px 10px 10px; position: sticky; top: 72px;
+  max-height: calc(100vh - 92px); overflow-y: auto;
+}
+.jr-side-add { margin-bottom: 20px; }
+.jr-side-head { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 10px; }
+.jr-side-head h2 { font-family: 'DM Sans', system-ui, sans-serif; font-size: 0.78rem !important; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin: 0; }
+.jr-count { font-size: 0.78rem; font-weight: 700; color: var(--primary); }
+.jr-list--unscheduled { padding: 0; min-height: 0; flex: none; }
+.jr-side-hint {
+  margin: 8px 0 0; padding: 12px 8px; font-size: 0.8rem; color: var(--text-muted); text-align: center;
+  border: 1px dashed var(--rule); border-radius: var(--jr-radius);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+/* ── Month ─────────────────────────────────────────────── */
+.jr-month { background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
+.jr-month-head, .jr-mweek { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.jr-month-head span { padding: 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); text-align: center; border-bottom: 1px solid var(--rule); }
+.jr-mweek { border-bottom: 1px solid var(--rule); transition: background 0.12s; }
+.jr-mweek:last-of-type { border-bottom: none; }
+body:not(.jr-dragging) .jr-mweek:hover { background: var(--bg-cream); }
+body:not(.jr-dragging) .jr-mweek:hover .jr-card:not(.jr-card--done) { background: var(--bg-body); }
+.jr-mcell { display: flex; flex-direction: column; gap: 3px; min-height: 112px; padding: 8px; border-right: 1px solid var(--rule); min-width: 0; cursor: pointer; }
+.jr-mcell:last-child { border-right: none; }
+.jr-mcell.is-out .jr-mnum { color: var(--text-muted); opacity: 0.55; }
+.jr-mnum { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-size: 0.85rem; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
+.jr-mcell.is-today .jr-mnum { background: var(--primary); color: var(--text-light); }
+/* Month: the same card element, shown as a compact name chip. */
+.jr-mlist { padding: 0; gap: 3px; min-height: 28px; }
+.jr-month .jr-card { padding: 3px 7px; border-radius: 6px; border: 1px solid transparent; background: var(--bg-cream); box-shadow: none; }
+.jr-month .jr-card:hover { border-color: var(--sage); }
+.jr-month .jr-card-name { font-size: 0.78rem; font-weight: 500; }
+.jr-month .jr-card-addr, .jr-month .jr-card-quote, .jr-month .jr-tag { display: none; }
+.jr-month .jr-card--done { background: var(--sage-lt); }
+.jr-month .jr-card.is-ghost { border: 1px dashed var(--sage); }
+/* In month view the floating card is a name chip too (it lives on <body> while dragging). */
+body[data-view="month"] .jr-card.is-drag { padding: 3px 7px; border-radius: 6px; }
+body[data-view="month"] .jr-card.is-drag .jr-card-name { font-size: 0.78rem; font-weight: 500; }
+body[data-view="month"] .jr-card.is-drag .jr-card-addr,
+body[data-view="month"] .jr-card.is-drag .jr-card-quote,
+body[data-view="month"] .jr-card.is-drag .jr-tag { display: none; }
+
+
+/* ── Modal ─────────────────────────────────────────────── */
+/* A plain fixed overlay (not <dialog>): the Google Places dropdown must be able to sit above it. */
+.jr-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px 16px; }
+.jr-modal[hidden] { display: none; }
+.jr-modal-backdrop { position: absolute; inset: 0; background: rgba(var(--primary-rgb), 0.28); animation: jr-fadein 0.15s ease; }
+.jr-modal-panel {
+  position: relative; width: min(520px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
+  border-radius: 16px; background: var(--bg-body); color: var(--text-main); box-shadow: var(--jr-shadow-lift);
+  animation: jr-pop 0.18s var(--jr-ease);
+}
+@keyframes jr-fadein { from { opacity: 0; } }
+@keyframes jr-pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+body.jr-modal-open { overflow: hidden; }
+.jr-modal-body { padding: 20px 22px 18px; }
+.jr-modal-body.is-loading { min-height: 200px; }
+.pac-container { z-index: 1000; border-radius: 10px; margin-top: 4px; font-family: 'DM Sans', system-ui, sans-serif; }
+
+.jr-form-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.jr-form-head h2 { font-size: 1.4rem !important; margin: 0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-close { border: none; font-size: 1.5rem; color: var(--text-muted); }
+.jr-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+.jr-pill--done { background: var(--sage-lt); color: var(--primary); }
+
+.jr-form .jr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.jr-form .jr-field { margin-top: 12px; min-width: 0; }
+.jr-form label { margin: 0 0 5px; font-size: 0.72rem; letter-spacing: 0.05em; color: var(--text-muted); }
+.jr-form input, .jr-form textarea {
+  width: 100%; height: 40px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--rule);
+  background: var(--bg-body); font-size: 0.95rem; color: var(--card-ink);
+}
+.jr-form textarea { height: auto; min-height: 76px; resize: vertical; line-height: 1.45; }
+.jr-form input:focus, .jr-form textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1); }
+.jr-form input::placeholder { color: var(--card-ink-faint); }
+.jr-money { position: relative; }
+.jr-money span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.95rem; pointer-events: none; }
+.jr-money input { padding-left: 24px; }
+
+.jr-form-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.jr-form-secondary, .jr-form-primary { display: flex; align-items: center; gap: 14px; }
+.jr-form-primary { gap: 8px; margin-left: auto; }
+.jr-form-secondary form { margin: 0; }
+
+.jr-history { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 10px; }
+.jr-history summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); width: fit-content; }
+.jr-history summary:hover { color: var(--primary); }
+.jr-history ol { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; max-height: 220px; overflow-y: auto; }
+.jr-history-meta { font-size: 0.82rem; color: var(--card-ink); }
+.jr-history-meta span { color: var(--text-muted); }
+.jr-history ul { margin: 3px 0 0; padding-left: 14px; font-size: 0.8rem; color: var(--card-ink-muted); }
+
+/* ── Sign in ───────────────────────────────────────────── */
+.jr-auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.jr-auth-card {
+  width: min(380px, 100%); padding: 28px 26px 26px; border-radius: 16px;
+  background: var(--bg-body); border: 1px solid var(--rule); box-shadow: var(--jr-shadow-sm);
+}
+.jr-auth-card h1 { font-size: 1.7rem !important; margin: 0 0 6px; }
+.jr-auth-card .jr-btn--block { margin-top: 20px; }
+.jr-auth-error { margin: 8px 0 0; padding: 9px 12px; border-radius: 9px; background: var(--amber-lt); color: var(--accent-hover); font-size: 0.86rem; font-weight: 500; }
+
+/* ── Narrower screens: Unscheduled on top ──────────────── */
+@media (max-width: 1100px) {
+  .jr-board { grid-template-columns: minmax(0, 1fr); }
+  .jr-side { position: static; max-height: none; }
+  .jr-list--unscheduled { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+}
+
+/* ── Phone: days stack ─────────────────────────────────── */
+@media (max-width: 760px) {
+  .jr-top { padding: 0 16px; }
+  .jr-user span { display: none; }
+  .jr-main { padding: 14px 16px 32px; }
+  .jr-label { font-size: 1.3rem !important; margin-left: 4px; }
+  .jr-toolbar { gap: 10px; }
+  .jr-toolbar-actions { width: 100%; justify-content: flex-end; }
+
+  .jr-week { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .jr-day { border-right: none; border-bottom: 1px solid var(--rule); }
+  .jr-day:last-child { border-bottom: none; }
+  .jr-day-head { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 10px 12px 8px; }
+  .jr-dnum { width: 28px; height: 28px; font-size: 0.95rem; }
+  .jr-day .jr-list { padding-left: 12px; padding-right: 12px; }
+  .jr-list { min-height: 40px; }
+  .jr-day .jr-list::after { opacity: 0.7; text-align: left; padding: 6px 0 2px; }
+
+  .jr-list--unscheduled { grid-template-columns: minmax(0, 1fr); }
+  .jr-mcell { min-height: 64px; padding: 4px; }
+  .jr-mlist { display: none; }
+  .jr-mcell:has(.jr-card)::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin: 2px auto 0; }
+
+  .jr-form .jr-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .jr-modal { place-items: end stretch; padding: 0; }
+  .jr-modal-panel { width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
+}
+
+@media (max-width: 760px) { .jr-side .jr-list--unscheduled { padding: 0; } }

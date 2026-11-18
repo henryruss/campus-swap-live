@@ -1,0 +1,397 @@
+/* Junk removal — manager calendar.
+   - Navigation (arrows, Today, Week/Month) and saves swap the calendar in place: no page reloads.
+   - Job modal is a server-rendered fragment, with Google Places on the address field.
+   - Drag and drop works in week and month view, and to/from the Unscheduled panel. */
+(function () {
+  'use strict';
+
+  var app = document.getElementById('jr-app');
+  if (!app) return;
+  var formUrl = app.dataset.formUrl;
+  var moveUrl = app.dataset.moveUrl;
+  var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  var modal = document.getElementById('jr-modal');
+  var modalBody = modal.querySelector('[data-modal-body]');
+  var toastEl = document.getElementById('jr-toast');
+
+  var dragging = false;
+  var refreshQueued = false;
+  var lastDragEnd = 0;
+
+  function cal() { return document.querySelector('[data-cal]'); }
+  function returnTo() { var c = cal(); return (c && c.dataset.returnTo) || '/junk/manage'; }
+
+  // ─── toast ────────────────────────────────────────────
+  var toastTimer;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('is-on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('is-on'); }, 2600);
+  }
+
+  // ─── in-place navigation ──────────────────────────────
+  var cache = new Map();   // url -> {at, promise}; cleared on any write
+  var CACHE_MS = 20000;
+
+  function fetchPage(url) {
+    var hit = cache.get(url);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.promise;
+    var promise = fetch(url, { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.text();
+    });
+    cache.set(url, { at: Date.now(), promise: promise });
+    promise.catch(function () { cache.delete(url); });
+    return promise;
+  }
+
+  function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
+
+  // Swap the calendar for the one in `doc`. Returns false if the page isn't a calendar
+  // (e.g. the session expired and we got the sign-in page).
+  function applyDoc(doc) {
+    var fresh = doc.querySelector('[data-cal]');
+    var current = cal();
+    if (!fresh || !current) return false;
+    current.replaceWith(document.adoptNode(fresh));
+    if (doc.title) document.title = doc.title;
+    var flashes = doc.querySelectorAll('.jr-flash');
+    if (flashes.length) toast(flashes[flashes.length - 1].textContent.trim());
+    initCal();
+    return true;
+  }
+
+  function navigate(url, push) {
+    fetchPage(url).then(function (html) {
+      if (!applyDoc(parse(html))) { window.location.href = url; return; }
+      if (push) history.pushState({ jr: true }, '', url);
+    }).catch(function () { window.location.href = url; });
+  }
+
+  function currentUrl() { return window.location.pathname + window.location.search; }
+
+  function refresh() {
+    if (dragging) { refreshQueued = true; return; }
+    cache.clear();
+    navigate(currentUrl(), false);
+  }
+
+  window.addEventListener('popstate', function () { cache.clear(); navigate(currentUrl(), false); });
+
+  function plainClick(e) { return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey; }
+
+  // Prefetch on hover so the click feels instant.
+  document.addEventListener('mouseover', function (e) {
+    var a = e.target.closest && e.target.closest('a[data-nav]');
+    if (a) fetchPage(a.getAttribute('href'));
+  });
+
+  // ─── Google Places on the address field ───────────────
+  var placesReady = false;
+  window.__jrPlacesReady = function () { placesReady = true; attachPlaces(); };
+
+  function attachPlaces() {
+    if (!placesReady || !window.google || !google.maps || !google.maps.places) return;
+    var input = modalBody.querySelector('[data-places]');
+    if (!input || input.dataset.placesBound) return;
+    input.dataset.placesBound = '1';
+    var ac = new google.maps.places.Autocomplete(input, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['formatted_address']
+    });
+    ac.addListener('place_changed', function () {
+      var place = ac.getPlace();
+      if (place && place.formatted_address) {
+        input.value = place.formatted_address.replace(/, USA$/, '');
+      }
+    });
+    // Enter picks a suggestion instead of submitting the form.
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var open = Array.prototype.some.call(document.querySelectorAll('.pac-container'), function (el) {
+        return el.offsetParent !== null && el.children.length;
+      });
+      if (open) e.preventDefault();
+    });
+  }
+
+  // ─── modal ────────────────────────────────────────────
+  function closeModal() {
+    modal.hidden = true;
+    document.body.classList.remove('jr-modal-open');
+    modalBody.innerHTML = '';
+    document.querySelectorAll('.pac-container').forEach(function (el) { el.remove(); });
+  }
+
+  function openForm(params) {
+    var qs = new URLSearchParams(params);
+    qs.set('return_to', returnTo());
+    modalBody.innerHTML = '';
+    modalBody.classList.add('is-loading');
+    modal.hidden = false;
+    document.body.classList.add('jr-modal-open');
+    fetch(formUrl + '?' + qs.toString(), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        modalBody.innerHTML = html;
+        modalBody.classList.remove('is-loading');
+        attachPlaces();
+        if (!params.id && window.matchMedia('(hover: hover)').matches) {
+          var first = modalBody.querySelector('input[name="customer_name"]');
+          if (first) first.focus();
+        }
+      })
+      .catch(function () {
+        closeModal();
+        toast('Couldn’t open that job. Try again.');
+      });
+  }
+
+  modal.addEventListener('click', function (e) {
+    if (e.target.closest('[data-close]')) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) closeModal();
+  });
+
+  // Modal forms (save, done, delete) post in the background, then swap the calendar.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      e.preventDefault();
+      return;
+    }
+    if (!form.closest('#jr-modal')) return;
+    e.preventDefault();
+    var buttons = modal.querySelectorAll('button[type="submit"]');
+    buttons.forEach(function (b) { b.disabled = true; });
+    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        cache.clear();
+        var doc = parse(html);
+        var err = doc.querySelector('.jr-flash--error');
+        if (err) {   // keep the modal open so nothing typed is lost
+          toast(err.textContent.trim());
+          buttons.forEach(function (b) { b.disabled = false; });
+          return;
+        }
+        closeModal();
+        if (!applyDoc(doc)) window.location.reload();
+      })
+      .catch(function () {
+        toast('Couldn’t save. Try again.');
+        buttons.forEach(function (b) { b.disabled = false; });
+      });
+  });
+
+  // ─── clicks ───────────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    if (Date.now() - lastDragEnd < 300) return;
+
+    var nav = e.target.closest('a[data-nav]');
+    if (nav && plainClick(e)) {
+      e.preventDefault();
+      navigate(nav.getAttribute('href'), true);
+      return;
+    }
+    if (!modal.hidden || !e.target.closest('[data-cal]')) return;
+
+    if (e.target.closest('[data-new-job]')) {
+      openForm({});
+      return;
+    }
+    var card = e.target.closest('.jr-card');
+    if (card) {
+      openForm({ id: card.dataset.jobId });
+      return;
+    }
+    var mcell = e.target.closest('.jr-mcell');
+    if (mcell) {   // month: anywhere in a week row opens that week
+      navigate(mcell.parentElement.dataset.weekHref, true);
+      return;
+    }
+    var day = e.target.closest('.jr-day');
+    if (day && !e.target.closest('.jr-day-head')) {
+      openForm({ date: day.dataset.date });
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !modal.hidden) return;
+    var card = e.target.closest && e.target.closest('.jr-card');
+    if (card) openForm({ id: card.dataset.jobId });
+  });
+
+  // ─── drag and drop ────────────────────────────────────
+  // Where the pointer really is. Sortable samples the drop target on a timer, so a fast
+  // flick across several days can be released before it notices the final column.
+  var pointer = { x: 0, y: 0 };
+  var highlighted = null;
+  var dragEl = null;
+
+  function isDone(card) { return card && card.classList.contains('jr-card--done'); }
+
+  // Over a day → that day. Anywhere off the calendar (the panel, the toolbar, outside the
+  // window) → the Unscheduled panel, except for a done job, which must keep its date (null:
+  // releasing there cancels the drag).
+  function dropZoneAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var day = el && el.closest('.jr-drop');
+    if (day) return day;
+    return isDone(dragEl) ? null : cal().querySelector('.jr-side');
+  }
+
+  function setHighlight(zone) {
+    if (zone === highlighted) return;
+    if (highlighted) highlighted.classList.remove('is-drop-target');
+    highlighted = zone;
+    if (zone) zone.classList.add('is-drop-target');
+  }
+
+  function track(e) {
+    var t = e.touches ? e.touches[0] : e;
+    if (!t) return;
+    pointer.x = t.clientX;
+    pointer.y = t.clientY;
+    if (!dragging) return;
+    var zone = dropZoneAt(pointer.x, pointer.y);
+    setHighlight(zone);
+    if (!dragEl) return;
+    // Off the calendar: no slot opens anywhere. The card leaves the calendar, the panel's
+    // "Drag a job here" box lights up, and the job lands in the Unscheduled list on release.
+    var overSide = !!(zone && zone.classList.contains('jr-side'));
+    dragEl.classList.toggle('is-parked', overSide);
+    if (overSide) return;
+    // Snap: move the slot into the day under the pointer right away, rather than waiting
+    // for Sortable's next ~50ms sample. Sortable takes over ordering within that day.
+    var list = listForZone(zone);
+    if (list && dragEl.parentNode !== list) insertAtPointer(list, dragEl);
+  }
+  document.addEventListener('pointermove', track, { passive: true });
+  document.addEventListener('mousemove', track, { passive: true });
+  document.addEventListener('touchmove', track, { passive: true });
+
+  function cardsIn(list) {
+    return Array.prototype.slice.call(list.querySelectorAll(':scope > .jr-card'));
+  }
+
+  function listForZone(zone) {
+    if (!zone) return null;
+    return zone.classList.contains('jr-side')
+      ? zone.querySelector('.jr-list--unscheduled')
+      : zone.querySelector('.jr-list');
+  }
+
+  function insertAtPointer(list, card) {
+    if (list.classList.contains('jr-list--unscheduled')) { list.appendChild(card); return; }
+    var before = null;
+    cardsIn(list).some(function (c) {
+      if (c === card) return false;
+      var r = c.getBoundingClientRect();
+      if (pointer.y < r.top + r.height / 2) { before = c; return true; }
+      return false;
+    });
+    list.insertBefore(card, before);
+  }
+
+  function save(card, to) {
+    var date = to.dataset.date || null;
+    var countEl = cal().querySelector('[data-unscheduled-count]');
+    if (countEl) countEl.textContent = cardsIn(cal().querySelector('.jr-list--unscheduled')).length || '';
+    card.classList.add('is-saving');
+    fetch(moveUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({
+        job_id: Number(card.dataset.jobId),
+        date: date,
+        ordered_ids: date ? cardsIn(to).map(function (c) { return Number(c.dataset.jobId); }) : []
+      })
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status);
+        refresh();   // re-render from the server so every view agrees
+      })
+      .catch(function () {
+        toast('The calendar changed. Refreshing…');
+        refresh();
+      });
+  }
+
+  function initCal() {
+    var c = cal();
+    if (!c) return;
+    document.body.dataset.view = c.dataset.view;
+    if (typeof Sortable === 'undefined') return;
+    var unscheduled = c.querySelector('.jr-list--unscheduled');
+
+    c.querySelectorAll('.jr-list').forEach(function (list) {
+      Sortable.create(list, {
+        // The panel list never opens a slot; drops there are placed by onEnd.
+        group: list === unscheduled ? { name: 'jobs', put: false } : 'jobs',
+        sort: list !== unscheduled,       // Unscheduled is ordered by age, not by hand
+        draggable: '.jr-card',
+        animation: 160,
+        easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
+        forceFallback: true,              // same lifted-card look on every browser
+        fallbackOnBody: true,
+        fallbackClass: 'is-drag',
+        fallbackTolerance: 4,             // a click with a tiny wobble is still a click
+        ghostClass: 'is-ghost',
+        delay: 200,
+        delayOnTouchOnly: true,           // phones: press-and-hold to drag, so scrolling still works
+        touchStartThreshold: 5,
+        emptyInsertThreshold: 12,
+        scroll: true,
+        bubbleScroll: true,
+        scrollSensitivity: 80,
+        onStart: function (evt) {
+          dragEl = evt.item;
+          dragging = true;
+          document.body.classList.add('jr-dragging');
+        },
+        onEnd: function (evt) {
+          var zone = dropZoneAt(pointer.x, pointer.y);
+          dragging = false;
+          dragEl = null;
+          document.body.classList.remove('jr-dragging');
+          lastDragEnd = Date.now();
+          setHighlight(null);
+          var card = evt.item;
+          var to = evt.to;
+          card.classList.remove('is-parked');
+
+          // Only a done job released off the calendar has no zone: cancel, put it back.
+          if (!zone) {
+            refreshQueued = false;
+            refresh();
+            return;
+          }
+
+          // Trust the pointer over Sortable's last sample.
+          var actual = listForZone(zone);
+          var corrected = false;
+          if (actual && actual !== to) {
+            insertAtPointer(actual, card);
+            to = actual;
+            corrected = true;
+          }
+
+          if (!corrected && evt.from === to && evt.oldIndex === evt.newIndex) {
+            if (refreshQueued) { refreshQueued = false; refresh(); }
+            return;
+          }
+          if (evt.from === unscheduled && to === unscheduled) return;
+          refreshQueued = false;
+          save(card, to);
+        }
+      });
+    });
+  }
+
+  initCal();
+})();
