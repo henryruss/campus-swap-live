@@ -320,3 +320,35 @@ def test_cards_and_modal_show_crew(make_user):
     assert 'data-crew-remove="%d"' % jo.id in form and 'data-crew-add="%d"' % mgr.id in form   # + Me
     new = c.get('/junk/manage/job/form').get_data(as_text=True)
     assert 'data-crew' not in new   # crew is added once the job exists
+
+
+def test_move_crew_between_jobs(make_user):
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    c = _login(mgr.id)
+    a, b = _job(mgr, customer_name='A'), _job(mgr, customer_name='B')
+    _crew(c, a, jo)
+    r = c.post(f'/junk/manage/job/{b.id}/crew', json={'user_id': jo.id, 'action': 'move', 'from_job_id': a.id})
+    assert r.status_code == 200 and _on(a) == [] and _on(b) == [jo.id]
+    # Each job's history shows its own side of the move.
+    assert JobEvent.query.filter_by(job_id=b.id, action='updated').one().changes == {'crew': [[], ['Jordan Lee']]}
+    # Moving onto a job they're already on just takes them off the old one; same job is a no-op.
+    _crew(c, a, jo)
+    c.post(f'/junk/manage/job/{b.id}/crew', json={'user_id': jo.id, 'action': 'move', 'from_job_id': a.id})
+    assert _on(a) == [] and _on(b) == [jo.id]
+    c.post(f'/junk/manage/job/{b.id}/crew', json={'user_id': jo.id, 'action': 'move', 'from_job_id': b.id})
+    assert _on(b) == [jo.id]
+    # The job they came from is gone.
+    r = c.post(f'/junk/manage/job/{b.id}/crew', json={'user_id': jo.id, 'action': 'move', 'from_job_id': 999999999})
+    assert r.status_code == 409
+
+
+def test_calendar_shows_crew_panel(make_user):
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    page = _login(mgr.id).get('/junk/manage').get_data(as_text=True)
+    assert 'data-crew-panel' in page and f'data-user-id="{jo.id}"' in page
+    assert '/junk/manage/job/__ID__/crew' in page
+    # Managers on top (with the star), then crew.
+    assert page.index(f'class="jr-crewchip is-manager" data-user-id="{mgr.id}"') < page.index(f'class="jr-crewchip" data-user-id="{jo.id}"')
+    assert 'aria-label="Manager"' in page

@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ jr_asset('manage.css') }}">
 </head>
-<body class="jr {% block body_class %}{% endblock %}">
+<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_dev_switch }}">
   {% block body %}{% endblock %}
   {% if jr_dev_switch %}
   {# Local debug server only (see dev_switch_enabled). One click to become the dev manager or crew. #}

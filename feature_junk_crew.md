@@ -1,6 +1,6 @@
 # Junk Removal — Slice 2: Crew
 
-**Status:** 🟡 In progress. Steps 1–2 are built, steps 3–4 aren't yet.
+**Status:** 🟡 In progress. Steps 1–3 are built; step 4 (the crew portal) is next.
 **Depends on:** Slice 1, the manager calendar (feature_junk_calendar.md)
 
 ---
@@ -41,7 +41,7 @@ A manager can put people on a job, and those people can see their jobs.
 ### Step 3: Assigning crew (Henry, 2026-11-18: "the same feel as Unscheduled jobs")
 Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and adding or removing inside the job modal all work.
 
-**3a — data, modal, cards** ✅ (built, not yet committed)
+**3a — data, modal, cards** ✅ (0e32c2c)
 - **New table** `JobAssignment` (`junk_job_assignment`, migration `e7b4c2a9d1f3`): `job_id`, `user_id`, `created_at` and `created_by_id`, unique on `(job_id, user_id)`. Assignments are deleted along with their job.
 - **Anyone with junk access can be assigned,** crew or manager. `set_crew(job, person, actor, on)` lives in `junk/jobs.py`.
 - **One endpoint:** `POST /manage/job/<id>/crew` with JSON `{user_id, action: add|remove}`. Managers only. It answers with the re-rendered `_job_crew.html`.
@@ -53,10 +53,20 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 - **Modal crew row order:** `[+ Add…] [+ Me]` and then the people, so the buttons never move.
 - **History:** changes are recorded as `crew: [before names, after names]` and merge into the 10-minute edit burst; adding someone and then removing them leaves no entry.
 
-**3b — crew panel + drag** (next)
-- **Where the list sits:** on the right on desktop, mirroring Unscheduled, and at the bottom on phone. It shows everyone on the Team page, crew first.
-- **Assign:** drag a person onto a job card.
-- **Unassign or move:** on desktop, drag a name pill off a card back to the list, or onto another job. Phones don't drag crew off cards (Henry).
+**3b — crew panel + drag** ✅
+- **Crew panel:** on the right on desktop (`.jr-board` columns are 250px | calendar | 190px), stacked under the calendar on narrower screens, and at the bottom on phones.
+  - **Phones:** up to 3 rows of two, left to right. With more than 6 people it becomes 3 rows that fill down each column and scroll sideways, with the next column peeking in, so what's in view is a run of neighbours in the list.
+  - It's hidden in phone month view, which has no chips to drop on.
+  - It lists the Team page: managers on top, then crew, each alphabetical. Managers have dark initials and an amber star; on phones the star sits on the initials circle's corner, so names aren't cut off.
+- **Drag a person onto a job** to assign them. The job under the pointer gets a dark outline. The panel keeps its copy.
+- **Desktop only: drag a name pill off a card.**
+  - Onto another job: moves the person, in one request (`action: 'move', from_job_id`). Each job's history records its own side.
+  - Back onto the same card: nothing changes.
+  - Anywhere else: unassigns them. The Crew panel turns green whenever letting go would remove them.
+- **Phones:** a press on an initials bubble drags the job, not the person.
+- **Job drags:** letting go of a job over the Crew panel puts it back; it doesn't unschedule it. No landing slot shows while the job is over the panel.
+- **Dev only:** on phones the page gets 72px of extra bottom room, so the dev pill never covers the Crew strip.
+- **Tests:** a test for move and one for the panel; 114 passing in total. Browser check covered panel → job, pill → job (move), pill → panel, pill → empty space, a job dropped on the Crew panel, and phone panel → job.
 
 ### Step 4: Crew portal
 - `/junk/crew` lists my assigned jobs: upcoming first, then a short list of recent done jobs.

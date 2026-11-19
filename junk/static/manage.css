@@ -75,7 +75,7 @@ body.jr {
 .jr-seg a.is-on { background: var(--bg-cream); color: var(--primary); }
 
 /* ── Week board ────────────────────────────────────────── */
-.jr-board { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; }
+.jr-board { display: grid; grid-template-columns: 250px minmax(0, 1fr) 190px; gap: 16px; align-items: start; }
 .jr-week {
   display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
   background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
@@ -190,6 +190,31 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
   border: 1px dashed var(--rule); border-radius: var(--jr-radius);
   transition: background 0.15s, border-color 0.15s;
 }
+
+/* ── Crew panel (drag a person onto a job) ─────────────── */
+.jr-crewside {
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 14px 10px 10px; min-width: 0;
+}
+.jr-crewlist { display: flex; flex-direction: column; gap: 6px; }
+.jr-crewchip {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 9px;
+  border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body);
+  box-shadow: var(--jr-shadow-sm); cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  font-size: 0.84rem; font-weight: 600; color: var(--card-ink);
+}
+.jr-crewchip:hover { border-color: var(--sage); }
+.jr-crewchip-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Managers: dark initials and a star, so they read as different at a glance. */
+.jr-crewchip.is-manager .jr-avatar { background: var(--primary); color: var(--text-light); }
+.jr-mgr-star { flex: none; margin-left: auto; fill: var(--accent); }
+.jr-crew-tag { cursor: grab; }
+/* While a person is being dragged: the floating copy, and the job they'd land on. */
+.jr-crewchip.is-drag, .jr-crew-tag.is-drag { box-shadow: var(--jr-shadow-lift); opacity: 1 !important; }
+.jr-crew-tag.is-drag { background: var(--sage-lt); }
+.jr-crewchip.is-ghost, .jr-crew-tag.is-ghost { opacity: 0.45; }
+.jr-card.is-crew-target { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--jr-shadow-sm); }
+.jr-crewside.is-drop-target { border-color: var(--primary-light); background: var(--sage-lt); }
 
 /* ── Month ─────────────────────────────────────────────── */
 .jr-month { background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
@@ -389,6 +414,10 @@ body.jr-modal-open { overflow: hidden; }
   .jr-fit .jr-side-add, .jr-fit .jr-side-head, .jr-fit .jr-side-hint { flex: none; }
   .jr-fit .jr-list--unscheduled { min-height: 0; overflow-y: auto; flex: 0 1 auto; padding: 2px; margin: -2px; }
 
+  .jr-fit .jr-crewside { min-height: 0; max-height: 100%; align-self: start; overflow: hidden; display: flex; flex-direction: column; }
+  .jr-fit .jr-crewside .jr-side-head { flex: none; }
+  .jr-fit .jr-crewlist { min-height: 0; overflow-y: auto; padding: 2px; margin: -2px; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+
   .jr-fit .jr-week { min-height: 0; height: 100%; }
   .jr-fit .jr-day { min-height: 0; }
   .jr-fit .jr-day-head { flex: none; }
@@ -407,6 +436,7 @@ body.jr-modal-open { overflow: hidden; }
 /* ── Narrower screens: Unscheduled on top ──────────────── */
 @media (max-width: 1100px) {
   .jr-board { grid-template-columns: minmax(0, 1fr); }
+  .jr-crewlist { flex-direction: row; flex-wrap: wrap; }
   .jr-side { position: static; max-height: none; }
   .jr-list--unscheduled { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
 }
@@ -467,6 +497,29 @@ body.jr-modal-open { overflow: hidden; }
     content: 'No unscheduled jobs'; grid-column: 1 / -1; font-size: 0.78rem; color: var(--text-muted); padding: 2px;
   }
 
+  /* Crew: a sideways strip at the bottom, like Unscheduled. Month view has no chips to drop on. */
+  .jr-crewside { padding: 10px; }
+  .jr-crewside .jr-side-head { padding: 0 2px 8px; }
+  /* Up to 3 rows of two, filled left to right. With more than 6 people it becomes 3 rows that
+     fill down each column and scroll sideways (a sliver of the next column shows), so what's in
+     view is always a run of neighbours in the list, not every sixth name. */
+  .jr-crewlist {
+    display: grid; grid-template-columns: repeat(2, calc((100% - 6px) / 2)); gap: 6px;
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  .jr-crewlist.is-wide {
+    grid-template-columns: none; grid-template-rows: repeat(3, auto);
+    grid-auto-flow: column; grid-auto-columns: calc((100% - 12px) / 2.2);
+  }
+  .jr-crewlist::-webkit-scrollbar { display: none; }
+  .jr-crewchip { min-width: 0; padding: 6px 9px 6px 6px; font-size: 0.78rem; position: relative; }
+  /* The manager star sits on the initials circle's corner, so it costs no width. */
+  .jr-mgr-star {
+    position: absolute; left: 21px; top: 2px; width: 12px; height: 12px; margin: 0;
+    stroke: var(--bg-body); stroke-width: 2.5px; paint-order: stroke;
+  }
+  .jr-board--month .jr-crewside { display: none; }
+
   /* Week: Mon–Thu, then Fri–Sun. */
   .jr-week { grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 0; }
   .jr-day { border-right: 1px solid var(--rule); padding-bottom: 6px; min-height: 108px; }
@@ -522,6 +575,8 @@ body.jr-modal-open .jr-dev { display: none; }  /* never covers the job sheet */
 @media (max-width: 760px) {
   /* Clear of the iPhone home bar and Safari's bottom toolbar. */
   .jr-dev { left: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); top: auto; transform: none; font-size: 0.7rem; }
+  /* Room at the bottom so the pill never covers anything (e.g. the Crew strip). Dev only. */
+  body.jr-has-dev .jr-main { padding-bottom: 72px; }
   .jr-dev button { height: 24px; padding: 0 9px; }
 }
 

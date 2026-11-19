@@ -71,10 +71,26 @@
       {% endfor %}
     </div>
     {% endif %}
+
+    {# Drag a person onto a job to put them on it. #}
+    <aside class="jr-crewside" data-crew-panel>
+      <header class="jr-side-head"><h2>Crew</h2></header>
+      {# Phones lay the crew out in up to 3 rows; more columns than fit scroll sideways. #}
+      <div class="jr-crewlist{{ ' is-wide' if crew_panel|length > 6 }}">
+        {%- for u in crew_panel %}
+        {%- set mgr = u.is_junk_manager or u.is_super_admin %}
+        <div class="jr-crewchip{{ ' is-manager' if mgr }}" data-user-id="{{ u.id }}" title="{{ u|jr_person }}{{ ' · Manager' if mgr }}">
+          <span class="jr-avatar">{{ u|jr_initials }}</span><span class="jr-crewchip-name">{{ u|jr_person }}</span>
+          {%- if mgr %}<svg class="jr-mgr-star" viewBox="0 0 24 24" width="14" height="14" role="img" aria-label="Manager"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>{% endif %}
+        </div>
+        {%- endfor %}
+      </div>
+      {% if not crew_panel %}<p class="jr-side-hint">Add people on the Team page.</p>{% endif %}
+    </aside>
   </div>
 </div>
 
-<div id="jr-app" hidden data-form-url="{{ url_for('junk.job_form') }}" data-move-url="{{ url_for('junk.board_move') }}"></div>
+<div id="jr-app" hidden data-form-url="{{ url_for('junk.job_form') }}" data-move-url="{{ url_for('junk.board_move') }}" data-crew-url="{{ url_for('junk.job_crew', job_id=0)|replace('/0/crew', '/__ID__/crew') }}"></div>
 <div class="jr-modal" id="jr-modal" hidden>
   <div class="jr-modal-backdrop" data-close></div>
   <div class="jr-modal-panel" role="dialog" aria-modal="true" aria-label="Job">

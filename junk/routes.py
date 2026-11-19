@@ -450,7 +450,10 @@ def manage():
 
     unscheduled = unscheduled_query().options(_WITH_CREW).all()
 
-    ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled,
+    # The Crew panel you drag people from: managers on top (they work jobs too), then crew,
+    # each alphabetical.
+    crew_panel = sorted(_team(), key=lambda u: (not is_junk_manager(u), person_name(u).lower()))
+    ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled, crew_panel=crew_panel,
                return_to=_calendar_url(view, anchor))
 
     if view == 'week':
@@ -586,10 +589,21 @@ def job_crew(job_id):
     except (TypeError, ValueError):
         person = None
     action = data.get('action')
-    if person is None or action not in ('add', 'remove'):
+    if person is None or action not in ('add', 'remove', 'move'):
         return jsonify(ok=False, error="That didn't work. Refresh and try again."), 400
     try:
-        set_crew(job, person, current_user, on=(action == 'add'))
+        if action == 'move':   # dragged from one job's card onto another: one request, both jobs
+            try:
+                from_job = db.session.get(Job, int(data.get('from_job_id')))
+            except (TypeError, ValueError):
+                from_job = None
+            if from_job is None:
+                return jsonify(ok=False, error="That job was deleted. Refreshing."), 409
+            if from_job.id != job.id:
+                set_crew(job, person, current_user, on=True)
+                set_crew(from_job, person, current_user, on=False)
+        else:
+            set_crew(job, person, current_user, on=(action == 'add'))
     except JobFormError as e:
         return jsonify(ok=False, error=str(e)), 400
     return jsonify(ok=True, html=render_template('junk/_job_crew.html', job=job, team=_team()))

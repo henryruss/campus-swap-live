@@ -9,6 +9,7 @@
   if (!app) return;
   var formUrl = app.dataset.formUrl;
   var moveUrl = app.dataset.moveUrl;
+  var crewUrl = app.dataset.crewUrl;   // .../job/__ID__/crew
   var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
   var modal = document.getElementById('jr-modal');
   var modalBody = modal.querySelector('[data-modal-body]');
@@ -50,7 +51,7 @@
 
   // Everything that scrolls on its own inside the calendar, keyed so the same box can be
   // found again in the re-rendered calendar.
-  var SCROLLERS = ['.jr-month', '.jr-list--unscheduled', '.jr-day .jr-list'];
+  var SCROLLERS = ['.jr-month', '.jr-list--unscheduled', '.jr-day .jr-list', '.jr-crewlist'];
 
   function eachScroller(root, fn) {
     SCROLLERS.forEach(function (sel, i) {
@@ -550,6 +551,7 @@
     var el = document.elementFromPoint(x, y);
     var day = el && el.closest('.jr-drop');
     if (day) return day;
+    if (el && el.closest('.jr-crewside')) return null;   // let go over Crew: put the job back
     return isDone(dragEl) ? null : cal().querySelector('.jr-side');
   }
 
@@ -566,14 +568,17 @@
     pointer.x = t.clientX;
     pointer.y = t.clientY;
     if (!dragging) return;
+    if (crewDrag) { trackCrew(); return; }
     var zone = dropZoneAt(pointer.x, pointer.y);
     setHighlight(zone);
     if (!dragEl) return;
     // Off the calendar: no slot opens anywhere. The card leaves the calendar, the panel's
     // "Drag a job here" box lights up, and the job lands in the Unscheduled list on release.
+    // Over the Crew panel (or a done job off the calendar) there's no zone: releasing puts the
+    // job back, so the slot disappears instead of lingering in the last day passed.
     var overSide = !!(zone && zone.classList.contains('jr-side'));
-    dragEl.classList.toggle('is-parked', overSide);
-    if (overSide) return;
+    dragEl.classList.toggle('is-parked', overSide || !zone);
+    if (overSide || !zone) return;
     // Snap: move the slot into the day under the pointer right away, rather than waiting
     // for Sortable's next ~50ms sample. Sortable takes over ordering within that day.
     var list = listForZone(zone);
@@ -631,6 +636,105 @@
       });
   }
 
+  // ─── dragging people onto jobs ────────────────────────
+  // From the Crew panel: a copy, dropped on a job → add. From a card's name pill (desktop
+  // only): dropped on another job → move; on the same job → nothing; anywhere else → remove.
+  var crewDrag = null;      // { userId, fromCard }
+  var crewTarget = null;
+
+  function crewCardAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var card = el && el.closest('[data-cal] .jr-card');
+    return card && card !== (crewDrag && crewDrag.fromCard) ? card : null;
+  }
+
+  function setCrewTarget(card) {
+    if (card === crewTarget) return;
+    if (crewTarget) crewTarget.classList.remove('is-crew-target');
+    crewTarget = card;
+    if (card) card.classList.add('is-crew-target');
+  }
+
+  function trackCrew() {
+    var card = crewCardAt(pointer.x, pointer.y);
+    setCrewTarget(card);
+    // Dragging someone off a job: the Crew panel lights up whenever letting go would remove them.
+    var panel = cal().querySelector('.jr-crewside');
+    if (panel) panel.classList.toggle('is-drop-target', !!(crewDrag.fromCard && !card && !overFromCard()));
+  }
+
+  function overFromCard() {
+    var el = document.elementFromPoint(pointer.x, pointer.y);
+    return !!(el && crewDrag.fromCard && crewDrag.fromCard.contains(el));
+  }
+
+  function crewPost(jobId, body) {
+    return fetch(crewUrl.replace('__ID__', jobId), {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok || !data.ok) throw new Error(data.error || '');
+      });
+    });
+  }
+
+  function crewSortable(list, fromCard) {
+    Sortable.create(list, {
+      group: { name: 'crew', pull: fromCard ? true : 'clone', put: false },
+      sort: false,
+      draggable: fromCard ? '.jr-crew-tag' : '.jr-crewchip',
+      forceFallback: true,
+      fallbackOnBody: true,
+      fallbackClass: 'is-drag',
+      fallbackTolerance: 4,
+      ghostClass: 'is-ghost',
+      delay: 200,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 5,
+      scroll: true,
+      bubbleScroll: true,
+      scrollSensitivity: 80,
+      onStart: function (evt) {
+        crewDrag = { userId: Number(evt.item.dataset.userId), fromCard: fromCard };
+        dragging = true;
+        document.body.classList.add('jr-dragging');
+      },
+      onEnd: function () {
+        var drag = crewDrag;
+        var target = crewCardAt(pointer.x, pointer.y);
+        var stayed = !target && overFromCard();
+        setCrewTarget(null);
+        var panel = cal().querySelector('.jr-crewside');
+        if (panel) panel.classList.remove('is-drop-target');
+        crewDrag = null;
+        dragging = false;
+        document.body.classList.remove('jr-dragging');
+        lastDragEnd = Date.now();
+
+        var request = null;
+        if (!drag.fromCard) {
+          if (target) request = crewPost(target.dataset.jobId, { user_id: drag.userId, action: 'add' });
+        } else if (target) {
+          request = crewPost(target.dataset.jobId, {
+            user_id: drag.userId, action: 'move', from_job_id: Number(drag.fromCard.dataset.jobId) });
+        } else if (!stayed) {
+          request = crewPost(drag.fromCard.dataset.jobId, { user_id: drag.userId, action: 'remove' });
+        }
+        if (!request) {
+          if (refreshQueued || drag.fromCard) { refreshQueued = false; refresh(); }  // put the pill back
+          return;
+        }
+        refreshQueued = false;
+        request.then(refresh).catch(function (err) {
+          toast(err.message || 'Couldn’t update the crew. Refreshing…');
+          refresh();
+        });
+      }
+    });
+  }
+
   function initCal() {
     var c = cal();
     if (!c) return;
@@ -638,8 +742,20 @@
     if (typeof Sortable === 'undefined') return;
     var unscheduled = c.querySelector('.jr-list--unscheduled');
 
+    // Name pills can be dragged off cards on desktop only; on a phone a press on a bubble
+    // just drags the job.
+    var crewOff = window.matchMedia('(min-width: 761px)').matches;
+    c.querySelectorAll('.jr-crewlist').forEach(function (list) { crewSortable(list, null); });
+    if (crewOff) {
+      c.querySelectorAll('.jr-card-crew').forEach(function (list) {
+        crewSortable(list, list.closest('.jr-card'));
+      });
+    }
+
     c.querySelectorAll('.jr-list').forEach(function (list) {
       Sortable.create(list, {
+        filter: crewOff ? '.jr-crew-tag' : null,   // a press on a pill drags the person, not the job
+        preventOnFilter: false,
         // The panel list never opens a slot; drops there are placed by onEnd.
         group: list === unscheduled ? { name: 'jobs', put: false } : 'jobs',
         sort: list !== unscheduled,       // Unscheduled is ordered by age, not by hand
