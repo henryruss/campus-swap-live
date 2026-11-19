@@ -653,3 +653,59 @@
 
   initCal();
 })();
+
+// ─── dev-only touch debug readout ─────────────────────────
+// Open any calendar URL with ?touchdebug=1 (on a dev server; it needs the dev switch on the
+// page, so it can never run in production). ?touchdebug=0 turns it off.
+(function () {
+  if (!document.querySelector('.jr-dev')) return;
+  var q = new URLSearchParams(location.search).get('touchdebug');
+  try {
+    if (q === '1') sessionStorage.setItem('jrTouchDebug', '1');
+    if (q === '0') sessionStorage.removeItem('jrTouchDebug');
+    if (sessionStorage.getItem('jrTouchDebug') !== '1') return;
+  } catch (e) { if (q !== '1') return; }
+
+  var hud = document.createElement('pre');
+  hud.style.cssText = 'position:fixed;top:4px;right:4px;z-index:99999;margin:0;padding:6px 8px;' +
+    'max-width:70vw;font:10px/1.35 ui-monospace,monospace;white-space:pre-wrap;pointer-events:none;' +
+    'background:rgba(0,0,0,.78);color:#fff;border-radius:6px';
+  document.body.appendChild(hud);
+
+  var s = { moves: 0, blocked: 0, lastBlocked: false, startOn: '-', drops: 0 };
+  function name(el) {
+    if (!el || !el.tagName) return String(el);
+    return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+      (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+  }
+  window.addEventListener('touchstart', function (e) {
+    var t = e.touches[0];
+    s.startOn = name(document.elementFromPoint(t.clientX, t.clientY));
+    s.moves = 0; s.blocked = 0;
+  }, { passive: true });
+  // Bubbles to window after Sortable's document listener has had its say.
+  window.addEventListener('touchmove', function (e) {
+    s.moves++;
+    if (e.defaultPrevented) s.blocked++;
+    s.lastBlocked = e.defaultPrevented;
+  }, { passive: true });
+  window.addEventListener('touchend', function () {
+    if (document.body.classList.contains('jr-dragging')) s.drops++;
+  }, { passive: true });
+
+  function draw() {
+    var b = document.body, cs = getComputedStyle(b), hs = getComputedStyle(document.documentElement);
+    hud.textContent = [
+      'touch: ' + s.moves + ' moves, ' + s.blocked + ' blocked (last ' + s.lastBlocked + ')',
+      'finger landed on: ' + s.startOn,
+      'Sortable.active: ' + !!(window.Sortable && Sortable.active) + '  ghost: ' + !!(window.Sortable && Sortable.ghost),
+      'body: ' + (b.className || '-') + '  user-select:' + (b.style.userSelect || '-'),
+      'overflow body/html: ' + cs.overflowY + '/' + hs.overflowY,
+      'modal hidden: ' + (document.getElementById('jr-modal') || {}).hidden,
+      'scrollY: ' + Math.round(scrollY) + ' / ' + (document.documentElement.scrollHeight - innerHeight),
+      'leftover drag cards: ' + document.querySelectorAll('body > .jr-card').length,
+    ].join('\n');
+  }
+  setInterval(draw, 300);
+  draw();
+})();

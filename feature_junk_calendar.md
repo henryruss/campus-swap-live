@@ -320,3 +320,16 @@ No code was deleted; `junk/routes.py:_gate_legacy_site` gates it. On by default;
 - **Footer:** Mark done / Undo done on the bottom left, Delete on the bottom right. Mark done saves pending edits first; Delete discards them.
 - **New jobs still use a single "Add job" button.** Autosaving a blank form would create jobs nobody meant to make.
 - **History isn't shown in the modal anymore, but it's still recorded.** Edits by the same person within 10 minutes merge into one `JobEvent`, so autosave doesn't log every keystroke. An edit that's later put back leaves no entry.
+
+## Revision 9 — phone layout (2026-11-18)
+
+**Phone (760px and narrower):**
+- **Jobs are compact name-only chips** everywhere, including the card being dragged.
+- **Unscheduled is one sideways-scrolling strip.** About 4 chips are in view with a sliver of the 5th, and `+ Job` sits beside the heading. While you drag a job off the calendar, the whole panel lights up; there's no hint box.
+- **Week is two rows,** Mon–Thu over Fri–Sun. Busy days stack down. There's no `+` hint, because iOS keeps hover states after a tap; tapping an empty day still creates a job.
+- **Month stays a look-ahead.** Each day gets one dot per job in a 3×3 grid: 8 dots, then `+` in the 9th spot. The day under your finger lights up while you drag.
+- **The toolbar is one row:** arrows, date and Week/Month. It uses a short date ("Nov 30–Dec 6", "Sep 2027"). Below 375px, Week/Month wraps to its own row rather than cut off the date.
+
+**Dev-only:** `?touchdebug=1` shows a touch-state readout (only where the dev switch exists); `?touchdebug=0` hides it.
+
+**Fixed (ad02938):** the autosave state variable was named `save`, which overwrote the drag code's `save()` function. Every drop threw: desktop drops never reached the server, and on phones Sortable stayed mid-drag and froze page scrolling.

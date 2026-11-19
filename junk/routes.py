@@ -402,6 +402,13 @@ def _week_label(start):
     return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
 
 
+def _week_label_short(start):
+    """Phone toolbar: Nov 16–22 / Nov 30–Dec 6."""
+    end = start + timedelta(days=6)
+    tail = str(end.day) if start.month == end.month else end.strftime('%b %-d')
+    return f"{start.strftime('%b %-d')}\u2013{tail}"
+
+
 def _jobs_by_day(first, last):
     """{date: [jobs in line order]}. Done jobs keep their place."""
     rows = (Job.query
@@ -438,6 +445,7 @@ def manage():
             days=days,
             jobs=_jobs_by_day(days[0], days[-1]),
             label=_week_label(start),
+            label_short=_week_label_short(start),
             showing_today=(start == week_start(today)),
             prev_url=_calendar_url('week', start - timedelta(days=7)),
             next_url=_calendar_url('week', start + timedelta(days=7)),
@@ -459,6 +467,7 @@ def manage():
             jobs=_jobs_by_day(grid_start, grid_end),
             month=first.month,
             label=first.strftime('%B %Y'),
+            label_short=first.strftime('%b %Y'),
             showing_today=(first.year, first.month) == (today.year, today.month),
             prev_url=_calendar_url('month', prev_month),
             next_url=_calendar_url('month', next_month),

@@ -45,6 +45,7 @@ body.jr {
 
 .jr-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; min-height: 36px; }
 .jr-toolbar-nav, .jr-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.jr-label-short { display: none; }
 .jr-label { font-family: 'DM Serif Display', Georgia, serif; font-size: 1.6rem !important; margin: 0 6px 0 8px; line-height: 1; }
 
 /* ── Buttons ───────────────────────────────────────────── */
@@ -96,7 +97,7 @@ body.jr {
   content: '+ Add job'; display: block; padding: 8px 0; text-align: center;
   font-size: 0.8rem; font-weight: 600; color: var(--text-muted); opacity: 0; transition: opacity 0.15s;
 }
-.jr-day:hover .jr-list::after { opacity: 0.8; }
+@media (hover: hover) { .jr-day:hover .jr-list::after { opacity: 0.8; } }
 body.jr-dragging .jr-day .jr-list::after { opacity: 0 !important; }
 body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none; }
 
@@ -176,6 +177,11 @@ body:not(.jr-dragging) .jr-mweek:hover:not(:has(.jr-card:hover)) { background: r
 .jr-mcell.is-out .jr-mnum { color: var(--text-muted); opacity: 0.55; }
 .jr-mnum { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-size: 0.85rem; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
 .jr-mcell.is-today .jr-mnum { background: var(--primary); color: var(--text-light); }
+/* Month dots: one per job, up to 8, then a +. Phone only (desktop shows the chips). */
+/* Fills a 3×3 grid left to right: the + takes the 9th spot. */
+.jr-mdots { display: none; grid-template-columns: repeat(3, 5px); grid-auto-rows: 5px; gap: 3px; justify-content: center; margin: 3px auto 0; }
+.jr-mdots i { border-radius: 50%; background: var(--accent); }
+.jr-mdots b { font-size: 0.7rem; line-height: 5px; font-weight: 700; color: var(--accent); text-align: center; }
 /* Month: the same card element, shown as a compact name chip. */
 .jr-mlist { padding: 0; gap: 3px; min-height: 28px; }
 .jr-month .jr-card { padding: 3px 7px; border-radius: 6px; border: 1px solid transparent; background: var(--bg-cream); box-shadow: none; }
@@ -341,35 +347,76 @@ body.jr-modal-open { overflow: hidden; }
   .jr-list--unscheduled { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
 }
 
-/* ── Phone: days stack ─────────────────────────────────── */
+/* Phones narrower than 375px: Week/Month drops to its own row rather than clip the date. */
+@media (max-width: 374px) { .jr-toolbar { flex-wrap: wrap !important; } .jr-toolbar-actions { margin-left: auto; } }
+
+/* ── Phone ─────────────────────────────────────────────
+   Every job is a compact name chip. Unscheduled is one sideways-scrolling strip (about four
+   chips in view). The week is two rows of day columns, Mon–Thu over Fri–Sun; a busy day
+   stacks down and its row grows. Month stays a look-ahead: a dot per job (8, then +). */
 @media (max-width: 760px) {
   .jr-top { padding: 0 16px; }
   .jr-user span { display: none; }
   .jr-main { padding: 14px 16px 32px; }
-  .jr-label { font-size: 1.3rem !important; margin-left: 4px; }
-  .jr-toolbar { gap: 10px; }
-  .jr-toolbar-actions { width: 100%; justify-content: flex-end; }
+  /* Arrows, date and Week/Month share one row. */
+  .jr-toolbar { gap: 6px; margin-bottom: 12px; flex-wrap: nowrap; }
+  .jr-toolbar-nav { gap: 4px; min-width: 0; }
+  .jr-toolbar-nav .jr-icon-btn { width: 30px; height: 30px; font-size: 1.15rem; flex: none; }
+  .jr-toolbar-nav .jr-btn { height: 30px; padding: 0 7px; font-size: 0.78rem; flex: none; }
+  .jr-label { font-size: 1.1rem !important; margin: 0 0 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .jr-label-full { display: none; }
+  .jr-label-short { display: inline; }
+  .jr-seg { padding: 2px; flex: none; }
+  .jr-seg a { height: 26px; padding: 0 8px; font-size: 0.78rem; }
+  .jr-board { gap: 12px; }
 
-  .jr-week { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .jr-day { border-right: none; border-bottom: 1px solid var(--rule); }
-  .jr-day:last-child { border-bottom: none; }
-  .jr-day-head { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 10px 12px 8px; }
-  .jr-dnum { width: 28px; height: 28px; font-size: 0.95rem; }
-  .jr-day .jr-list { padding-left: 12px; padding-right: 12px; }
-  .jr-list { min-height: 40px; }
-  .jr-day .jr-list::after { opacity: 0.7; text-align: left; padding: 6px 0 2px; }
+  /* Compact chips everywhere, including the card being dragged (it lives on <body>). */
+  .jr-card { padding: 6px 7px; border-radius: 7px; gap: 0; flex-wrap: nowrap; }
+  .jr-card-body { flex: 1 1 auto; }
+  .jr-card-name { font-size: 0.76rem; }
+  .jr-card-addr, .jr-card-quote, .jr-card .jr-tag { display: none; }
 
-  .jr-list--unscheduled { grid-template-columns: minmax(0, 1fr); }
+  /* Unscheduled: + Job beside the heading, one strip that scrolls sideways. */
+  .jr-side { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 8px; padding: 10px; }
+  .jr-side-head { padding: 0 2px; }
+  .jr-side-add { grid-column: 2; grid-row: 1; width: auto; height: 32px; margin: 0; padding: 0 14px; }
+  .jr-list--unscheduled {
+    grid-column: 1 / -1; display: flex; flex-direction: row; gap: 6px; padding: 0;
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  .jr-list--unscheduled::-webkit-scrollbar { display: none; }
+  /* Four in view plus a sliver of the fifth, so it's clear the strip scrolls. */
+  .jr-list--unscheduled > .jr-card { flex: 0 0 calc((100% - 24px) / 4.3); }
+  /* The whole panel is the drop zone for taking a job off the calendar; it lights up instead
+     of the hint box, so nothing shifts mid-drag. */
+  .jr-side-hint { display: none; }
+  .jr-side.is-drop-target { border-color: var(--primary-light); background: var(--sage-lt); }
+  .jr-side:not(:has(.jr-card))::after {
+    content: 'No unscheduled jobs'; grid-column: 1 / -1; font-size: 0.78rem; color: var(--text-muted); padding: 2px;
+  }
+
+  /* Week: Mon–Thu, then Fri–Sun. */
+  .jr-week { grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 0; }
+  .jr-day { border-right: 1px solid var(--rule); padding-bottom: 6px; min-height: 108px; }
+  .jr-day:nth-child(4n) { border-right: none; }
+  .jr-day:last-child { border-right: 1px solid var(--rule); }  /* Sunday sits mid-row here */
+  .jr-day:nth-child(-n+4) { border-bottom: 1px solid var(--rule); }
+  .jr-day-head { flex-direction: row; justify-content: center; gap: 4px; padding: 8px 4px 6px; }
+  .jr-dow { font-size: 0.66rem; }
+  .jr-dnum { width: 24px; height: 24px; font-size: 0.82rem; }
+  .jr-day .jr-list { padding: 0 4px; gap: 4px; min-height: 40px; }
+  .jr-day .jr-list::after { display: none; }  /* tap an empty day to add; + Job is right there */
+
+  /* Month: a dot per job, the day under your finger lights up while dragging. */
   .jr-mcell { min-height: 64px; padding: 4px; }
   .jr-mlist { display: none; }
-  .jr-mcell:has(.jr-card)::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin: 2px auto 0; }
+  .jr-mdots { display: grid; }
+  .jr-mcell.is-drop-target { background: var(--sage-lt); }
 
   .jr-form .jr-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .jr-modal { place-items: end stretch; padding: 0; }
   .jr-modal-panel { width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
 }
-
-@media (max-width: 760px) { .jr-side .jr-list--unscheduled { padding: 0; } }
 
 .jr-btn-google.is-busy { opacity: 0.6; pointer-events: none; }
 
@@ -394,8 +441,8 @@ body.jr-modal-open { overflow: hidden; }
 .jr-dev button:hover { background: rgba(255, 255, 255, 0.12); }
 .jr-dev button.is-on { background: var(--text-light); color: var(--slate); cursor: default; }
 @media (max-width: 760px) {
-  .jr-dev { left: 8px; bottom: 8px; top: auto; transform: none; font-size: 0.7rem; opacity: 0.9; }
-  .jr-dev-tag { display: none; }
+  /* Clear of the iPhone home bar and Safari's bottom toolbar. */
+  .jr-dev { left: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); top: auto; transform: none; font-size: 0.7rem; }
   .jr-dev button { height: 24px; padding: 0 9px; }
 }
 

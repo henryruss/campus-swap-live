@@ -10,7 +10,7 @@
       <a class="jr-icon-btn" href="{{ prev_url }}" data-nav aria-label="Previous {{ view }}">&#8249;</a>
       {% if not showing_today %}<a class="jr-btn jr-btn--quiet" href="{{ today_url }}" data-nav>Today</a>{% endif %}
       <a class="jr-icon-btn" href="{{ next_url }}" data-nav aria-label="Next {{ view }}">&#8250;</a>
-      <h1 class="jr-label">{{ label }}</h1>
+      <h1 class="jr-label"><span class="jr-label-full">{{ label }}</span><span class="jr-label-short" aria-hidden="true">{{ label_short }}</span></h1>
     </div>
     <div class="jr-toolbar-actions">
       <div class="jr-seg" role="group" aria-label="View">
@@ -61,6 +61,10 @@
               <div class="jr-list jr-mlist" data-date="{{ d.isoformat() }}">
                 {%- for job in jobs.get(d, []) %}{% include 'junk/_card.html' %}{% endfor -%}
               </div>
+              {%- set n = jobs.get(d, [])|length %}
+              {%- if n %}<span class="jr-mdots" aria-label="{{ n }} job{{ 's' if n != 1 }}">
+                {%- for _ in range([n, 8]|min) %}<i></i>{% endfor %}{% if n > 8 %}<b>+</b>{% endif -%}
+              </span>{% endif %}
             </div>
           {% endfor %}
         </div>
