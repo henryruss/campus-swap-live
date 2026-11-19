@@ -295,11 +295,13 @@
   // ─── autosave ─────────────────────────────────────────
   // An existing job saves as you type: ~0.7 s after the last keystroke, or right away when a
   // field is left, the date changes or an address is picked. Saves run one at a time, in order.
-  var save = { timer: null, dirty: false, changed: false, chain: null };
+  // Named `edits`, not `save`: the drag code below has a save() function, and a variable with
+  // the same name overwrote it (every drop threw, leaving Sortable stuck mid-drag).
+  var edits = { timer: null, dirty: false, changed: false, chain: null };
 
   function resetSave() {
-    clearTimeout(save.timer);
-    save = { timer: null, dirty: false, changed: false, chain: null };
+    clearTimeout(edits.timer);
+    edits = { timer: null, dirty: false, changed: false, chain: null };
   }
 
   function saveState(text) {
@@ -309,12 +311,12 @@
 
   // Resolves true once everything typed so far is saved, false if a save failed.
   function saveNow() {
-    clearTimeout(save.timer);
+    clearTimeout(edits.timer);
     var form = modalBody.querySelector('form[data-autosave]');
-    if (!form || !save.dirty) return save.chain || Promise.resolve(true);
-    save.dirty = false;
+    if (!form || !edits.dirty) return edits.chain || Promise.resolve(true);
+    edits.dirty = false;
     var body = new FormData(form);
-    var state = save;
+    var state = edits;
     var run = (state.chain || Promise.resolve(true)).then(function () {
       saveState('Saving…');
       return fetch(form.action, {
@@ -327,10 +329,10 @@
       }).then(function () {
         state.changed = true;
         cache.clear();
-        if (state === save) saveState('Saved');
+        if (state === edits) saveState('Saved');
         return true;
       }).catch(function (err) {
-        if (state === save) { state.dirty = true; saveState(''); }
+        if (state === edits) { state.dirty = true; saveState(''); }
         toast(err.message || 'Couldn’t save. Check your connection.');
         return false;
       });
@@ -340,9 +342,9 @@
   }
 
   function queueSave(delay) {
-    save.dirty = true;
-    clearTimeout(save.timer);
-    save.timer = setTimeout(saveNow, delay);
+    edits.dirty = true;
+    clearTimeout(edits.timer);
+    edits.timer = setTimeout(saveNow, delay);
   }
 
   modal.addEventListener('input', function (e) {
@@ -365,7 +367,7 @@
     if (modal.hidden) return;
     saveNow().then(function (ok) {
       if (!ok || modal.hidden) return;
-      var changed = save.changed;
+      var changed = edits.changed;
       resetSave();
       hideModal();
       if (changed) refresh();
@@ -416,7 +418,7 @@
     e.preventDefault();
     if (form.hasAttribute('data-autosave')) { saveNow(); return; }
     // Mark done saves anything pending first; delete throws pending edits away.
-    if (form.hasAttribute('data-delete')) { clearTimeout(save.timer); save.dirty = false; }
+    if (form.hasAttribute('data-delete')) { clearTimeout(edits.timer); edits.dirty = false; }
     var buttons = modal.querySelectorAll('button[type="submit"]');
     buttons.forEach(function (b) { b.disabled = true; });
     saveNow().then(function (ok) {
