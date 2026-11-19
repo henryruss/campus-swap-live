@@ -48,13 +48,36 @@
 
   function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
 
+  // Everything that scrolls on its own inside the calendar, keyed so the same box can be
+  // found again in the re-rendered calendar.
+  var SCROLLERS = ['.jr-month', '.jr-list--unscheduled', '.jr-day .jr-list'];
+
+  function eachScroller(root, fn) {
+    SCROLLERS.forEach(function (sel, i) {
+      root.querySelectorAll(sel).forEach(function (el) { fn(el, i + '|' + (el.dataset.date || '')); });
+    });
+  }
+
+  function saveScroll(root) {
+    var saved = {};
+    eachScroller(root, function (el, key) { if (el.scrollTop) saved[key] = el.scrollTop; });
+    return saved;
+  }
+
+  function restoreScroll(root, saved) {
+    eachScroller(root, function (el, key) { if (saved[key]) el.scrollTop = saved[key]; });
+  }
+
   // Swap the calendar for the one in `doc`. Returns false if the page isn't a calendar
-  // (e.g. the session expired and we got the sign-in page).
-  function applyDoc(doc) {
+  // (e.g. the session expired and we got the sign-in page). `keepScroll` is for re-rendering
+  // the same view after a save: every scrolled day, list and month grid stays where it was.
+  function applyDoc(doc, keepScroll) {
     var fresh = doc.querySelector('[data-cal]');
     var current = cal();
     if (!fresh || !current) return false;
+    var saved = keepScroll ? saveScroll(current) : null;
     current.replaceWith(document.adoptNode(fresh));
+    if (saved) restoreScroll(fresh, saved);
     if (doc.title) document.title = doc.title;
     var flashes = doc.querySelectorAll('.jr-flash');
     if (flashes.length) toast(flashes[flashes.length - 1].textContent.trim());
@@ -62,9 +85,9 @@
     return true;
   }
 
-  function navigate(url, push) {
+  function navigate(url, push, keepScroll) {
     fetchPage(url).then(function (html) {
-      if (!applyDoc(parse(html))) { window.location.href = url; return; }
+      if (!applyDoc(parse(html), keepScroll)) { window.location.href = url; return; }
       if (push) history.pushState({ jr: true }, '', url);
     }).catch(function () { window.location.href = url; });
   }
@@ -74,7 +97,7 @@
   function refresh() {
     if (dragging) { refreshQueued = true; return; }
     cache.clear();
-    navigate(currentUrl(), false);
+    navigate(currentUrl(), false, true);
   }
 
   window.addEventListener('popstate', function () { cache.clear(); navigate(currentUrl(), false); });
@@ -220,6 +243,7 @@
             lngEl.value = place.location.lng();
           }
           showMap();
+          input.dispatchEvent(new Event('change', { bubbles: true }));  // autosave the pick
         }).catch(function () { token = null; });
     }
 
@@ -268,14 +292,88 @@
     showMap();  // an existing job with a located address
   }
 
+  // ─── autosave ─────────────────────────────────────────
+  // An existing job saves as you type: ~0.7 s after the last keystroke, or right away when a
+  // field is left, the date changes or an address is picked. Saves run one at a time, in order.
+  var save = { timer: null, dirty: false, changed: false, chain: null };
+
+  function resetSave() {
+    clearTimeout(save.timer);
+    save = { timer: null, dirty: false, changed: false, chain: null };
+  }
+
+  function saveState(text) {
+    var el = modalBody.querySelector('[data-save-state]');
+    if (el) el.textContent = text;
+  }
+
+  // Resolves true once everything typed so far is saved, false if a save failed.
+  function saveNow() {
+    clearTimeout(save.timer);
+    var form = modalBody.querySelector('form[data-autosave]');
+    if (!form || !save.dirty) return save.chain || Promise.resolve(true);
+    save.dirty = false;
+    var body = new FormData(form);
+    var state = save;
+    var run = (state.chain || Promise.resolve(true)).then(function () {
+      saveState('Saving…');
+      return fetch(form.action, {
+        method: 'POST', body: body, credentials: 'same-origin',
+        headers: { 'X-Autosave': '1', 'Accept': 'application/json' },
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          if (!r.ok || !data.ok) throw new Error(data.error || '');
+        });
+      }).then(function () {
+        state.changed = true;
+        cache.clear();
+        if (state === save) saveState('Saved');
+        return true;
+      }).catch(function (err) {
+        if (state === save) { state.dirty = true; saveState(''); }
+        toast(err.message || 'Couldn’t save. Check your connection.');
+        return false;
+      });
+    });
+    state.chain = run;
+    return run;
+  }
+
+  function queueSave(delay) {
+    save.dirty = true;
+    clearTimeout(save.timer);
+    save.timer = setTimeout(saveNow, delay);
+  }
+
+  modal.addEventListener('input', function (e) {
+    if (e.target.closest('form[data-autosave]')) queueSave(700);
+  });
+  modal.addEventListener('change', function (e) {
+    if (e.target.closest('form[data-autosave]')) queueSave(0);
+  });
+
   // ─── modal ────────────────────────────────────────────
-  function closeModal() {
+  function hideModal() {
     modal.hidden = true;
     document.body.classList.remove('jr-modal-open');
     modalBody.innerHTML = '';
   }
 
+  // Closing finishes any pending save first. If it fails, the modal stays open so nothing is
+  // lost. If anything was saved, the calendar re-renders (keeping its scroll).
+  function closeModal() {
+    if (modal.hidden) return;
+    saveNow().then(function (ok) {
+      if (!ok || modal.hidden) return;
+      var changed = save.changed;
+      resetSave();
+      hideModal();
+      if (changed) refresh();
+    });
+  }
+
   function openForm(params) {
+    resetSave();
     var qs = new URLSearchParams(params);
     qs.set('return_to', returnTo());
     modalBody.innerHTML = '';
@@ -294,7 +392,7 @@
         }
       })
       .catch(function () {
-        closeModal();
+        hideModal();
         toast('Couldn’t open that job. Try again.');
       });
   }
@@ -306,7 +404,8 @@
     if (e.key === 'Escape' && !modal.hidden) closeModal();
   });
 
-  // Modal forms (save, done, delete) post in the background, then swap the calendar.
+  // Modal forms (add, done, delete) post in the background, then swap the calendar.
+  // Enter in an autosaving form just saves.
   document.addEventListener('submit', function (e) {
     var form = e.target;
     if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
@@ -315,9 +414,15 @@
     }
     if (!form.closest('#jr-modal')) return;
     e.preventDefault();
+    if (form.hasAttribute('data-autosave')) { saveNow(); return; }
+    // Mark done saves anything pending first; delete throws pending edits away.
+    if (form.hasAttribute('data-delete')) { clearTimeout(save.timer); save.dirty = false; }
     var buttons = modal.querySelectorAll('button[type="submit"]');
     buttons.forEach(function (b) { b.disabled = true; });
-    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+    saveNow().then(function (ok) {
+      if (!ok) throw new Error('save');
+      return fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' });
+    })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (html) {
         cache.clear();
@@ -328,11 +433,12 @@
           buttons.forEach(function (b) { b.disabled = false; });
           return;
         }
-        closeModal();
-        if (!applyDoc(doc)) window.location.reload();
+        resetSave();
+        hideModal();
+        if (!applyDoc(doc, true)) window.location.reload();
       })
-      .catch(function () {
-        toast('Couldn’t save. Try again.');
+      .catch(function (err) {
+        if (err.message !== 'save') toast('Couldn’t save. Try again.');
         buttons.forEach(function (b) { b.disabled = false; });
       });
   });

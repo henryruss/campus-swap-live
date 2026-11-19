@@ -16,6 +16,18 @@
 </head>
 <body class="jr {% block body_class %}{% endblock %}">
   {% block body %}{% endblock %}
+  {% if jr_dev_switch %}
+  {# Local debug server only (see dev_switch_enabled). One click to become the dev manager or crew. #}
+  <div class="jr-dev" aria-label="Dev: switch account">
+    <span class="jr-dev-tag">Dev</span>
+    {% for role, label in [('manager', 'Manager'), ('crew', 'Crew')] %}
+    <form method="post" action="{{ url_for('junk.dev_switch', role=role) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="{{ 'is-on' if jr_dev_role == role }}" {{ 'aria-pressed=true' if jr_dev_role == role }}>{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

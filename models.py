@@ -70,6 +70,9 @@ class User(UserMixin, db.Model):
     # JUNK REMOVAL MANAGER — access to the junk removal manager portal (/junk/manage).
     # Independent of is_admin / is_campus_director / is_worker. Super admins also pass the guard.
     is_junk_manager = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
+    # JUNK REMOVAL CREW — access to the crew side of the junk portal (/junk/crew).
+    # Independent of is_worker (legacy consignment crew) and of is_junk_manager; a user can be both.
+    is_junk_crew = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
 
     # REFERRAL PROGRAM
     referral_code = db.Column(db.String(8), unique=True, nullable=True)

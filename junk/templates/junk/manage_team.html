@@ -1,0 +1,76 @@
+{% extends 'junk/manage_layout.html' %}
+{% block title %}Team{% endblock %}
+
+{% block content %}
+<div class="jr-team" data-team>
+  <div class="jr-team-bar">
+    <button type="button" class="jr-btn jr-btn--primary" data-team-add-open {{ 'hidden' if adding }}>+ Crew</button>
+  </div>
+
+  <form class="jr-form jr-team-add" method="post" action="{{ url_for('junk.team_add') }}"
+        data-team-add {{ 'hidden' if not adding }}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="jr-form-head">
+      <h2>Add crew</h2>
+      <button type="button" class="jr-icon-btn jr-close" data-team-add-close aria-label="Close">&times;</button>
+    </div>
+    <div class="jr-team-add-row">
+      <div class="jr-field">
+        <label for="jr-team-email">Email</label>
+        <input id="jr-team-email" name="email" type="email" required maxlength="120" autocomplete="off">
+      </div>
+      <div class="jr-field">
+        <label for="jr-team-name">Name</label>
+        <input id="jr-team-name" name="name" maxlength="100" autocomplete="off">
+      </div>
+      <div class="jr-field">
+        <label for="jr-team-phone">Phone</label>
+        <input id="jr-team-phone" name="phone" type="tel" maxlength="20" autocomplete="off">
+      </div>
+      <button type="submit" class="jr-btn jr-btn--primary">Add</button>
+    </div>
+    <p class="jr-team-hint">They sign in with Google, or set a password from the sign-in page.</p>
+  </form>
+
+  <ul class="jr-team-list">
+    {% for u in people %}
+    {% set manager = u.is_junk_manager or u.is_super_admin %}
+    <li class="jr-person">
+      <div class="jr-person-main">
+        <span class="jr-person-name">{{ u.full_name or u.email }}</span>
+        <span class="jr-person-meta">
+          {%- if u.full_name %}<span>{{ u.email }}</span>{% endif -%}
+          {%- if u.phone %}<span>{{ u.phone|jr_phone }}</span>{% endif -%}
+        </span>
+      </div>
+      <div class="jr-person-side">
+        <span class="jr-role">{{ 'Manager' if manager else 'Crew' }}</span>
+        {% if u.is_junk_crew and not manager %}
+        <form method="post" action="{{ url_for('junk.team_remove', user_id=u.id) }}"
+              onsubmit="return confirm('Remove from crew? They lose access to the portal.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="jr-link-btn">Remove</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var open = document.querySelector('[data-team-add-open]');
+  var form = document.querySelector('[data-team-add]');
+  function show(on) {
+    form.hidden = !on; open.hidden = on;
+    if (on) form.querySelector('input[name=email]').focus();
+  }
+  open.addEventListener('click', function () { show(true); });
+  document.querySelector('[data-team-add-close]').addEventListener('click', function () { show(false); });
+  if (!form.hidden) form.querySelector('input[name=email]').focus();
+})();
+</script>
+{% endblock %}

@@ -170,6 +170,32 @@ def log_event(job, user, action, changes=None):
                             action=action, changes=changes or {}))
 
 
+# The modal autosaves as you type, so one sitting of edits by one person becomes one entry.
+EDIT_MERGE_WINDOW = timedelta(minutes=10)
+
+
+def log_edit(job, user, changes):
+    uid = getattr(user, 'id', None)
+    last = job.events.first()  # newest
+    if not (last and last.action == 'updated' and last.user_id == uid
+            and datetime.utcnow() - last.created_at < EDIT_MERGE_WINDOW):
+        log_event(job, user, 'updated', changes)
+        return
+    merged = dict(last.changes or {})
+    for field, (old, new) in changes.items():
+        if field in merged:
+            old = merged[field][0]   # keep the value from before the sitting started
+        if _normalize(field, old) == _normalize(field, new):
+            merged.pop(field, None)  # edited and then put back
+        else:
+            merged[field] = [old, new]
+    if merged:
+        last.changes = merged        # a new dict, so SQLAlchemy sees the JSON change
+        last.created_at = datetime.utcnow()
+    else:
+        db.session.delete(last)
+
+
 # ─── operations (each commits) ───────────────────────────────────────────
 
 def create_job(values, user, location=None):
@@ -199,7 +225,7 @@ def update_job(job, values, user, location=None):
         db.session.flush()
         place_job(job)
         renumber_day(old_date)
-    log_event(job, user, 'updated', changes)
+    log_edit(job, user, changes)
     db.session.commit()
     return job
 

@@ -597,16 +597,14 @@ def get_user_dashboard():
     if current_user.is_authenticated and current_user.is_admin:
         return url_for('admin_panel')
     if current_user.is_authenticated and _is_junk_manager_only(current_user):
-        return url_for('junk.manage')
+        return url_for('junk.index')
     return url_for('dashboard')
 
 
 def _is_junk_manager_only(user):
-    """Junk manager with no admin/CD role — their home is the junk portal, never seller onboarding."""
-    return (getattr(user, 'is_junk_manager', False)
-            and not getattr(user, 'is_admin', False)
-            and not getattr(user, 'is_super_admin', False)
-            and not getattr(user, 'is_campus_director', False))
+    """Junk manager or crew with no admin/CD role — their home is the junk portal, never seller onboarding."""
+    from junk.auth import is_junk_only
+    return is_junk_only(user)
 
 
 def apply_admin_email_if_pending(user):
@@ -7068,9 +7066,9 @@ def dashboard():
         if current_user.is_admin:
             return redirect(url_for('admin_panel'))
 
-        # Junk managers live in the junk removal portal
+        # Junk managers and crew live in the junk removal portal
         if _is_junk_manager_only(current_user):
-            return redirect(url_for('junk.manage'))
+            return redirect(url_for('junk.index'))
 
         # Campus directors default to admin ops
         if getattr(current_user, 'is_campus_director', False):

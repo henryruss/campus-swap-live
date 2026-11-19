@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from flask import g
 
 from app import app as flask_app, db
 from models import User
@@ -207,8 +208,73 @@ def test_edit_records_history_and_no_op_save_records_nothing(client):
     client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'Alice', 'quote_amount': '300'})
     ev = JobEvent.query.filter_by(job_id=a.id, action='updated').one()
     assert ev.changes == {'customer_name': ['A', 'Alice'], 'quote_amount': ['250.00', '300.00']}
+    # History is still recorded, but no longer shown in the modal.
     form = client.get(f'/junk/manage/job/form?id={a.id}').get_data(as_text=True)
-    assert 'History' in form and '$250 &rarr; $300' in form
+    assert 'History' not in form
+
+
+# ═══════════════════════════ autosave (modal) ═══════════════════════════
+
+AUTOSAVE = {'X-Autosave': '1', 'Accept': 'application/json'}
+
+
+def test_autosave_answers_json(client):
+    a = _create(client, customer_name='A', quote_amount='250')
+    r = client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'Alicia'}, headers=AUTOSAVE)
+    assert r.status_code == 200 and r.get_json() == {'ok': True}
+    db.session.refresh(a)
+    assert a.customer_name == 'Alicia'
+
+
+def test_autosave_bad_value_is_a_json_error_and_changes_nothing(client):
+    a = _create(client, customer_name='A', quote_amount='250')
+    r = client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'B', 'quote_amount': 'abc'},
+                    headers=AUTOSAVE)
+    assert r.status_code == 400 and r.get_json()['ok'] is False and r.get_json()['error']
+    db.session.refresh(a)
+    assert a.customer_name == 'A' and a.quote_amount == Decimal('250')
+
+
+def test_a_burst_of_autosaves_is_one_history_entry(client):
+    a = _create(client, customer_name='A', quote_amount='250')
+    for name in ('Al', 'Ali', 'Alice'):
+        client.post(f'/junk/manage/job/{a.id}', data={'customer_name': name, 'quote_amount': '250'},
+                    headers=AUTOSAVE)
+    client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'Alice', 'quote_amount': '300'},
+                headers=AUTOSAVE)
+    ev = JobEvent.query.filter_by(job_id=a.id, action='updated').one()
+    assert ev.changes == {'customer_name': ['A', 'Alice'], 'quote_amount': ['250.00', '300.00']}
+
+
+def test_edit_then_put_back_leaves_no_history(client):
+    a = _create(client, customer_name='A')
+    client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'B'}, headers=AUTOSAVE)
+    client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'A'}, headers=AUTOSAVE)
+    assert not JobEvent.query.filter_by(job_id=a.id, action='updated').count()
+
+
+def test_edits_by_someone_else_or_later_are_separate_entries(client, make_user):
+    a = _create(client, customer_name='A')
+    client.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'B'}, headers=AUTOSAVE)
+    other = _login(make_user(is_junk_manager=True).id)
+    g.pop('_login_user', None)  # the fixture's shared app context caches the signed-in user
+    other.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'C'}, headers=AUTOSAVE)
+    assert JobEvent.query.filter_by(job_id=a.id, action='updated').count() == 2
+    # An hour later, the same person's edit starts a new entry.
+    last = JobEvent.query.filter_by(job_id=a.id, action='updated').order_by(JobEvent.id.desc()).first()
+    last.created_at -= timedelta(hours=1)
+    db.session.commit()
+    other.post(f'/junk/manage/job/{a.id}', data={'customer_name': 'D'}, headers=AUTOSAVE)
+    assert JobEvent.query.filter_by(job_id=a.id, action='updated').count() == 3
+
+
+def test_modal_footer(client):
+    a = _create(client, customer_name='A', scheduled_date=D1.isoformat())
+    form = client.get(f'/junk/manage/job/form?id={a.id}').get_data(as_text=True)
+    assert 'data-autosave' in form and 'Mark done' in form and 'data-delete' in form
+    assert '>Save<' not in form and '>Cancel<' not in form
+    new = client.get('/junk/manage/job/form').get_data(as_text=True)
+    assert 'data-autosave' not in new and 'Add job' in new and 'data-delete' not in new
 
 
 # ═══════════════════════════ drag and drop ═══════════════════════════

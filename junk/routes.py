@@ -11,10 +11,11 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from junk import junk_bp
-from junk.auth import is_junk_manager, is_junk_only, junk_manager_required
+from junk.auth import (has_junk_access, is_junk_crew, is_junk_manager, is_junk_only,
+                       junk_crew_required, junk_home, junk_manager_required)
 from junk.jobs import (
-    FIELD_LABELS, JOB_FIELDS, JobFormError, StaleBoard,
-    create_job, delete_job, format_money, format_value, mark_done, move_job,
+    JobFormError, StaleBoard,
+    create_job, delete_job, format_money, mark_done, move_job,
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start,
 )
@@ -35,6 +36,17 @@ def _jr_plain(v):
     return str(int(v)) if v == v.to_integral_value() else f"{v:.2f}"
 
 
+@junk_bp.app_template_filter('jr_phone')
+def _jr_phone(v):
+    """(919) 555-0142 for a US number; anything else exactly as typed."""
+    digits = ''.join(ch for ch in (v or '') if ch.isdigit())
+    if len(digits) == 11 and digits[0] == '1':
+        digits = digits[1:]
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    return v or ''
+
+
 @junk_bp.app_template_filter('jr_eastern')
 def _jr_eastern(dt):
     local = to_eastern(dt)
@@ -43,7 +55,9 @@ def _jr_eastern(dt):
 
 @junk_bp.context_processor
 def _junk_context():
-    return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset}
+    return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset,
+            'jr_is_manager': is_junk_manager(), 'jr_is_crew': is_junk_crew(),
+            'jr_dev_switch': dev_switch_enabled(), 'jr_dev_role': _dev_role()}
 
 
 def _jr_asset(filename):
@@ -90,7 +104,7 @@ def _gate_legacy_site():
             return redirect(url_for('junk.logout'))
         if path.startswith(_JUNK_ONLY_ALLOWED):
             return None
-        return redirect(url_for('junk.manage'))
+        return redirect(junk_home())
 
     if not site_locked():
         return None
@@ -107,8 +121,8 @@ def _gate_legacy_site():
         return None
     if path == '/logout':
         return redirect(url_for('junk.logout'))
-    if is_junk_manager():
-        return redirect(url_for('junk.manage'))
+    if has_junk_access():
+        return redirect(junk_home())
     return redirect(url_for('junk.login'))
 
 
@@ -117,12 +131,12 @@ def _gate_legacy_site():
 def _safe_next(target):
     if target and target.startswith('/junk') and not target.startswith('//'):
         return target
-    return url_for('junk.manage')
+    return junk_home()
 
 
 @junk_bp.route('/')
 def index():
-    return redirect(url_for('junk.manage'))
+    return redirect(junk_home() if has_junk_access() else url_for('junk.login'))
 
 
 def _google_enabled():
@@ -163,8 +177,8 @@ def _render_login(email='', error=None, notice=None, status=200, no_password=Fal
 def login():
     """Two ways in, and both work for every manager: Google, or email + password. An account
     that has only ever used Google can set a password through the emailed link."""
-    if current_user.is_authenticated and is_junk_manager():
-        return redirect(url_for('junk.manage'))
+    if has_junk_access():
+        return redirect(junk_home())
     if request.method == 'GET':
         return _render_login()
     email = (request.form.get('email') or '').strip()
@@ -175,7 +189,7 @@ def login():
             "This account was set up with Google, so it doesn't have a password yet."))
     if not user or not check_password_hash(user.password_hash, password):
         return _render_login(email, error="That email and password don't match.")
-    if not is_junk_manager(user):
+    if not has_junk_access(user):
         return _render_login(email, error="This account doesn't have access yet.")
     login_user(user, remember=True)
     return _remember_method(redirect(_safe_next(request.args.get('next'))), 'password')
@@ -199,13 +213,13 @@ def login_google():
 
 
 def _google_user(userinfo):
-    """(user, None) for a junk manager Google vouches for, else (None, error message).
+    """(user, None) for a manager or crew member Google vouches for, else (None, error message).
     Never creates an account: Google only gets you into an account that already has access."""
     email = (userinfo.get('email') or '').strip()
     if not email or userinfo.get('email_verified') is False:
         return None, "Google didn't confirm an email for that account."
     user = _find_user(email)
-    if not user or not is_junk_manager(user):
+    if not user or not has_junk_access(user):
         return None, f"{email} doesn't have access yet."
     if not user.oauth_provider or not user.oauth_id:
         user.oauth_provider = 'google'
@@ -298,7 +312,7 @@ def _user_from_link(token):
     except (SignatureExpired, BadSignature):
         return None
     user = db.session.get(User, data.get('u')) if isinstance(data, dict) else None
-    if not user or data.get('h') != _hash_tag(user) or not is_junk_manager(user):
+    if not user or data.get('h') != _hash_tag(user) or not has_junk_access(user):
         return None
     return user
 
@@ -310,7 +324,7 @@ def password_request():
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip()
         user = _find_user(email)
-        if user and is_junk_manager(user):
+        if user and has_junk_access(user):
             link = make_password_link(user)
             if current_app.debug:  # dev mail is suppressed (logged, not sent): print the link
                 current_app.logger.warning('junk: set-password link for %s: %s', user.email, link)
@@ -345,7 +359,7 @@ def password_set(token):
             user.password_hash = generate_password_hash(password)
             db.session.commit()
             login_user(user, remember=True)
-            return _remember_method(redirect(url_for('junk.manage')), 'password')
+            return _remember_method(redirect(junk_home(user)), 'password')
     return render_template('junk/password_set.html', user=user, error=error)
 
 
@@ -476,7 +490,6 @@ def job_form():
     return render_template(
         'junk/_job_form.html', job=job, prefill_date=prefill_date,
         return_to=request.args.get('return_to') or url_for('junk.manage'),
-        field_labels=FIELD_LABELS, field_order=JOB_FIELDS, format_value=format_value,
     )
 
 
@@ -496,13 +509,19 @@ def job_create():
 @junk_bp.route('/manage/job/<int:job_id>', methods=['POST'])
 @junk_manager_required
 def job_update(job_id):
+    """The modal autosaves here (X-Autosave: 1 → JSON). A plain form post redirects back."""
     job = _get_job(job_id)
+    autosave = request.headers.get('X-Autosave') == '1'
     try:
         values = parse_job_form(request.form)
     except JobFormError as e:
+        if autosave:
+            return jsonify(ok=False, error=str(e)), 400
         flash(str(e), 'error')
         return redirect(_safe_return())
     update_job(job, values, current_user, parse_location(request.form, values['address']))
+    if autosave:
+        return jsonify(ok=True)
     return redirect(_safe_return())
 
 
@@ -549,3 +568,123 @@ def board_move():
     except (JobFormError, StaleBoard):
         return jsonify(ok=False, error='stale'), 409
     return jsonify(ok=True)
+
+
+# ─── team ────────────────────────────────────────────────────────────────
+
+def _team():
+    """Everyone with junk access: managers first, then crew, each by name."""
+    people = (User.query
+              .filter(db.or_(User.is_junk_manager.is_(True), User.is_junk_crew.is_(True),
+                             User.is_super_admin.is_(True)))
+              .all())
+    return sorted(people, key=lambda u: (not is_junk_manager(u),
+                                         (u.full_name or u.email or '').lower()))
+
+
+@junk_bp.route('/manage/team')
+@junk_manager_required
+def team():
+    return render_template('junk/manage_team.html', people=_team(),
+                           adding=request.args.get('add') == '1')
+
+
+@junk_bp.route('/manage/team/add', methods=['POST'])
+@junk_manager_required
+def team_add():
+    """Give an email crew access. Creates the account (no password) if there isn't one.
+    Nothing is sent: they sign in with Google, or set a password from the sign-in page."""
+    email = (request.form.get('email') or '').strip()
+    name = (request.form.get('name') or '').strip()[:100]
+    phone = (request.form.get('phone') or '').strip()[:20]
+    if '@' not in email or ' ' in email or len(email) > 120:
+        flash("Enter an email address.", 'error')
+        return redirect(url_for('junk.team', add=1))
+    user = _find_user(email)
+    if user and user.is_junk_crew:
+        flash(f"{user.full_name or user.email} is already crew.", 'error')
+        return redirect(url_for('junk.team', add=1))
+    if user is None:
+        user = User(email=email.lower())
+        db.session.add(user)
+    user.is_junk_crew = True
+    if name and not user.full_name:
+        user.full_name = name
+    if phone and not user.phone:
+        user.phone = phone
+    db.session.commit()
+    flash(f"{user.full_name or user.email} added to crew.", 'success')
+    return redirect(url_for('junk.team'))
+
+
+@junk_bp.route('/manage/team/<int:user_id>/remove', methods=['POST'])
+@junk_manager_required
+def team_remove(user_id):
+    """Takes away crew access. Never deletes the account."""
+    user = db.session.get(User, user_id)
+    if user is None or not user.is_junk_crew:
+        abort(404)
+    user.is_junk_crew = False
+    db.session.commit()
+    flash(f"{user.full_name or user.email} removed from crew.", 'success')
+    return redirect(url_for('junk.team'))
+
+
+# ─── crew ────────────────────────────────────────────────────────────────
+
+@junk_bp.route('/crew')
+@junk_crew_required
+def crew_home():
+    """The crew side of the portal. Empty until jobs can be assigned to crew."""
+    return render_template('junk/crew_home.html')
+
+
+# ─── dev-only role switch ────────────────────────────────────────────────
+# One click to become the dev manager or the dev crew member, so both sides can be checked
+# side by side. Only on a local debug server: never on Render, never under tests unless a test
+# turns it on. The two accounts are created on first use, in the local database only.
+
+DEV_ACCOUNTS = {
+    'manager': ('junk-dev@example.com', 'Manager (dev)', {'is_junk_manager': True}),
+    'crew': ('junk-crew-dev@example.com', 'Crew (dev)', {'is_junk_crew': True}),
+}
+DEV_PASSWORD = 'junkdev123'
+
+
+def dev_switch_enabled():
+    if 'JUNK_DEV_SWITCH' in current_app.config:
+        return bool(current_app.config['JUNK_DEV_SWITCH'])
+    if current_app.config.get('TESTING') or os.environ.get('RENDER'):
+        return False
+    return bool(current_app.debug)
+
+
+def _dev_role():
+    """'manager' / 'crew' when signed in as one of the dev accounts, else None."""
+    if not current_user.is_authenticated:
+        return None
+    email = (current_user.email or '').lower()
+    return next((role for role, (e, _, _) in DEV_ACCOUNTS.items() if e == email), None)
+
+
+def _dev_account(role):
+    email, name, flags = DEV_ACCOUNTS[role]
+    user = _find_user(email)
+    if user is None:
+        user = User(email=email, full_name=name, password_hash=generate_password_hash(DEV_PASSWORD))
+        db.session.add(user)
+    user.full_name = name  # the top bar shows the first word: "Manager" / "Crew"
+    for flag, value in flags.items():
+        setattr(user, flag, value)
+    db.session.commit()
+    return user
+
+
+@junk_bp.route('/dev/as/<role>', methods=['POST'])
+def dev_switch(role):
+    if not dev_switch_enabled() or role not in DEV_ACCOUNTS:
+        abort(404)
+    user = _dev_account(role)
+    logout_user()
+    login_user(user, remember=True)
+    return redirect(junk_home(user))

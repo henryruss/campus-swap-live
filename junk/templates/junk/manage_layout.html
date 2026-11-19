@@ -3,7 +3,9 @@
 {% block body %}
   <header class="jr-top">
     <nav class="jr-nav">
-      <a href="{{ url_for('junk.manage') }}" class="jr-tab is-active">Calendar</a>
+      {% if jr_is_manager %}<a href="{{ url_for('junk.manage') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.manage' }}">Calendar</a>{% endif %}
+      {% if jr_is_manager %}<a href="{{ url_for('junk.team') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.team' }}">Team</a>{% endif %}
+      {% if jr_is_crew %}<a href="{{ url_for('junk.crew_home') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.crew_home' }}">My jobs</a>{% endif %}
     </nav>
     <div class="jr-user">
       <span>{{ (current_user.full_name or current_user.email).split(' ')[0] }}</span>

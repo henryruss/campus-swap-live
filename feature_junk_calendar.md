@@ -290,3 +290,33 @@ No code was deleted; `junk/routes.py:_gate_legacy_site` gates it. On by default;
 - **`/auth/google`** only when the sign-in started on `/junk/login`, so the old flow can't create seller accounts.
 - **Admins and super admins** pass through to the old site, for wrap-up work.
 - **`robots.txt`** disallows everything.
+
+---
+
+## Revision 7 — calendar fits the window; quieter month hover (2026-11-18)
+
+**Desktop (wider than 1100px): the page never scrolls** (`body.jr-fit`).
+- The calendar fills the window.
+- Each day scrolls on its own; its date header stays put.
+- Only the Unscheduled list scrolls. The `+ Job` button, the heading and the drop hint stay visible, and the panel never runs past the bottom of the calendar.
+- The month grid scrolls inside its frame. The weekday header is pinned, and week rows still grow on busy days.
+- Inner scrollbars are thin.
+- Narrower screens stack and scroll the page as before.
+
+**Saves keep your place.** After a save or drop, the calendar re-renders with every scrolled day, list and month grid where it was (`refresh()` → `applyDoc(doc, keepScroll)`). Navigation (arrows, Today, Week/Month) starts at the top.
+
+**Month hover.**
+- A week row highlights only over its empty space (that's the click that opens the week), with its own faint neutral tint.
+- Over a job, only the job shows a hover border, so opening a job never changes the row.
+- Chips never change color.
+
+**Dev switch:** sits in the middle of the top bar on desktop, clear of every drop zone.
+
+## Revision 8 — the job modal autosaves (2026-11-18)
+
+- **Existing jobs have no Save or Cancel.** Edits save about 0.7s after typing stops, and immediately when you leave a field, change the date or pick an address. The save goes to `POST /manage/job/<id>` with `X-Autosave: 1`, which answers with JSON.
+- **A quiet "Saving…/Saved"** sits next to the ×.
+- **Closing (×, backdrop, Esc)** finishes any pending save first, then re-renders the calendar in place. If a save fails, for example a bad quote, the modal stays open and shows the error.
+- **Footer:** Mark done / Undo done on the bottom left, Delete on the bottom right. Mark done saves pending edits first; Delete discards them.
+- **New jobs still use a single "Add job" button.** Autosaving a blank form would create jobs nobody meant to make.
+- **History isn't shown in the modal anymore, but it's still recorded.** Edits by the same person within 10 minutes merge into one `JobEvent`, so autosave doesn't log every keystroke. An edit that's later put back leaves no entry.

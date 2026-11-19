@@ -4,10 +4,11 @@
 <div class="jr-form-head">
   <h2>{{ 'New job' if is_new else job.display_name }}</h2>
   {% if job and job.completed_at %}<span class="jr-pill jr-pill--done">Done</span>{% endif %}
+  {% if job %}<span class="jr-save-state" data-save-state aria-live="polite"></span>{% endif %}
   <button type="button" class="jr-icon-btn jr-close" data-close aria-label="Close">&times;</button>
 </div>
 
-<form class="jr-form" id="jr-job-form" method="post"
+<form class="jr-form" id="jr-job-form" method="post"{{ ' data-autosave' if job }}
       action="{{ url_for('junk.job_create') if is_new else url_for('junk.job_update', job_id=job.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="return_to" value="{{ return_to }}">
@@ -64,6 +65,7 @@
   </div>
 </form>
 
+{# Existing jobs save as you type (manage.js), so there's no Save or Cancel: just close. #}
 <div class="jr-form-foot">
   {% if job %}
     <div class="jr-form-secondary">
@@ -81,50 +83,14 @@
           <button type="submit" class="jr-btn jr-btn--quiet">Mark done</button>
         </form>
       {% endif %}
-      <form method="post" action="{{ url_for('junk.job_delete', job_id=job.id) }}"
-            data-confirm="Delete this job? This can't be undone.">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="return_to" value="{{ return_to }}">
-        <button type="submit" class="jr-link-btn">Delete</button>
-      </form>
     </div>
+    <form method="post" action="{{ url_for('junk.job_delete', job_id=job.id) }}" class="jr-form-delete"
+          data-confirm="Delete this job? This can't be undone." data-delete>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <button type="submit" class="jr-link-btn">Delete</button>
+    </form>
   {% else %}
-    <span></span>
+    <button type="submit" form="jr-job-form" class="jr-btn jr-btn--primary jr-form-add">Add job</button>
   {% endif %}
-  <div class="jr-form-primary">
-    <button type="button" class="jr-btn jr-btn--quiet" data-close>Cancel</button>
-    <button type="submit" form="jr-job-form" class="jr-btn jr-btn--primary">{{ 'Add job' if is_new else 'Save' }}</button>
-  </div>
 </div>
-
-{% if job %}
-  {% set events = job.events.all() %}
-  {% if events %}
-    <details class="jr-history">
-      <summary>History</summary>
-      <ol>
-        {% for ev in events %}
-          <li>
-            <div class="jr-history-meta">
-              <strong>{{ ((ev.user.full_name or ev.user.email).split(' ')[0]) if ev.user else 'Someone' }}</strong>
-              {{ {'created': 'created the job', 'updated': 'edited', 'done': 'marked it done',
-                  'undone': 'undid done'}.get(ev.action, ev.action) }}
-              <span>· {{ ev.created_at|jr_eastern }}</span>
-            </div>
-            {% if ev.changes %}
-              <ul>
-                {% for field in field_order if field in ev.changes %}
-                  {% set ch = ev.changes[field] %}
-                  <li>{{ field_labels[field] }}:
-                    {% if ev.action == 'created' %}{{ format_value(field, ch[1]) }}
-                    {% else %}{{ format_value(field, ch[0]) }} &rarr; {{ format_value(field, ch[1]) }}{% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ol>
-    </details>
-  {% endif %}
-{% endif %}
