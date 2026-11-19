@@ -1,6 +1,7 @@
 """Junk removal routes: sign-in, calendar, job modal, drag-and-drop saves."""
 import calendar as _calendar
 import os
+import re
 from collections import defaultdict
 from datetime import timedelta
 
@@ -451,8 +452,11 @@ def manage():
     unscheduled = unscheduled_query().options(_WITH_CREW).all()
 
     # The Crew panel you drag people from: managers on top (they work jobs too), then crew,
-    # each alphabetical.
-    crew_panel = sorted(_team(), key=lambda u: (not is_junk_manager(u), person_name(u).lower()))
+    # each by last name.
+    def by_last_name(u):
+        words = re.findall(r'[^\W_]+', person_name(u).lower())   # punctuation never sorts first
+        return (not is_junk_manager(u), words[-1] if words else '', ' '.join(words))
+    crew_panel = sorted(_team(), key=by_last_name)
     ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled, crew_panel=crew_panel,
                return_to=_calendar_url(view, anchor))
 

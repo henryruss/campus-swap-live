@@ -2,6 +2,11 @@
    Colors come only from static/style.css tokens. Everything is scoped under body.jr. */
 
 body.jr {
+  /* People (crew on jobs, the Crew panel) are light slate, managers included (a star marks
+     them on desktop), so they never read as needs-quote-amber. On a done job they turn the
+     dark green of done. */
+  --jr-person-bg: color-mix(in srgb, var(--slate) 13%, var(--bg-body));
+  --jr-person-ink: var(--slate);
   --jr-shadow-sm: 0 1px 2px rgba(var(--primary-rgb), 0.06);
   --jr-shadow-lift: 0 14px 28px -8px rgba(var(--primary-rgb), 0.28), 0 4px 10px -4px rgba(var(--primary-rgb), 0.14);
   --jr-radius: 10px;
@@ -128,8 +133,12 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-card-crew { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 3px; margin-top: 2px; }
 .jr-crew-tag {
   display: flex; align-items: center; min-width: 0; padding: 3px 5px; border-radius: 6px;
-  background: var(--sage-lt); color: var(--primary); font-size: 0.7rem; font-weight: 600; line-height: 1.2;
+  background: var(--jr-person-bg); color: var(--jr-person-ink); font-size: 0.7rem; font-weight: 600; line-height: 1.2;
+  gap: 4px;
 }
+/* Done job: its crew turn dark green with it. */
+.jr-card--done .jr-crew-tag, .jr-card--done .jr-crew-tag .jr-avatar { background: var(--primary); color: var(--text-light); }
+.jr-crew-tag .jr-mgr-star { margin-left: auto; }
 .jr-crew-tag .jr-avatar { display: none; }
 .jr-crew-tag-name { display: flex; flex-wrap: wrap; column-gap: 0.25em; min-width: 0; }
 .jr-crew-first { min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -138,7 +147,6 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
   min-width: 0; max-width: 100%; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 }
-.jr-card--done .jr-crew-tag { background: var(--bg-body); }
 /* Narrow card: one pill per row (must come after the base rule). */
 @container (max-width: 180px) { .jr-card-crew { grid-template-columns: minmax(0, 1fr); } }
 .jr-month .jr-card-crew { display: none; }
@@ -146,7 +154,7 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-avatar {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 20px; height: 20px; border-radius: 50%;
-  background: var(--sage-lt); color: var(--primary);
+  background: var(--jr-person-bg); color: var(--jr-person-ink);
   font-size: 0.58rem; font-weight: 700; letter-spacing: 0.02em; line-height: 1;
 }
 
@@ -206,7 +214,6 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
 .jr-crewchip:hover { border-color: var(--sage); }
 .jr-crewchip-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Managers: dark initials and a star, so they read as different at a glance. */
-.jr-crewchip.is-manager .jr-avatar { background: var(--primary); color: var(--text-light); }
 .jr-mgr-star { flex: none; margin-left: auto; fill: var(--accent); }
 .jr-crew-tag { cursor: grab; }
 /* While a person is being dragged: the floating copy, and the job they'd land on. */
@@ -476,7 +483,7 @@ body.jr-modal-open { overflow: hidden; }
   .jr-crew-tag-name { display: none; }
   .jr-crew-tag .jr-avatar { display: inline-flex; width: 18px; height: 18px; font-size: 0.52rem; }
   .jr-card--done .jr-crew-tag { background: none; }
-  .jr-card--done .jr-crew-tag .jr-avatar { background: var(--bg-body); }
+  .jr-crew-tag .jr-mgr-star { display: none; }  /* no star on the small bubbles */
 
   /* Unscheduled: + Job beside the heading, one strip that scrolls sideways. */
   .jr-side { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 8px; padding: 10px; }
@@ -512,12 +519,9 @@ body.jr-modal-open { overflow: hidden; }
     grid-auto-flow: column; grid-auto-columns: calc((100% - 12px) / 2.2);
   }
   .jr-crewlist::-webkit-scrollbar { display: none; }
-  .jr-crewchip { min-width: 0; padding: 6px 9px 6px 6px; font-size: 0.78rem; position: relative; }
-  /* The manager star sits on the initials circle's corner, so it costs no width. */
-  .jr-mgr-star {
-    position: absolute; left: 21px; top: 2px; width: 12px; height: 12px; margin: 0;
-    stroke: var(--bg-body); stroke-width: 2.5px; paint-order: stroke;
-  }
+  .jr-crewchip { min-width: 0; padding: 6px 9px 6px 6px; font-size: 0.78rem; gap: 6px; }
+  /* The manager star follows the name; a long name gives way ("…") before the star does. */
+  .jr-crewchip .jr-mgr-star { margin-left: 0; width: 12px; height: 12px; }
   .jr-board--month .jr-crewside { display: none; }
 
   /* Week: Mon–Thu, then Fri–Sun. */

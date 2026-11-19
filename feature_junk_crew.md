@@ -76,3 +76,11 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 **Answered 2026-11-18:**
 - **More than 2 people on a job is rare.** The 40% labor cost of a 2-person job is the normal case.
 - **A manager who works a job gets 20% too.** Pay goes to everyone assigned, whatever their role.
+
+**3b follow-ups (Henry, 2026-11-18)**
+- **Everyone on the team is light slate,** managers included (`--jr-person-bg`, mixed from `--slate`). A star marks managers on desktop pills and in the Crew panel; phone bubbles have no star.
+- **On a done job, its crew turn dark green** (`--primary`) along with it.
+- **Crew panel order:** managers on top, then crew, each sorted by last name. Punctuation is ignored, so "Manager (dev)" sorts as "dev".
+- **Phone Crew panel:** the manager star follows the name, and a long name gives way ("…") before the star does.
+- **After a drop, the calendar keeps page scroll and sideways strip scroll** (Unscheduled, Crew). Before this, the Crew strip snapped back to its first column.
+- **Phone month view keeps the Crew panel hidden,** because there are no job chips to drop onto. Assign crew from week view.

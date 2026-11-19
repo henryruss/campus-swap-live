@@ -59,14 +59,21 @@
     });
   }
 
+  // Both directions: phone strips (Unscheduled, Crew) scroll sideways. The page's own scroll
+  // is kept too, for phones, where the whole page scrolls.
   function saveScroll(root) {
-    var saved = {};
-    eachScroller(root, function (el, key) { if (el.scrollTop) saved[key] = el.scrollTop; });
+    var saved = { page: window.scrollY };
+    eachScroller(root, function (el, key) {
+      if (el.scrollTop || el.scrollLeft) saved[key] = [el.scrollTop, el.scrollLeft];
+    });
     return saved;
   }
 
   function restoreScroll(root, saved) {
-    eachScroller(root, function (el, key) { if (saved[key]) el.scrollTop = saved[key]; });
+    eachScroller(root, function (el, key) {
+      if (saved[key]) { el.scrollTop = saved[key][0]; el.scrollLeft = saved[key][1]; }
+    });
+    if (Math.abs(window.scrollY - saved.page) > 1) window.scrollTo(0, saved.page);
   }
 
   // Swap the calendar for the one in `doc`. Returns false if the page isn't a calendar
