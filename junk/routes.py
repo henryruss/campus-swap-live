@@ -4,16 +4,18 @@ import os
 from collections import defaultdict
 from datetime import timedelta
 
-from flask import abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import (abort, current_app, flash, get_flashed_messages, jsonify, redirect,
+                   render_template, request, session, url_for)
 from flask_login import current_user, login_user, logout_user
-from werkzeug.security import check_password_hash
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from junk import junk_bp
 from junk.auth import is_junk_manager, is_junk_only, junk_manager_required
 from junk.jobs import (
     FIELD_LABELS, JOB_FIELDS, JobFormError, StaleBoard,
     create_job, delete_job, format_money, format_value, mark_done, move_job,
-    parse_date, parse_job_form, to_eastern, today_eastern, undo_done,
+    parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start,
 )
 from junk.models import Job
@@ -41,26 +43,73 @@ def _jr_eastern(dt):
 
 @junk_bp.context_processor
 def _junk_context():
-    return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', '')}
+    return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset}
+
+
+def _jr_asset(filename):
+    """Static URL stamped with the file's mtime, so a deploy never runs against cached CSS/JS."""
+    try:
+        v = int(os.path.getmtime(os.path.join(junk_bp.static_folder, filename)))
+    except OSError:
+        v = 0
+    return url_for('junk.static', filename=filename, v=v)
 
 
 # ─── separation from the legacy site ─────────────────────────────────────
 
 _JUNK_ONLY_ALLOWED = ('/junk', '/static/', '/favicon')
 
+# While the site is locked, these stay reachable. Machines call them, not people: payment and
+# SMS webhooks, Render cron jobs, photo URLs inside old emails, unsubscribe links, health checks.
+_LOCK_OPEN = (
+    '/junk', '/static/', '/uploads/', '/favicon', '/health',
+    '/webhook', '/sms/webhook', '/admin/cron/', '/admin/digest/trigger', '/unsubscribe/',
+)
+
+
+def site_locked():
+    """The legacy Campus Swap site is closed: every page sends people to the junk sign-in.
+    On by default; SITE_LOCKED_TO_JUNK=0 reopens it. Nothing is deleted, only gated.
+    Off under TESTING (legacy suites exercise those pages) unless a test turns it on."""
+    if current_app.config.get('TESTING'):
+        return bool(current_app.config.get('SITE_LOCKED_TO_JUNK'))
+    return os.environ.get('SITE_LOCKED_TO_JUNK', '1').strip().lower() not in ('0', 'false', 'no')
+
+
+def _is_legacy_admin(user):
+    return bool(getattr(user, 'is_admin', False) or getattr(user, 'is_super_admin', False))
+
 
 @junk_bp.before_app_request
-def _confine_junk_only_users():
-    """A junk-only account never sees the legacy Campus Swap site. Anything outside /junk
-    sends them back to their calendar."""
-    if not current_user.is_authenticated or not is_junk_only(current_user):
-        return None
+def _gate_legacy_site():
     path = request.path
+
+    # A junk-only account never sees the legacy site, locked or not.
+    if current_user.is_authenticated and is_junk_only(current_user):
+        if path == '/logout':
+            return redirect(url_for('junk.logout'))
+        if path.startswith(_JUNK_ONLY_ALLOWED):
+            return None
+        return redirect(url_for('junk.manage'))
+
+    if not site_locked():
+        return None
+    if path == '/robots.txt':
+        return current_app.response_class('User-agent: *\nDisallow: /\n', mimetype='text/plain')
+    if path.startswith(_LOCK_OPEN):
+        return None
+    # Google sign-in only when it started on /junk/login; otherwise it would run the old
+    # seller sign-up and create accounts.
+    if path.startswith('/auth/google') and session.get(JUNK_OAUTH_FLAG):
+        return None
+    # Admins (Henry, Ben) keep the old site for wrap-up work: payouts, records.
+    if current_user.is_authenticated and _is_legacy_admin(current_user):
+        return None
     if path == '/logout':
         return redirect(url_for('junk.logout'))
-    if path.startswith(_JUNK_ONLY_ALLOWED):
-        return None
-    return redirect(url_for('junk.manage'))
+    if is_junk_manager():
+        return redirect(url_for('junk.manage'))
+    return redirect(url_for('junk.login'))
 
 
 # ─── sign in / out ───────────────────────────────────────────────────────
@@ -76,24 +125,228 @@ def index():
     return redirect(url_for('junk.manage'))
 
 
+def _google_enabled():
+    return bool(os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'))
+
+
+def _find_user(email):
+    email = (email or '').strip()
+    return User.query.filter(db.func.lower(User.email) == email.lower()).first() if email else None
+
+
+LAST_SIGNIN_COOKIE = 'jr_last_signin'
+
+
+def _remember_method(response, method):
+    """Which way this browser last got in, so the login page can say 'Last used'."""
+    response.set_cookie(LAST_SIGNIN_COOKIE, method, max_age=60 * 60 * 24 * 365,
+                        httponly=True, samesite='Lax', secure=request.is_secure)
+    return response
+
+
+def _render_login(email='', error=None, notice=None, status=200, no_password=False):
+    # Messages handed over a redirect (from the Google callback or a reset link) arrive as flashes.
+    for category, msg in get_flashed_messages(with_categories=True):
+        if category == 'junk_error':
+            error = error or msg
+        elif category == 'junk_notice':
+            notice = notice or msg
+    last_used = request.cookies.get(LAST_SIGNIN_COOKIE)
+    return render_template('junk/login.html', email=email, error=error, notice=notice,
+                           google_enabled=_google_enabled(), no_password=no_password,
+                           google_client_id=os.environ.get('GOOGLE_CLIENT_ID', '').strip(),
+                           last_used=last_used if last_used in ('google', 'password') else None,
+                           next_url=request.args.get('next', '')), status
+
+
 @junk_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    """Two ways in, and both work for every manager: Google, or email + password. An account
+    that has only ever used Google can set a password through the emailed link."""
     if current_user.is_authenticated and is_junk_manager():
         return redirect(url_for('junk.manage'))
-    email = ''
-    error = None
+    if request.method == 'GET':
+        return _render_login()
+    email = (request.form.get('email') or '').strip()
+    password = request.form.get('password') or ''
+    user = _find_user(email)
+    if user and not user.password_hash:
+        return _render_login(email, no_password=True, error=(
+            "This account was set up with Google, so it doesn't have a password yet."))
+    if not user or not check_password_hash(user.password_hash, password):
+        return _render_login(email, error="That email and password don't match.")
+    if not is_junk_manager(user):
+        return _render_login(email, error="This account doesn't have access yet.")
+    login_user(user, remember=True)
+    return _remember_method(redirect(_safe_next(request.args.get('next'))), 'password')
+
+
+# ─── Google ──────────────────────────────────────────────────────────────
+# Reuses the site's one Google OAuth client (/auth/google), so no new redirect URI is needed
+# in Google Cloud. The flag in the session tells the shared callback to hand the result back
+# here via finish_google_login() instead of running the seller sign-up flow.
+
+JUNK_OAUTH_FLAG = 'junk_oauth_next'
+
+
+@junk_bp.route('/login/google')
+def login_google():
+    if not _google_enabled():
+        flash("Google sign-in isn't set up here. Use your email and password.", 'junk_error')
+        return redirect(url_for('junk.login'))
+    session[JUNK_OAUTH_FLAG] = _safe_next(request.args.get('next'))
+    return redirect(url_for('auth_google'))
+
+
+def _google_user(userinfo):
+    """(user, None) for a junk manager Google vouches for, else (None, error message).
+    Never creates an account: Google only gets you into an account that already has access."""
+    email = (userinfo.get('email') or '').strip()
+    if not email or userinfo.get('email_verified') is False:
+        return None, "Google didn't confirm an email for that account."
+    user = _find_user(email)
+    if not user or not is_junk_manager(user):
+        return None, f"{email} doesn't have access yet."
+    if not user.oauth_provider or not user.oauth_id:
+        user.oauth_provider = 'google'
+        user.oauth_id = userinfo.get('sub')
+        db.session.commit()
+    return user, None
+
+
+def finish_google_login(userinfo, next_url):
+    """Full-page fallback: called by app.auth_google_callback when the sign-in started on
+    /junk/login (used if the popup can't run, e.g. Google's script didn't load)."""
+    user, error = _google_user(userinfo)
+    if error:
+        flash(error, 'junk_error')
+        return redirect(url_for('junk.login'))
+    login_user(user, remember=True)
+    return _remember_method(redirect(_safe_next(next_url)), 'google')
+
+
+# Popup sign-in (the normal path): Google's script opens a small window over the login page and
+# hands the page a one-time code; we trade it for the user's profile here. 'postmessage' is
+# the redirect_uri Google requires for codes obtained this way. Needs this site listed under
+# "Authorized JavaScript origins" on the OAuth client in Google Cloud.
+_GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+_GOOGLE_USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo'
+
+
+def _google_userinfo_from_code(code):
+    import requests
+    tok = requests.post(_GOOGLE_TOKEN_URL, timeout=10, data={
+        'code': code,
+        'client_id': os.environ.get('GOOGLE_CLIENT_ID', '').strip(),
+        'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET', '').strip(),
+        'redirect_uri': 'postmessage',
+        'grant_type': 'authorization_code',
+    })
+    tok.raise_for_status()
+    access_token = tok.json()['access_token']
+    info = requests.get(_GOOGLE_USERINFO_URL, timeout=10,
+                        headers={'Authorization': f'Bearer {access_token}'})
+    info.raise_for_status()
+    return info.json()
+
+
+@junk_bp.route('/login/google/code', methods=['POST'])
+def login_google_code():
+    if not _google_enabled():
+        return jsonify(ok=False, error="Google sign-in isn't set up here."), 400
+    data = request.get_json(silent=True) or {}
+    code = data.get('code')
+    if not code or not isinstance(code, str):
+        return jsonify(ok=False, error="Google sign-in didn't go through. Try again."), 400
+    try:
+        userinfo = _google_userinfo_from_code(code)
+    except Exception:
+        current_app.logger.exception('junk: Google code exchange failed')
+        return jsonify(ok=False, error="Google sign-in didn't go through. Try again, or use your password."), 502
+    user, error = _google_user(userinfo)
+    if error:
+        return jsonify(ok=False, error=error), 403
+    login_user(user, remember=True)
+    return _remember_method(jsonify(ok=True, redirect=_safe_next(data.get('next'))), 'google')
+
+
+# ─── set a password by email link ────────────────────────────────────────
+# One link covers "forgot my password" and "I've only ever used Google". It expires after an
+# hour and stops working once used: it's signed over the current password hash, so setting a
+# password invalidates it.
+
+_LINK_MAX_AGE = 60 * 60
+_MIN_PASSWORD = 8
+
+
+def _link_serializer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt='junk-set-password')
+
+
+def _hash_tag(user):
+    return (user.password_hash or '')[-16:]
+
+
+def make_password_link(user):
+    token = _link_serializer().dumps({'u': user.id, 'h': _hash_tag(user)})
+    return url_for('junk.password_set', token=token, _external=True)
+
+
+def _user_from_link(token):
+    try:
+        data = _link_serializer().loads(token, max_age=_LINK_MAX_AGE)
+    except (SignatureExpired, BadSignature):
+        return None
+    user = db.session.get(User, data.get('u')) if isinstance(data, dict) else None
+    if not user or data.get('h') != _hash_tag(user) or not is_junk_manager(user):
+        return None
+    return user
+
+
+@junk_bp.route('/login/password', methods=['GET', 'POST'])
+def password_request():
+    """Ask for a set-password link. Same answer whether or not the email has an account."""
+    email = (request.args.get('email') or '').strip()
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip()
+        user = _find_user(email)
+        if user and is_junk_manager(user):
+            link = make_password_link(user)
+            if current_app.debug:  # dev mail is suppressed (logged, not sent): print the link
+                current_app.logger.warning('junk: set-password link for %s: %s', user.email, link)
+            send = current_app.extensions.get('junk_send_email')
+            name = (user.full_name or '').split(' ')[0] or 'there'
+            html = render_template('junk/email_password_link.html', name=name, link=link)
+            sent = False
+            try:
+                sent = bool(send and send(user.email, 'Set your password', html))
+            except Exception:
+                current_app.logger.exception('junk: password link email failed for user %s', user.id)
+            if not sent:
+                current_app.logger.warning('junk: password link not sent for user %s', user.id)
+        return render_template('junk/password_request.html', email=email, sent=True)
+    return render_template('junk/password_request.html', email=email, sent=False)
+
+
+@junk_bp.route('/login/password/<token>', methods=['GET', 'POST'])
+def password_set(token):
+    user = _user_from_link(token)
+    if not user:
+        flash("That link has expired or was already used. Send yourself a new one.", 'junk_error')
+        return redirect(url_for('junk.password_request'))
+    error = None
+    if request.method == 'POST':
         password = request.form.get('password') or ''
-        user = User.query.filter(db.func.lower(User.email) == email.lower()).first() if email else None
-        if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
-            error = "That email and password don't match."
-        elif not is_junk_manager(user):
-            error = "This account doesn't have access yet."
+        if len(password) < _MIN_PASSWORD:
+            error = f"Use at least {_MIN_PASSWORD} characters."
+        elif password != (request.form.get('confirm') or ''):
+            error = "Those passwords don't match."
         else:
+            user.password_hash = generate_password_hash(password)
+            db.session.commit()
             login_user(user, remember=True)
-            return redirect(_safe_next(request.args.get('next')))
-    return render_template('junk/login.html', email=email, error=error)
+            return _remember_method(redirect(url_for('junk.manage')), 'password')
+    return render_template('junk/password_set.html', user=user, error=error)
 
 
 @junk_bp.route('/logout')
@@ -235,7 +488,7 @@ def job_create():
     except JobFormError as e:
         flash(str(e), 'error')
         return redirect(_safe_return())
-    job = create_job(values, current_user)
+    job = create_job(values, current_user, parse_location(request.form, values['address']))
     flash(f"{job.display_name} added.", 'success')
     return redirect(_safe_return())
 
@@ -249,7 +502,7 @@ def job_update(job_id):
     except JobFormError as e:
         flash(str(e), 'error')
         return redirect(_safe_return())
-    update_job(job, values, current_user)
+    update_job(job, values, current_user, parse_location(request.form, values['address']))
     return redirect(_safe_return())
 
 

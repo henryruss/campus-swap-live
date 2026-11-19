@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
   {# style.css only for its color tokens and fonts; everything visible is styled by manage.css #}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="{{ url_for('junk.static', filename='manage.css') }}">
+  <link rel="stylesheet" href="{{ jr_asset('manage.css') }}">
 </head>
 <body class="jr {% block body_class %}{% endblock %}">
   {% block body %}{% endblock %}

@@ -1,6 +1,6 @@
 /* Junk removal — manager calendar.
    - Navigation (arrows, Today, Week/Month) and saves swap the calendar in place: no page reloads.
-   - Job modal is a server-rendered fragment, with Google Places on the address field.
+   - Job modal is a server-rendered fragment, with Google Places suggestions + a map on the address field.
    - Drag and drop works in week and month view, and to/from the Unscheduled panel. */
 (function () {
   'use strict';
@@ -87,34 +87,185 @@
     if (a) fetchPage(a.getAttribute('href'));
   });
 
-  // ─── Google Places on the address field ───────────────
-  var placesReady = false;
-  window.__jrPlacesReady = function () { placesReady = true; attachPlaces(); };
+  // ─── Address: Google Places (New) suggestions + a map preview ──
+  // Our own dropdown (styled like the rest of the modal) fed by AutocompleteSuggestion.
+  // Picking one fills the address and its lat/lng; typing by hand clears the lat/lng.
+  var mapsReady = false;
+  window.__jrPlacesReady = function () {
+    Promise.all([google.maps.importLibrary('places'), google.maps.importLibrary('maps')])
+      .then(function () { mapsReady = true; attachAddress(); })
+      .catch(function () { /* the field still works as plain text */ });
+  };
 
-  function attachPlaces() {
-    if (!placesReady || !window.google || !google.maps || !google.maps.places) return;
-    var input = modalBody.querySelector('[data-places]');
-    if (!input || input.dataset.placesBound) return;
-    input.dataset.placesBound = '1';
-    var ac = new google.maps.places.Autocomplete(input, {
-      types: ['address'],
-      componentRestrictions: { country: 'us' },
-      fields: ['formatted_address']
-    });
-    ac.addListener('place_changed', function () {
-      var place = ac.getPlace();
-      if (place && place.formatted_address) {
-        input.value = place.formatted_address.replace(/, USA$/, '');
-      }
-    });
-    // Enter picks a suggestion instead of submitting the form.
-    input.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return;
-      var open = Array.prototype.some.call(document.querySelectorAll('.pac-container'), function (el) {
-        return el.offsetParent !== null && el.children.length;
+  var PIN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+  // Quiet basemap: no business pins or transit, softer color. No hardcoded colors.
+  var MAP_STYLES = [
+    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+    { elementType: 'geometry', stylers: [{ saturation: -40 }] },
+    { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] }
+  ];
+
+  function stripUSA(s) { return (s || '').replace(/, USA$/, ''); }
+
+  function attachAddress() {
+    if (!mapsReady) return;
+    var root = modalBody.querySelector('[data-addr]');
+    if (!root || root.dataset.bound) return;
+    root.dataset.bound = '1';
+
+    var P = google.maps.places;
+    var input = root.querySelector('[data-addr-input]');
+    var list = root.querySelector('[data-addr-list]');
+    var latEl = root.querySelector('[data-addr-lat]');
+    var lngEl = root.querySelector('[data-addr-lng]');
+    var mapBox = root.querySelector('[data-addr-map]');
+    var canvas = root.querySelector('[data-addr-canvas]');
+    var openLink = root.querySelector('[data-addr-open]');
+    var token = null, preds = [], active = -1, seq = 0, timer = null, map = null;
+
+    function setOpen(open) {
+      list.hidden = !open;
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (!open) { active = -1; input.removeAttribute('aria-activedescendant'); }
+    }
+
+    function highlighted(textObj) {
+      // Bold the parts of the suggestion that match what was typed.
+      var frag = document.createDocumentFragment();
+      var text = textObj.text, at = 0;
+      (textObj.matches || []).forEach(function (m) {
+        if (m.startOffset > at) frag.appendChild(document.createTextNode(text.slice(at, m.startOffset)));
+        var b = document.createElement('b');
+        b.textContent = text.slice(m.startOffset, m.endOffset);
+        frag.appendChild(b);
+        at = m.endOffset;
       });
-      if (open) e.preventDefault();
+      if (at < text.length) frag.appendChild(document.createTextNode(text.slice(at)));
+      return frag;
+    }
+
+    function render() {
+      list.innerHTML = '';
+      if (!preds.length) { setOpen(false); return; }
+      preds.forEach(function (p, i) {
+        var li = document.createElement('li');
+        li.className = 'jr-addr-opt';
+        li.id = 'jr-addr-opt-' + i;
+        li.setAttribute('role', 'option');
+        li.innerHTML = PIN;
+        var txt = document.createElement('span');
+        txt.className = 'jr-addr-txt';
+        var main = document.createElement('span');
+        main.className = 'jr-addr-main';
+        main.appendChild(highlighted(p.mainText || p.text));
+        txt.appendChild(main);
+        if (p.secondaryText) {
+          var sec = document.createElement('span');
+          sec.className = 'jr-addr-sec';
+          sec.textContent = stripUSA(p.secondaryText.text);
+          txt.appendChild(sec);
+        }
+        li.appendChild(txt);
+        li.addEventListener('mousedown', function (e) { e.preventDefault(); });  // keep focus
+        li.addEventListener('click', function () { choose(p); });
+        li.addEventListener('mousemove', function () { if (active !== i) setActive(i); });
+        list.appendChild(li);
+      });
+      var attr = document.createElement('li');
+      attr.className = 'jr-addr-attr';
+      attr.setAttribute('aria-hidden', 'true');
+      attr.textContent = 'Powered by Google';
+      list.appendChild(attr);
+      setOpen(true);
+    }
+
+    function setActive(i) {
+      active = i;
+      Array.prototype.forEach.call(list.querySelectorAll('.jr-addr-opt'), function (li, j) {
+        li.classList.toggle('is-active', j === i);
+      });
+      if (i >= 0) input.setAttribute('aria-activedescendant', 'jr-addr-opt-' + i);
+      else input.removeAttribute('aria-activedescendant');
+    }
+
+    function suggest() {
+      var q = input.value.trim();
+      if (q.length < 3) { preds = []; render(); return; }
+      if (!token) token = new P.AutocompleteSessionToken();
+      var mine = ++seq;
+      P.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input: q, includedRegionCodes: ['us'], sessionToken: token
+      }).then(function (res) {
+        if (mine !== seq || document.activeElement !== input) return;
+        preds = res.suggestions.map(function (s) { return s.placePrediction; })
+          .filter(Boolean).slice(0, 5);
+        render();
+      }).catch(function () { preds = []; render(); });
+    }
+
+    function choose(pred) {
+      seq++;  // drop any suggestion request still in flight
+      preds = [];
+      setOpen(false);
+      input.value = stripUSA(pred.text.text);
+      var place = pred.toPlace();
+      place.fetchFields({ fields: ['formattedAddress', 'location'], sessionToken: token })
+        .catch(function () { return place.fetchFields({ fields: ['formattedAddress', 'location'] }); })
+        .then(function () {
+          token = null;  // one session = suggestions + one pick
+          if (place.formattedAddress) input.value = stripUSA(place.formattedAddress);
+          if (place.location) {
+            latEl.value = place.location.lat();
+            lngEl.value = place.location.lng();
+          }
+          showMap();
+        }).catch(function () { token = null; });
+    }
+
+    function clearPin() {
+      latEl.value = '';
+      lngEl.value = '';
+      mapBox.hidden = true;
+    }
+
+    function showMap() {
+      var lat = parseFloat(latEl.value), lng = parseFloat(lngEl.value);
+      if (isNaN(lat) || isNaN(lng)) { mapBox.hidden = true; return; }
+      var pos = { lat: lat, lng: lng };
+      mapBox.hidden = false;
+      openLink.href = 'https://www.google.com/maps/search/?api=1&query=' +
+        encodeURIComponent(input.value.trim() || (lat + ',' + lng));
+      if (!map) {
+        // The pin is drawn by CSS at the center; the map never pans, so it stays exact.
+        map = new google.maps.Map(canvas, {
+          center: pos, zoom: 16, styles: MAP_STYLES,
+          disableDefaultUI: true, zoomControl: true, gestureHandling: 'none',
+          clickableIcons: false, keyboardShortcuts: false
+        });
+      } else {
+        map.setCenter(pos);
+        map.setZoom(16);
+      }
+    }
+
+    input.addEventListener('input', function () {
+      clearPin();
+      clearTimeout(timer);
+      timer = setTimeout(suggest, 140);
     });
+    input.addEventListener('focus', function () { if (preds.length) render(); });
+    input.addEventListener('blur', function () { setOpen(false); });
+    input.addEventListener('keydown', function (e) {
+      if (list.hidden) return;
+      var n = preds.length;
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive((active + 1) % n); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active <= 0 ? n - 1 : active - 1); }
+      else if (e.key === 'Enter') { e.preventDefault(); choose(preds[active >= 0 ? active : 0]); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    });
+
+    showMap();  // an existing job with a located address
   }
 
   // ─── modal ────────────────────────────────────────────
@@ -122,7 +273,6 @@
     modal.hidden = true;
     document.body.classList.remove('jr-modal-open');
     modalBody.innerHTML = '';
-    document.querySelectorAll('.pac-container').forEach(function (el) { el.remove(); });
   }
 
   function openForm(params) {
@@ -137,7 +287,7 @@
       .then(function (html) {
         modalBody.innerHTML = html;
         modalBody.classList.remove('is-loading');
-        attachPlaces();
+        attachAddress();
         if (!params.id && window.matchMedia('(hover: hover)').matches) {
           var first = modalBody.querySelector('input[name="customer_name"]');
           if (first) first.focus();

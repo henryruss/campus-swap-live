@@ -18,6 +18,9 @@ class Job(db.Model):
     customer_name = db.Column(db.String(120), nullable=True)
     customer_phone = db.Column(db.String(30), nullable=True)
     address = db.Column(db.String(255), nullable=True)
+    # Set only when the address was picked from Google Places; typing by hand clears them.
+    address_lat = db.Column(db.Float, nullable=True)
+    address_lng = db.Column(db.Float, nullable=True)
     quote_amount = db.Column(db.Numeric(10, 2), nullable=True)  # NULL = "Needs quote"
     notes = db.Column(db.Text, nullable=True)
 

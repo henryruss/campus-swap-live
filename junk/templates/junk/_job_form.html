@@ -25,10 +25,22 @@
     </div>
   </div>
 
-  <div class="jr-field">
+  <div class="jr-field jr-addr" data-addr>
     <label for="jr-address">Address</label>
-    <input id="jr-address" name="address" maxlength="255" autocomplete="off" data-places
-           value="{{ job.address or '' if job else '' }}">
+    <div class="jr-addr-box">
+      <svg class="jr-addr-icon" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+      <input id="jr-address" name="address" maxlength="255" autocomplete="off" spellcheck="false"
+             placeholder="Start typing an address"
+             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jr-addr-list"
+             value="{{ job.address or '' if job else '' }}" data-addr-input>
+      <ul class="jr-addr-list" id="jr-addr-list" role="listbox" hidden data-addr-list></ul>
+    </div>
+    <input type="hidden" name="address_lat" value="{{ job.address_lat if job and job.address_lat is not none else '' }}" data-addr-lat>
+    <input type="hidden" name="address_lng" value="{{ job.address_lng if job and job.address_lng is not none else '' }}" data-addr-lng>
+    <div class="jr-addr-map" hidden data-addr-map>
+      <div class="jr-addr-canvas" data-addr-canvas></div>
+      <a class="jr-addr-open" target="_blank" rel="noopener" data-addr-open>Open in Google Maps &#8599;</a>
+    </div>
   </div>
 
   <div class="jr-row">

@@ -409,3 +409,262 @@ def test_card_shows_quote(client):
     _create(client, customer_name='Quoted', scheduled_date=D1.isoformat(), quote_amount='1250')
     body = client.get(f'/junk/manage?date={D1.isoformat()}').get_data(as_text=True)
     assert '$1,250' in body
+
+
+# ═══════════════════════════ address location (Places pick) ═══════════════════════════
+
+def test_picked_address_saves_location(client):
+    job = _create(client, address='123 Main St, Pineville, NC', address_lat='35.08', address_lng='-80.88')
+    assert (job.address_lat, job.address_lng) == (35.08, -80.88)
+    assert 'address_lat' not in job.events.first().changes  # location isn't a history field
+
+
+def test_typed_address_has_no_location(client):
+    job = _create(client, address='Behind the gym', address_lat='', address_lng='')
+    assert job.address_lat is None and job.address_lng is None
+
+
+def test_location_dropped_without_address_or_out_of_range(client):
+    assert _create(client, address='', address_lat='35', address_lng='-80').address_lat is None
+    assert _create(client, address='x', address_lat='135', address_lng='-80').address_lat is None
+
+
+def test_editing_address_by_hand_clears_location(client):
+    job = _create(client, address='123 Main St', address_lat='35.08', address_lng='-80.88')
+    client.post(f'/junk/manage/job/{job.id}', data={'address': '125 Main St', 'return_to': '/junk/manage'})
+    db.session.refresh(job)
+    assert job.address == '125 Main St' and job.address_lat is None
+
+
+def test_edit_form_prefills_location(client):
+    job = _create(client, address='123 Main St', address_lat='35.08', address_lng='-80.88')
+    body = client.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'value="35.08"' in body and 'data-addr-map' in body
+
+
+# ═══════════════════════════ sign in: Google and password both work ═══════════════════════════
+
+def test_google_only_account_gets_pointed_to_both_ways_in(make_user):
+    u = make_user(is_junk_manager=True, oauth_provider='google', oauth_id='g-1')
+    body = flask_app.test_client().post('/junk/login', data={'email': u.email, 'password': 'whatever'}).get_data(as_text=True)
+    assert "doesn&#39;t have a password yet" in body and 'Continue with Google' in body
+    assert 'Email me a link to set one' in body  # the fix is one click from the error
+
+
+def test_login_remembers_last_method(make_user, monkeypatch):
+    from werkzeug.security import generate_password_hash
+    monkeypatch.setenv('GOOGLE_CLIENT_ID', 'x')
+    monkeypatch.setenv('GOOGLE_CLIENT_SECRET', 'y')
+    u = make_user(is_junk_manager=True)
+    u.password_hash = generate_password_hash('pw-123456')
+    db.session.commit()
+    c = flask_app.test_client()
+    assert 'Last used' not in c.get('/junk/login').get_data(as_text=True)
+    r = c.post('/junk/login', data={'email': u.email, 'password': 'pw-123456'})
+    assert 'jr_last_signin=password' in r.headers.get('Set-Cookie', '')
+    c.get('/junk/logout')
+    c.set_cookie('jr_last_signin', 'google')
+    body = c.get('/junk/login').get_data(as_text=True)
+    assert 'is-last' in body and 'Last used' in body
+
+
+def test_google_login_sets_last_used_cookie(make_user):
+    from junk.routes import finish_google_login
+    u = make_user(is_junk_manager=True)
+    with flask_app.test_request_context():
+        r = finish_google_login({'email': u.email, 'sub': 'g', 'email_verified': True}, '/junk/manage')
+    assert 'jr_last_signin=google' in r.headers.get('Set-Cookie', '')
+
+
+def test_assets_are_cache_busted(client):
+    body = client.get('/junk/manage').get_data(as_text=True)
+    assert 'manage.css?v=' in body and 'manage.js?v=' in body
+
+
+def test_google_button_starts_shared_oauth_with_junk_flag(app_ctx, monkeypatch):
+    monkeypatch.setenv('GOOGLE_CLIENT_ID', 'x')
+    monkeypatch.setenv('GOOGLE_CLIENT_SECRET', 'y')
+    c = flask_app.test_client()
+    r = c.get('/junk/login/google?next=/junk/manage?view=month')
+    assert r.headers['Location'].endswith('/auth/google')
+    with c.session_transaction() as s:
+        assert s['junk_oauth_next'] == '/junk/manage?view=month'
+
+
+def test_finish_google_login_signs_in_manager_and_links_google(make_user):
+    from junk.routes import finish_google_login
+    u = make_user(is_junk_manager=True)
+    with flask_app.test_request_context():
+        r = finish_google_login({'email': u.email.upper(), 'sub': 'g-42', 'email_verified': True}, '/junk/manage')
+        from flask_login import current_user
+        assert r.headers['Location'] == '/junk/manage' and current_user.id == u.id
+    db.session.refresh(u)
+    assert (u.oauth_provider, u.oauth_id) == ('google', 'g-42')
+
+
+def test_finish_google_login_never_creates_accounts(app_ctx, make_user):
+    from junk.routes import finish_google_login
+    outsider = make_user()
+    for email in (f"nobody-{uuid.uuid4().hex[:8]}@example.com", outsider.email):
+        with flask_app.test_request_context():
+            r = finish_google_login({'email': email, 'sub': 'g-1', 'email_verified': True}, '/junk/manage')
+            assert r.headers['Location'].endswith('/junk/login')
+    assert User.query.filter(User.email.like('nobody-%@example.com')).count() == 0
+
+
+def test_finish_google_login_rejects_unverified_email(make_user):
+    from junk.routes import finish_google_login
+    u = make_user(is_junk_manager=True)
+    with flask_app.test_request_context():
+        r = finish_google_login({'email': u.email, 'sub': 'g', 'email_verified': False}, '/junk/manage')
+        assert r.headers['Location'].endswith('/junk/login')
+
+
+def test_password_link_request_never_reveals_accounts(make_user, monkeypatch):
+    sent = []
+    monkeypatch.setitem(flask_app.extensions, 'junk_send_email', lambda to, subj, html: sent.append((to, html)) or True)
+    u = make_user(is_junk_manager=True, oauth_provider='google', oauth_id='g')
+    outsider = make_user()
+    bodies = [flask_app.test_client().post('/junk/login/password', data={'email': e}).get_data(as_text=True)
+              for e in (u.email, outsider.email, 'nobody@example.com')]
+    assert all('a link is on its way' in b for b in bodies)
+    assert [to for to, _ in sent] == [u.email]
+    assert '/junk/login/password/' in sent[0][1]
+
+
+def test_password_link_sets_password_once(make_user):
+    from junk.routes import make_password_link
+    u = make_user(is_junk_manager=True, oauth_provider='google', oauth_id='g')
+    with flask_app.test_request_context():
+        path = '/' + make_password_link(u).split('/', 3)[3]
+    c = flask_app.test_client()
+    assert 'For ' + u.email in c.get(path).get_data(as_text=True)
+    assert 'match' in c.post(path, data={'password': 'longenough1', 'confirm': 'different1'}).get_data(as_text=True)
+    assert 'at least 8' in c.post(path, data={'password': 'short', 'confirm': 'short'}).get_data(as_text=True)
+    r = c.post(path, data={'password': 'longenough1', 'confirm': 'longenough1'})
+    assert r.headers['Location'].endswith('/junk/manage')
+    # Both routes now work, and the link is spent.
+    r2 = flask_app.test_client().post('/junk/login', data={'email': u.email, 'password': 'longenough1'})
+    assert r2.headers['Location'].endswith('/junk/manage')
+    assert flask_app.test_client().get(path).headers['Location'].endswith('/junk/login/password')
+
+
+def test_password_link_rejects_tampering(app_ctx):
+    assert flask_app.test_client().get('/junk/login/password/not-a-token').status_code == 302
+
+
+# ═══════════════════════════ Google popup (code flow) ═══════════════════════════
+
+@pytest.fixture
+def google_env(monkeypatch):
+    monkeypatch.setenv('GOOGLE_CLIENT_ID', 'cid-123')
+    monkeypatch.setenv('GOOGLE_CLIENT_SECRET', 'secret')
+
+
+def test_login_page_wires_google_popup(app_ctx, google_env):
+    body = flask_app.test_client().get('/junk/login').get_data(as_text=True)
+    assert 'data-google-popup' in body and 'data-client-id="cid-123"' in body
+    assert 'accounts.google.com/gsi/client' in body and 'login.js?v=' in body
+
+
+def test_google_code_signs_in_manager(make_user, google_env, monkeypatch):
+    import junk.routes as jr
+    u = make_user(is_junk_manager=True)
+    seen = []
+    monkeypatch.setattr(jr, '_google_userinfo_from_code',
+                        lambda code: seen.append(code) or {'email': u.email, 'sub': 'g-9', 'email_verified': True})
+    c = flask_app.test_client()
+    r = c.post('/junk/login/google/code', json={'code': 'abc', 'next': '/junk/manage?view=month'})
+    assert r.status_code == 200 and r.get_json() == {'ok': True, 'redirect': '/junk/manage?view=month'}
+    assert seen == ['abc'] and 'jr_last_signin=google' in r.headers.get('Set-Cookie', '')
+    assert c.get('/junk/manage').status_code == 200
+
+
+def test_google_code_rejects_non_manager_and_bad_input(make_user, google_env, monkeypatch):
+    import junk.routes as jr
+    outsider = make_user()
+    monkeypatch.setattr(jr, '_google_userinfo_from_code',
+                        lambda code: {'email': outsider.email, 'sub': 'g', 'email_verified': True})
+    c = flask_app.test_client()
+    r = c.post('/junk/login/google/code', json={'code': 'abc', 'next': 'https://evil.example'})
+    assert r.status_code == 403 and 'have access yet' in r.get_json()['error']
+    assert c.post('/junk/login/google/code', json={}).status_code == 400
+    assert c.get('/junk/manage').status_code == 302
+
+
+def test_google_code_exchange_failure_is_graceful(app_ctx, google_env, monkeypatch):
+    import junk.routes as jr
+    def boom(code):
+        raise RuntimeError('google down')
+    monkeypatch.setattr(jr, '_google_userinfo_from_code', boom)
+    r = flask_app.test_client().post('/junk/login/google/code', json={'code': 'abc'})
+    assert r.status_code == 502 and 'password' in r.get_json()['error']
+
+
+# ═══════════════════════════ site locked to junk ═══════════════════════════
+
+@pytest.fixture
+def locked(app_ctx):
+    flask_app.config['SITE_LOCKED_TO_JUNK'] = True
+    yield
+    flask_app.config.pop('SITE_LOCKED_TO_JUNK', None)
+
+
+@pytest.mark.parametrize('path', ['/', '/shop', '/login', '/register', '/dashboard', '/admin',
+                                  '/become-a-seller', '/item/1', '/sitemap.xml', '/crew'])
+def test_locked_site_sends_visitors_to_junk_login(locked, path):
+    r = flask_app.test_client().get(path)
+    assert r.status_code == 302 and r.headers['Location'].endswith('/junk/login')
+
+
+@pytest.mark.parametrize('path', ['/junk/login', '/health', '/static/style.css', '/favicon.ico'])
+def test_locked_site_keeps_machine_and_junk_paths_open(locked, path):
+    r = flask_app.test_client().get(path)
+    assert not (r.status_code == 302 and r.headers.get('Location', '').endswith('/junk/login'))
+
+
+def test_locked_site_keeps_webhooks_and_crons_reachable(locked):
+    c = flask_app.test_client()
+    for path in ('/webhook', '/sms/webhook', '/admin/cron/send-scheduled-mass-emails', '/admin/digest/trigger'):
+        r = c.post(path)
+        assert not r.headers.get('Location', '').endswith('/junk/login'), path
+
+
+def test_locked_robots_disallows_everything(locked):
+    assert 'Disallow: /\n' in flask_app.test_client().get('/robots.txt').get_data(as_text=True)
+
+
+def test_locked_google_auth_only_from_junk_login(locked):
+    c = flask_app.test_client()
+    assert c.get('/auth/google').headers['Location'].endswith('/junk/login')
+    with c.session_transaction() as s:
+        s['junk_oauth_next'] = '/junk/manage'
+    assert not c.get('/auth/google').headers.get('Location', '').endswith('/junk/login')
+
+
+def test_locked_site_lets_admins_through(locked, make_user):
+    c = _login(make_user(is_admin=True, is_super_admin=True).id)
+    r = c.get('/shop')
+    assert not (r.status_code == 302 and r.headers.get('Location', '').endswith('/junk/login'))
+
+
+def test_locked_site_sends_signed_in_manager_to_calendar(locked, client):
+    assert client.get('/shop').headers['Location'].endswith('/junk/manage')
+
+
+def test_locked_site_sends_plain_seller_to_junk_login(locked, make_user):
+    r = _login(make_user().id).get('/dashboard')
+    assert r.headers['Location'].endswith('/junk/login')
+
+
+def test_lock_on_by_default_and_env_can_reopen(app_ctx, monkeypatch):
+    from junk.routes import site_locked
+    flask_app.config['TESTING'] = False
+    try:
+        with flask_app.test_request_context():
+            monkeypatch.delenv('SITE_LOCKED_TO_JUNK', raising=False)
+            assert site_locked()
+            monkeypatch.setenv('SITE_LOCKED_TO_JUNK', '0')
+            assert not site_locked()
+    finally:
+        flask_app.config['TESTING'] = True

@@ -81,8 +81,8 @@
 
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
-<script src="{{ url_for('junk.static', filename='manage.js') }}"></script>
+<script src="{{ jr_asset('manage.js') }}"></script>
 {% if google_maps_key %}
-<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=places&loading=async&callback=__jrPlacesReady"></script>
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&v=weekly&libraries=places,maps&loading=async&callback=__jrPlacesReady"></script>
 {% endif %}
 {% endblock %}

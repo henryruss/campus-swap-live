@@ -84,6 +84,32 @@ def parse_job_form(form):
     return values
 
 
+def parse_location(form, address):
+    """(lat, lng) from the hidden fields the Places picker fills, or (None, None). Coordinates
+    without an address, or out of range, are dropped rather than rejected."""
+    if not address:
+        return None, None
+    try:
+        lat = float(form.get('address_lat') or '')
+        lng = float(form.get('address_lng') or '')
+    except ValueError:
+        return None, None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None, None
+    return lat, lng
+
+
+def _set_location(job, location):
+    """Location isn't a history field: it follows the address, which is."""
+    if location is None:
+        return False
+    lat, lng = location
+    if (job.address_lat, job.address_lng) == (lat, lng):
+        return False
+    job.address_lat, job.address_lng = lat, lng
+    return True
+
+
 # ─── the day's line ──────────────────────────────────────────────────────
 
 def day_line_query(d):
@@ -146,8 +172,9 @@ def log_event(job, user, action, changes=None):
 
 # ─── operations (each commits) ───────────────────────────────────────────
 
-def create_job(values, user):
+def create_job(values, user, location=None):
     job = Job(created_by_id=getattr(user, 'id', None), **values)
+    _set_location(job, location)
     db.session.add(job)
     db.session.flush()
     place_job(job)
@@ -157,10 +184,13 @@ def create_job(values, user):
     return job
 
 
-def update_job(job, values, user):
+def update_job(job, values, user, location=None):
     """Apply edited fields. A date change sends the job to the end of the new day's line."""
     changes = diff_fields(job, values)
+    moved_pin = _set_location(job, location)
     if not changes:
+        if moved_pin:
+            db.session.commit()
         return job
     old_date = job.scheduled_date
     for field, v in values.items():

@@ -469,6 +469,7 @@ csrf = CSRFProtect(app)
 
 # Junk removal portal (self-contained Blueprint in junk/, mounted at /junk)
 from junk import junk_bp
+from junk.routes import JUNK_OAUTH_FLAG, finish_google_login as finish_junk_google_login
 app.register_blueprint(junk_bp)
 
 # Rate Limiting
@@ -6831,6 +6832,17 @@ def claim_account(token):
     return redirect(url_for('dashboard'))
 
 
+# Junk portal: it can't import app.py, so it gets the mailer through app.extensions.
+app.extensions['junk_send_email'] = send_email
+if limiter:
+    try:
+        for _ep, _rule in (('junk.login', '20 per hour'), ('junk.password_request', '5 per hour')):
+            # Reassign: decorating an already-registered view doesn't apply the limit.
+            app.view_functions[_ep] = limiter.limit(_rule, methods=['POST'])(app.view_functions[_ep])
+    except Exception:
+        logger.exception("Couldn't apply rate limits to junk sign-in routes")
+
+
 # --- GOOGLE OAUTH ROUTES ---
 
 @app.route('/auth/google')
@@ -6848,13 +6860,20 @@ def auth_google_callback():
     if not oauth:
         flash("Sign in with Google is not configured.", "error")
         return redirect(url_for('login'))
+    # Sign-in started on /junk/login: hand the result to the junk portal (never creates accounts).
+    junk_next = session.pop(JUNK_OAUTH_FLAG, None)
     try:
         token = oauth.google.authorize_access_token()
     except Exception as e:
         logger.warning(f"Google OAuth error: {e}", exc_info=True)
+        if junk_next:
+            flash("Google sign-in didn't go through. Try again, or use your password.", "junk_error")
+            return redirect(url_for('junk.login'))
         flash("Sign in with Google failed. Please try again or use email.", "error")
         return redirect(url_for('login'))
     userinfo = token.get('userinfo')
+    if junk_next:
+        return finish_junk_google_login(userinfo or {}, junk_next)
     if not userinfo:
         flash("Could not get your Google profile. Please try again.", "error")
         return redirect(url_for('login'))

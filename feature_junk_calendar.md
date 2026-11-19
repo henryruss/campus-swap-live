@@ -257,3 +257,36 @@ These supersede every earlier "archive", "Remove" and "Removed jobs" rule above.
 - `queue_position` also numbers the Unscheduled list (`scheduled_date IS NULL`).
 - A job joins the bottom when it's created without a date, dragged off the calendar, or has its date cleared.
 - The panel still can't be reordered by hand.
+
+---
+
+## Revision 5 — address picker + sign-in both ways (2026-11-18)
+
+**Address.** The legacy `google.maps.places.Autocomplete` widget (`.pac-container`) is replaced by the
+Places API (New): `AutocompleteSuggestion.fetchAutocompleteSuggestions` with a session token, rendered
+in our own dropdown (`[data-addr-list]`, keyboard nav, matched text bold, "Powered by Google").
+Picking a suggestion fetches `formattedAddress` + `location` and shows a small map preview (non-pannable,
+center pin drawn in CSS, "Open in Google Maps"). New nullable `junk_job.address_lat` / `address_lng`
+(migration `c4e7a2b19f05`) are set only from a pick; typing by hand clears them. They are not history fields.
+
+**Sign-in.** `/junk/login` offers "Continue with Google" and email + password; every manager can use both.
+- Google reuses the site's OAuth client: `/junk/login/google` sets `session['junk_oauth_next']`, and
+  `app.auth_google_callback` hands off to `junk.routes.finish_google_login`, which only signs in existing
+  junk managers (never creates accounts, rejects unverified emails) and links Google to the account.
+- "Forgot or never set a password?" emails a one-hour, single-use link (signed over the current password
+  hash) to set a password. The request page answers the same whether or not the email has access.
+- POST limits on Render: login 20/hour, link request 5/hour (applied in app.py; Flask-Limiter isn't
+  installed locally). The mailer is passed in as `app.extensions['junk_send_email']`.
+
+---
+
+## Revision 6 — legacy site locked to junk (2026-11-18)
+
+Every Campus Swap page now redirects to `/junk/login` (signed-in junk managers go to `/junk/manage`).
+No code was deleted; `junk/routes.py:_gate_legacy_site` gates it. On by default; set
+`SITE_LOCKED_TO_JUNK=0` on Render to reopen. Off under TESTING unless a test sets the config flag.
+- **Still open (machines call these):** `/junk`, `/static/`, `/uploads/`, `/favicon*`, `/health`, `/webhook`,
+  `/sms/webhook`, `/admin/cron/*`, `/admin/digest/trigger`, `/unsubscribe/`.
+- **`/auth/google`** only when the sign-in started on `/junk/login`, so the old flow can't create seller accounts.
+- **Admins and super admins** pass through to the old site, for wrap-up work.
+- **`robots.txt`** disallows everything.
