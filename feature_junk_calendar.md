@@ -333,3 +333,9 @@ No code was deleted; `junk/routes.py:_gate_legacy_site` gates it. On by default;
 **Dev-only:** `?touchdebug=1` shows a touch-state readout (only where the dev switch exists); `?touchdebug=0` hides it.
 
 **Fixed (ad02938):** the autosave state variable was named `save`, which overwrote the drag code's `save()` function. Every drop threw: desktop drops never reached the server, and on phones Sortable stayed mid-drag and froze page scrolling.
+
+## Revision 10 — phone job modal is a floating card (2026-11-18)
+- **On phones, the job modal is a floating card,** not a bottom sheet. It has 12px margins, starts near the top, is only as tall as its content, and fits without scrolling. Fields stay in pairs and Notes starts at 2 rows.
+- **While it's open, the page behind is pinned** (`lockPage()` in manage.js), because iOS ignores `overflow: hidden` on the body. Closing returns to the same scroll position.
+- **The date input loses its native iOS styling,** so it matches the Quote box and stays inside the card.
+- **The dev pill hides while a job is open.**

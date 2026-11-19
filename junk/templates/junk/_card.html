@@ -7,4 +7,17 @@
   </div>
   {% if job.needs_quote %}<span class="jr-tag">Needs quote</span>
   {% else %}<span class="jr-card-quote">{{ job.quote_amount|jr_money }}</span>{% endif %}
+  {%- set crew = job.crew %}
+  {%- if crew %}
+  {# Desktop: a name pill per person, two to a row. Phone: initials bubbles. #}
+  <div class="jr-card-crew" aria-label="Crew: {{ crew|map('jr_person')|join(', ') }}">
+    {%- for u in crew %}
+    {%- set parts = (u|jr_person).split(' ', 1) %}
+    <span class="jr-crew-tag" data-user-id="{{ u.id }}" title="{{ u|jr_person }}">
+      <span class="jr-avatar">{{ u|jr_initials }}</span>
+      <span class="jr-crew-tag-name"><span class="jr-crew-first">{{ parts[0] }}</span>{% if parts|length > 1 %} <span class="jr-crew-last">{{ parts[1] }}</span>{% endif %}</span>
+    </span>
+    {%- endfor %}
+  </div>
+  {%- endif %}
 </div>

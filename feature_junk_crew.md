@@ -38,12 +38,25 @@ A manager can put people on a job, and those people can see their jobs.
 - **On mobile,** email and phone sit on separate lines, so the phone never gets cut off.
 - **Out of scope:** invite links, and moving returning legacy workers over in bulk.
 
-### Step 3: Assigning in the job modal
-- New `JobAssignment` table (`junk_job_assignment`): `job_id`, `user_id`, `created_at`, `created_by_id`, unique on `(job_id, user_id)`.
-- **The job modal gets a Crew field:** pick any number of people from the team. It defaults to nobody, and there's a one-tap "Add me".
-- **Calendar cards show the assignees' initials.**
-- **History:** assignment changes go into `JobEvent` as `crew: [old names, new names]`.
-- **Deleting a job** deletes its assignments too.
+### Step 3: Assigning crew (Henry, 2026-11-18: "the same feel as Unscheduled jobs")
+Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and adding or removing inside the job modal all work.
+
+**3a — data, modal, cards** ✅ (built, not yet committed)
+- **New table** `JobAssignment` (`junk_job_assignment`, migration `e7b4c2a9d1f3`): `job_id`, `user_id`, `created_at` and `created_by_id`, unique on `(job_id, user_id)`. Assignments are deleted along with their job.
+- **Anyone with junk access can be assigned,** crew or manager. `set_crew(job, person, actor, on)` lives in `junk/jobs.py`.
+- **One endpoint:** `POST /manage/job/<id>/crew` with JSON `{user_id, action: add|remove}`. Managers only. It answers with the re-rendered `_job_crew.html`.
+- **Modal Crew row:** chips with × to remove, `+ Me`, and a `+ Add…` picker for anyone else on the team. New jobs get crew once they exist. Crew controls never trigger an autosave.
+- **Cards (desktop):** crew get their own row of name pills (Henry, 2026-11-18), with the people loaded in one query per calendar.
+  - **Pills per row depend on the card's own width:** two per row on a wide card, one per row on a narrow one such as a laptop week column. That way a full name fits on one line.
+  - **Long names:** a long first name ends in "…"; a long last name hyphenates, up to 2 lines.
+- **Cards (phone):** initials bubbles on their own row. Month chips show no crew. Initials use letters only, so "Manager (dev)" becomes MD.
+- **Modal crew row order:** `[+ Add…] [+ Me]` and then the people, so the buttons never move.
+- **History:** changes are recorded as `crew: [before names, after names]` and merge into the 10-minute edit burst; adding someone and then removing them leaves no entry.
+
+**3b — crew panel + drag** (next)
+- **Where the list sits:** on the right on desktop, mirroring Unscheduled, and at the bottom on phone. It shows everyone on the Team page, crew first.
+- **Assign:** drag a person onto a job card.
+- **Unassign or move:** on desktop, drag a name pill off a card back to the list, or onto another job. Phones don't drag crew off cards (Henry).
 
 ### Step 4: Crew portal
 - `/junk/crew` lists my assigned jobs: upcoming first, then a short list of recent done jobs.

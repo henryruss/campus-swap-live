@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from models import db
-from junk.models import Job, JobEvent
+from junk.models import Job, JobAssignment, JobEvent, person_name
 
 EASTERN = ZoneInfo('America/New_York')
 
@@ -228,6 +228,26 @@ def update_job(job, values, user, location=None):
     log_edit(job, user, changes)
     db.session.commit()
     return job
+
+
+def set_crew(job, person, actor, on):
+    """Put a person on a job (on=True) or take them off. Returns False if nothing changed.
+    Anyone with junk access can work a job, managers included."""
+    from junk.auth import has_junk_access
+    current = {a.user_id: a for a in job.assignments}
+    if on == (person.id in current):
+        return False
+    if on and not has_junk_access(person):
+        raise JobFormError(f"{person_name(person)} isn't on the team.")
+    before = [person_name(u) for u in job.crew]
+    if on:
+        job.assignments.append(JobAssignment(user=person, created_by_id=getattr(actor, 'id', None)))
+    else:
+        job.assignments.remove(current[person.id])
+    db.session.flush()
+    log_edit(job, actor, {'crew': [before, [person_name(u) for u in job.crew]]})
+    db.session.commit()
+    return True
 
 
 def mark_done(job, user):

@@ -121,6 +121,35 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
 }
 
+/* Crew on a card (desktop): a name pill per person, two to a row on a wide card, one to a row
+   on a narrow one (a laptop week column), so a full name fits. Sized off the card itself.
+   A first name that doesn't fit ends in "…"; a last name that doesn't fit wraps, hyphenated. */
+.jr-card { container-type: inline-size; }
+.jr-card-crew { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 3px; margin-top: 2px; }
+.jr-crew-tag {
+  display: flex; align-items: center; min-width: 0; padding: 3px 5px; border-radius: 6px;
+  background: var(--sage-lt); color: var(--primary); font-size: 0.7rem; font-weight: 600; line-height: 1.2;
+}
+.jr-crew-tag .jr-avatar { display: none; }
+.jr-crew-tag-name { display: flex; flex-wrap: wrap; column-gap: 0.25em; min-width: 0; }
+.jr-crew-first { min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* At most two lines, then "…": a freakishly long surname shouldn't turn a pill into a tower. */
+.jr-crew-last {
+  min-width: 0; max-width: 100%; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.jr-card--done .jr-crew-tag { background: var(--bg-body); }
+/* Narrow card: one pill per row (must come after the base rule). */
+@container (max-width: 180px) { .jr-card-crew { grid-template-columns: minmax(0, 1fr); } }
+.jr-month .jr-card-crew { display: none; }
+
+.jr-avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--sage-lt); color: var(--primary);
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.02em; line-height: 1;
+}
+
 /* Done: same card, gone green. */
 .jr-card--done { cursor: pointer; background: var(--sage-lt); border-color: var(--sage); box-shadow: none; }
 .jr-card--done:hover { border-color: var(--primary-light); }
@@ -205,12 +234,16 @@ body[data-view="month"] .jr-card.is-drag .jr-tag { display: none; }
 .jr-modal-backdrop { position: absolute; inset: 0; background: rgba(var(--primary-rgb), 0.28); animation: jr-fadein 0.15s ease; }
 .jr-modal-panel {
   position: relative; width: min(520px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
+  overscroll-behavior: contain;  /* no bounce, and never scrolls the page behind */
   border-radius: 16px; background: var(--bg-body); color: var(--text-main); box-shadow: var(--jr-shadow-lift);
   animation: jr-pop 0.18s var(--jr-ease);
 }
 @keyframes jr-fadein { from { opacity: 0; } }
 @keyframes jr-pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 body.jr-modal-open { overflow: hidden; }
+/* Phones and tablets: pin the page (manage.js sets top to the scroll offset). The desktop
+   calendar already fills the window and never scrolls, so it's left alone. */
+@media (max-width: 1100px) { body.jr-modal-open { position: fixed; left: 0; right: 0; width: 100%; } }
 .jr-modal-body { padding: 20px 22px 18px; }
 .jr-modal-body.is-loading { min-height: 200px; }
 
@@ -265,9 +298,40 @@ body.jr-modal-open { overflow: hidden; }
   width: 100%; height: 40px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--rule);
   background: var(--bg-body); font-size: 0.95rem; color: var(--card-ink);
 }
+/* iOS draws the date field as its own pill with a built-in minimum width and padding, so it
+   comes out taller than its neighbours and pushes past the edge. Make it a plain box. */
+.jr-form input[type="date"] {
+  -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%;
+  height: 40px; line-height: 22px; text-align: left;
+}
+.jr-form input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.jr-form .jr-field, .jr-form .jr-row > * { min-width: 0; }
 .jr-form textarea { height: auto; min-height: 76px; resize: vertical; line-height: 1.45; }
 .jr-form input:focus, .jr-form textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1); }
 .jr-form input::placeholder { color: var(--card-ink-faint); }
+/* Crew in the job modal: chips with ×, "+ Me", and a picker for everyone else. */
+.jr-field-label { display: block; margin: 0 0 5px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.jr-crew-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
+.jr-crew-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 5px;
+  border: 1px solid var(--rule); border-radius: 999px; background: var(--bg-body); font-size: 0.85rem; font-weight: 500;
+}
+.jr-crew-chip .jr-avatar { width: 22px; height: 22px; font-size: 0.6rem; }
+.jr-crew-chip-x {
+  width: 22px; height: 22px; padding: 0; margin: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-muted); font-size: 1.05rem; line-height: 1; cursor: pointer;
+}
+.jr-crew-chip-x:hover { background: var(--bg-cream); color: var(--accent-hover); }
+.jr-crew-add, .jr-crew-pick select {
+  height: 32px; width: auto; margin: 0; padding: 0 12px; border-radius: 999px;
+  border: 1px dashed var(--sage); background: var(--bg-body); color: var(--primary);
+  font: 600 0.82rem 'DM Sans', system-ui, sans-serif; cursor: pointer;
+}
+.jr-crew-add:hover, .jr-crew-pick select:hover { border-style: solid; }
+/* Only as wide as its "+ Add…" label (a <select> otherwise sizes to its longest name). */
+.jr-crew-pick select { appearance: none; -webkit-appearance: none; width: 86px; padding: 0 10px; text-align: center; text-align-last: center; }
+.jr-crew-chips.is-busy { opacity: 0.6; pointer-events: none; }
+
 .jr-money { position: relative; }
 .jr-money span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.95rem; pointer-events: none; }
 .jr-money input { padding-left: 24px; }
@@ -375,6 +439,14 @@ body.jr-modal-open { overflow: hidden; }
   .jr-card-body { flex: 1 1 auto; }
   .jr-card-name { font-size: 0.76rem; }
   .jr-card-addr, .jr-card-quote, .jr-card .jr-tag { display: none; }
+  /* Phone: crew are initials bubbles on their own row under the name. */
+  .jr-card { flex-wrap: wrap; }
+  .jr-card-crew { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+  .jr-crew-tag { padding: 0; background: none; }
+  .jr-crew-tag-name { display: none; }
+  .jr-crew-tag .jr-avatar { display: inline-flex; width: 18px; height: 18px; font-size: 0.52rem; }
+  .jr-card--done .jr-crew-tag { background: none; }
+  .jr-card--done .jr-crew-tag .jr-avatar { background: var(--bg-body); }
 
   /* Unscheduled: + Job beside the heading, one strip that scrolls sideways. */
   .jr-side { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 8px; padding: 10px; }
@@ -413,9 +485,15 @@ body.jr-modal-open { overflow: hidden; }
   .jr-mdots { display: grid; }
   .jr-mcell.is-drop-target { background: var(--sage-lt); }
 
-  .jr-form .jr-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .jr-modal { place-items: end stretch; padding: 0; }
-  .jr-modal-panel { width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
+  /* The sheet fits a phone screen without scrolling: fields stay in pairs, notes start short. */
+  .jr-form .jr-row { gap: 10px; }
+  .jr-form .jr-field { margin-top: 10px; }
+  .jr-form textarea { min-height: 56px; }
+  .jr-modal-body { padding: 16px 16px 14px; }
+  .jr-form-foot { margin-top: 14px; }
+  /* A floating card, not a sheet: margins on both sides, near the top, only as tall as it needs. */
+  .jr-modal { place-items: start center; padding: max(16px, env(safe-area-inset-top)) 12px 16px; }
+  .jr-modal-panel { width: 100%; max-width: 440px; max-height: calc(100dvh - 32px); border-radius: 16px; margin-top: 2vh; }
 }
 
 .jr-btn-google.is-busy { opacity: 0.6; pointer-events: none; }
@@ -433,6 +511,7 @@ body.jr-modal-open { overflow: hidden; }
   font: 600 0.75rem 'DM Sans', system-ui, sans-serif;
 }
 .jr-dev form { margin: 0; }
+body.jr-modal-open .jr-dev { display: none; }  /* never covers the job sheet */
 .jr-dev-tag { padding: 0 8px 0 9px; color: var(--text-light); opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.66rem; }
 .jr-dev button {
   height: 26px; padding: 0 11px; border: 0; border-radius: 999px; margin: 0; width: auto;

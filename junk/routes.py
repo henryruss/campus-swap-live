@@ -15,11 +15,12 @@ from junk.auth import (has_junk_access, is_junk_crew, is_junk_manager, is_junk_o
                        junk_crew_required, junk_home, junk_manager_required)
 from junk.jobs import (
     JobFormError, StaleBoard,
-    create_job, delete_job, format_money, mark_done, move_job,
+    create_job, delete_job, format_money, mark_done, move_job, set_crew,
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start,
 )
-from junk.models import Job
+from junk.models import Job, JobAssignment, initials, person_name
+from sqlalchemy.orm import joinedload, selectinload
 from models import db, User
 
 
@@ -45,6 +46,16 @@ def _jr_phone(v):
     if len(digits) == 10:
         return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
     return v or ''
+
+
+@junk_bp.app_template_filter('jr_initials')
+def _jr_initials(user):
+    return initials(user)
+
+
+@junk_bp.app_template_filter('jr_person')
+def _jr_person(user):
+    return person_name(user)
 
 
 @junk_bp.app_template_filter('jr_eastern')
@@ -409,9 +420,13 @@ def _week_label_short(start):
     return f"{start.strftime('%b %-d')}\u2013{tail}"
 
 
+# Cards show their crew's initials: load assignments + people in one go, not one query per card.
+_WITH_CREW = selectinload(Job.assignments).joinedload(JobAssignment.user)
+
+
 def _jobs_by_day(first, last):
     """{date: [jobs in line order]}. Done jobs keep their place."""
-    rows = (Job.query
+    rows = (Job.query.options(_WITH_CREW)
             .filter(Job.scheduled_date >= first, Job.scheduled_date <= last)
             .order_by(Job.scheduled_date, Job.queue_position.asc().nullslast(), Job.id.asc())
             .all())
@@ -433,7 +448,7 @@ def manage():
     except JobFormError:
         anchor = today
 
-    unscheduled = unscheduled_query().all()
+    unscheduled = unscheduled_query().options(_WITH_CREW).all()
 
     ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled,
                return_to=_calendar_url(view, anchor))
@@ -497,7 +512,7 @@ def job_form():
         except JobFormError:
             prefill_date = None
     return render_template(
-        'junk/_job_form.html', job=job, prefill_date=prefill_date,
+        'junk/_job_form.html', job=job, prefill_date=prefill_date, team=_team(),
         return_to=request.args.get('return_to') or url_for('junk.manage'),
     )
 
@@ -557,6 +572,27 @@ def job_delete(job_id):
     delete_job(job)
     flash(f"{name} deleted.", 'success')
     return redirect(_safe_return())
+
+
+@junk_bp.route('/manage/job/<int:job_id>/crew', methods=['POST'])
+@junk_manager_required
+def job_crew(job_id):
+    """Add or remove one person: JSON {user_id, action: 'add' | 'remove'}. Answers with the
+    modal's crew section, re-rendered, so the modal and the drag code share one route."""
+    job = _get_job(job_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        person = db.session.get(User, int(data.get('user_id')))
+    except (TypeError, ValueError):
+        person = None
+    action = data.get('action')
+    if person is None or action not in ('add', 'remove'):
+        return jsonify(ok=False, error="That didn't work. Refresh and try again."), 400
+    try:
+        set_crew(job, person, current_user, on=(action == 'add'))
+    except JobFormError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, html=render_template('junk/_job_crew.html', job=job, team=_team()))
 
 
 # ─── drag and drop ───────────────────────────────────────────────────────

@@ -59,9 +59,11 @@
     </div>
   </div>
 
+  {% if job %}{% include 'junk/_job_crew.html' %}{% endif %}
+
   <div class="jr-field">
     <label for="jr-notes">Notes</label>
-    <textarea id="jr-notes" name="notes" rows="3">{{ job.notes or '' if job else '' }}</textarea>
+    <textarea id="jr-notes" name="notes" rows="2">{{ job.notes or '' if job else '' }}</textarea>
   </div>
 </form>
 

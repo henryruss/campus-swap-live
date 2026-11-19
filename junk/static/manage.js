@@ -347,17 +347,68 @@
     edits.timer = setTimeout(saveNow, delay);
   }
 
-  modal.addEventListener('input', function (e) {
-    if (e.target.closest('form[data-autosave]')) queueSave(700);
+  // Crew controls save themselves (below), so they never trigger an autosave.
+  function autosaveField(e) {
+    return e.target.closest('form[data-autosave]') && !e.target.closest('[data-crew]');
+  }
+  modal.addEventListener('input', function (e) { if (autosaveField(e)) queueSave(700); });
+  modal.addEventListener('change', function (e) { if (autosaveField(e)) queueSave(0); });
+
+  // ─── crew in the modal ────────────────────────────────
+  // + Me, the picker and × each post one change; the server sends back the crew section.
+  function crewChange(userId, action) {
+    var box = modalBody.querySelector('[data-crew]');
+    if (!box || !userId) return;
+    var chips = box.querySelector('.jr-crew-chips');
+    chips.classList.add('is-busy');
+    fetch(box.dataset.crewUrl, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({ user_id: Number(userId), action: action }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok || !data.ok) throw new Error(data.error || '');
+        return data;
+      });
+    }).then(function (data) {
+      box.outerHTML = data.html;
+      edits.changed = true;   // closing re-renders the calendar so the cards show it
+      cache.clear();
+    }).catch(function (err) {
+      chips.classList.remove('is-busy');
+      toast(err.message || 'Couldn’t update the crew. Try again.');
+    });
+  }
+  modal.addEventListener('click', function (e) {
+    var add = e.target.closest('[data-crew-add]');
+    if (add) { crewChange(add.dataset.crewAdd, 'add'); return; }
+    var remove = e.target.closest('[data-crew-remove]');
+    if (remove) crewChange(remove.dataset.crewRemove, 'remove');
   });
   modal.addEventListener('change', function (e) {
-    if (e.target.closest('form[data-autosave]')) queueSave(0);
+    if (e.target.matches('[data-crew-pick]')) crewChange(e.target.value, 'add');
   });
 
   // ─── modal ────────────────────────────────────────────
+  // While the modal is open the page behind is pinned where it was. iOS Safari ignores
+  // overflow:hidden on <body>, so the page would otherwise slide around under the sheet.
+  var pinnedY = 0;
+  function lockPage() {
+    if (document.body.classList.contains('jr-modal-open')) return;
+    pinnedY = window.scrollY;
+    document.body.style.top = -pinnedY + 'px';
+    document.body.classList.add('jr-modal-open');
+  }
+  function unlockPage() {
+    if (!document.body.classList.contains('jr-modal-open')) return;
+    document.body.classList.remove('jr-modal-open');
+    document.body.style.top = '';
+    window.scrollTo(0, pinnedY);
+  }
+
   function hideModal() {
     modal.hidden = true;
-    document.body.classList.remove('jr-modal-open');
+    unlockPage();
     modalBody.innerHTML = '';
   }
 
@@ -381,7 +432,7 @@
     modalBody.innerHTML = '';
     modalBody.classList.add('is-loading');
     modal.hidden = false;
-    document.body.classList.add('jr-modal-open');
+    lockPage();
     fetch(formUrl + '?' + qs.toString(), { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (html) {

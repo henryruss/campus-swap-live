@@ -1,0 +1,29 @@
+{# Crew on a job, inside the job modal. Re-rendered by POST /manage/job/<id>/crew. #}
+{% set on_job = job.crew %}
+{% set on_ids = on_job|map(attribute='id')|list %}
+{% set available = team|rejectattr('id', 'in', on_ids)|list %}
+<div class="jr-field jr-crew-field" data-crew data-crew-url="{{ url_for('junk.job_crew', job_id=job.id) }}">
+  <span class="jr-field-label">Crew</span>
+  {# Add controls first, so they stay put while people are added and removed after them. #}
+  <div class="jr-crew-chips">
+    {% set others = available|rejectattr('id', 'equalto', current_user.id)|list %}
+    {% if others %}
+      <span class="jr-crew-pick">
+        <select data-crew-pick aria-label="Add someone to this job">
+          <option value="">+ Add…</option>
+          {% for u in others %}<option value="{{ u.id }}">{{ u|jr_person }}</option>{% endfor %}
+        </select>
+      </span>
+    {% endif %}
+    {% if current_user.id not in on_ids and current_user in team %}
+      <button type="button" class="jr-crew-add" data-crew-add="{{ current_user.id }}">+ Me</button>
+    {% endif %}
+    {% for u in on_job %}
+      <span class="jr-crew-chip">
+        <span class="jr-avatar">{{ u|jr_initials }}</span>
+        <span class="jr-crew-chip-name">{{ (u|jr_person).split(' ')[0] }}</span>
+        <button type="button" class="jr-crew-chip-x" data-crew-remove="{{ u.id }}" aria-label="Take {{ u|jr_person }} off this job">&times;</button>
+      </span>
+    {% endfor %}
+  </div>
+</div>

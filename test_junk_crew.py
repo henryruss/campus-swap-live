@@ -16,6 +16,7 @@ from werkzeug.security import generate_password_hash
 from app import app as flask_app, db
 from models import User
 from junk.routes import DEV_ACCOUNTS
+from junk.models import Job, JobAssignment, JobEvent
 
 
 @pytest.fixture
@@ -37,6 +38,13 @@ def tracked(app_ctx):
     yield created
     db.session.rollback()
     new_dev = [e for e in dev_emails if e not in existed]
+    uids = created['users']
+    if uids:
+        job_ids = [j for (j,) in db.session.query(Job.id).filter(Job.created_by_id.in_(uids))]
+        db.session.execute(db.delete(JobAssignment).where(
+            JobAssignment.job_id.in_(job_ids) | JobAssignment.user_id.in_(uids)))
+        db.session.execute(db.delete(JobEvent).where(JobEvent.job_id.in_(job_ids) | JobEvent.user_id.in_(uids)))
+        db.session.execute(db.delete(Job).where(Job.id.in_(job_ids)))
     db.session.execute(db.delete(User).where(
         User.id.in_(created['users']) | User.email.in_(new_dev)))
     db.session.commit()
@@ -45,7 +53,8 @@ def tracked(app_ctx):
 @pytest.fixture
 def make_user(tracked):
     def _factory(password=None, **flags):
-        u = User(email=f"jr-crew-test-{uuid.uuid4().hex[:10]}@example.com", full_name='Test Person',
+        flags.setdefault('full_name', 'Test Person')
+        u = User(email=f"jr-crew-test-{uuid.uuid4().hex[:10]}@example.com",
                  password_hash=generate_password_hash(password) if password else None, **flags)
         db.session.add(u)
         db.session.commit()
@@ -222,3 +231,92 @@ def test_remove_clears_flag_never_deletes(make_user):
     assert _login(crew.id).get('/junk/crew').status_code == 403
     # Not crew (already removed, or a manager) → 404.
     assert c.post(f'/junk/manage/team/{crew.id}/remove').status_code == 404
+
+
+
+# ── assigning crew (step 3a) ───────────────────────────────
+
+def _job(mgr, **fields):
+    j = Job(created_by_id=mgr.id, **fields)
+    db.session.add(j)
+    db.session.commit()
+    return j
+
+
+def _crew(c, job, user, action='add'):
+    return c.post(f'/junk/manage/job/{job.id}/crew', json={'user_id': user.id, 'action': action})
+
+
+def _on(job):
+    db.session.expire_all()
+    return [a.user_id for a in JobAssignment.query.filter_by(job_id=job.id).order_by(JobAssignment.id)]
+
+
+def test_add_and_remove_crew(make_user):
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    c = _login(mgr.id)
+    job = _job(mgr, customer_name='Smith')
+    r = _crew(c, job, jo)
+    assert r.status_code == 200 and r.get_json()['ok'] and 'Jordan' in r.get_json()['html']
+    assert _on(job) == [jo.id]
+    assert _crew(c, job, jo).status_code == 200 and _on(job) == [jo.id]   # adding twice is a no-op
+    assert _crew(c, job, mgr).status_code == 200 and _on(job) == [jo.id, mgr.id]  # managers work jobs too
+    assert _crew(c, job, jo, 'remove').status_code == 200 and _on(job) == [mgr.id]
+
+
+def test_only_team_members_can_be_assigned(make_user):
+    mgr = make_user(is_junk_manager=True)
+    c = _login(mgr.id)
+    job = _job(mgr)
+    r = _crew(c, job, make_user())   # a plain account, not crew or manager
+    assert r.status_code == 400 and r.get_json()['ok'] is False and _on(job) == []
+    assert c.post(f'/junk/manage/job/{job.id}/crew', json={'user_id': 'x', 'action': 'add'}).status_code == 400
+    assert c.post(f'/junk/manage/job/{job.id}/crew', json={'user_id': mgr.id, 'action': 'nope'}).status_code == 400
+
+
+def test_crew_cannot_assign(make_user):
+    mgr = make_user(is_junk_manager=True)
+    crew = make_user(is_junk_crew=True)
+    job = _job(mgr)
+    assert _crew(_login(crew.id), job, crew).status_code == 403 and _on(job) == []
+
+
+def test_crew_changes_are_history_and_merge(make_user):
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    a = make_user(is_junk_crew=True, full_name='Ann Able')
+    b = make_user(is_junk_crew=True, full_name='Ben Baker')
+    c = _login(mgr.id)
+    job = _job(mgr)
+    _crew(c, job, a)
+    _crew(c, job, b)
+    ev = JobEvent.query.filter_by(job_id=job.id, action='updated').one()
+    assert ev.changes == {'crew': [[], ['Ann Able', 'Ben Baker']]}
+    _crew(c, job, a, 'remove')
+    _crew(c, job, b, 'remove')
+    assert not JobEvent.query.filter_by(job_id=job.id, action='updated').count()  # back where it started
+
+
+def test_deleting_a_job_deletes_its_assignments(make_user):
+    mgr = make_user(is_junk_manager=True)
+    crew = make_user(is_junk_crew=True)
+    c = _login(mgr.id)
+    job = _job(mgr)
+    _crew(c, job, crew)
+    c.post(f'/junk/manage/job/{job.id}/delete')
+    assert not JobAssignment.query.filter_by(user_id=crew.id).count()
+
+
+def test_cards_and_modal_show_crew(make_user):
+    from datetime import date
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    c = _login(mgr.id)
+    job = _job(mgr, customer_name='Smith', scheduled_date=date(2099, 3, 4), queue_position=1)
+    _crew(c, job, jo)
+    page = c.get('/junk/manage?date=2099-03-04').get_data(as_text=True)
+    assert '>JL<' in page and 'Crew: Jordan Lee' in page
+    form = c.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'data-crew-remove="%d"' % jo.id in form and 'data-crew-add="%d"' % mgr.id in form   # + Me
+    new = c.get('/junk/manage/job/form').get_data(as_text=True)
+    assert 'data-crew' not in new   # crew is added once the job exists
