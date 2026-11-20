@@ -645,7 +645,8 @@
 
   // ─── dragging people onto jobs ────────────────────────
   // From the Crew panel: a copy, dropped on a job → add. From a card's name pill (desktop
-  // only): dropped on another job → move; on the same job → nothing; anywhere else → remove.
+  // only): dropped on another job → move; anywhere else on the calendar (or its own job) →
+  // back where it came from; off the calendar → remove (back to the Crew panel).
   var crewDrag = null;      // { userId, fromCard }
   var crewTarget = null;
 
@@ -665,9 +666,18 @@
   function trackCrew() {
     var card = crewCardAt(pointer.x, pointer.y);
     setCrewTarget(card);
-    // Dragging someone off a job: the Crew panel lights up whenever letting go would remove them.
+    // Dragging someone off a job: the Crew panel lights up only when letting go would remove them.
     var panel = cal().querySelector('.jr-crewside');
-    if (panel) panel.classList.toggle('is-drop-target', !!(crewDrag.fromCard && !card && !overFromCard()));
+    if (panel) panel.classList.toggle('is-drop-target', !!(crewDrag.fromCard && !card && !staysPut()));
+  }
+
+  // Let go here and the person goes back to their job: over that job, or anywhere on the
+  // calendar grid that isn't another job (the gaps, a day's empty space, the header).
+  function staysPut() {
+    if (overFromCard()) return true;
+    var grid = cal().querySelector('.jr-week, .jr-month');
+    var r = grid && grid.getBoundingClientRect();
+    return !!(r && pointer.x >= r.left && pointer.x <= r.right && pointer.y >= r.top && pointer.y <= r.bottom);
   }
 
   function overFromCard() {
@@ -731,7 +741,7 @@
       onEnd: function () {
         var drag = crewDrag;
         var target = crewCardAt(pointer.x, pointer.y);
-        var stayed = !target && overFromCard();
+        var stayed = !target && drag.fromCard && staysPut();
         setCrewTarget(null);
         var panel = cal().querySelector('.jr-crewside');
         if (panel) panel.classList.remove('is-drop-target');

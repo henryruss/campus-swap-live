@@ -148,7 +148,14 @@ def test_all_empty_job_is_unscheduled_and_needs_quote(client):
     assert job.state == 'unscheduled' and job.needs_quote and _unscheduled_ids()[-1] == job.id
     assert job.display_name == 'Untitled job'
     body = client.get('/junk/manage').get_data(as_text=True)
-    assert f'data-job-id="{job.id}"' in body and 'Untitled job' in body and 'Needs quote' in body
+    assert f'data-job-id="{job.id}"' in body and 'Untitled job' in body
+    assert 'Needs quote' not in body   # the quote lives in the modal, not on cards
+
+
+def test_card_shows_street_line_only(client):
+    job = _create(client, customer_name='Street Test', address='829 Shearer St, Davidson, NC 28036')
+    body = client.get('/junk/manage').get_data(as_text=True)
+    assert 'title="829 Shearer St, Davidson, NC 28036">829 Shearer St</div>' in body
 
 
 def test_create_with_date_goes_to_end_of_line(client):
@@ -471,10 +478,12 @@ def test_today_button_only_off_current_week(client):
     assert '>Today</a>' in client.get(f'/junk/manage?date={D1.isoformat()}').get_data(as_text=True)
 
 
-def test_card_shows_quote(client):
-    _create(client, customer_name='Quoted', scheduled_date=D1.isoformat(), quote_amount='1250')
+def test_quote_is_in_modal_not_on_card(client):
+    job = _create(client, customer_name='Quoted', scheduled_date=D1.isoformat(), quote_amount='1250')
     body = client.get(f'/junk/manage?date={D1.isoformat()}').get_data(as_text=True)
-    assert '$1,250' in body
+    assert '$1,250' not in body
+    form = client.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'value="1250' in form
 
 
 # ═══════════════════════════ address location (Places pick) ═══════════════════════════

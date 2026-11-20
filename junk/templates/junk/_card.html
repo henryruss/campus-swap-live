@@ -1,23 +1,19 @@
-{# One job card. Done cards are green and not draggable. #}
+{# One job card: name, street, crew. The quote lives in the job modal. Done cards are green and not draggable. #}
 <div class="jr-card{{ ' jr-card--done' if job.completed_at }}" data-job-id="{{ job.id }}" tabindex="0" role="button"
      aria-label="{{ job.display_name }}{{ ', done' if job.completed_at }}">
   <div class="jr-card-body">
     <div class="jr-card-name{{ ' is-untitled' if not job.customer_name }}">{{ job.display_name }}</div>
-    {% if job.address %}<div class="jr-card-addr">{{ job.address }}</div>{% endif %}
+    {% if job.address %}<div class="jr-card-addr" title="{{ job.address }}">{{ job.address|jr_street }}</div>{% endif %}
   </div>
-  {% if job.needs_quote %}<span class="jr-tag">Needs quote</span>
-  {% else %}<span class="jr-card-quote">{{ job.quote_amount|jr_money }}</span>{% endif %}
   {%- set crew = job.crew %}
   {%- if crew %}
   {# Desktop: a name pill per person, two to a row. Phone: initials bubbles. #}
   <div class="jr-card-crew" aria-label="Crew: {{ crew|map('jr_person')|join(', ') }}">
     {%- for u in crew %}
     {%- set parts = (u|jr_person).split(' ', 1) %}
-    {%- set mgr = u.is_junk_manager or u.is_super_admin %}
-    <span class="jr-crew-tag{{ ' is-manager' if mgr }}" data-user-id="{{ u.id }}" title="{{ u|jr_person }}{{ ' · Manager' if mgr }}">
+    <span class="jr-crew-tag" data-user-id="{{ u.id }}" title="{{ u|jr_person }}">
       <span class="jr-avatar">{{ u|jr_initials }}</span>
       <span class="jr-crew-tag-name"><span class="jr-crew-first">{{ parts[0] }}</span>{% if parts|length > 1 %} <span class="jr-crew-last">{{ parts[1] }}</span>{% endif %}</span>
-      {%- if mgr %}<svg class="jr-mgr-star" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>{% endif %}
     </span>
     {%- endfor %}
   </div>

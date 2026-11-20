@@ -408,6 +408,11 @@ def test_calendar_shows_crew_panel(make_user):
     page = _login(mgr.id).get('/junk/manage').get_data(as_text=True)
     assert 'data-crew-panel' in page and f'data-user-id="{jo.id}"' in page
     assert '/junk/manage/job/__ID__/crew' in page
-    # Managers on top (with the star), then crew.
-    assert page.index(f'class="jr-crewchip is-manager" data-user-id="{mgr.id}"') < page.index(f'class="jr-crewchip" data-user-id="{jo.id}"')
-    assert 'aria-label="Manager"' in page
+    # You on top; everyone else, managers included, by last name. No stars.
+    other = make_user(is_junk_manager=True, full_name='Zed Zimmer')
+    abe = make_user(is_junk_crew=True, full_name='Abe Adams')
+    page = _login(mgr.id).get('/junk/manage').get_data(as_text=True)
+    pos = lambda u: page.index(f'class="jr-crewchip" data-user-id="{u.id}"')
+    assert pos(mgr) < pos(abe) < pos(jo) < pos(other)
+    assert 'jr-mgr-star' not in page
+    assert page.count('jr-crewchip-me') == 1   # only you are marked

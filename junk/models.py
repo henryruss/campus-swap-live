@@ -3,6 +3,7 @@
 A job's state is derived, never stored (see Job.state), so it can't disagree with its fields.
 Every change writes a JobEvent. Deleting a job deletes it (and its history) for good.
 """
+import re
 from datetime import datetime
 
 from models import db
@@ -102,10 +103,24 @@ def person_name(user):
     return (user.full_name or user.email or '').strip()
 
 
+_UNIT = re.compile(r'^(?:(?:apt|unit|suite|ste|rm|room|bldg|building|fl|floor)\b|#)', re.I)
+
+
+def street_line(address):
+    """The part of an address a card has room for: "829 Shearer St" from
+    "829 Shearer St, Davidson, NC 28036". A unit right after the street stays
+    ("2100 Old Mason Farm Rd, Apt 3B"); city, state and ZIP go."""
+    parts = [p.strip() for p in (address or '').split(',') if p.strip()]
+    if not parts:
+        return ''
+    if len(parts) > 1 and _UNIT.match(parts[1]):
+        return f'{parts[0]}, {parts[1]}'
+    return parts[0]
+
+
 def initials(user):
     """HR for Henry Russell; MD for "Manager (dev)"; JO for jordan@…; one letter for a one-word name.
     Only letters and digits count, so punctuation never becomes an initial."""
-    import re
     parts = re.findall(r'[^\W_]+', user.full_name or '')
     if parts:
         return (parts[0][0] + (parts[-1][0] if len(parts) > 1 else '')).upper()

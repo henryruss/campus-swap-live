@@ -20,7 +20,7 @@ from junk.jobs import (
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start,
 )
-from junk.models import Job, JobAssignment, initials, person_name
+from junk.models import Job, JobAssignment, initials, person_name, street_line
 from sqlalchemy.orm import joinedload, selectinload
 from models import db, User
 
@@ -57,6 +57,11 @@ def _jr_initials(user):
 @junk_bp.app_template_filter('jr_person')
 def _jr_person(user):
     return person_name(user)
+
+
+@junk_bp.app_template_filter('jr_street')
+def _jr_street(address):
+    return street_line(address)
 
 
 @junk_bp.app_template_filter('jr_eastern')
@@ -453,11 +458,11 @@ def manage():
 
     unscheduled = unscheduled_query().options(_WITH_CREW).all()
 
-    # The Crew panel you drag people from: managers on top (they work jobs too), then crew,
-    # each by last name.
+    # The Crew panel you drag people from: you on top (the chip you drag when you work a job
+    # yourself), then everyone else by last name. No one else gets top billing, managers included.
     def by_last_name(u):
         words = re.findall(r'[^\W_]+', person_name(u).lower())   # punctuation never sorts first
-        return (not is_junk_manager(u), words[-1] if words else '', ' '.join(words))
+        return (u.id != current_user.id, words[-1] if words else '', ' '.join(words))
     crew_panel = sorted(_team(), key=by_last_name)
     ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled, crew_panel=crew_panel,
                return_to=_calendar_url(view, anchor))

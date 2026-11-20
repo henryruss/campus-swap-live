@@ -68,6 +68,13 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 - **Dev only:** on phones the page gets 72px of extra bottom room, so the dev pill never covers the Crew strip.
 - **Tests:** a test for move and one for the panel; 114 passing in total. Browser check covered panel → job, pill → job (move), pill → panel, pill → empty space, a job dropped on the Crew panel, and phone panel → job.
 
+**At-a-glance pass (Henry, 2026-11-19)** — replaces the star and the managers-on-top order above
+- **No manager favoritism.** The Crew panel puts *you* (the signed-in person) on top, then everyone else, managers included, by last name. David sees Cam in alphabetical order, and vice versa. The stars are gone everywhere; the Team page still labels roles.
+- **Cards show name, street line and crew only.** The quote and "Needs quote" are off every card (desktop, phone, Unscheduled); the quote lives in the job modal.
+- **Dragging a pill off a job (desktop):** onto another job moves the person. Let go anywhere else on the calendar grid and the pill goes back to its job. Off the calendar (Unscheduled, the Crew panel, the page around it) removes them. The Crew panel lights up only when letting go would remove someone.
+- **"(me)" follows your own name** at the top of the Crew panel, in muted text; a long name gives way ("…") before it does.
+- **The street line** is the address up to the first comma, plus a unit if one follows (`street_line()` in `junk/models.py`, filter `jr_street`): "829 Shearer St", "2100 Old Mason Farm Rd, Apt 3B". The full address is the card's tooltip.
+
 ### Step 4: Crew portal
 - `/junk/crew` lists my assigned jobs: upcoming first, then a short list of recent done jobs.
 - Each job shows the name, phone (tap to text or call), address (tap for maps), quote, notes, and who else is on it.
