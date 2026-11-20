@@ -579,12 +579,25 @@ body.jr-modal-open { overflow: hidden; }
 .jr-empty { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
 
 /* ── Dev switches (local debug server only) ─────────────── */
-/* Two pills side by side: who you are (Manager / Crew) and which theme (one bubble each).
+/* Folded: one small pill bottom-left (who you're viewing as + theme). Click it and the
+   switches stack up above it: Manager / Crew, Theme, Drag, Hover.
    Fixed shape and type, so they look the same under every theme. */
 .jr-devbar {
-  /* Desktop: centered in the top bar's empty middle, clear of every drop zone. */
-  position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 80;
-  display: flex; align-items: center; gap: 8px;
+  position: fixed; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 80;
+  display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px;
+}
+.jr-devbar-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.jr-devbar-panel[hidden] { display: none; }
+.jr-dev.jr-devbar-toggle {
+  gap: 6px; height: 28px; padding: 0 11px 0 5px; border: 0; margin: 0; width: auto;
+  color: var(--text-light); cursor: pointer; opacity: 0.6; font-size: 0.7rem; transition: opacity 0.15s;
+}
+.jr-devbar-toggle:hover, .jr-devbar.is-open .jr-devbar-toggle { opacity: 1; }
+.jr-devbar-sep { opacity: 0.45; }
+.jr-devbar-swatch {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35);
 }
 body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet */
 .jr-dev {
@@ -633,27 +646,8 @@ body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet 
 .jr-look-dot[data-look="hover-tint"] i { opacity: 0.6; }
 .jr-look-dot[data-look="hover-outline"] i { width: 9px; height: 6px; box-shadow: 0 0 0 1.5px var(--slate), 0 0 0 2.5px var(--text-light); }
 .jr-look-dot[data-look="hover-none"] i { opacity: 0.3; }
-@media (max-width: 1500px) { .jr-pick-name { display: none; } }
-/* Too narrow for the top bar's middle: the pills move to the bottom center, one row. */
-@media (min-width: 761px) and (max-width: 1200px) {
-  .jr-devbar { top: auto; bottom: 14px; }
-  body.jr-has-dev .jr-main { padding-bottom: 64px; }
-}
 @media (max-width: 760px) {
-  /* Clear of the iPhone home bar and Safari's bottom toolbar. */
-  .jr-devbar { left: 8px; right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); top: auto; transform: none; gap: 5px;
-    flex-wrap: wrap-reverse; }
-  .jr-dev { font-size: 0.7rem; height: 30px; }
-  /* Room at the bottom so the pills never cover anything (e.g. the Crew strip). Dev only. */
-  body.jr-has-dev .jr-main { padding-bottom: 110px; }
-  /* Narrow phones: the Drag and Hover pills take a row each. */
-  @media (max-width: 384px) { body.jr-has-dev .jr-main { padding-bottom: 145px; } }
-  .jr-dev button { height: 24px; padding: 0 9px; }
-  .jr-dev--theme .jr-dev-tag, .jr-pick-name { display: none; }
-  .jr-dev--theme { padding-left: 5px; gap: 6px; }
-  .jr-dev--look { gap: 3px; padding-right: 5px; }
-  .jr-dev--look .jr-dev-tag { padding: 0 3px 0 6px; }
-  .jr-dev button.jr-pick { width: 20px; height: 20px; }
+  .jr-devbar { left: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ── Team ──────────────────────────────────────────────── */
