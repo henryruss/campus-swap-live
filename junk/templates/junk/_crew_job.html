@@ -1,0 +1,71 @@
+{# Shared by My jobs and Finished jobs. `person` is whose jobs these are (you, or, for a
+   manager, anyone on the team); `cuts` maps job id → that person's cut. #}
+{% macro cut_label() %}{{ 'your cut' if person.id == current_user.id else 'cut' }}{% endmacro %}
+
+{% macro crew_line(job) %}
+  {%- set others = job.crew|rejectattr('id', 'equalto', person.id)|list %}
+  {%- if person.id == current_user.id -%}
+    {% if others %}You, {{ others|map('jr_person')|join(', ') }}{% else %}Just you{% endif %}
+  {%- else -%}
+    {{ ([person] + others)|map('jr_person')|join(', ') }}
+  {%- endif %}
+{% endmacro %}
+
+{#- A job's details: the buttons, a map of where it is, then the facts. The head (name, street,
+    cut) is separate so a Coming up row can use it as its tap-to-open summary. -#}
+{% macro job_body(job) %}
+  {%- set maps = job|jr_maps %}
+  {%- set tel = job.customer_phone|jr_tel %}
+  {% if maps or tel %}
+  <div class="jr-cj-actions">
+    {% if maps %}<a class="jr-cj-btn jr-cj-btn--go" href="{{ maps }}" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 21 3l-8.5 18-2.2-7.3z"/></svg>Navigate</a>{% endif %}
+    {% if tel %}<a class="jr-cj-btn" href="tel:{{ tel }}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>Call</a>
+    <a class="jr-cj-btn" href="sms:{{ tel }}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>Text</a>{% endif %}
+  </div>
+  {% endif %}
+  {% if maps %}
+  {# A small map of where the job is (crew.js, Google Maps). Tapping it navigates too. Jobs typed
+     by hand have no pin yet, so crew.js looks the address up with Places. #}
+  <a class="jr-cj-map" href="{{ maps }}" target="_blank" rel="noopener" aria-label="Map of {{ job.address or 'the job' }}"
+     data-mini-map data-lat="{{ job.address_lat if job.address_lat is not none else '' }}"
+     data-lng="{{ job.address_lng if job.address_lng is not none else '' }}" data-address="{{ job.address or '' }}" hidden>
+    <span class="jr-cj-canvas"></span>
+  </a>
+  {% endif %}
+  {# The head already shows the street line; the full address only when it adds something. #}
+  {% if job.address and job.address != job.address|jr_street %}<p class="jr-cj-line"><span class="jr-cj-k">Address</span>{{ job.address }}</p>{% endif %}
+  {% if job.customer_phone %}<p class="jr-cj-line"><span class="jr-cj-k">Phone</span>{{ job.customer_phone|jr_phone }}</p>{% endif %}
+  {% if job.notes %}<p class="jr-cj-line jr-cj-notes"><span class="jr-cj-k">Notes</span>{{ job.notes }}</p>{% endif %}
+  <p class="jr-cj-line"><span class="jr-cj-k">Crew</span>{{ crew_line(job) }}</p>
+{% endmacro %}
+
+{% macro job_head(job, tag='div') %}
+  <{{ tag }} class="jr-cj-head">
+    <span class="jr-cj-title">
+      <span class="jr-cj-name">{{ job.display_name }}</span>
+      {% if job.address %}<span class="jr-cj-addr">{{ job.address|jr_street }}</span>{% endif %}
+    </span>
+    <span class="jr-cj-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else 'TBD' }}<small>{{ cut_label() }}</small></span>
+  </{{ tag }}>
+{% endmacro %}
+
+{% macro done_row(job) %}
+  <li><span class="jr-cj-name">{{ job.display_name }}</span>
+    <span class="jr-cdone-date">{{ job.scheduled_date|jr_day(today) if job.scheduled_date else '' }}</span>
+    <span class="jr-cdone-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else '—' }}</span></li>
+{% endmacro %}
+
+{#- Managers: whose jobs am I looking at? The shared team picker, as links. -#}
+{% macro who(endpoint) %}
+  {% if team %}
+  {% from 'junk/_teampick.html' import teampick with context %}
+  <div class="jr-cwho">
+    {{ teampick(team, (('My jobs' if person.id == current_user.id else (person|jr_person) ~ '’s jobs') ~ ' ▾'),
+                href=url_for(endpoint) ~ '?person=__ID__', current=person, button_class='jr-cwho-btn',
+                aria='Whose jobs to show') }}
+  </div>
+  {% endif %}
+{% endmacro %}

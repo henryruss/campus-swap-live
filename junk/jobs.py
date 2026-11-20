@@ -353,6 +353,27 @@ def format_value(field, raw):
     return str(raw)
 
 
+CREW_PAY_DEFAULT = 20   # percent of the quote, per person on the job (Henry, 2026-11-18)
+
+
+def crew_pay_pct():
+    """Each person's share of a job, in percent. AppSetting junk_crew_pay_pct, default 20."""
+    from models import AppSetting
+    try:
+        pct = Decimal(str(AppSetting.get('junk_crew_pay_pct', CREW_PAY_DEFAULT)))
+    except (InvalidOperation, ValueError):
+        return Decimal(CREW_PAY_DEFAULT)
+    return pct if 0 <= pct <= 100 else Decimal(CREW_PAY_DEFAULT)
+
+
+def crew_cut(job, pct=None):
+    """What one person on this job makes: pct × quote, to the cent. None while there's no quote."""
+    if job.quote_amount is None:
+        return None
+    pct = crew_pay_pct() if pct is None else pct
+    return (job.quote_amount * pct / 100).quantize(Decimal('0.01'))
+
+
 def format_money(v):
     if v is None:
         return ''

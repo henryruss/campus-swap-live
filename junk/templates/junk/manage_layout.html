@@ -5,7 +5,8 @@
     <nav class="jr-nav">
       {% if jr_is_manager %}<a href="{{ url_for('junk.manage') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.manage' }}">Calendar</a>{% endif %}
       {% if jr_is_manager %}<a href="{{ url_for('junk.team') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.team' }}">Team</a>{% endif %}
-      {% if jr_is_crew %}<a href="{{ url_for('junk.crew_home') }}" class="jr-tab {{ 'is-active' if request.endpoint == 'junk.crew_home' }}">My jobs</a>{% endif %}
+      {# Everyone: managers work jobs too, and can look at anyone's from there. #}
+      <a href="{{ url_for('junk.crew_home') }}" class="jr-tab {{ 'is-active' if request.endpoint in ('junk.crew_home', 'junk.crew_done') }}">My jobs</a>
     </nav>
     <div class="jr-user">
       <span>{{ (current_user.full_name or current_user.email).split(' ')[0] }}</span>

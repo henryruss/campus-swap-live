@@ -4,6 +4,7 @@ import os
 import re
 from collections import defaultdict
 from datetime import timedelta
+from decimal import Decimal
 
 from flask import (abort, current_app, flash, get_flashed_messages, jsonify, redirect,
                    render_template, request, session, url_for)
@@ -18,7 +19,7 @@ from junk.jobs import (
     JobFormError, StaleBoard,
     create_job, delete_job, format_money, mark_done, move_job, set_crew,
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
-    unscheduled_query, update_job, week_start,
+    unscheduled_query, update_job, week_start, crew_cut, crew_pay_pct,
 )
 from junk.models import Job, JobAssignment, initials, person_name, street_line
 from sqlalchemy.orm import joinedload, selectinload
@@ -62,6 +63,36 @@ def _jr_person(user):
 @junk_bp.app_template_filter('jr_street')
 def _jr_street(address):
     return street_line(address)
+
+
+@junk_bp.app_template_filter('jr_tel')
+def _jr_tel(v):
+    """Digits for tel: / sms: links ("+" kept for international numbers)."""
+    v = (v or '').strip()
+    return ('+' if v.startswith('+') else '') + ''.join(ch for ch in v if ch.isdigit())
+
+
+@junk_bp.app_template_filter('jr_maps')
+def _jr_maps(job):
+    """Turn-by-turn directions to the job (Google Maps; opens the app on a phone)."""
+    from urllib.parse import quote
+    if job.address:
+        dest = job.address
+    elif job.address_lat is not None and job.address_lng is not None:
+        dest = f'{job.address_lat},{job.address_lng}'
+    else:
+        return ''
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + quote(dest)
+
+
+@junk_bp.app_template_filter('jr_day')
+def _jr_day(d, today):
+    """Today / Tomorrow / Sat, Nov 22 (the year only when it isn't this year)."""
+    if d == today:
+        return 'Today'
+    if d == today + timedelta(days=1):
+        return 'Tomorrow'
+    return d.strftime('%a, %b %-d') + ('' if d.year == today.year else d.strftime(', %Y'))
 
 
 @junk_bp.app_template_filter('jr_eastern')
@@ -705,11 +736,75 @@ def team_remove(user_id):
 
 # ─── crew ────────────────────────────────────────────────────────────────
 
+def _crew_person():
+    """Whose jobs this page shows: yours, or, for a manager, anyone on the team (?person=<id>)."""
+    pid = request.args.get('person', type=int)
+    if not pid or pid == current_user.id:
+        return current_user
+    if not is_junk_manager():
+        abort(403)
+    person = db.session.get(User, pid)
+    if not person or not has_junk_access(person):
+        abort(404)
+    return person
+
+
+def _crew_jobs(person):
+    return (Job.query.join(JobAssignment, JobAssignment.job_id == Job.id)
+            .filter(JobAssignment.user_id == person.id)
+            .options(_WITH_CREW))
+
+
+RECENT_DONE = 2   # finished jobs shown on My jobs; the rest are a tap away
+
+
 @junk_bp.route('/crew')
 @junk_crew_required
 def crew_home():
-    """The crew side of the portal. Empty until jobs can be assigned to crew."""
-    return render_template('junk/crew_home.html')
+    """My jobs, phone first (feature_junk_crew.md step 4). A list, not a calendar: crew have a
+    job or two a week and open this to see where they're going and what they'll make.
+    Managers see their own, or any team member's (?person=). Read-only; the job-site
+    checklist is Slice 3."""
+    person = _crew_person()
+    today = today_eastern()
+    pct = crew_pay_pct()
+    mine = _crew_jobs(person)
+    # Open jobs in calendar order: the day, then the manager's order within it. No date, no list.
+    open_jobs = (mine.filter(Job.completed_at.is_(None), Job.scheduled_date.isnot(None))
+                 .order_by(Job.scheduled_date, Job.queue_position, Job.id).all())
+    done = mine.filter(Job.completed_at.isnot(None)).order_by(Job.completed_at.desc()).all()
+
+    earlier = [j for j in open_jobs if j.scheduled_date < today]   # past their date, not closed yet
+    todays = [j for j in open_jobs if j.scheduled_date == today]
+    coming = defaultdict(list)
+    for j in open_jobs:
+        if j.scheduled_date > today:
+            coming[j.scheduled_date].append(j)
+
+    cuts = {j.id: crew_cut(j, pct) for j in open_jobs + done}
+    stats = {'jobs': len(done), 'earned': sum((c for j in done if (c := cuts[j.id]) is not None), Decimal(0))}
+    return render_template('junk/crew_home.html', person=person, team=_crew_team(), today=today,
+                           earlier=earlier, todays=todays, coming=sorted(coming.items()),
+                           recent=done[:RECENT_DONE], more_done=len(done) > RECENT_DONE,
+                           cuts=cuts, stats=stats)
+
+
+@junk_bp.route('/crew/done')
+@junk_crew_required
+def crew_done():
+    """Every finished job, newest first, with what it paid."""
+    person = _crew_person()
+    pct = crew_pay_pct()
+    done = _crew_jobs(person).filter(Job.completed_at.isnot(None)).order_by(Job.completed_at.desc()).all()
+    return render_template('junk/crew_done.html', person=person, team=_crew_team(), today=today_eastern(),
+                           done=done, cuts={j.id: crew_cut(j, pct) for j in done})
+
+
+def _crew_team():
+    """Managers can switch whose jobs they're looking at: you first, then everyone by last name."""
+    if not is_junk_manager():
+        return []
+    return sorted(_team(), key=lambda u: u.id != current_user.id)
 
 
 # ─── dev-only role switch ────────────────────────────────────────────────

@@ -1,0 +1,25 @@
+{# The team picker (teampick.js): a button that opens a search + scrolling list of people.
+   people: whom to list (searched by name; someone with no name shows, and matches, by email). label: the button. href: a link with __ID__ for the person's id, or none to give each
+   option data-crew-add (the job modal adds that person). current: who's selected now. #}
+{% macro teampick(people, label, href=none, current=none, button_class='jr-crew-add', aria='Pick someone on the team') %}
+<span class="jr-teampick" data-pick>
+  <button type="button" class="{{ button_class }}" data-pick-open aria-haspopup="listbox" aria-expanded="false">{{ label }}</button>
+  <div class="jr-teampick-pop" hidden data-pick-pop>
+    <input type="text" class="jr-teampick-q" placeholder="Search the team" autocomplete="off" autocorrect="off"
+           autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Search the team" data-pick-q>
+    <ul class="jr-teampick-list" role="listbox" aria-label="{{ aria }}">
+      {% for u in people %}
+      {% set name = (u|jr_person) %}
+      <li role="option" data-name="{{ name|lower }}"
+          {% if href %}class="jr-teampick-opt{{ ' is-current' if current and current.id == u.id }}"{% else %}class="jr-teampick-opt" data-crew-add="{{ u.id }}"{% endif %}
+          {% if current and current.id == u.id %}aria-selected="true"{% endif %}>
+        {% if href %}<a href="{{ href|replace('__ID__', u.id|string) }}">{% endif %}
+        <span class="jr-avatar">{{ u|jr_initials }}</span><span class="jr-teampick-name">{{ name }}{% if u.id == current_user.id %} <span class="jr-teampick-me">(me)</span>{% endif %}</span>
+        {% if href %}</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="jr-teampick-none" hidden data-pick-none>No one on the team matches.</p>
+  </div>
+</span>
+{% endmacro %}

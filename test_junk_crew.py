@@ -130,7 +130,7 @@ def test_tabs_by_role(make_user):
     crew_page = _login(make_user(is_junk_crew=True).id).get('/junk/crew').data
     assert b'My jobs' in crew_page and b'>Calendar<' not in crew_page
     mgr_page = _login(make_user(is_junk_manager=True).id).get('/junk/manage').data
-    assert b'>Calendar<' in mgr_page and b'My jobs' not in mgr_page
+    assert b'>Calendar<' in mgr_page and b'>My jobs<' in mgr_page   # managers work jobs too (Henry, 2026-11-19)
 
 
 def test_site_lock_sends_crew_home(app_ctx, make_user):
@@ -392,10 +392,10 @@ def test_add_picker_lists_the_team_by_last_name(make_user):
     _crew(c, job, jo)
     form = c.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
     assert '<select' not in form and 'data-pick-q' in form
-    opt = lambda u: form.index(f'class="jr-teampick-opt" role="option" data-crew-add="{u.id}"')
+    opt = lambda u: form.index(f'class="jr-teampick-opt" data-crew-add="{u.id}"')
     assert opt(zed) < opt(amy)                       # by last name, managers included
-    assert f'jr-teampick-opt" role="option" data-crew-add="{jo.id}"' not in form   # already on the job
-    assert f'jr-teampick-opt" role="option" data-crew-add="{mgr.id}"' not in form  # you have + Me
+    assert f'jr-teampick-opt" data-crew-add="{jo.id}"' not in form   # already on the job
+    assert f'jr-teampick-opt" data-crew-add="{mgr.id}"' not in form  # you have + Me
 
 
 def test_move_crew_between_jobs(make_user):
@@ -433,3 +433,72 @@ def test_calendar_shows_crew_panel(make_user):
     assert pos(mgr) < pos(abe) < pos(jo) < pos(other)
     assert 'jr-mgr-star' not in page
     assert page.count('jr-crewchip-me') == 1   # only you are marked
+
+
+# ═══════════════════════════ step 4: My jobs ═══════════════════════════
+
+def test_crew_home_lists_my_jobs_in_calendar_order(make_user, monkeypatch):
+    from datetime import date, datetime
+    from decimal import Decimal
+    import junk.routes as jr
+    monkeypatch.setattr(jr, 'today_eastern', lambda: date(2099, 5, 10))
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    me = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    sam = make_user(is_junk_crew=True, full_name='Sam Rivera')
+    c = _login(mgr.id)
+    late = _job(mgr, customer_name='Second Today', scheduled_date=date(2099, 5, 10), queue_position=2, quote_amount=Decimal('300'))
+    first = _job(mgr, customer_name='First Today', scheduled_date=date(2099, 5, 10), queue_position=1, quote_amount=Decimal('250'),
+                 customer_phone='(919) 555-0142', address='829 Shearer St, Davidson, NC 28036', notes='Couch + 2 chairs')
+    soon = _job(mgr, customer_name='Next Week', scheduled_date=date(2099, 5, 16), queue_position=1)
+    past = _job(mgr, customer_name='Left Open', scheduled_date=date(2099, 5, 8), queue_position=1, quote_amount=Decimal('100'))
+    did = _job(mgr, customer_name='All Done', scheduled_date=date(2099, 5, 1), queue_position=1, quote_amount=Decimal('412.50'),
+               completed_at=datetime(2099, 5, 1, 18))
+    undated = _job(mgr, customer_name='No Date Yet', quote_amount=Decimal('90'))
+    theirs = _job(mgr, customer_name='Not Mine', scheduled_date=date(2099, 5, 10), queue_position=3)
+    for j in (late, first, soon, past, did, undated):
+        _crew(c, j, me)
+    _crew(c, first, sam)
+    _crew(c, theirs, sam)
+    page = _login(me.id).get('/junk/crew').get_data(as_text=True)
+    # Calendar order within today; past-and-open on top; then coming up.
+    assert page.index('Left Open') < page.index('First Today') < page.index('Second Today') < page.index('Next Week')
+    assert 'Not Mine' not in page and 'No Date Yet' not in page
+    # Your cut is 20% of the quote; the quote itself isn't shown.
+    assert '$50' in page and '$250' not in page and 'TBD' in page     # Next Week has no quote
+    assert 'tel:9195550142' in page and 'sms:9195550142' in page
+    assert 'google.com/maps/dir/?api=1&amp;destination=829%20Shearer%20St' in page
+    assert 'You, Sam Rivera' in page and 'Just you' in page
+    # Totals count closed jobs only: 20% of $412.50.
+    assert '$82.50' in page and '1</strong><span>job done' in page
+
+
+def test_my_jobs_for_managers_and_viewing_someone_else(make_user, monkeypatch):
+    from datetime import date, datetime
+    from decimal import Decimal
+    import junk.routes as jr
+    monkeypatch.setattr(jr, 'today_eastern', lambda: date(2099, 6, 10))
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    sam = make_user(is_junk_crew=True, full_name='Sam Rivera')
+    c = _login(mgr.id)
+    j = _job(mgr, customer_name='Jordans Job', scheduled_date=date(2099, 6, 12), queue_position=1, quote_amount=Decimal('500'))
+    _crew(c, j, jo)
+    for n in range(3):   # three finished; only the latest two show, then "View all"
+        d = _job(mgr, customer_name=f'Done {n}', scheduled_date=date(2099, 6, n + 1), queue_position=1,
+                 quote_amount=Decimal('100'), completed_at=datetime(2099, 6, n + 1, 18))
+        _crew(c, d, jo)
+    # Managers have My jobs too.
+    mine = c.get('/junk/crew').get_data(as_text=True)
+    assert 'My jobs' in mine and 'Jordans Job' not in mine
+    # …and can look at anyone's.
+    page = c.get(f'/junk/crew?person={jo.id}').get_data(as_text=True)
+    assert 'Jordans Job' in page and 'Jordan Lee’s jobs' in page and '$100' in page
+    assert 'Done 2' in page and 'Done 1' in page and 'Done 0' not in page
+    assert f'/junk/crew/done?person={jo.id}' in page and 'View all 3 finished jobs' in page
+    every = c.get(f'/junk/crew/done?person={jo.id}').get_data(as_text=True)
+    assert 'Done 0' in every and 'Done 2' in every
+    # Crew can't look at each other's.
+    g.pop('_login_user', None)
+    assert _login(sam.id).get(f'/junk/crew?person={jo.id}').status_code == 403
+    g.pop('_login_user', None)
+    assert _login(jo.id).get('/junk/crew').get_data(as_text=True).count('jr-cwho') == 0   # no picker for crew

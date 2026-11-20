@@ -1,0 +1,20 @@
+{% extends 'junk/manage_layout.html' %}
+{% block title %}Finished jobs{% endblock %}
+{% import 'junk/_crew_job.html' as cj with context %}
+
+{% block content %}
+<div class="jr-crew jr-crew--one">
+  <a class="jr-cback" href="{{ url_for('junk.crew_home', person=person.id if person.id != current_user.id else none) }}">‹ {{ 'My jobs' if person.id == current_user.id else (person|jr_person) ~ '’s jobs' }}</a>
+  {{ cj.who('junk.crew_done') }}
+  <section class="jr-csec">
+    <h2 class="jr-csec-h">Finished <span>{{ done|length }}</span></h2>
+    {% if done %}
+    <ul class="jr-cdone">{% for job in done %}{{ cj.done_row(job) }}{% endfor %}</ul>
+    {% else %}
+    <p class="jr-cnone">None yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ jr_asset('teampick.js') }}"></script>{% endblock %}

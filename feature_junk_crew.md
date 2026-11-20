@@ -1,6 +1,6 @@
 # Junk Removal — Slice 2: Crew
 
-**Status:** 🟡 In progress. Steps 1–3 are built; step 4 (the crew portal) is next.
+**Status:** 🟡 Step 4 built and awaiting review. Slice 3 is `feature_junk_jobsite.md`.
 **Depends on:** Slice 1, the manager calendar (feature_junk_calendar.md)
 
 ---
@@ -93,6 +93,14 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 - **Jobs with no date** don't show.
 - **Read-only** in this step. The job-site checklist comes in Slice 3 (`feature_junk_jobsite.md`).
 - **Crew don't quote, and don't change the quote.** Managers quote jobs beforehand.
+- **As built:**
+  - Pay comes from `crew_pay_pct()` / `crew_cut()` in `junk/jobs.py`.
+  - The buttons are plain `tel:`, `sms:` and Google Maps directions links (filters `jr_tel`, `jr_maps`).
+  - Days read `jr_day`: Today, Tomorrow, Sat, Nov 22.
+  - Open jobs dated before today sit on top under **"Not finished yet"**: no date gates, and they still count until they're closed.
+  - Coming up rows are plain `<details>`, so there's no JS.
+  - The full address shows only when it adds something beyond the street line.
+  - Totals count closed jobs only.
 - **Later: open jobs crew can claim.** Leave room in the page for it: a list sorted by date or cut, or a calendar that shows the cut. It could be a section, a page or a modal; that's undecided.
 
 **Answered 2026-11-18:**

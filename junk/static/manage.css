@@ -402,6 +402,9 @@ body.jr-modal-open { overflow: hidden; }
 @media (hover: hover) { .jr-teampick-opt:hover { background: var(--jr-person-bg); } }
 .jr-teampick-opt .jr-avatar { flex: none; width: 26px; height: 26px; font-size: 0.62rem; }
 .jr-teampick-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-teampick-opt > a { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.jr-teampick-opt.is-current { font-weight: 700; }
+.jr-teampick-me { font-weight: 500; color: var(--text-muted); }
 .jr-teampick-none { margin: 0; padding: 10px 8px; font-size: 0.85rem; color: var(--text-muted); }
 .jr-crew-chips.is-busy { opacity: 0.6; pointer-events: none; }
 
@@ -593,9 +596,100 @@ body.jr-modal-open { overflow: hidden; }
 
 .jr-btn-google.is-busy { opacity: 0.6; pointer-events: none; }
 
-/* ── Crew home ─────────────────────────────────────────── */
-.jr-crew { max-width: 640px; margin: 8px auto 0; }
+/* ── Crew home: My jobs (phone first) ──────────────────── */
+.jr-crew { max-width: 560px; margin: 4px auto 0; }
+/* Phones: who · totals · jobs · finished, stacked. Wider: jobs on the left; who, totals and
+   finished down the right (open jobs to claim will go under finished). */
+@media (min-width: 900px) {
+  .jr-crew:not(.jr-crew--one) {
+    max-width: 1000px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 28px;
+    grid-template-rows: auto auto auto 1fr; align-items: start;
+  }
+  .jr-crew:not(.jr-crew--one) > * { grid-column: 2; }
+  .jr-crew:not(.jr-crew--one) > .jr-cmain { grid-column: 1; grid-row: 1 / -1; }
+  .jr-crew:not(.jr-crew--one) > .jr-cmain > .jr-csec:first-child { margin-top: 0; }
+  .jr-cwho + .jr-cstats { margin-top: 0; }
+}
+.jr-cwho { margin-bottom: 10px; }
+.jr-cwho-btn {
+  display: inline-flex; align-items: center; height: 36px; width: auto; margin: 0; padding: 0 14px;
+  border: 1px solid var(--rule); border-radius: var(--jr-pill-r); background: var(--bg-body);
+  color: var(--primary); font: 600 0.88rem var(--jr-font-body); cursor: pointer;
+}
+.jr-cwho-btn:hover, .jr-cwho-btn[aria-expanded="true"] { border-color: var(--jr-hover-border); }
+.jr-cmore { display: block; margin-top: 8px; padding: 10px; text-align: center; font-size: 0.86rem; font-weight: 600; color: var(--primary); text-decoration: none;
+  border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
+.jr-cmore:hover { border-color: var(--jr-hover-border); }
+.jr-cback { display: inline-block; margin-bottom: 12px; font-size: 0.88rem; font-weight: 600; color: var(--primary); text-decoration: none; }
+.jr-cfin { margin-top: 22px; }
+@media (min-width: 900px) { .jr-cfin { margin-top: 18px; } }
+/* The map under Navigate: tap it to navigate too. The pin is drawn at the center. */
+.jr-cj-map { position: relative; display: block; margin: 8px 0 2px; border-radius: calc(10px * var(--jr-round)); overflow: hidden; border: 1px solid var(--rule); }
+.jr-cj-map[hidden] { display: none; }
+.jr-cj-canvas { display: block; height: 130px; pointer-events: none; }
+.jr-cj-map::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -20px 0 0 -10px;
+  border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: var(--primary); border: 3px solid var(--bg-body); box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.35); pointer-events: none;
+}
 .jr-empty { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
+.jr-cstats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jr-cstat {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px;
+  border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body);
+}
+.jr-cstat strong { font: 400 1.7rem/1.1 var(--jr-font-display); color: var(--text-main); font-variant-numeric: tabular-nums; }
+.jr-cstat span { font-size: 0.78rem; color: var(--text-muted); }
+.jr-csec { margin-top: 22px; }
+.jr-csec-h, .jr-cday { font-family: var(--jr-font-body); letter-spacing: normal; }
+.jr-csec-h { margin: 0 0 8px; font-size: 0.74rem !important; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.jr-csec-h span { margin-left: 6px; font-weight: 600; letter-spacing: 0.02em; text-transform: none; }
+.jr-cday { margin: 14px 0 6px; font-size: 0.86rem !important; font-weight: 600; color: var(--text-main); }
+.jr-cday:first-of-type { margin-top: 0; }
+.jr-cnone { margin: 0; padding: 14px; border: 1px dashed var(--rule); border-radius: var(--jr-radius); color: var(--text-muted); font-size: 0.9rem; }
+
+/* One job */
+.jr-cj {
+  display: block; margin: 0 0 10px; padding: 14px; border: 1px solid var(--rule);
+  border-radius: var(--jr-radius); background: var(--bg-body); box-shadow: var(--jr-shadow-sm);
+}
+.jr-cj-head { display: flex; align-items: flex-start; gap: 12px; }
+.jr-cj-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.jr-cj-name { font-size: 1.02rem; font-weight: 700; color: var(--card-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-cj-addr { font-size: 0.86rem; color: var(--card-ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-cj-cut { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: 1.02rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
+.jr-cj-cut small { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
+.jr-cj-when { margin: 4px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--accent-hover); }
+.jr-cj-actions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin: 12px 0 4px; }
+.jr-cj-btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px; height: 46px;
+  border: 1px solid var(--rule); border-radius: calc(10px * var(--jr-round)); background: var(--bg-body);
+  color: var(--primary); font-weight: 600; font-size: 0.92rem; text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.jr-cj-btn:active { background: var(--bg-cream); }
+.jr-cj-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; stroke-linecap: round; }
+.jr-cj-btn--go { background: var(--jr-btn-bg); border-color: var(--jr-btn-bg); color: var(--jr-btn-ink); }
+.jr-cj-btn--go:active { background: var(--jr-btn-bg-hover); }
+.jr-cj-line { display: flex; gap: 10px; margin: 8px 0 0; font-size: 0.9rem; color: var(--card-ink); line-height: 1.4; }
+.jr-cj-k { flex: none; width: 62px; padding-top: 2px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.jr-cj-notes { white-space: pre-line; }
+/* Coming up: a row you tap open (plain <details>, no JS). */
+.jr-cj--row { padding: 0; }
+.jr-cj--row > summary { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 14px; list-style: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.jr-cj--row > summary::-webkit-details-marker { display: none; }
+.jr-cj--row > summary .jr-cj-head { flex: 1; min-width: 0; align-items: center; }
+.jr-cj-chev { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--text-muted); stroke-width: 2; transition: transform 0.15s; }
+.jr-cj--row[open] .jr-cj-chev { transform: rotate(90deg); }
+.jr-cj-more { padding: 0 14px 14px; }
+.jr-cj-more .jr-cj-actions { margin-top: 2px; }
+/* Done */
+.jr-cdone { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
+.jr-cdone li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 0.9rem; }
+.jr-cdone li + li { border-top: 1px solid var(--rule); }
+.jr-cdone .jr-cj-name { flex: 1; min-width: 0; font-size: 0.92rem; font-weight: 600; }
+.jr-cdone-date { color: var(--text-muted); font-size: 0.82rem; }
+.jr-cdone-cut { min-width: 52px; text-align: right; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 
 /* ── Dev switches (local debug server only) ─────────────── */
 /* Folded: one small pill bottom-left (who you're viewing as + theme). Click it and the
