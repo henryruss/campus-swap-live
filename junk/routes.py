@@ -460,10 +460,7 @@ def manage():
 
     # The Crew panel you drag people from: you on top (the chip you drag when you work a job
     # yourself), then everyone else by last name. No one else gets top billing, managers included.
-    def by_last_name(u):
-        words = re.findall(r'[^\W_]+', person_name(u).lower())   # punctuation never sorts first
-        return (u.id != current_user.id, words[-1] if words else '', ' '.join(words))
-    crew_panel = sorted(_team(), key=by_last_name)
+    crew_panel = sorted(_team(), key=lambda u: u.id != current_user.id)   # stable: the rest stay by last name
     ctx = dict(view=view, today=today, anchor=anchor, unscheduled=unscheduled, crew_panel=crew_panel,
                return_to=_calendar_url(view, anchor))
 
@@ -642,14 +639,20 @@ def board_move():
 
 # ─── team ────────────────────────────────────────────────────────────────
 
+def _by_last_name(u):
+    """Sort key: last name, then the whole name. Punctuation never counts, so
+    "Manager (dev)" sorts as "dev"."""
+    words = re.findall(r'[^\W_]+', person_name(u).lower())
+    return (words[-1] if words else '', ' '.join(words))
+
+
 def _team():
-    """Everyone with junk access: managers first, then crew, each by name."""
+    """Everyone with junk access, by last name. Managers get no top billing (Henry, 2026-11-19)."""
     people = (User.query
               .filter(db.or_(User.is_junk_manager.is_(True), User.is_junk_crew.is_(True),
                              User.is_super_admin.is_(True)))
               .all())
-    return sorted(people, key=lambda u: (not is_junk_manager(u),
-                                         (u.full_name or u.email or '').lower()))
+    return sorted(people, key=_by_last_name)
 
 
 @junk_bp.route('/manage/team')

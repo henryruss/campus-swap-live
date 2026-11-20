@@ -381,6 +381,23 @@ def test_cards_and_modal_show_crew(make_user):
     assert 'data-crew' not in new   # crew is added once the job exists
 
 
+def test_add_picker_lists_the_team_by_last_name(make_user):
+    from datetime import date
+    mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
+    zed = make_user(is_junk_crew=True, full_name='Zed Adams')
+    amy = make_user(is_junk_manager=True, full_name='Amy Zimmer')
+    jo = make_user(is_junk_crew=True, full_name='Jordan Lee')
+    c = _login(mgr.id)
+    job = _job(mgr, customer_name='Picker', scheduled_date=date(2099, 3, 5), queue_position=1)
+    _crew(c, job, jo)
+    form = c.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert '<select' not in form and 'data-pick-q' in form
+    opt = lambda u: form.index(f'class="jr-teampick-opt" role="option" data-crew-add="{u.id}"')
+    assert opt(zed) < opt(amy)                       # by last name, managers included
+    assert f'jr-teampick-opt" role="option" data-crew-add="{jo.id}"' not in form   # already on the job
+    assert f'jr-teampick-opt" role="option" data-crew-add="{mgr.id}"' not in form  # you have + Me
+
+
 def test_move_crew_between_jobs(make_user):
     mgr = make_user(is_junk_manager=True, full_name='Mia Manager')
     jo = make_user(is_junk_crew=True, full_name='Jordan Lee')

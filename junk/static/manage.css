@@ -371,14 +371,38 @@ body.jr-modal-open { overflow: hidden; }
   background: transparent; color: var(--text-muted); font-size: 1.05rem; line-height: 1; cursor: pointer;
 }
 .jr-crew-chip-x:hover { background: var(--bg-cream); color: var(--accent-hover); }
-.jr-crew-add, .jr-crew-pick select {
+.jr-crew-add {
   height: 32px; width: auto; margin: 0; padding: 0 12px; border-radius: var(--jr-pill-r);
   border: 1px dashed var(--sage); background: var(--bg-body); color: var(--primary);
   font: 600 0.82rem var(--jr-font-body); cursor: pointer;
 }
-.jr-crew-add:hover, .jr-crew-pick select:hover { border-style: solid; }
-/* Only as wide as its "+ Add…" label (a <select> otherwise sizes to its longest name). */
-.jr-crew-pick select { appearance: none; -webkit-appearance: none; width: 86px; padding: 0 10px; text-align: center; text-align-last: center; }
+.jr-crew-add:hover, .jr-crew-add[aria-expanded="true"] { border-style: solid; }
+/* "+ Add…": a floating search + scrolling list (manage.js positions it against the button,
+   flipping above when there's no room below), styled like the address suggestions. */
+.jr-teampick-pop {
+  position: fixed; z-index: 60; display: flex; flex-direction: column; padding: 6px;
+  border-radius: calc(12px * var(--jr-round)); border: 1px solid var(--rule);
+  background: var(--bg-body); box-shadow: var(--jr-shadow-lift); animation: jr-pop 0.12s var(--jr-ease);
+}
+.jr-teampick-pop[hidden] { display: none; }
+.jr-form .jr-teampick-q, .jr-teampick-q {
+  flex: none; width: 100%; height: 38px; margin: 0 0 4px; padding: 0 11px; font-size: 16px;  /* 16px: iOS won't zoom */
+  border: 1px solid var(--rule); border-radius: calc(8px * var(--jr-round)); background: var(--bg-body); color: var(--card-ink);
+}
+.jr-teampick-list {
+  min-height: 0; max-height: 260px; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--rule) transparent; -webkit-overflow-scrolling: touch;
+}
+.jr-teampick-opt {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 8px;
+  border-radius: calc(8px * var(--jr-round)); cursor: pointer; font-size: 0.88rem; font-weight: 500; color: var(--card-ink);
+}
+.jr-teampick-opt[hidden] { display: none; }
+.jr-teampick-opt.is-active { background: var(--jr-person-bg); }
+@media (hover: hover) { .jr-teampick-opt:hover { background: var(--jr-person-bg); } }
+.jr-teampick-opt .jr-avatar { flex: none; width: 26px; height: 26px; font-size: 0.62rem; }
+.jr-teampick-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-teampick-none { margin: 0; padding: 10px 8px; font-size: 0.85rem; color: var(--text-muted); }
 .jr-crew-chips.is-busy { opacity: 0.6; pointer-events: none; }
 
 .jr-money { position: relative; }

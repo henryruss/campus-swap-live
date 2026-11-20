@@ -72,13 +72,28 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 - **No manager favoritism.** The Crew panel puts *you* (the signed-in person) on top, then everyone else, managers included, by last name. David sees Cam in alphabetical order, and vice versa. The stars are gone everywhere; the Team page still labels roles.
 - **Cards show name, street line and crew only.** The quote and "Needs quote" are off every card (desktop, phone, Unscheduled); the quote lives in the job modal.
 - **Dragging a pill off a job (desktop):** onto another job moves the person. Let go anywhere else on the calendar grid and the pill goes back to its job. Off the calendar (Unscheduled, the Crew panel, the page around it) removes them. The Crew panel lights up only when letting go would remove someone.
+- **"+ Add…" in the job modal is a searchable team picker,** not a native dropdown. It's a floating list (so the modal never scrolls), about 6 rows tall, that scrolls for the rest, ordered by last name. Typing narrows it by the start of any word of a name or email. On desktop the search box is focused straight away, and arrows plus Enter add someone. On phones no keyboard appears until you tap the search box, so you can just scroll. Classes are `jr-teampick-*`; the preview toolbar already uses `jr-pick`. It'll be reused for "Handed it to…" in Slice 3.
+- **The Team page and the picker list everyone by last name;** managers don't go first.
 - **"(me)" follows your own name** at the top of the Crew panel, in muted text; a long name gives way ("…") before it does.
 - **The street line** is the address up to the first comma, plus a unit if one follows (`street_line()` in `junk/models.py`, filter `jr_street`): "829 Shearer St", "2100 Old Mason Farm Rd, Apt 3B". The full address is the card's tooltip.
 
-### Step 4: Crew portal
-- `/junk/crew` lists my assigned jobs: upcoming first, then a short list of recent done jobs.
-- Each job shows the name, phone (tap to text or call), address (tap for maps), quote, notes, and who else is on it.
-- Crew can't edit anything yet.
+### Step 4: Crew portal, the list (Henry, 2026-11-19)
+**Phone first, laptop second.** Crew use this on the job, so the phone matters most here.
+
+- `/junk/crew` is **a list, not a calendar.** Crew have a job or two a week. They open the app to see where they're going and what to do there.
+- **Top: stats.** Total jobs done and total earned.
+- **Today:** full cards, in calendar order (no times; the order within the day is the order). Each card shows:
+  - the name
+  - the street address, with a big **Navigate** button
+  - big **Call** and **Text** buttons for the customer's phone
+  - the notes, and who else is on the job
+  - **Your cut:** 20% × quote, from `AppSetting junk_crew_pay_pct`. Crew don't see the quote itself; they see what they'll make.
+- **Coming up:** compact rows (name, street, crew, cut), grouped by day. A tap opens the full card. Photos from the quote will go here later.
+- **Done:** recent closed jobs.
+- **Jobs with no date** don't show.
+- **Read-only** in this step. The job-site checklist comes in Slice 3 (`feature_junk_jobsite.md`).
+- **Crew don't quote, and don't change the quote.** Managers quote jobs beforehand.
+- **Later: open jobs crew can claim.** Leave room in the page for it: a list sorted by date or cut, or a calendar that shows the cut. It could be a section, a page or a modal; that's undecided.
 
 **Answered 2026-11-18:**
 - **More than 2 people on a job is rare.** The 40% labor cost of a 2-person job is the normal case.
