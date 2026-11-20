@@ -36,47 +36,43 @@
       </form>
       {% endfor %}
     </div>
+    {# Each bubble is a .jr-pick: data-group (theme / drag / hover) + data-value. Theme bubbles
+       also carry data-jr-theme, so each paints itself in its own theme's colors. #}
     <div class="jr-dev jr-dev--theme" role="group" aria-label="Preview: theme">
       <span class="jr-dev-tag">Theme</span>
-      <span class="jr-theme-name" data-jr-theme-name>{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
+      <span class="jr-pick-name" data-jr-name="theme">{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
       {% for key, label in jr_themes %}
-      <button type="button" class="jr-theme-dot {{ 'is-on' if key == jr_theme }}" data-jr-theme="{{ key }}" data-label="{{ label }}"
-              title="{{ label }}" aria-label="{{ label }}" aria-pressed="{{ 'true' if key == jr_theme else 'false' }}"></button>
+      <button type="button" class="jr-pick jr-theme-dot {{ 'is-on' if key == jr_theme }}" data-group="theme" data-value="{{ key }}"
+              data-jr-theme="{{ key }}" data-label="{{ label }}" title="{{ label }}" aria-label="Theme: {{ label }}"
+              aria-pressed="{{ 'true' if key == jr_theme else 'false' }}"></button>
       {% endfor %}
     </div>
-    <div class="jr-dev jr-dev--motion" role="group" aria-label="Preview: drag and hover feel">
-      {% for name, tag, options, current in [('drag', 'Drag', jr_drags, jr_drag), ('hover', 'Hover', jr_hovers, jr_hover)] %}
-      <label class="jr-dev-tag" for="jr-look-{{ name }}">{{ tag }}</label>
-      <select id="jr-look-{{ name }}" class="jr-dev-select" data-jr-look="{{ name }}">
-        {% for key, label in options %}<option value="{{ key }}" {{ 'selected' if key == current }}>{{ label }}</option>{% endfor %}
-      </select>
+    {% for group, tag, options, current in [('drag', 'Drag', jr_drags, jr_drag), ('hover', 'Hover', jr_hovers, jr_hover)] %}
+    <div class="jr-dev jr-dev--look" role="group" aria-label="Preview: {{ tag | lower }} feel">
+      <span class="jr-dev-tag">{{ tag }}</span>
+      <span class="jr-pick-name" data-jr-name="{{ group }}">{{ (options | selectattr(0, 'equalto', current) | first)[1] }}</span>
+      {% for key, label in options %}
+      <button type="button" class="jr-pick jr-look-dot {{ 'is-on' if key == current }}" data-group="{{ group }}" data-value="{{ key }}"
+              data-look="{{ group }}-{{ key }}" data-label="{{ label }}" title="{{ label }}" aria-label="{{ tag }}: {{ label }}"
+              aria-pressed="{{ 'true' if key == current else 'false' }}"><i></i></button>
       {% endfor %}
     </div>
+    {% endfor %}
   </div>
   <script>
-    // Preview pills: apply a pick in place (no reload) and remember it in a cookie.
-    function jrRemember(name, key) {
-      document.cookie = 'jr_' + name + '=' + key + '; path=/; max-age=31536000; SameSite=Lax';
-    }
-    document.querySelectorAll('.jr-theme-dot').forEach(function (dot) {
-      dot.addEventListener('click', function () {
-        var key = dot.dataset.jrTheme;
-        document.body.dataset.jrTheme = key;
-        jrRemember('theme', key);
-        document.querySelectorAll('.jr-theme-dot').forEach(function (d) {
-          d.classList.toggle('is-on', d === dot);
-          d.setAttribute('aria-pressed', d === dot ? 'true' : 'false');
+    // Preview bubbles: apply a pick in place (no reload) and remember it in a cookie.
+    // theme -> body[data-jr-theme], drag -> body[data-jr-drag], hover -> body[data-jr-hover].
+    document.querySelectorAll('.jr-pick').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var group = btn.dataset.group, value = btn.dataset.value;
+        document.body.dataset['jr' + group.charAt(0).toUpperCase() + group.slice(1)] = value;
+        document.cookie = 'jr_' + group + '=' + value + '; path=/; max-age=31536000; SameSite=Lax';
+        document.querySelectorAll('.jr-pick[data-group="' + group + '"]').forEach(function (b) {
+          b.classList.toggle('is-on', b === btn);
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
         });
-        document.querySelector('[data-jr-theme-name]').textContent = dot.dataset.label;
-      });
-    });
-    document.querySelectorAll('[data-jr-look]').forEach(function (select) {
-      select.addEventListener('change', function () {
-        var name = select.dataset.jrLook;  // 'drag' -> body[data-jr-drag], 'hover' -> body[data-jr-hover]
-        document.body.dataset['jr' + name.charAt(0).toUpperCase() + name.slice(1)] = select.value;
-        jrRemember(name, select.value);
-        document.dispatchEvent(new CustomEvent('jr:motion'));  // manage.js retimes live drags
-        select.blur();
+        document.querySelector('[data-jr-name="' + group + '"]').textContent = btn.dataset.label;
+        if (group !== 'theme') document.dispatchEvent(new CustomEvent('jr:motion'));  // manage.js retimes drags
       });
     });
   </script>
