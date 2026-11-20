@@ -1,0 +1,42 @@
+/* Theme: reMarkable — a straight copy of reMarkable's design tokens, to judge the direction.
+   Taken from remarkable.com's CSS (2026-11-19), light-neutral scheme:
+     ink #211E1C (text, borders, neutral buttons), hover #37322F, muted text #584F4B,
+     paper #FCFBF8, cream steps #F3EFE7 / #E0DACC / #D2CABC, divider = ink at 15%,
+     link/primary blue #2559F4 (hover #1142D4), green-light #E6EAE6 / #BCC8BC,
+     orange tint #FFF1E3, base radius .125rem (2px), almost no shadows.
+   Their fonts (reMarkableSans / reMarkableSerif) are proprietary, so this uses the fallbacks
+   their own CSS names: Helvetica and Book Antiqua (Palatino on a Mac). */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="remarkable"] {
+  --primary: #211E1C;
+  --primary-rgb: 33, 30, 28;
+  --primary-light: #37322F;
+  --accent: #2559F4;
+  --accent-hover: #1142D4;
+  --text-main: #211E1C;
+  --text-muted: #584F4B;
+  --text-light: #FCFBF8;
+  --bg-body: #FCFBF8;
+  --bg-cream: #F3EFE7;
+  --rule: #211E1C26;
+  --sage: #BCC8BC;
+  --sage-lt: #E6EAE6;
+  --amber-lt: #FFF1E3;
+  --slate: #4D4542;
+  --card-ink: #211E1C;
+  --card-ink-muted: #584F4B;
+  --card-ink-faint: #D2CABC;
+
+  --jr-round: 0.2;
+  --jr-pill-r: 2px;
+  --jr-dot-r: 2px;
+  --jr-font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --jr-font-display: 'Book Antiqua', Palatino, 'Palatino Linotype', Georgia, serif;
+  --jr-display-weight: 400;
+  --jr-display-tracking: -0.01em;
+}
+body.jr[data-jr-theme="remarkable"] {
+  --jr-tag-ink: #211E1C;
+  --jr-hover-border: #6E635E;
+  --jr-shadow-sm: none;
+  --jr-shadow-lift: 0 14px 28px -14px rgba(var(--primary-rgb), 0.45);
+}

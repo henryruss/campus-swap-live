@@ -13,20 +13,73 @@
   {# style.css only for its color tokens and fonts; everything visible is styled by manage.css #}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ jr_asset('manage.css') }}">
+  {% if jr_preview %}
+  {# Preview tools (dev server, or a super admin): every theme's fonts and tokens, each scoped
+     to [data-jr-theme], then the drag / hover feels scoped to [data-jr-drag] / [data-jr-hover]. #}
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
+  {% for key, _ in jr_themes %}<link rel="stylesheet" href="{{ jr_asset('themes/' ~ key ~ '.css') }}">
+  {% endfor %}<link rel="stylesheet" href="{{ jr_asset('motion.css') }}">
+  {% endif %}
 </head>
-<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_dev_switch }}">
+<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}"{% if jr_preview %} data-jr-theme="{{ jr_theme }}" data-jr-drag="{{ jr_drag }}" data-jr-hover="{{ jr_hover }}"{% endif %}>
   {% block body %}{% endblock %}
-  {% if jr_dev_switch %}
-  {# Local debug server only (see dev_switch_enabled). One click to become the dev manager or crew. #}
-  <div class="jr-dev" aria-label="Dev: switch account">
-    <span class="jr-dev-tag">Dev</span>
-    {% for role, label in [('manager', 'Manager'), ('crew', 'Crew')] %}
-    <form method="post" action="{{ url_for('junk.dev_switch', role=role) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="{{ 'is-on' if jr_dev_role == role }}" {{ 'aria-pressed=true' if jr_dev_role == role }}>{{ label }}</button>
-    </form>
-    {% endfor %}
+  {% if jr_preview %}
+  {# Preview pills. Dev server: Manager / Crew sign in as the dev accounts (dev_switch_enabled).
+     Super admin on any server: Manager / Crew only switch what they see (dev_view_as). #}
+  <div class="jr-devbar">
+    <div class="jr-dev" aria-label="Preview: manager or crew view">
+      <span class="jr-dev-tag">{{ 'Dev' if jr_dev_switch else 'View' }}</span>
+      {% for role, label in [('manager', 'Manager'), ('crew', 'Crew')] %}
+      <form method="post" action="{{ url_for('junk.dev_switch' if jr_dev_switch else 'junk.dev_view_as', role=role) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="{{ 'is-on' if jr_dev_role == role }}" {{ 'aria-pressed=true' if jr_dev_role == role }}>{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+    <div class="jr-dev jr-dev--theme" role="group" aria-label="Preview: theme">
+      <span class="jr-dev-tag">Theme</span>
+      <span class="jr-theme-name" data-jr-theme-name>{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
+      {% for key, label in jr_themes %}
+      <button type="button" class="jr-theme-dot {{ 'is-on' if key == jr_theme }}" data-jr-theme="{{ key }}" data-label="{{ label }}"
+              title="{{ label }}" aria-label="{{ label }}" aria-pressed="{{ 'true' if key == jr_theme else 'false' }}"></button>
+      {% endfor %}
+    </div>
+    <div class="jr-dev jr-dev--motion" role="group" aria-label="Preview: drag and hover feel">
+      {% for name, tag, options, current in [('drag', 'Drag', jr_drags, jr_drag), ('hover', 'Hover', jr_hovers, jr_hover)] %}
+      <label class="jr-dev-tag" for="jr-look-{{ name }}">{{ tag }}</label>
+      <select id="jr-look-{{ name }}" class="jr-dev-select" data-jr-look="{{ name }}">
+        {% for key, label in options %}<option value="{{ key }}" {{ 'selected' if key == current }}>{{ label }}</option>{% endfor %}
+      </select>
+      {% endfor %}
+    </div>
   </div>
+  <script>
+    // Preview pills: apply a pick in place (no reload) and remember it in a cookie.
+    function jrRemember(name, key) {
+      document.cookie = 'jr_' + name + '=' + key + '; path=/; max-age=31536000; SameSite=Lax';
+    }
+    document.querySelectorAll('.jr-theme-dot').forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        var key = dot.dataset.jrTheme;
+        document.body.dataset.jrTheme = key;
+        jrRemember('theme', key);
+        document.querySelectorAll('.jr-theme-dot').forEach(function (d) {
+          d.classList.toggle('is-on', d === dot);
+          d.setAttribute('aria-pressed', d === dot ? 'true' : 'false');
+        });
+        document.querySelector('[data-jr-theme-name]').textContent = dot.dataset.label;
+      });
+    });
+    document.querySelectorAll('[data-jr-look]').forEach(function (select) {
+      select.addEventListener('change', function () {
+        var name = select.dataset.jrLook;  // 'drag' -> body[data-jr-drag], 'hover' -> body[data-jr-hover]
+        document.body.dataset['jr' + name.charAt(0).toUpperCase() + name.slice(1)] = select.value;
+        jrRemember(name, select.value);
+        document.dispatchEvent(new CustomEvent('jr:motion'));  // manage.js retimes live drags
+        select.blur();
+      });
+    });
+  </script>
   {% endif %}
   {% block scripts %}{% endblock %}
 </body>

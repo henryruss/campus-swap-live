@@ -12,8 +12,8 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from junk import junk_bp
-from junk.auth import (has_junk_access, is_junk_crew, is_junk_manager, is_junk_only,
-                       junk_crew_required, junk_home, junk_manager_required)
+from junk.auth import (VIEW_AS_KEY, has_junk_access, is_junk_crew, is_junk_manager, is_junk_only,
+                       junk_crew_required, junk_home, junk_manager_required, viewing_as_crew)
 from junk.jobs import (
     JobFormError, StaleBoard,
     create_job, delete_job, format_money, mark_done, move_job, set_crew,
@@ -69,7 +69,9 @@ def _jr_eastern(dt):
 def _junk_context():
     return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset,
             'jr_is_manager': is_junk_manager(), 'jr_is_crew': is_junk_crew(),
-            'jr_dev_switch': dev_switch_enabled(), 'jr_dev_role': _dev_role()}
+            'jr_dev_switch': dev_switch_enabled(), 'jr_preview': preview_enabled(),
+            'jr_dev_role': _dev_role(), 'jr_themes': DEV_THEMES, 'jr_drags': DEV_DRAGS,
+            'jr_hovers': DEV_HOVERS, **_dev_looks()}
 
 
 def _jr_asset(filename):
@@ -722,10 +724,46 @@ def dev_switch_enabled():
     return bool(current_app.debug)
 
 
+# ─── preview tools: themes, drag feel, hover feel ────────────────────────
+# Shown on the local debug server, and to super admins anywhere (so the team can compare
+# looks on the live site). Each pick lives in a cookie set by the pill's JS; the server only
+# reads it so the page renders with no flash. Lists are (key, label).
+# Themes: each key is junk/static/themes/<key>.css. Drag and hover: junk/static/motion.css,
+# plus the drag timings in manage.js (DRAG_MOTION).
+DEV_THEMES = [('current', 'Current'), ('sharp', 'Forest Sharp'), ('ledger', 'Ledger'),
+              ('notion', 'Notion'), ('remarkable', 'reMarkable')]
+DEV_DRAGS = [('theme', 'Theme default'), ('float', 'Float'), ('sharp', 'Sharp'),
+             ('tilt', 'Tilt'), ('snap', 'Snap'), ('glide', 'Glide')]
+DEV_HOVERS = [('border', 'Border'), ('lift', 'Lift'), ('tint', 'Tint'),
+              ('outline', 'Outline'), ('none', 'None')]
+_LOOK_COOKIES = (('jr_theme', DEV_THEMES), ('jr_drag', DEV_DRAGS), ('jr_hover', DEV_HOVERS))
+
+
+def preview_enabled():
+    if dev_switch_enabled():
+        return True
+    return bool(current_user.is_authenticated and getattr(current_user, 'is_super_admin', False))
+
+
+def _dev_looks():
+    """{'jr_theme': key, 'jr_drag': key, 'jr_hover': key}, each the first option when the
+    cookie is missing or stale. All None when the preview tools are off."""
+    on = preview_enabled()
+    looks = {}
+    for name, options in _LOOK_COOKIES:  # the cookie has the same name
+        key = request.cookies.get(name)
+        looks[name] = (key if key in dict(options) else options[0][0]) if on else None
+    return looks
+
+
 def _dev_role():
-    """'manager' / 'crew' when signed in as one of the dev accounts, else None."""
+    """Which side the preview pill shows as on. Dev server: 'manager' / 'crew' when signed in
+    as one of the dev accounts, else None. Super admin elsewhere: their view-as choice."""
     if not current_user.is_authenticated:
         return None
+    if not dev_switch_enabled():
+        return 'crew' if viewing_as_crew() else 'manager'
+
     email = (current_user.email or '').lower()
     return next((role for role, (e, _, _) in DEV_ACCOUNTS.items() if e == email), None)
 
@@ -741,6 +779,18 @@ def _dev_account(role):
         setattr(user, flag, value)
     db.session.commit()
     return user
+
+
+@junk_bp.route('/dev/view/<role>', methods=['POST'])
+def dev_view_as(role):
+    """Super admins: preview the manager or crew side without changing who is signed in."""
+    if not getattr(current_user, 'is_super_admin', False) or role not in DEV_ACCOUNTS:
+        abort(404)
+    if role == 'crew':
+        session[VIEW_AS_KEY] = 'crew'
+    else:
+        session.pop(VIEW_AS_KEY, None)
+    return redirect(junk_home())
 
 
 @junk_bp.route('/dev/as/<role>', methods=['POST'])

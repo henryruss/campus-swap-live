@@ -1,0 +1,38 @@
+/* Theme: Ledger — private-bank sharp. Navy, antique gold, paper white; square corners,
+   hairline rules, almost no shadow; Libre Baskerville headings over IBM Plex Sans. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="ledger"] {
+  --primary: #0E2240;
+  --primary-rgb: 14, 34, 64;
+  --primary-light: #24395C;
+  --accent: #A8843F;
+  --accent-hover: #7D6029;
+  --text-main: #0E2240;
+  --text-muted: #5A6577;
+  --text-light: #FAF8F3;
+  --bg-body: #FFFFFF;
+  --bg-cream: #F2F0EB;
+  --rule: #CDC8BE;
+  --sage: #7E94B2;
+  --sage-lt: #E2E8F0;
+  --amber-lt: #F0E6D0;
+  --slate: #2F3847;
+  --card-ink: #0F172A;
+  --card-ink-muted: #5A6577;
+  --card-ink-faint: #98A1AE;
+
+  --jr-round: 0.15;
+  --jr-pill-r: 2px;
+  --jr-dot-r: 2px;
+  --jr-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --jr-font-display: 'Libre Baskerville', Georgia, serif;
+  --jr-display-weight: 400;
+  --jr-display-tracking: -0.01em;
+}
+body.jr[data-jr-theme="ledger"] {
+  --jr-shadow-sm: none;
+  --jr-shadow-lift: 0 12px 28px -12px rgba(var(--primary-rgb), 0.45);
+}
+/* Small caps-style labels read as letterhead. */
+body.jr[data-jr-theme="ledger"] .jr-dow,
+body.jr[data-jr-theme="ledger"] .jr-month-head span,
+body.jr[data-jr-theme="ledger"] .jr-side-head h2 { letter-spacing: 0.12em; }

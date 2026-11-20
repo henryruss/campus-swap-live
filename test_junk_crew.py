@@ -173,6 +173,65 @@ def test_dev_switch_both_ways(app_ctx, tracked):
     assert crew.is_junk_crew and not crew.is_junk_manager and not crew.is_admin
 
 
+# ── preview tools for super admins (works on the live server) ──
+
+def test_preview_pills_super_admin_only(make_user):
+    """Off the dev server: super admins get the pills (view-as forms, not dev sign-in);
+    junk managers and crew never do."""
+    boss = make_user(is_super_admin=True, is_admin=True)
+    page = _login(boss.id).get('/junk/manage').data.decode()
+    assert 'jr-devbar' in page and 'data-jr-theme="current"' in page
+    assert '/junk/dev/view/crew' in page and '/junk/dev/as/' not in page
+    assert 'motion.css' in page and 'themes/ledger.css' in page
+    mgr = make_user(is_junk_manager=True)
+    page = _login(mgr.id).get('/junk/manage').data.decode()
+    assert 'jr-devbar' not in page and 'themes/' not in page and 'data-jr-theme' not in page
+
+
+def test_preview_cookies_render_and_stale_values_fall_back(make_user):
+    c = _login(make_user(is_super_admin=True).id)
+    c.set_cookie('jr_theme', 'ledger')
+    c.set_cookie('jr_drag', 'tilt')
+    c.set_cookie('jr_hover', 'nonsense')
+    page = c.get('/junk/manage').data.decode()
+    assert 'data-jr-theme="ledger"' in page and 'data-jr-drag="tilt"' in page
+    assert 'data-jr-hover="border"' in page
+
+
+def test_super_admin_view_as_crew_and_back(make_user):
+    boss = make_user(is_super_admin=True)
+    c = _login(boss.id)
+    assert _path(c.post('/junk/dev/view/crew')) == '/junk/crew'
+    assert _path(c.get('/junk/manage')) == '/junk/crew'          # manager pages send them to crew
+    assert c.get('/junk/crew').status_code == 200
+    assert _path(c.post('/junk/dev/view/manager')) == '/junk/manage'
+    assert c.get('/junk/manage').status_code == 200
+    db.session.refresh(boss)
+    assert not boss.is_junk_crew and not boss.is_junk_manager    # nothing stored on the account
+
+
+def test_view_as_refused_for_everyone_else(make_user):
+    assert _client().post('/junk/dev/view/crew').status_code == 404
+    mgr = _login(make_user(is_junk_manager=True).id)
+    assert mgr.post('/junk/dev/view/crew').status_code == 404
+    assert mgr.get('/junk/manage').status_code == 200
+    assert _login(make_user(is_super_admin=True).id).post('/junk/dev/view/admin').status_code == 404
+
+
+def test_view_as_only_changes_the_viewer(make_user):
+    """A super admin previewing as crew still counts as a manager to everyone else's checks."""
+    from flask_login import login_user
+    from junk.auth import VIEW_AS_KEY, is_junk_manager
+    boss = make_user(is_super_admin=True)
+    other = make_user(is_super_admin=True)
+    with flask_app.test_request_context():
+        from flask import session
+        login_user(boss)
+        session[VIEW_AS_KEY] = 'crew'
+        assert is_junk_manager() is False
+        assert is_junk_manager(other) is True
+
+
 # ── team page ──────────────────────────────────────────────
 
 def test_team_page_guard(make_user):

@@ -3,10 +3,13 @@
 Two roles, both User flags, and a user can hold both:
 - manager (is_junk_manager, or super admin): the calendar at /junk/manage
 - crew (is_junk_crew): the crew home at /junk/crew
+
+A super admin can preview the crew side ("view as crew", session['jr_view_as']). That only
+changes what they see while signed in as themselves; nobody else is affected.
 """
 from functools import wraps
 
-from flask import abort, jsonify, redirect, request, url_for
+from flask import abort, has_request_context, jsonify, redirect, request, session, url_for
 from flask_login import current_user
 
 
@@ -15,16 +18,32 @@ def _user(user):
     return user if (user and user.is_authenticated) else None
 
 
+VIEW_AS_KEY = 'jr_view_as'
+
+
+def viewing_as_crew(user=None):
+    """True when the signed-in super admin has switched the preview to the crew side.
+    Applies only to the current user, never to checks about someone else."""
+    user = _user(user)
+    if not (user and has_request_context() and current_user.is_authenticated):
+        return False
+    return bool(getattr(user, 'id', None) == current_user.id
+                and getattr(current_user, 'is_super_admin', False)
+                and session.get(VIEW_AS_KEY) == 'crew')
+
+
 def is_junk_manager(user=None):
     """Junk managers and super admins. Everyone who passes has the same permissions."""
     user = _user(user)
+    if viewing_as_crew(user):
+        return False
     return bool(user and (getattr(user, 'is_junk_manager', False)
                           or getattr(user, 'is_super_admin', False)))
 
 
 def is_junk_crew(user=None):
     user = _user(user)
-    return bool(user and getattr(user, 'is_junk_crew', False))
+    return bool(user and (getattr(user, 'is_junk_crew', False) or viewing_as_crew(user)))
 
 
 def has_junk_access(user=None):

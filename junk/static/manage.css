@@ -1,5 +1,5 @@
 /* Junk removal — manager portal.
-   Colors come only from static/style.css tokens. Everything is scoped under body.jr. */
+   Colors come only from static/style.css tokens (a dev theme may override them). Everything is scoped under body.jr. */
 
 body.jr {
   /* People (crew on jobs, the Crew panel) are light slate, managers included (a star marks
@@ -9,13 +9,32 @@ body.jr {
   --jr-person-ink: var(--slate);
   --jr-shadow-sm: 0 1px 2px rgba(var(--primary-rgb), 0.06);
   --jr-shadow-lift: 0 14px 28px -8px rgba(var(--primary-rgb), 0.28), 0 4px 10px -4px rgba(var(--primary-rgb), 0.14);
-  --jr-radius: 10px;
+  --jr-radius: calc(10px * var(--jr-round));
+  /* Theme knobs (junk/static/themes/*.css override these). --jr-round scales every corner. */
+  --jr-round: 1;
+  --jr-pill-r: 999px;
+  --jr-dot-r: 50%;
+  --jr-font-body: 'DM Sans', system-ui, sans-serif;
+  --jr-font-display: 'DM Serif Display', Georgia, serif;
+  /* Role colors. Default to the shared tokens; a theme can point any of them elsewhere
+     (e.g. Notion's blue button and red "today" over near-black ink). */
+  --jr-btn-bg: var(--primary);
+  --jr-btn-bg-hover: var(--primary-light);
+  --jr-btn-ink: var(--text-light);
+  --jr-today-bg: var(--primary);
+  --jr-tag-bg: var(--amber-lt);
+  --jr-tag-ink: var(--accent-hover);
+  --jr-hover-border: var(--sage);
+  font-family: var(--jr-font-body);
   --jr-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   background: var(--bg-cream);
   color: var(--text-main);
   line-height: 1.4;
   min-height: 100vh;
 }
+
+/* Headings: the theme's display face. :where keeps this as weak as style.css's h1–h3 rule. */
+:where(body.jr) :is(h1, h2, h3) { font-family: var(--jr-font-display); font-weight: var(--jr-display-weight, 400); letter-spacing: var(--jr-display-tracking, -0.02em); }
 
 /* ── Top bar ───────────────────────────────────────────── */
 .jr-top {
@@ -29,14 +48,14 @@ body.jr {
 .jr-user { display: flex; gap: 14px; align-items: center; font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
 .jr-user a:hover { color: var(--primary); }
 
-.jr-tab { padding: 6px 12px; border-radius: 8px; font-size: 0.92rem; font-weight: 500; color: var(--text-muted); }
+.jr-tab { padding: 6px 12px; border-radius: calc(8px * var(--jr-round)); font-size: 0.92rem; font-weight: 500; color: var(--text-muted); }
 .jr-tab:hover { color: var(--primary); background: var(--bg-cream); }
 .jr-tab.is-active { color: var(--primary); font-weight: 600; }
 
 /* ── Flash + toast ─────────────────────────────────────── */
 .jr-flashes { position: fixed; top: 68px; left: 50%; transform: translateX(-50%); z-index: 60; display: grid; gap: 8px; pointer-events: none; }
 .jr-flash, .jr-toast {
-  padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;
+  padding: 10px 16px; border-radius: calc(10px * var(--jr-round)); font-size: 0.9rem; font-weight: 500;
   background: var(--primary); color: var(--text-light); box-shadow: var(--jr-shadow-lift);
   animation: jr-fade 3.6s var(--jr-ease) forwards;
 }
@@ -51,39 +70,39 @@ body.jr {
 .jr-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; min-height: 36px; }
 .jr-toolbar-nav, .jr-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .jr-label-short { display: none; }
-.jr-label { font-family: 'DM Serif Display', Georgia, serif; font-size: 1.6rem !important; margin: 0 6px 0 8px; line-height: 1; }
+.jr-label { font-family: var(--jr-font-display); font-size: 1.6rem !important; margin: 0 6px 0 8px; line-height: 1; }
 
 /* ── Buttons ───────────────────────────────────────────── */
 .jr-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid transparent;
-  font: 600 0.88rem 'DM Sans', system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+  height: 36px; padding: 0 14px; border-radius: calc(9px * var(--jr-round)); border: 1px solid transparent;
+  font: 600 0.88rem var(--jr-font-body); cursor: pointer; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .jr-btn--sm { height: 30px; padding: 0 11px; font-size: 0.82rem; }
 .jr-btn--block { width: 100%; height: 42px; }
-.jr-btn--primary { background: var(--primary); color: var(--text-light); }
-.jr-btn--primary:hover { background: var(--primary-light); }
+.jr-btn--primary { background: var(--jr-btn-bg); color: var(--jr-btn-ink); }
+.jr-btn--primary:hover { background: var(--jr-btn-bg-hover); }
 .jr-btn--quiet { background: var(--bg-body); color: var(--primary); border-color: var(--rule); }
-.jr-btn--quiet:hover { border-color: var(--sage); }
+.jr-btn--quiet:hover { border-color: var(--jr-hover-border); }
 .jr-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--rule);
+  width: 36px; height: 36px; border-radius: calc(9px * var(--jr-round)); border: 1px solid var(--rule);
   background: var(--bg-body); color: var(--primary); font-size: 1.35rem; line-height: 1; cursor: pointer;
 }
-.jr-icon-btn:hover { border-color: var(--sage); }
-.jr-link-btn { background: none; border: none; padding: 0; width: auto; font: 500 0.85rem 'DM Sans', system-ui, sans-serif; color: var(--text-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.jr-icon-btn:hover { border-color: var(--jr-hover-border); }
+.jr-link-btn { background: none; border: none; padding: 0; width: auto; font: 500 0.85rem var(--jr-font-body); color: var(--text-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .jr-link-btn:hover { color: var(--accent-hover); }
 
-.jr-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--bg-body); border: 1px solid var(--rule); }
-.jr-seg a { padding: 0 12px; height: 28px; display: inline-flex; align-items: center; border-radius: 7px; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+.jr-seg { display: inline-flex; padding: 3px; border-radius: calc(10px * var(--jr-round)); background: var(--bg-body); border: 1px solid var(--rule); }
+.jr-seg a { padding: 0 12px; height: 28px; display: inline-flex; align-items: center; border-radius: calc(7px * var(--jr-round)); font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
 .jr-seg a.is-on { background: var(--bg-cream); color: var(--primary); }
 
 /* ── Week board ────────────────────────────────────────── */
 .jr-board { display: grid; grid-template-columns: 250px minmax(0, 1fr) 190px; gap: 16px; align-items: start; }
 .jr-week {
   display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
-  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round)); overflow: hidden;
   min-height: calc(100vh - 160px);
 }
 .jr-day { display: flex; flex-direction: column; border-right: 1px solid var(--rule); min-width: 0; cursor: pointer; padding-bottom: 10px; }
@@ -92,9 +111,9 @@ body.jr {
 
 .jr-day-head { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px 10px; cursor: default; }
 .jr-dow { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
-.jr-dnum { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-size: 1.05rem; font-weight: 600; color: var(--primary); }
-.jr-day.is-today .jr-dow { color: var(--primary); }
-.jr-day.is-today .jr-dnum { background: var(--primary); color: var(--text-light); }
+.jr-dnum { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--jr-dot-r); font-size: 1.05rem; font-weight: 600; color: var(--primary); }
+.jr-day.is-today .jr-dow { color: var(--jr-today-bg); }
+.jr-day.is-today .jr-dnum { background: var(--jr-today-bg); color: var(--text-light); }
 
 /* The day's line fills the whole column, so a drop anywhere in the column lands. */
 .jr-list { display: flex; flex-direction: column; gap: 6px; padding: 0 8px; flex: 1; min-height: 60px; }
@@ -114,7 +133,7 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
   cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
-.jr-card:hover { border-color: var(--sage); }
+.jr-card:hover { border-color: var(--jr-hover-border); }
 .jr-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .jr-card-body { min-width: 0; flex: 1 1 96px; }  /* tag wraps below when the column is narrow */
 .jr-card-name { font-size: 0.88rem; font-weight: 600; color: var(--card-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -122,7 +141,7 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-card-addr { font-size: 0.78rem; color: var(--card-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .jr-card-quote { flex: none; font-size: 0.82rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .jr-tag {
-  flex: none; padding: 2px 7px; border-radius: 6px; background: var(--amber-lt); color: var(--accent-hover);
+  flex: none; padding: 2px 7px; border-radius: calc(6px * var(--jr-round)); background: var(--jr-tag-bg); color: var(--jr-tag-ink);
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
 }
 
@@ -132,7 +151,7 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-card { container-type: inline-size; }
 .jr-card-crew { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 3px; margin-top: 2px; }
 .jr-crew-tag {
-  display: flex; align-items: center; min-width: 0; padding: 3px 5px; border-radius: 6px;
+  display: flex; align-items: center; min-width: 0; padding: 3px 5px; border-radius: calc(6px * var(--jr-round));
   background: var(--jr-person-bg); color: var(--jr-person-ink); font-size: 0.7rem; font-weight: 600; line-height: 1.2;
   gap: 4px;
 }
@@ -153,7 +172,7 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 
 .jr-avatar {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 20px; height: 20px; border-radius: 50%;
+  width: 20px; height: 20px; border-radius: var(--jr-dot-r);
   background: var(--jr-person-bg); color: var(--jr-person-ink);
   font-size: 0.58rem; font-weight: 700; letter-spacing: 0.02em; line-height: 1;
 }
@@ -184,13 +203,13 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
 
 /* ── Unscheduled panel ─────────────────────────────────── */
 .jr-side {
-  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round));
   padding: 14px 10px 10px; position: sticky; top: 72px;
   max-height: calc(100vh - 92px); overflow-y: auto;
 }
 .jr-side-add { margin-bottom: 20px; }
 .jr-side-head { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 10px; }
-.jr-side-head h2 { font-family: 'DM Sans', system-ui, sans-serif; font-size: 0.78rem !important; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin: 0; }
+.jr-side-head h2 { font-family: var(--jr-font-body); font-size: 0.78rem !important; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin: 0; }
 .jr-count { font-size: 0.78rem; font-weight: 700; color: var(--primary); }
 .jr-list--unscheduled { padding: 0; min-height: 0; flex: none; }
 .jr-side-hint {
@@ -201,7 +220,7 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
 
 /* ── Crew panel (drag a person onto a job) ─────────────── */
 .jr-crewside {
-  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round));
   padding: 14px 10px 10px; min-width: 0;
 }
 .jr-crewlist { display: flex; flex-direction: column; gap: 6px; }
@@ -211,7 +230,7 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
   box-shadow: var(--jr-shadow-sm); cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   font-size: 0.84rem; font-weight: 600; color: var(--card-ink);
 }
-.jr-crewchip:hover { border-color: var(--sage); }
+.jr-crewchip:hover { border-color: var(--jr-hover-border); }
 .jr-crewchip-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Managers: dark initials and a star, so they read as different at a glance. */
 .jr-mgr-star { flex: none; margin-left: auto; fill: var(--accent); }
@@ -224,7 +243,7 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
 .jr-crewside.is-drop-target { border-color: var(--primary-light); background: var(--sage-lt); }
 
 /* ── Month ─────────────────────────────────────────────── */
-.jr-month { background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
+.jr-month { background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round)); overflow: hidden; }
 .jr-month-head, .jr-mweek { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .jr-month-head span { padding: 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); text-align: center; border-bottom: 1px solid var(--rule); }
 .jr-mweek { border-bottom: 1px solid var(--rule); transition: background 0.12s; }
@@ -236,7 +255,7 @@ body:not(.jr-dragging) .jr-mweek:hover:not(:has(.jr-card:hover)) { background: r
 .jr-mcell { display: flex; flex-direction: column; gap: 3px; min-height: 112px; padding: 8px; border-right: 1px solid var(--rule); min-width: 0; cursor: pointer; }
 .jr-mcell:last-child { border-right: none; }
 .jr-mcell.is-out .jr-mnum { color: var(--text-muted); opacity: 0.55; }
-.jr-mnum { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-size: 0.85rem; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
+.jr-mnum { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--jr-dot-r); font-size: 0.85rem; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
 .jr-mcell.is-today .jr-mnum { background: var(--primary); color: var(--text-light); }
 /* Month dots: one per job, up to 8, then a +. Phone only (desktop shows the chips). */
 /* Fills a 3×3 grid left to right: the + takes the 9th spot. */
@@ -245,14 +264,14 @@ body:not(.jr-dragging) .jr-mweek:hover:not(:has(.jr-card:hover)) { background: r
 .jr-mdots b { font-size: 0.7rem; line-height: 5px; font-weight: 700; color: var(--accent); text-align: center; }
 /* Month: the same card element, shown as a compact name chip. */
 .jr-mlist { padding: 0; gap: 3px; min-height: 28px; }
-.jr-month .jr-card { padding: 3px 7px; border-radius: 6px; border: 1px solid transparent; background: var(--bg-cream); box-shadow: none; }
-.jr-month .jr-card:hover { border-color: var(--sage); }
+.jr-month .jr-card { padding: 3px 7px; border-radius: calc(6px * var(--jr-round)); border: 1px solid transparent; background: var(--bg-cream); box-shadow: none; }
+.jr-month .jr-card:hover { border-color: var(--jr-hover-border); }
 .jr-month .jr-card-name { font-size: 0.78rem; font-weight: 500; }
 .jr-month .jr-card-addr, .jr-month .jr-card-quote, .jr-month .jr-tag { display: none; }
 .jr-month .jr-card--done { background: var(--sage-lt); }
 .jr-month .jr-card.is-ghost { border: 1px dashed var(--sage); }
 /* In month view the floating card is a name chip too (it lives on <body> while dragging). */
-body[data-view="month"] .jr-card.is-drag { padding: 3px 7px; border-radius: 6px; }
+body[data-view="month"] .jr-card.is-drag { padding: 3px 7px; border-radius: calc(6px * var(--jr-round)); }
 body[data-view="month"] .jr-card.is-drag .jr-card-name { font-size: 0.78rem; font-weight: 500; }
 body[data-view="month"] .jr-card.is-drag .jr-card-addr,
 body[data-view="month"] .jr-card.is-drag .jr-card-quote,
@@ -267,7 +286,7 @@ body[data-view="month"] .jr-card.is-drag .jr-tag { display: none; }
 .jr-modal-panel {
   position: relative; width: min(520px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
   overscroll-behavior: contain;  /* no bounce, and never scrolls the page behind */
-  border-radius: 16px; background: var(--bg-body); color: var(--text-main); box-shadow: var(--jr-shadow-lift);
+  border-radius: calc(16px * var(--jr-round)); background: var(--bg-body); color: var(--text-main); box-shadow: var(--jr-shadow-lift);
   animation: jr-pop 0.18s var(--jr-ease);
 }
 @keyframes jr-fadein { from { opacity: 0; } }
@@ -286,11 +305,11 @@ body.jr-modal-open { overflow: hidden; }
 .jr-form .jr-addr-box input { padding-left: 34px; }
 .jr-addr-list {
   position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px;
-  list-style: none; border-radius: 12px; border: 1px solid var(--rule);
+  list-style: none; border-radius: calc(12px * var(--jr-round)); border: 1px solid var(--rule);
   background: var(--bg-body); box-shadow: var(--jr-shadow-lift); animation: jr-pop 0.12s var(--jr-ease);
 }
 .jr-addr-list[hidden] { display: none; }
-.jr-addr-opt { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.jr-addr-opt { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: calc(8px * var(--jr-round)); cursor: pointer; }
 .jr-addr-opt.is-active { background: var(--sage-lt); }
 .jr-addr-opt svg { flex: none; width: 30px; height: 30px; padding: 7px; border-radius: 50%;
   background: rgba(var(--primary-rgb), 0.06); fill: none; stroke: var(--primary); stroke-width: 1.8; }
@@ -302,7 +321,7 @@ body.jr-modal-open { overflow: hidden; }
 .jr-addr-sec { font-size: 0.78rem; color: var(--text-muted); margin-top: 1px; }
 .jr-addr-attr { padding: 6px 10px 2px; text-align: right; font-size: 0.68rem; color: var(--text-muted); }
 
-.jr-addr-map { position: relative; margin-top: 8px; border-radius: 12px; overflow: hidden;
+.jr-addr-map { position: relative; margin-top: 8px; border-radius: calc(12px * var(--jr-round)); overflow: hidden;
   border: 1px solid var(--rule); animation: jr-fadein 0.2s ease; }
 .jr-addr-map[hidden] { display: none; }
 .jr-addr-canvas { height: 150px; }
@@ -312,7 +331,7 @@ body.jr-modal-open { overflow: hidden; }
   margin-left: -11px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
   background: var(--primary); border: 3px solid var(--bg-body); box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.35); pointer-events: none;
 }
-.jr-addr-open { position: absolute; left: 8px; bottom: 8px; padding: 4px 9px; border-radius: 7px;
+.jr-addr-open { position: absolute; left: 8px; bottom: 8px; padding: 4px 9px; border-radius: calc(7px * var(--jr-round));
   background: var(--bg-body); box-shadow: var(--jr-shadow-sm); font-size: 0.74rem; font-weight: 600;
   color: var(--primary); text-decoration: none; }
 .jr-addr-open:hover { text-decoration: underline; }
@@ -320,14 +339,14 @@ body.jr-modal-open { overflow: hidden; }
 .jr-form-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .jr-form-head h2 { font-size: 1.4rem !important; margin: 0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jr-close { border: none; font-size: 1.5rem; color: var(--text-muted); }
-.jr-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+.jr-pill { padding: 3px 10px; border-radius: var(--jr-pill-r); font-size: 0.75rem; font-weight: 700; }
 .jr-pill--done { background: var(--sage-lt); color: var(--primary); }
 
 .jr-form .jr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .jr-form .jr-field { margin-top: 12px; min-width: 0; }
 .jr-form label { margin: 0 0 5px; font-size: 0.72rem; letter-spacing: 0.05em; color: var(--text-muted); }
 .jr-form input, .jr-form textarea {
-  width: 100%; height: 40px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--rule);
+  width: 100%; height: 40px; padding: 8px 12px; border-radius: calc(9px * var(--jr-round)); border: 1px solid var(--rule);
   background: var(--bg-body); font-size: 0.95rem; color: var(--card-ink);
 }
 /* iOS draws the date field as its own pill with a built-in minimum width and padding, so it
@@ -346,7 +365,7 @@ body.jr-modal-open { overflow: hidden; }
 .jr-crew-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
 .jr-crew-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 5px;
-  border: 1px solid var(--rule); border-radius: 999px; background: var(--bg-body); font-size: 0.85rem; font-weight: 500;
+  border: 1px solid var(--rule); border-radius: var(--jr-pill-r); background: var(--bg-body); font-size: 0.85rem; font-weight: 500;
 }
 .jr-crew-chip .jr-avatar { width: 22px; height: 22px; font-size: 0.6rem; }
 .jr-crew-chip-x {
@@ -355,9 +374,9 @@ body.jr-modal-open { overflow: hidden; }
 }
 .jr-crew-chip-x:hover { background: var(--bg-cream); color: var(--accent-hover); }
 .jr-crew-add, .jr-crew-pick select {
-  height: 32px; width: auto; margin: 0; padding: 0 12px; border-radius: 999px;
+  height: 32px; width: auto; margin: 0; padding: 0 12px; border-radius: var(--jr-pill-r);
   border: 1px dashed var(--sage); background: var(--bg-body); color: var(--primary);
-  font: 600 0.82rem 'DM Sans', system-ui, sans-serif; cursor: pointer;
+  font: 600 0.82rem var(--jr-font-body); cursor: pointer;
 }
 .jr-crew-add:hover, .jr-crew-pick select:hover { border-style: solid; }
 /* Only as wide as its "+ Add…" label (a <select> otherwise sizes to its longest name). */
@@ -378,21 +397,21 @@ body.jr-modal-open { overflow: hidden; }
 /* ── Sign in ───────────────────────────────────────────── */
 .jr-auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
 .jr-auth-card {
-  width: min(380px, 100%); padding: 28px 26px 26px; border-radius: 16px;
+  width: min(380px, 100%); padding: 28px 26px 26px; border-radius: calc(16px * var(--jr-round));
   background: var(--bg-body); border: 1px solid var(--rule); box-shadow: var(--jr-shadow-sm);
 }
 .jr-auth-card h1 { font-size: 1.7rem !important; margin: 0 0 6px; }
 .jr-auth-card .jr-btn--block { margin-top: 20px; }
 .jr-auth-sub { margin: 4px 0 4px; font-size: 0.9rem; color: var(--text-muted); line-height: 1.45; }
-.jr-auth-notice { margin: 8px 0 0; padding: 9px 12px; border-radius: 9px; background: var(--sage-lt); color: var(--primary); font-size: 0.86rem; font-weight: 500; }
+.jr-auth-notice { margin: 8px 0 0; padding: 9px 12px; border-radius: calc(9px * var(--jr-round)); background: var(--sage-lt); color: var(--primary); font-size: 0.86rem; font-weight: 500; }
 .jr-btn-google { margin-top: 18px; gap: 10px; background: var(--bg-body); border: 1px solid var(--rule); color: var(--card-ink); font-weight: 600; text-decoration: none; }
-.jr-btn-google:hover { border-color: var(--sage); background: var(--bg-cream); }
+.jr-btn-google:hover { border-color: var(--jr-hover-border); background: var(--bg-cream); }
 .jr-btn-google svg { width: 18px; height: 18px; }
 .jr-auth-card .jr-btn-google.jr-btn--block { margin-top: 18px; }
 .jr-btn-google { position: relative; }
 .jr-btn-google.is-last { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08); }
 /* "Last used": a tag sitting on the button's top edge, clear of the label. */
-.jr-last { position: absolute; right: 12px; top: 0; transform: translateY(-55%); padding: 2px 8px; border-radius: 20px;
+.jr-last { position: absolute; right: 12px; top: 0; transform: translateY(-55%); padding: 2px 8px; border-radius: var(--jr-pill-r);
   background: var(--primary); color: var(--text-light); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.02em; line-height: 1.4; }
 .jr-btn--block:has(.jr-last--on-dark) { position: relative; }
 .jr-last--on-dark { background: var(--sage-lt); color: var(--primary); }
@@ -403,7 +422,7 @@ body.jr-modal-open { overflow: hidden; }
 .jr-auth-or::before, .jr-auth-or::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
 .jr-auth-link { display: block; margin-top: 14px; text-align: center; font-size: 0.84rem; color: var(--text-muted); }
 .jr-auth-link:hover { color: var(--primary); }
-.jr-auth-error { margin: 8px 0 0; padding: 9px 12px; border-radius: 9px; background: var(--amber-lt); color: var(--accent-hover); font-size: 0.86rem; font-weight: 500; }
+.jr-auth-error { margin: 8px 0 0; padding: 9px 12px; border-radius: calc(9px * var(--jr-round)); background: var(--amber-lt); color: var(--accent-hover); font-size: 0.86rem; font-weight: 500; }
 
 /* ── Desktop calendar fills the window; the page itself never scrolls ──
    Each day scrolls on its own, the Unscheduled list scrolls inside its panel (the + Job button,
@@ -472,7 +491,7 @@ body.jr-modal-open { overflow: hidden; }
   .jr-board { gap: 12px; }
 
   /* Compact chips everywhere, including the card being dragged (it lives on <body>). */
-  .jr-card { padding: 6px 7px; border-radius: 7px; gap: 0; flex-wrap: nowrap; }
+  .jr-card { padding: 6px 7px; border-radius: calc(7px * var(--jr-round)); gap: 0; flex-wrap: nowrap; }
   .jr-card-body { flex: 1 1 auto; }
   .jr-card-name { font-size: 0.76rem; }
   .jr-card-addr, .jr-card-quote, .jr-card .jr-tag { display: none; }
@@ -550,7 +569,7 @@ body.jr-modal-open { overflow: hidden; }
   .jr-form-foot { margin-top: 14px; }
   /* A floating card, not a sheet: margins on both sides, near the top, only as tall as it needs. */
   .jr-modal { place-items: start center; padding: max(16px, env(safe-area-inset-top)) 12px 16px; }
-  .jr-modal-panel { width: 100%; max-width: 440px; max-height: calc(100dvh - 32px); border-radius: 16px; margin-top: 2vh; }
+  .jr-modal-panel { width: 100%; max-width: 440px; max-height: calc(100dvh - 32px); border-radius: calc(16px * var(--jr-round)); margin-top: 2vh; }
 }
 
 .jr-btn-google.is-busy { opacity: 0.6; pointer-events: none; }
@@ -559,29 +578,65 @@ body.jr-modal-open { overflow: hidden; }
 .jr-crew { max-width: 640px; margin: 8px auto 0; }
 .jr-empty { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
 
-/* ── Dev account switch (local debug server only) ──────── */
-.jr-dev {
+/* ── Dev switches (local debug server only) ─────────────── */
+/* Two pills side by side: who you are (Manager / Crew) and which theme (one bubble each).
+   Fixed shape and type, so they look the same under every theme. */
+.jr-devbar {
   /* Desktop: centered in the top bar's empty middle, clear of every drop zone. */
   position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 80;
-  display: flex; align-items: center; gap: 2px; padding: 3px;
+  display: flex; align-items: center; gap: 8px;
+}
+body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet */
+.jr-dev {
+  display: flex; align-items: center; gap: 2px; padding: 3px; height: 32px; box-sizing: border-box;
   background: var(--slate); border-radius: 999px; box-shadow: var(--jr-shadow-lift);
-  font: 600 0.75rem 'DM Sans', system-ui, sans-serif;
+  font: 600 0.75rem 'DM Sans', system-ui, sans-serif; white-space: nowrap;
 }
 .jr-dev form { margin: 0; }
-body.jr-modal-open .jr-dev { display: none; }  /* never covers the job sheet */
-.jr-dev-tag { padding: 0 8px 0 9px; color: var(--text-light); opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.66rem; }
+.jr-dev-tag { display: inline; margin: 0; font-weight: inherit; padding: 0 8px 0 9px; color: var(--text-light); opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.66rem; }
 .jr-dev button {
   height: 26px; padding: 0 11px; border: 0; border-radius: 999px; margin: 0; width: auto;
   background: transparent; color: var(--text-light); font: inherit; cursor: pointer;
 }
 .jr-dev button:hover { background: rgba(255, 255, 255, 0.12); }
 .jr-dev button.is-on { background: var(--text-light); color: var(--slate); cursor: default; }
+/* Theme bubbles: each one carries its own theme (data-jr-theme), so it paints itself in that
+   theme's primary + accent, whatever theme the page is in. */
+.jr-dev--theme { gap: 5px; padding-right: 5px; }
+.jr-dev--theme .jr-dev-tag { padding-right: 2px; }
+.jr-theme-name { min-width: 72px; padding-right: 4px; color: var(--text-light); }
+.jr-dev button.jr-theme-dot {
+  width: 22px; height: 22px; padding: 0; flex: none; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35); transition: transform 0.12s, box-shadow 0.12s;
+}
+.jr-dev button.jr-theme-dot:hover { transform: scale(1.12); background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%); }
+.jr-dev button.jr-theme-dot.is-on {
+  background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%);
+  box-shadow: 0 0 0 2px var(--slate), 0 0 0 4px var(--text-light); cursor: pointer;
+}
+/* Drag / hover pickers. style.css sizes every select to full width, so pin it here. */
+.jr-dev--motion { gap: 0; padding-right: 6px; }
+.jr-dev--motion .jr-dev-tag + .jr-dev-select { margin-right: 4px; }
+.jr-dev-select {
+  width: auto; height: 26px; margin: 0; padding: 0 22px 0 9px; border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12); color: var(--text-light); font: inherit; cursor: pointer;
+  color-scheme: dark; appearance: auto;
+}
+.jr-dev-select:hover { background: rgba(255, 255, 255, 0.2); }
+@media (max-width: 1240px) { .jr-theme-name { display: none; } }
 @media (max-width: 760px) {
   /* Clear of the iPhone home bar and Safari's bottom toolbar. */
-  .jr-dev { left: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); top: auto; transform: none; font-size: 0.7rem; }
-  /* Room at the bottom so the pill never covers anything (e.g. the Crew strip). Dev only. */
-  body.jr-has-dev .jr-main { padding-bottom: 72px; }
+  .jr-devbar { left: 8px; right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); top: auto; transform: none; gap: 6px;
+    flex-wrap: wrap-reverse; }
+  .jr-dev-select { height: 24px; }
+  .jr-dev { font-size: 0.7rem; height: 30px; }
+  /* Room at the bottom so the pills never cover anything (e.g. the Crew strip). Dev only. */
+  body.jr-has-dev .jr-main { padding-bottom: 110px; }
   .jr-dev button { height: 24px; padding: 0 9px; }
+  .jr-dev--theme .jr-dev-tag, .jr-theme-name { display: none; }
+  .jr-dev--theme { padding-left: 5px; gap: 6px; }
+  .jr-dev button.jr-theme-dot { width: 20px; height: 20px; }
 }
 
 /* ── Team ──────────────────────────────────────────────── */
@@ -589,7 +644,7 @@ body.jr-modal-open .jr-dev { display: none; }  /* never covers the job sheet */
 .jr-team-bar { display: flex; justify-content: flex-end; }
 .jr-team-bar .jr-btn[hidden], .jr-team-add[hidden] { display: none; }
 .jr-team-add, .jr-team-list {
-  background: var(--bg-body); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--jr-shadow-sm);
+  background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round)); box-shadow: var(--jr-shadow-sm);
 }
 .jr-team-add { padding: 16px 20px; }
 .jr-team-add .jr-form-head { margin: 0; }

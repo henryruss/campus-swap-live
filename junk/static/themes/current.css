@@ -1,0 +1,34 @@
+/* Theme: Current — the live Campus Swap look (forest green + amber, DM Serif / DM Sans).
+   Restates static/style.css's tokens so this theme's bubble paints correctly even while the
+   page is in another theme. If style.css's palette changes, change it here too.
+
+   Every theme file sets the same tokens. Colors: see static/style.css for what each one means.
+   Shape and type: --jr-round scales every corner (1 = today), --jr-pill-r is pills and tags,
+   --jr-dot-r is day numbers and initials, --jr-font-* and --jr-display-* are the type. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="current"] {
+  --primary: #1A3D1A;
+  --primary-rgb: 26, 61, 26;
+  --primary-light: #2E5C2E;
+  --accent: #C8832A;
+  --accent-hover: #A86A1F;
+  --text-main: #1A3D1A;
+  --text-muted: #6B8F6B;
+  --text-light: #F5F0E8;
+  --bg-body: #FFFFFF;
+  --bg-cream: #F5F0E8;
+  --rule: #D8D0C4;
+  --sage: #8AB88A;
+  --sage-lt: #C2D9C2;
+  --amber-lt: #F2DDB7;
+  --slate: #3D4F5C;
+  --card-ink: #1A1A1A;
+  --card-ink-muted: #6B7280;
+  --card-ink-faint: #9CA3AF;
+
+  --jr-round: 1;
+  --jr-pill-r: 999px;
+  --jr-dot-r: 50%;
+  --jr-font-body: 'DM Sans', system-ui, sans-serif;
+  --jr-font-display: 'DM Serif Display', Georgia, serif;
+  --jr-display-weight: 400;
+}
