@@ -14,6 +14,7 @@
             You'll still receive important transactional emails (like order confirmations and item sold notifications).
         </p>
         <form method="POST" style="margin-bottom: 20px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-primary" style="margin-right: 10px;">
                 <i class="fas fa-check"></i> Yes, Unsubscribe
             </button>
