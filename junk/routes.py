@@ -72,9 +72,14 @@ def _jr_tel(v):
     return ('+' if v.startswith('+') else '') + ''.join(ch for ch in v if ch.isdigit())
 
 
+_APPLE_DEVICE = re.compile(r'iPhone|iPad|iPod', re.I)
+
+
 @junk_bp.app_template_filter('jr_maps')
 def _jr_maps(job):
-    """Turn-by-turn directions to the job (Google Maps; opens the app on a phone)."""
+    """Turn-by-turn directions to the job, in the phone's own maps app: Apple Maps on an
+    iPhone or iPad (Google Maps there sends people without it to the App Store), Google Maps
+    everywhere else (the app on Android, the website on a computer)."""
     from urllib.parse import quote
     if job.address:
         dest = job.address
@@ -82,7 +87,55 @@ def _jr_maps(job):
         dest = f'{job.address_lat},{job.address_lng}'
     else:
         return ''
+    if _APPLE_DEVICE.search(request.headers.get('User-Agent', '')):
+        return 'https://maps.apple.com/?dirflg=d&daddr=' + quote(dest)
     return 'https://www.google.com/maps/dir/?api=1&destination=' + quote(dest)
+
+
+# The mini map's look, for Google Static Maps (an image, so it can't read the CSS tokens). These
+# are Navy & Forest's colors (themes/navyforest.css): cream land, white streets, quiet labels,
+# slate-blue water, soft park green; no businesses, bus stops or road shields.
+_MAP_STYLE = (
+    'element:geometry|color:0xF3F1EC',
+    'element:labels.icon|visibility:off',
+    'element:labels.text.fill|color:0x5A6577',
+    'element:labels.text.stroke|color:0xF3F1EC|weight:3',
+    'feature:poi|visibility:off',
+    'feature:poi.park|visibility:on',
+    'feature:poi.park|element:geometry|color:0xDCE5D6',
+    'feature:poi.park|element:labels|visibility:off',
+    'feature:transit|visibility:off',
+    'feature:administrative.neighborhood|visibility:off',
+    'feature:landscape.man_made|element:geometry.stroke|visibility:off',
+    'feature:administrative|element:geometry|visibility:off',
+    'feature:road|element:geometry.fill|color:0xFFFFFF',
+    'feature:road|element:geometry.stroke|color:0xD3CEC4',
+    'feature:road.highway|element:geometry.fill|color:0xE8E3D9',
+    'feature:water|element:geometry|color:0xC9D4E0',
+    'feature:water|element:labels|visibility:off',
+)
+MINI_MAP_ZOOM = 15
+
+
+@junk_bp.app_template_filter('jr_static_map')
+def _jr_static_map(job):
+    """A picture of where the job is (Google Static Maps), at 2x for sharp phones, without its
+    size: crew.js adds the box's exact size, so the picture is never cropped (Google's logo has
+    to stay whole) whether the map is square or runs down a card with long notes. Centered on the pin when the address was picked from suggestions; on the address
+    itself (Google finds it) when it was typed by hand. The pin is drawn by CSS."""
+    from urllib.parse import urlencode
+    key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+    if not key:
+        return ''
+    if job.address_lat is not None and job.address_lng is not None:
+        center = f'{job.address_lat:.6f},{job.address_lng:.6f}'
+    elif job.address:
+        center = job.address
+    else:
+        return ''
+    params = [('center', center), ('zoom', MINI_MAP_ZOOM), ('scale', 2),
+              ('maptype', 'roadmap')] + [('style', s) for s in _MAP_STYLE] + [('key', key)]
+    return 'https://maps.googleapis.com/maps/api/staticmap?' + urlencode(params)
 
 
 @junk_bp.app_template_filter('jr_day')

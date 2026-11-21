@@ -11,14 +11,14 @@
   {%- endif %}
 {% endmacro %}
 
-{#- A job's details: the buttons, a map of where it is, then the facts. The head (name, street,
-    cut) is separate so a Coming up row can use it as its tap-to-open summary. -#}
-{% macro job_body(job) %}
+{#- Navigate / Call / Text, as square buttons side by side. -#}
+{% macro actions(job) %}
   {%- set maps = job|jr_maps %}
   {%- set tel = job.customer_phone|jr_tel %}
   {% if maps or tel %}
   <div class="jr-cj-actions">
-    {% if maps %}<a class="jr-cj-btn jr-cj-btn--go" href="{{ maps }}" target="_blank" rel="noopener">
+    {# Apple Maps opens its app in place; a new tab would leave a blank one behind. #}
+    {% if maps %}<a class="jr-cj-btn jr-cj-btn--go" href="{{ maps }}"{% if 'maps.apple.com' not in maps %} target="_blank" rel="noopener"{% endif %}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 21 3l-8.5 18-2.2-7.3z"/></svg>Navigate</a>{% endif %}
     {% if tel %}<a class="jr-cj-btn" href="tel:{{ tel }}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>Call</a>
@@ -26,27 +26,43 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>Text</a>{% endif %}
   </div>
   {% endif %}
-  {% if maps %}
-  {# A small map of where the job is (crew.js, Google Maps). Tapping it navigates too. Jobs typed
-     by hand have no pin yet, so crew.js looks the address up with Places. #}
-  <a class="jr-cj-map" href="{{ maps }}" target="_blank" rel="noopener" aria-label="Map of {{ job.address or 'the job' }}"
-     data-mini-map data-lat="{{ job.address_lat if job.address_lat is not none else '' }}"
-     data-lng="{{ job.address_lng if job.address_lng is not none else '' }}" data-address="{{ job.address or '' }}" hidden>
-    <span class="jr-cj-canvas"></span>
-  </a>
-  {% endif %}
-  {# The head already shows the street line; the full address only when it adds something. #}
-  {% if job.address and job.address != job.address|jr_street %}<p class="jr-cj-line"><span class="jr-cj-k">Address</span>{{ job.address }}</p>{% endif %}
-  {% if job.customer_phone %}<p class="jr-cj-line"><span class="jr-cj-k">Phone</span>{{ job.customer_phone|jr_phone }}</p>{% endif %}
-  {% if job.notes %}<p class="jr-cj-line jr-cj-notes"><span class="jr-cj-k">Notes</span>{{ job.notes }}</p>{% endif %}
-  <p class="jr-cj-line"><span class="jr-cj-k">Crew</span>{{ crew_line(job) }}</p>
 {% endmacro %}
 
-{% macro job_head(job, tag='div') %}
+{#- A job's details under its head: the map down the left (at least square, taller when the
+    details run long), and the buttons and facts on the right. The map is a picture (Google
+    Static Maps, sized by crew.js), so it's there with the page; tapping it navigates; if Google can't draw it,
+    it goes away and the details take the full width. -#}
+{% macro job_body(job) %}
+  {%- set src = job|jr_static_map %}
+  <div class="jr-cj-body{{ ' has-map' if src }}">
+    {% if src %}
+    {%- set maps = job|jr_maps %}
+    <a class="jr-cj-map" href="{{ maps }}"{% if 'maps.apple.com' not in maps %} target="_blank" rel="noopener"{% endif %} aria-label="Map of {{ job.address or 'the job' }}">
+      <img data-map="{{ src }}" alt="">
+    </a>
+    {% endif %}
+    <div class="jr-cj-info">
+      {{ actions(job) }}
+      {# No full address: the head has the street, the map shows where, Navigate goes there. #}
+      {% if job.customer_phone %}<p class="jr-cj-line"><span class="jr-cj-k">Phone</span>{{ job.customer_phone|jr_phone }}</p>{% endif %}
+      {% if job.notes %}<p class="jr-cj-line jr-cj-notes"><span class="jr-cj-k">Notes</span>{{ job.notes }}</p>{% endif %}
+      <p class="jr-cj-line"><span class="jr-cj-k">Crew</span>{{ crew_line(job) }}</p>
+    </div>
+  </div>
+{% endmacro %}
+
+{#- Name, street (and "Was Mon, Nov 16" for a job left open), the cut. -#}
+{% macro job_head(job, tag='div', when=none) %}
   <{{ tag }} class="jr-cj-head">
     <span class="jr-cj-title">
       <span class="jr-cj-name">{{ job.display_name }}</span>
-      {% if job.address %}<span class="jr-cj-addr">{{ job.address|jr_street }}</span>{% endif %}
+      {% if job.address %}<span class="jr-cj-addr"><span class="jr-cj-street">{{ job.address|jr_street }}</span>
+        {#- Copy the full address (for Waze, a text, anything). crew.js. -#}
+        <button type="button" class="jr-cj-copy" data-copy="{{ job.address }}" aria-label="Copy address" title="Copy address">
+          <svg class="jr-cj-copy-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+          <svg class="jr-cj-copy-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        </button></span>{% endif %}
+      {% if when %}<span class="jr-cj-when">Was {{ when|jr_day(today) }}</span>{% endif %}
     </span>
     <span class="jr-cj-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else 'TBD' }}<small>{{ cut_label() }}</small></span>
   </{{ tag }}>

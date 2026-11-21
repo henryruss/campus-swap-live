@@ -18,7 +18,7 @@
     <section class="jr-csec">
       <h2 class="jr-csec-h">Not finished yet</h2>
       {% for job in earlier %}
-      <article class="jr-cj">{{ cj.job_head(job) }}<p class="jr-cj-when">Was {{ job.scheduled_date|jr_day(today) }}</p>{{ cj.job_body(job) }}</article>
+      <article class="jr-cj">{{ cj.job_head(job, when=job.scheduled_date) }}{{ cj.job_body(job) }}</article>
       {% endfor %}
     </section>
     {% endif %}
@@ -64,7 +64,4 @@
 {% block scripts %}
 <script src="{{ jr_asset('teampick.js') }}"></script>
 <script src="{{ jr_asset('crew.js') }}"></script>
-{% if google_maps_key %}
-<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&v=weekly&libraries=places,maps&loading=async&callback=__jrCrewMaps"></script>
-{% endif %}
 {% endblock %}

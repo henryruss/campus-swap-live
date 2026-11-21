@@ -325,6 +325,8 @@ body.jr-modal-open { overflow: hidden; }
 .jr-addr-sec { font-size: 0.78rem; color: var(--text-muted); margin-top: 1px; }
 .jr-addr-attr { padding: 6px 10px 2px; text-align: right; font-size: 0.68rem; color: var(--text-muted); }
 
+.jr-addr-hint { margin: 6px 0 0; font-size: 0.78rem; font-weight: 600; color: var(--accent-hover); }
+.jr-addr-hint[hidden] { display: none; }
 .jr-addr-map { position: relative; margin-top: 8px; border-radius: calc(12px * var(--jr-round)); overflow: hidden;
   border: 1px solid var(--rule); animation: jr-fadein 0.2s ease; }
 .jr-addr-map[hidden] { display: none; }
@@ -628,14 +630,31 @@ body.jr-modal-open { overflow: hidden; }
 .jr-cback { display: inline-block; margin-bottom: 12px; font-size: 0.88rem; font-weight: 600; color: var(--primary); text-decoration: none; }
 .jr-cfin { margin-top: 22px; }
 @media (min-width: 900px) { .jr-cfin { margin-top: 18px; } }
-/* The map under Navigate: tap it to navigate too. The pin is drawn at the center. */
-.jr-cj-map { position: relative; display: block; margin: 8px 0 2px; border-radius: calc(10px * var(--jr-round)); overflow: hidden; border: 1px solid var(--rule); }
+/* A job's details: the map down the left, buttons and facts on the right. The map is at least
+   square and runs to the bottom of the card when the details are longer; crew.js asks Google
+   for a picture exactly that size, centered on the job, so the pin (CSS, at the center) is on it.
+   Cream behind it, so there's never a white flash while it loads. */
+.jr-cj-body { --map-w: 120px; margin-top: 12px; }
+.jr-cj-body.has-map { display: grid; grid-template-columns: var(--map-w) minmax(0, 1fr); gap: 12px; }
+@media (min-width: 600px) { .jr-cj-body { --map-w: 168px; } }
+.jr-cj-map {
+  position: relative; display: block; min-height: var(--map-w); overflow: hidden;
+  border-radius: calc(10px * var(--jr-round)); border: 1px solid var(--rule); background: var(--bg-cream);
+}
 .jr-cj-map[hidden] { display: none; }
-.jr-cj-canvas { display: block; height: 130px; pointer-events: none; }
+.jr-cj-map img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.jr-cj-map img:not([src]) { visibility: hidden; }
 .jr-cj-map::after {
-  content: ''; position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -20px 0 0 -10px;
+  content: ''; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -19px 0 0 -9px;
   border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
-  background: var(--primary); border: 3px solid var(--bg-body); box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.35); pointer-events: none;
+  background: var(--primary); border: 2.5px solid var(--bg-body); box-shadow: 0 2px 5px rgba(var(--primary-rgb), 0.35); pointer-events: none;
+}
+.jr-cj-info { min-width: 0; }
+.jr-cj-info > .jr-cj-line:first-child { margin-top: 0; }
+/* Beside the map on a phone the column is narrow: each label sits above its value. */
+@media (max-width: 599px) {
+  .jr-cj-body.has-map .jr-cj-line { flex-direction: column; gap: 1px; font-size: 0.86rem; }
+  .jr-cj-body.has-map .jr-cj-k { width: auto; padding: 0; font-size: 0.64rem; }
 }
 .jr-empty { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
 .jr-cstats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -661,19 +680,32 @@ body.jr-modal-open { overflow: hidden; }
 .jr-cj-head { display: flex; align-items: flex-start; gap: 12px; }
 .jr-cj-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .jr-cj-name { font-size: 1.02rem; font-weight: 700; color: var(--card-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.jr-cj-addr { font-size: 0.86rem; color: var(--card-ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-cj-addr { display: flex; align-items: center; gap: 2px; min-width: 0; font-size: 0.86rem; color: var(--card-ink-muted); }
+.jr-cj-street { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Copy address: small and quiet, a bigger tap area than it looks. */
+.jr-cj-copy {
+  flex: none; display: inline-grid; place-items: center; width: 28px; height: 24px; margin: -4px 0; padding: 0;
+  border: 0; border-radius: var(--jr-pill-r); background: none; color: var(--text-muted); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jr-cj-copy:hover { color: var(--primary); background: var(--bg-cream); }
+.jr-cj-copy svg { grid-area: 1 / 1; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.jr-cj-copy-ok { visibility: hidden; }
+.jr-cj-copy.is-copied { color: var(--primary); }
+.jr-cj-copy.is-copied .jr-cj-copy-i { visibility: hidden; }
+.jr-cj-copy.is-copied .jr-cj-copy-ok { visibility: visible; }
 .jr-cj-cut { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: 1.02rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .jr-cj-cut small { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
 .jr-cj-when { margin: 4px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--accent-hover); }
-.jr-cj-actions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin: 12px 0 4px; }
+.jr-cj-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 72px)); gap: 8px; margin: 0 0 2px; }
 .jr-cj-btn {
-  display: flex; align-items: center; justify-content: center; gap: 7px; height: 46px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1;
   border: 1px solid var(--rule); border-radius: calc(10px * var(--jr-round)); background: var(--bg-body);
-  color: var(--primary); font-weight: 600; font-size: 0.92rem; text-decoration: none;
+  color: var(--primary); font-weight: 600; font-size: 0.72rem; text-decoration: none;
   -webkit-tap-highlight-color: transparent;
 }
 .jr-cj-btn:active { background: var(--bg-cream); }
-.jr-cj-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; stroke-linecap: round; }
+.jr-cj-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; stroke-linecap: round; }
 .jr-cj-btn--go { background: var(--jr-btn-bg); border-color: var(--jr-btn-bg); color: var(--jr-btn-ink); }
 .jr-cj-btn--go:active { background: var(--jr-btn-bg-hover); }
 .jr-cj-line { display: flex; gap: 10px; margin: 8px 0 0; font-size: 0.9rem; color: var(--card-ink); line-height: 1.4; }
@@ -687,7 +719,7 @@ body.jr-modal-open { overflow: hidden; }
 .jr-cj-chev { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--text-muted); stroke-width: 2; transition: transform 0.15s; }
 .jr-cj--row[open] .jr-cj-chev { transform: rotate(90deg); }
 .jr-cj-more { padding: 0 14px 14px; }
-.jr-cj-more .jr-cj-actions { margin-top: 2px; }
+.jr-cj-more .jr-cj-body { margin-top: 2px; }
 /* Done */
 .jr-cdone { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
 .jr-cdone li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 0.9rem; }

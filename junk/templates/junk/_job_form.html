@@ -38,6 +38,9 @@
     </div>
     <input type="hidden" name="address_lat" value="{{ job.address_lat if job and job.address_lat is not none else '' }}" data-addr-lat>
     <input type="hidden" name="address_lng" value="{{ job.address_lng if job and job.address_lng is not none else '' }}" data-addr-lng>
+    {# Typed by hand, not picked: Google can only guess where it is, so crew could be sent to the
+       wrong town. manage.js keeps this in step as the address changes. #}
+    <p class="jr-addr-hint" data-addr-hint {{ '' if job and job.address and job.address_lat is none else 'hidden' }}>Pick an address from the suggestions so crew get exact directions.</p>
     <div class="jr-addr-map" hidden data-addr-map>
       <div class="jr-addr-canvas" data-addr-canvas></div>
       <a class="jr-addr-open" target="_blank" rel="noopener" data-addr-open>Open in Google Maps &#8599;</a>

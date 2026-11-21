@@ -499,6 +499,17 @@ def test_typed_address_has_no_location(client):
     assert job.address_lat is None and job.address_lng is None
 
 
+def test_typed_address_asks_for_a_pick(client):
+    import re
+    hint = re.compile(r'<p class="jr-addr-hint" data-addr-hint\s*(hidden)?>')
+    typed = _create(client, address='301 Cameron Ave', address_lat='', address_lng='')
+    picked = _create(client, address='123 Main St, Pineville, NC', address_lat='35.08', address_lng='-80.88')
+    blank = _create(client, customer_name='No address')
+    shown = lambda j: hint.search(client.get(f'/junk/manage/job/form?id={j.id}').get_data(as_text=True)).group(1) is None
+    assert shown(typed) and not shown(picked) and not shown(blank)
+    assert not hint.search(client.get('/junk/manage/job/form').get_data(as_text=True)).group(1) is None
+
+
 def test_location_dropped_without_address_or_out_of_range(client):
     assert _create(client, address='', address_lat='35', address_lng='-80').address_lat is None
     assert _create(client, address='x', address_lat='135', address_lng='-80').address_lat is None

@@ -1,68 +1,67 @@
-/* My jobs: a small map under each job's Navigate button (Google Maps JS).
-   A job picked from address suggestions has its lat/lng already; one typed by hand gets looked
-   up once with Places text search. A map is only drawn when it's on screen (a Coming up row
-   gets its map when it's opened), and never pans: the pin is CSS at the center. */
+/* My jobs: size each mini map's picture to its box. The box is at least square and runs down
+   the card when the details are long, so its height is only known once the page is laid out.
+   Asking Google for exactly that size means nothing is cropped (its logo has to stay whole).
+   Sizes snap to 8px so a refresh asks for the same picture and the browser's cache has it.
+   A Coming up row's map is sized when the row opens; if Google can't draw one, it goes away. */
 (function () {
   'use strict';
-  var STYLES = [
-    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-    { elementType: 'geometry', stylers: [{ saturation: -40 }] },
-    { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] }
-  ];
-  var ready = false;
+  var MAX = 320;                                        // Static Maps: 640px at scale 2
 
-  function where(el) {
-    var lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
-    if (!isNaN(lat) && !isNaN(lng)) return Promise.resolve({ lat: lat, lng: lng });
-    var q = (el.dataset.address || '').trim();
-    if (!q || !google.maps.places || !google.maps.places.Place) return Promise.resolve(null);
-    return google.maps.places.Place.searchByText({ textQuery: q, fields: ['location'], maxResultCount: 1 })
-      .then(function (r) {
-        var p = r && r.places && r.places[0];
-        return p && p.location ? { lat: p.location.lat(), lng: p.location.lng() } : null;
-      })
-      .catch(function () { return null; });
+  function size(img) {
+    var box = img.parentNode, w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;                               // in a closed row: wait for it to open
+    var snap = function (v) { return Math.min(MAX, Math.max(8, Math.round(v / 8) * 8)); };
+    var src = img.dataset.map + '&size=' + snap(w) + 'x' + snap(h);
+    if (img.getAttribute('src') !== src) img.src = src;
   }
+  function sizeAll(root) { (root || document).querySelectorAll('img[data-map]').forEach(size); }
 
-  function draw(el) {
-    if (!ready || el.dataset.drawn) return;
-    var row = el.closest('details');
-    if (row && !row.open) return;
-    el.dataset.drawn = '1';
-    where(el).then(function (pos) {
-      if (!pos) return;                       // no map rather than a wrong one
-      el.hidden = false;
-      new google.maps.Map(el.querySelector('.jr-cj-canvas'), {
-        center: pos, zoom: 15, styles: STYLES, disableDefaultUI: true, gestureHandling: 'none',
-        clickableIcons: false, keyboardShortcuts: false
-      });
-    });
-  }
-
-  // Watch each job's card (the map itself starts hidden, and hidden things never intersect).
-  var seen = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      var m = e.isIntersecting && e.target.querySelector('[data-mini-map]');
-      if (m) draw(m);
-    });
-  }, { rootMargin: '200px' }) : null;
-
-  function watchAll() {
-    document.querySelectorAll('[data-mini-map]').forEach(function (el) {
-      if (seen) seen.observe(el.closest('.jr-cj') || el.parentNode); else draw(el);
-    });
-  }
-  document.addEventListener('toggle', function (e) {
-    if (e.target.matches && e.target.matches('details') && e.target.open) {
-      var m = e.target.querySelector('[data-mini-map]');
-      if (m) draw(m);
-    }
+  document.addEventListener('error', function (e) {
+    var img = e.target;
+    if (!img.matches || !img.matches('img[data-map]')) return;
+    var box = img.parentNode;
+    box.hidden = true;
+    box.parentNode.classList.remove('has-map');
   }, true);
+  document.addEventListener('toggle', function (e) {
+    if (e.target.matches && e.target.matches('details') && e.target.open) sizeAll(e.target);
+  }, true);
+  // A phone turned sideways changes the column widths.
+  var lastW = window.innerWidth, t;
+  window.addEventListener('resize', function () {
+    if (window.innerWidth === lastW) return;
+    lastW = window.innerWidth; clearTimeout(t); t = setTimeout(function () { sizeAll(); }, 200);
+  });
+  sizeAll();
 
-  window.__jrCrewMaps = function () {
-    Promise.all([google.maps.importLibrary('maps'), google.maps.importLibrary('places')])
-      .then(function () { ready = true; watchAll(); })
-      .catch(function () { /* the Navigate button still works */ });
-  };
+  // Copy address. The clipboard API needs https (or localhost); the phone dev host is plain
+  // http, so fall back to the old select-and-copy. Inside a Coming up row's summary, the tap
+  // mustn't also open or close the row.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (ok, fail) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+      var done = false;
+      try { done = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      if (done) { ok(); } else { fail(); }
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-copy]');
+    if (!btn) return;
+    e.preventDefault(); e.stopPropagation();
+    copyText(btn.dataset.copy).then(function () {
+      btn.classList.add('is-copied');
+      btn.setAttribute('aria-label', 'Copied');
+      clearTimeout(btn._t);
+      btn._t = setTimeout(function () {
+        btn.classList.remove('is-copied');
+        btn.setAttribute('aria-label', 'Copy address');
+      }, 1500);
+    }).catch(function () {});
+  });
 })();

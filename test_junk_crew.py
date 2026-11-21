@@ -467,6 +467,10 @@ def test_crew_home_lists_my_jobs_in_calendar_order(make_user, monkeypatch):
     assert '$50' in page and '$250' not in page and 'TBD' in page     # Next Week has no quote
     assert 'tel:9195550142' in page and 'sms:9195550142' in page
     assert 'google.com/maps/dir/?api=1&amp;destination=829%20Shearer%20St' in page
+    assert '>Address</span>' not in page     # the head's street, the map and Navigate cover it
+    # On an iPhone, Navigate opens Apple Maps (Google Maps would send them to the App Store).
+    iphone = _login(me.id).get('/junk/crew', headers={'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'}).get_data(as_text=True)
+    assert 'maps.apple.com/?dirflg=d&amp;daddr=829%20Shearer%20St' in iphone and 'google.com/maps/dir' not in iphone
     assert 'You, Sam Rivera' in page and 'Just you' in page
     # Totals count closed jobs only: 20% of $412.50.
     assert '$82.50' in page and '1</strong><span>job done' in page

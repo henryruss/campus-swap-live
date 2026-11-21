@@ -95,11 +95,20 @@ Crew are chips you drag onto jobs. Dragging onto a job, dragging off it, and add
 - **Crew don't quote, and don't change the quote.** Managers quote jobs beforehand.
 - **As built:**
   - Pay comes from `crew_pay_pct()` / `crew_cut()` in `junk/jobs.py`.
-  - The buttons are plain `tel:`, `sms:` and Google Maps directions links (filters `jr_tel`, `jr_maps`).
+  - The buttons are plain `tel:`, `sms:` and directions links (filters `jr_tel`, `jr_maps`). Directions open Apple Maps on an iPhone or iPad and Google Maps everywhere else, judged by user agent.
   - Days read `jr_day`: Today, Tomorrow, Sat, Nov 22.
   - Open jobs dated before today sit on top under **"Not finished yet"**: no date gates, and they still count until they're closed.
   - Coming up rows are plain `<details>`, so there's no JS.
-  - The full address shows only when it adds something beyond the street line.
+  - **Card layout (2026-11-21):**
+    - The head shows the name, the street line with a small copy-full-address button, and the cut.
+    - Below it, the map runs down the left. Square Navigate / Call / Text buttons sit on the right, then Phone, Notes and Crew.
+    - The full Address row was removed, because the street, the map and Navigate cover it.
+  - **Map:**
+    - It's a Google Static Maps picture styled in Navy & Forest (`_MAP_STYLE` in `routes.py`), at zoom 15.
+    - `crew.js` asks for exactly the box's size, so it's never cropped and Google's logo stays whole. Sizes snap to 8px so the browser cache can reuse the picture.
+    - The map is at least square, and taller when the details run long.
+    - It needs the Maps Static API, which was enabled on the usecampusswap project on 2026-11-21.
+  - **Manager job window:** an address typed without picking a suggestion shows "Pick an address from the suggestions so crew get exact directions." Without a pin, Google only guesses where it is.
   - Totals count closed jobs only.
 - **Later: open jobs crew can claim.** Leave room in the page for it: a list sorted by date or cut, or a calendar that shows the cut. It could be a section, a page or a modal; that's undecided.
 

@@ -159,6 +159,7 @@
       list.hidden = !open;
       input.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (!open) { active = -1; input.removeAttribute('aria-activedescendant'); }
+      hint();
     }
 
     function highlighted(textObj) {
@@ -259,9 +260,18 @@
       latEl.value = '';
       lngEl.value = '';
       mapBox.hidden = true;
+      hint();
+    }
+
+    // "Pick from the suggestions": shown while there's an address with no pin, except while
+    // the suggestions are open (that's the moment they're picking).
+    var hintEl = root.querySelector('[data-addr-hint]');
+    function hint() {
+      if (hintEl) hintEl.hidden = !(input.value.trim() && !latEl.value && list.hidden);
     }
 
     function showMap() {
+      hint();
       var lat = parseFloat(latEl.value), lng = parseFloat(lngEl.value);
       if (isNaN(lat) || isNaN(lng)) { mapBox.hidden = true; return; }
       var pos = { lat: lat, lng: lng };
@@ -287,7 +297,7 @@
       timer = setTimeout(suggest, 140);
     });
     input.addEventListener('focus', function () { if (preds.length) render(); });
-    input.addEventListener('blur', function () { setOpen(false); });
+    input.addEventListener('blur', function () { setOpen(false); hint(); });
     input.addEventListener('keydown', function (e) {
       if (list.hidden) return;
       var n = preds.length;
