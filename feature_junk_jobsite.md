@@ -1,6 +1,6 @@
 # Junk Removal — Slice 3: The Job Site
 
-**Status:** 🔲 Not started. Waiting on Slice 2 step 4, the crew list.
+**Status:** 🔲 Not started. Next build (the crew list shipped 2026-11-21).
 **Depends on:** feature_junk_crew.md
 
 ---
@@ -34,6 +34,10 @@ Each answer records who gave it and when.
 | QR code | On site, from the crew phone | Quote |
 | Cash | On site, recorded by crew ("Cash: $___", filled in with the quote) | Quote |
 
+- **QR code (checked 2026-11-21):**
+  - The QR code is easy from a website. The customer scans it with their phone camera, which opens a Stripe payment page where they pay with Apple Pay, Google Pay or a card typed in.
+  - **A card tapped on the crew phone** ("Tap to Pay on iPhone") is not possible from a website. It needs a native app built with Stripe Terminal.
+  - **A middle option:** a Stripe smart card reader (WisePOS E / S700). The website can send a charge to it over the internet, and the customer taps their card on the reader. It costs hardware and needs Wi-Fi, such as a phone hotspot.
 - **Card payments are confirmed by Stripe's webhook only.** Crew can never mark a job paid by card.
 - **The business absorbs card fees.**
 - **Card is the default;** cash is offered smaller.
@@ -52,6 +56,15 @@ Each answer records who gave it and when.
 ## Decided (Henry, 2026-11-19)
 - **Prepay discount starts at 5%,** and it's a setting.
 - **"Handed it to…" picks from the team only,** using the same searchable team picker as the job modal's "+ Add…".
+
+## Decided (Henry, 2026-11-21)
+- **Until Stripe is wired up, Payment stays open.** No "Paid by card" stand-in, so a job can't auto-close until 3b. Build 3b right after 3a, or together with it.
+- **The manager's Mark done stays,** as an override for a job with no checklist.
+- **No "before" photos for now.** Quoting will collect them when it's built.
+- **Order: 3a checklist → 3b Stripe → claim pool later.** There are no employees yet. Design the job stages with the pool in mind (Open → Claimed → In progress → Done → Settled, all derived, never stored).
+- **Shape:**
+  - **Crew:** the checklist is on the job card (Today and Not finished cards only). Payment goes at the top of the card, and a small "2 of 4" sits in the head.
+  - **Manager:** the job window gets a Checklist section (photos, who and when, move, reopen, cash received). Calendar cards get one small progress mark. A "Needs attention" list goes on the desktop side.
 
 ## Open questions
 - **Photo storage:** reuse the legacy upload path (`/var/data` on Render), with limits on size and count.

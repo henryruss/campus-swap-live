@@ -688,7 +688,9 @@ body.jr-modal-open { overflow: hidden; }
   border: 0; border-radius: var(--jr-pill-r); background: none; color: var(--text-muted); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.jr-cj-copy:hover { color: var(--primary); background: var(--bg-cream); }
+/* Hover only on a real pointer: on a phone, :hover sticks after a tap until you tap elsewhere. */
+@media (hover: hover) { .jr-cj-copy:hover { color: var(--primary); background: var(--bg-cream); } }
+.jr-cj-copy:focus:not(:focus-visible) { outline: none; }
 .jr-cj-copy svg { grid-area: 1 / 1; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .jr-cj-copy-ok { visibility: hidden; }
 .jr-cj-copy.is-copied { color: var(--primary); }
