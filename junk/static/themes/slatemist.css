@@ -1,0 +1,35 @@
+/* Theme: Slate Mist — Ledger, a shade lighter and grayer. Blue-gray slate ink instead of
+   navy, an airy cool-white ground, soft rules and a muted brass; gentler corners, Plex type
+   throughout so it reads modern rather than letterhead. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="slatemist"] {
+  --primary: #33475B;
+  --primary-rgb: 51, 71, 91;
+  --primary-light: #4A6076;
+  --accent: #B08D57;
+  --accent-hover: #8A6C3E;
+  --text-main: #2A3B4C;
+  --text-muted: #6B7A89;
+  --text-light: #F8FAFB;
+  --bg-body: #FFFFFF;
+  --bg-cream: #F4F6F8;
+  --rule: #D9DFE5;
+  --sage: #9AAFC2;
+  --sage-lt: #E3EAF1;
+  --amber-lt: #F3EADB;
+  --slate: #3E4F60;
+  --card-ink: #1E2A36;
+  --card-ink-muted: #6B7A89;
+  --card-ink-faint: #A3AEB9;
+
+  --jr-round: 0.35;
+  --jr-pill-r: 4px;
+  --jr-dot-r: 4px;
+  --jr-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --jr-font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --jr-display-weight: 600;
+  --jr-display-tracking: -0.015em;
+}
+body.jr[data-jr-theme="slatemist"] {
+  --jr-shadow-sm: 0 1px 2px rgba(var(--primary-rgb), 0.06);
+  --jr-shadow-lift: 0 12px 26px -12px rgba(var(--primary-rgb), 0.3);
+}

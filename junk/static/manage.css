@@ -705,16 +705,10 @@ body.jr-modal-open { overflow: hidden; }
 .jr-devbar-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .jr-devbar-panel[hidden] { display: none; }
 .jr-dev.jr-devbar-toggle {
-  gap: 6px; height: 28px; padding: 0 11px 0 5px; border: 0; margin: 0; width: auto;
+  gap: 6px; height: 28px; padding: 0 12px; border: 0; margin: 0; width: auto;
   color: var(--text-light); cursor: pointer; opacity: 0.6; font-size: 0.7rem; transition: opacity 0.15s;
 }
 .jr-devbar-toggle:hover, .jr-devbar.is-open .jr-devbar-toggle { opacity: 1; }
-.jr-devbar-sep { opacity: 0.45; }
-.jr-devbar-swatch {
-  width: 18px; height: 18px; border-radius: 50%; flex: none;
-  background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35);
-}
 body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet */
 .jr-dev {
   display: flex; align-items: center; gap: 2px; padding: 3px; height: 32px; box-sizing: border-box;
@@ -729,22 +723,6 @@ body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet 
 }
 .jr-dev button:hover { background: rgba(255, 255, 255, 0.12); }
 .jr-dev button.is-on { background: var(--text-light); color: var(--slate); cursor: default; }
-/* Bubbles. Theme bubbles carry their own theme (data-jr-theme), so each paints itself in that
-   theme's primary + accent whatever theme the page is in. Drag / hover bubbles hold a tiny
-   card (<i>) drawn the way that feel looks. */
-.jr-dev--theme { gap: 5px; padding-right: 5px; }
-.jr-dev--theme .jr-dev-tag { padding-right: 2px; }
-.jr-pick-name { min-width: 64px; padding-right: 4px; color: var(--text-light); }
-.jr-dev button.jr-pick {
-  width: 22px; height: 22px; padding: 0; flex: none; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35); transition: transform 0.12s, box-shadow 0.12s;
-}
-.jr-dev button.jr-pick:hover { transform: scale(1.12); }
-.jr-dev button.jr-pick.is-on { box-shadow: 0 0 0 2px var(--slate), 0 0 0 4px var(--text-light); cursor: pointer; }
-.jr-dev button.jr-theme-dot,
-.jr-dev button.jr-theme-dot:hover,
-.jr-dev button.jr-theme-dot.is-on { background: linear-gradient(135deg, var(--primary) 0 50%, var(--accent) 50% 100%); }
 @media (max-width: 760px) {
   .jr-devbar { left: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
 }

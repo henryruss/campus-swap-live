@@ -106,7 +106,7 @@ def _junk_context():
     return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset,
             'jr_is_manager': is_junk_manager(), 'jr_is_crew': is_junk_crew(),
             'jr_dev_switch': dev_switch_enabled(), 'jr_preview': preview_enabled(),
-            'jr_dev_role': _dev_role(), 'jr_themes': DEV_THEMES, **_dev_looks()}
+            'jr_dev_role': _dev_role(), 'jr_theme': JR_THEME}
 
 
 def _jr_asset(filename):
@@ -826,34 +826,23 @@ def dev_switch_enabled():
     return bool(current_app.debug)
 
 
-# ─── preview tools: themes ───────────────────────────────────────────────
-# Shown on the local debug server, and to super admins anywhere (so the team can compare
-# looks on the live site). Each pick lives in a cookie set by the pill's JS; the server only
-# reads it so the page renders with no flash. Lists are (key, label).
-# Themes: each key is junk/static/themes/<key>.css.
-# Narrowing to favorites (Henry, 2026-11-20). Current is Forest Sharp now; Notion and reMarkable
-# are out; Ski, Spreadsheet and Black & White are in to compare. Drag feel and hover are settled
-# (today's drag, Outline hover, for everyone), so they have no switches.
-DEV_THEMES = [('current', 'Current'), ('ledger', 'Ledger'), ('ski', 'Ski'),
-              ('grid', 'Spreadsheet'), ('mono', 'Black & White')]
-_LOOK_COOKIES = (('jr_theme', DEV_THEMES),)
+# ─── the look ────────────────────────────────────────────────────────────
+# Locked in (Henry, 2026-11-20): Navy & Forest, for everyone. Navy runs the page; done work
+# turns forest green. Each theme is junk/static/themes/<key>.css; the others are shelved there
+# in case that changes: current (forest + amber), ledger (navy + gold, Baskerville),
+# forestledger, midnight (darker Ledger), slatemist (lighter, blue-gray Ledger). To switch,
+# change JR_THEME (a theme that isn't DM Sans / DM Serif needs its fonts added to base.html).
+JR_THEME = 'navyforest'
 
+
+# ─── preview tools ───────────────────────────────────────────────────────
+# The Manager / Crew pill: on the local debug server (signs in as the dev accounts) and for
+# super admins anywhere (switches what they see).
 
 def preview_enabled():
     if dev_switch_enabled():
         return True
     return bool(current_user.is_authenticated and getattr(current_user, 'is_super_admin', False))
-
-
-def _dev_looks():
-    """{'jr_theme': key}, the first option when the
-    cookie is missing or stale. All None when the preview tools are off."""
-    on = preview_enabled()
-    looks = {}
-    for name, options in _LOOK_COOKIES:  # the cookie has the same name
-        key = request.cookies.get(name)
-        looks[name] = (key if key in dict(options) else options[0][0]) if on else None
-    return looks
 
 
 def _dev_role():

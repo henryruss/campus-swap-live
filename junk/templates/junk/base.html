@@ -13,15 +13,10 @@
   {# style.css only for its color tokens and fonts; everything visible is styled by manage.css #}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ jr_asset('manage.css') }}">
-  {% if jr_preview %}
-  {# Preview tools (dev server, or a super admin): every theme's fonts and tokens, each scoped
-     to [data-jr-theme]. #}
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
-  {% for key, _ in jr_themes %}<link rel="stylesheet" href="{{ jr_asset('themes/' ~ key ~ '.css') }}">
-  {% endfor %}
-  {% endif %}
+  {# The locked look, for everyone (JR_THEME in routes.py; the other themes are shelved). #}
+  <link rel="stylesheet" href="{{ jr_asset('themes/' ~ jr_theme ~ '.css') }}">
 </head>
-<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}"{% if jr_preview %} data-jr-theme="{{ jr_theme }}"{% endif %}>
+<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}" data-jr-theme="{{ jr_theme }}">
   {% block body %}{% endblock %}
   {% if jr_preview %}
   {# Preview pills. Dev server: Manager / Crew sign in as the dev accounts (dev_switch_enabled).
@@ -29,10 +24,7 @@
   {# Folded by default: one small pill bottom-left. Click it to open the switches above it. #}
   <div class="jr-devbar">
     <button type="button" class="jr-dev jr-devbar-toggle" aria-expanded="false" aria-controls="jr-devbar-panel" title="Preview tools">
-      <span class="jr-theme-dot jr-devbar-swatch" data-jr-theme="{{ jr_theme }}"></span>
       <span>{{ 'Crew' if jr_dev_role == 'crew' else 'Manager' }}</span>
-      <span class="jr-devbar-sep">·</span>
-      <span data-jr-mini="theme">{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
     </button>
     <div class="jr-devbar-panel" id="jr-devbar-panel" hidden>
     <div class="jr-dev" aria-label="Preview: manager or crew view">
@@ -44,37 +36,9 @@
       </form>
       {% endfor %}
     </div>
-    {# Each bubble is a .jr-pick: data-group (theme) + data-value. Theme bubbles also carry
-       data-jr-theme, so each paints itself in its own theme's colors. #}
-    <div class="jr-dev jr-dev--theme" role="group" aria-label="Preview: theme">
-      <span class="jr-dev-tag">Theme</span>
-      <span class="jr-pick-name" data-jr-name="theme">{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
-      {% for key, label in jr_themes %}
-      <button type="button" class="jr-pick jr-theme-dot {{ 'is-on' if key == jr_theme }}" data-group="theme" data-value="{{ key }}"
-              data-jr-theme="{{ key }}" data-label="{{ label }}" title="{{ label }}" aria-label="Theme: {{ label }}"
-              aria-pressed="{{ 'true' if key == jr_theme else 'false' }}"></button>
-      {% endfor %}
-    </div>
     </div>
   </div>
   <script>
-    // Preview bubbles: apply a pick in place (no reload) and remember it in a cookie.
-    // theme -> body[data-jr-theme].
-    document.querySelectorAll('.jr-pick').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var group = btn.dataset.group, value = btn.dataset.value;
-        document.body.dataset['jr' + group.charAt(0).toUpperCase() + group.slice(1)] = value;
-        document.cookie = 'jr_' + group + '=' + value + '; path=/; max-age=31536000; SameSite=Lax';
-        document.querySelectorAll('.jr-pick[data-group="' + group + '"]').forEach(function (b) {
-          b.classList.toggle('is-on', b === btn);
-          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
-        });
-        document.querySelector('[data-jr-name="' + group + '"]').textContent = btn.dataset.label;
-        document.querySelector('[data-jr-mini="theme"]').textContent = btn.dataset.label;
-        document.querySelector('.jr-devbar-swatch').dataset.jrTheme = value;
-      });
-    });
-
     // Fold / unfold. Stays open across the Manager / Crew reload (sessionStorage), closes on
     // Escape or a click elsewhere on the page.
     (function () {

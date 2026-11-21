@@ -1,0 +1,37 @@
+/* Theme: Midnight — Ledger, a shade darker. Deeper navy ink, a cooler stone ground, firmer
+   rules and a richer gold; same square corners and Baskerville / Plex type. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="midnight"] {
+  --primary: #081629;
+  --primary-rgb: 8, 22, 41;
+  --primary-light: #1A2D4A;
+  --accent: #B8913F;
+  --accent-hover: #8A6A26;
+  --text-main: #081629;
+  --text-muted: #4E5A6C;
+  --text-light: #F8F6F0;
+  --bg-body: #FFFFFF;
+  --bg-cream: #E7E9EC;
+  --rule: #B9BEC6;
+  --sage: #6E86A8;
+  --sage-lt: #D5DDE8;
+  --amber-lt: #EDE0C4;
+  --slate: #1F2A3A;
+  --card-ink: #0A1220;
+  --card-ink-muted: #4E5A6C;
+  --card-ink-faint: #8D97A5;
+
+  --jr-round: 0.15;
+  --jr-pill-r: 2px;
+  --jr-dot-r: 2px;
+  --jr-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --jr-font-display: 'Libre Baskerville', Georgia, serif;
+  --jr-display-weight: 400;
+  --jr-display-tracking: -0.01em;
+}
+body.jr[data-jr-theme="midnight"] {
+  --jr-shadow-sm: 0 1px 0 rgba(var(--primary-rgb), 0.08);
+  --jr-shadow-lift: 0 14px 30px -12px rgba(var(--primary-rgb), 0.55);
+}
+body.jr[data-jr-theme="midnight"] .jr-dow,
+body.jr[data-jr-theme="midnight"] .jr-month-head span,
+body.jr[data-jr-theme="midnight"] .jr-side-head h2 { letter-spacing: 0.12em; }

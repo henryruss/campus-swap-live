@@ -1,0 +1,37 @@
+/* Theme: Forest Ledger — Ledger's private-bank structure (square corners, hairline rules, no
+   resting shadow, Libre Baskerville over IBM Plex Sans, gold) in Current's forest green. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="forestledger"] {
+  --primary: #183A22;
+  --primary-rgb: 24, 58, 34;
+  --primary-light: #2B5537;
+  --accent: #A8843F;
+  --accent-hover: #7D6029;
+  --text-main: #183A22;
+  --text-muted: #5E6E62;
+  --text-light: #FAF8F3;
+  --bg-body: #FFFFFF;
+  --bg-cream: #F2F0EB;
+  --rule: #CDC8BE;
+  --sage: #86A58D;
+  --sage-lt: #DFE9E0;
+  --amber-lt: #F0E6D0;
+  --slate: #2F3B33;
+  --card-ink: #14201A;
+  --card-ink-muted: #5E6E62;
+  --card-ink-faint: #98A39B;
+
+  --jr-round: 0.15;
+  --jr-pill-r: 2px;
+  --jr-dot-r: 2px;
+  --jr-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --jr-font-display: 'Libre Baskerville', Georgia, serif;
+  --jr-display-weight: 400;
+  --jr-display-tracking: -0.01em;
+}
+body.jr[data-jr-theme="forestledger"] {
+  --jr-shadow-sm: none;
+  --jr-shadow-lift: 0 12px 28px -12px rgba(var(--primary-rgb), 0.45);
+}
+body.jr[data-jr-theme="forestledger"] .jr-dow,
+body.jr[data-jr-theme="forestledger"] .jr-month-head span,
+body.jr[data-jr-theme="forestledger"] .jr-side-head h2 { letter-spacing: 0.12em; }

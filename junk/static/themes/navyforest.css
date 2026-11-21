@@ -1,0 +1,40 @@
+/* Theme: Navy & Forest — the mix. Ledger's navy runs the page (buttons, today, headings, ink);
+   finished work turns Current's forest green, so done still reads as clean and green.
+   Current's type and corners (DM Serif / DM Sans, Forest Sharp shape). */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="navyforest"] {
+  --primary: #0E2240;
+  --primary-rgb: 14, 34, 64;
+  --primary-light: #24395C;
+  --accent: #C8832A;
+  --accent-hover: #A86A1F;
+  --text-main: #0E2240;
+  --text-muted: #5A6577;
+  --text-light: #F7F5F0;
+  --bg-body: #FFFFFF;
+  --bg-cream: #F3F1EC;
+  --rule: #D3CEC4;
+  --sage: #8AB88A;                     /* done: Current's greens */
+  --sage-lt: #D6E8D6;
+  --amber-lt: #F2DDB7;
+  --slate: #34445A;
+  --card-ink: #111827;
+  --card-ink-muted: #5A6577;
+  --card-ink-faint: #9CA3AF;
+  --jr-swatch-a: #0E2240;
+  --jr-swatch-b: #1A3D1A;
+
+  --jr-round: 0.4;
+  --jr-pill-r: 4px;
+  --jr-dot-r: 4px;
+  --jr-font-body: 'DM Sans', system-ui, sans-serif;
+  --jr-font-display: 'DM Serif Display', Georgia, serif;
+  --jr-display-weight: 400;
+}
+body.jr[data-jr-theme="navyforest"] {
+  --jr-shadow-sm: 0 1px 0 rgba(var(--primary-rgb), 0.06);
+  --jr-shadow-lift: 0 10px 22px -10px rgba(var(--primary-rgb), 0.35), 0 2px 6px -2px rgba(var(--primary-rgb), 0.16);
+}
+/* Done is forest, not navy. */
+body.jr[data-jr-theme="navyforest"] :is(.jr-card--done .jr-card-name, .jr-pill--done) { color: #1A3D1A; }
+body.jr[data-jr-theme="navyforest"] .jr-card--done .jr-card-addr { color: #2E5C2E; }
+body.jr[data-jr-theme="navyforest"] .jr-card--done :is(.jr-crew-tag, .jr-crew-tag .jr-avatar) { background: #1A3D1A; color: #F5F0E8; }
