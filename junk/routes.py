@@ -106,8 +106,7 @@ def _junk_context():
     return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset,
             'jr_is_manager': is_junk_manager(), 'jr_is_crew': is_junk_crew(),
             'jr_dev_switch': dev_switch_enabled(), 'jr_preview': preview_enabled(),
-            'jr_dev_role': _dev_role(), 'jr_themes': DEV_THEMES, 'jr_drags': DEV_DRAGS,
-            'jr_hovers': DEV_HOVERS, **_dev_looks()}
+            'jr_dev_role': _dev_role(), 'jr_themes': DEV_THEMES, **_dev_looks()}
 
 
 def _jr_asset(filename):
@@ -827,19 +826,17 @@ def dev_switch_enabled():
     return bool(current_app.debug)
 
 
-# ─── preview tools: themes, drag feel, hover feel ────────────────────────
+# ─── preview tools: themes ───────────────────────────────────────────────
 # Shown on the local debug server, and to super admins anywhere (so the team can compare
 # looks on the live site). Each pick lives in a cookie set by the pill's JS; the server only
 # reads it so the page renders with no flash. Lists are (key, label).
-# Themes: each key is junk/static/themes/<key>.css. Drag and hover: junk/static/motion.css,
-# plus the drag timings in manage.js (DRAG_MOTION).
-DEV_THEMES = [('current', 'Current'), ('sharp', 'Forest Sharp'), ('ledger', 'Ledger'),
-              ('notion', 'Notion'), ('remarkable', 'reMarkable')]
-DEV_DRAGS = [('theme', 'Theme default'), ('float', 'Float'), ('sharp', 'Sharp'),
-             ('tilt', 'Tilt'), ('snap', 'Snap'), ('glide', 'Glide')]
-DEV_HOVERS = [('border', 'Border'), ('lift', 'Lift'), ('tint', 'Tint'),
-              ('outline', 'Outline'), ('none', 'None')]
-_LOOK_COOKIES = (('jr_theme', DEV_THEMES), ('jr_drag', DEV_DRAGS), ('jr_hover', DEV_HOVERS))
+# Themes: each key is junk/static/themes/<key>.css.
+# Narrowing to favorites (Henry, 2026-11-20). Current is Forest Sharp now; Notion and reMarkable
+# are out; Ski, Spreadsheet and Black & White are in to compare. Drag feel and hover are settled
+# (today's drag, Outline hover, for everyone), so they have no switches.
+DEV_THEMES = [('current', 'Current'), ('ledger', 'Ledger'), ('ski', 'Ski'),
+              ('grid', 'Spreadsheet'), ('mono', 'Black & White')]
+_LOOK_COOKIES = (('jr_theme', DEV_THEMES),)
 
 
 def preview_enabled():
@@ -849,7 +846,7 @@ def preview_enabled():
 
 
 def _dev_looks():
-    """{'jr_theme': key, 'jr_drag': key, 'jr_hover': key}, each the first option when the
+    """{'jr_theme': key}, the first option when the
     cookie is missing or stale. All None when the preview tools are off."""
     on = preview_enabled()
     looks = {}

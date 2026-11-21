@@ -182,7 +182,7 @@ def test_preview_pills_super_admin_only(make_user):
     page = _login(boss.id).get('/junk/manage').data.decode()
     assert 'jr-devbar' in page and 'data-jr-theme="current"' in page
     assert '/junk/dev/view/crew' in page and '/junk/dev/as/' not in page
-    assert 'motion.css' in page and 'themes/ledger.css' in page
+    assert 'themes/ledger.css' in page
     mgr = make_user(is_junk_manager=True)
     page = _login(mgr.id).get('/junk/manage').data.decode()
     assert 'jr-devbar' not in page and 'themes/' not in page and 'data-jr-theme' not in page
@@ -191,11 +191,11 @@ def test_preview_pills_super_admin_only(make_user):
 def test_preview_cookies_render_and_stale_values_fall_back(make_user):
     c = _login(make_user(is_super_admin=True).id)
     c.set_cookie('jr_theme', 'ledger')
-    c.set_cookie('jr_drag', 'tilt')
-    c.set_cookie('jr_hover', 'nonsense')
     page = c.get('/junk/manage').data.decode()
-    assert 'data-jr-theme="ledger"' in page and 'data-jr-drag="tilt"' in page
-    assert 'data-jr-hover="border"' in page
+    assert 'data-jr-theme="ledger"' in page
+    assert 'data-jr-drag' not in page and 'data-jr-hover' not in page   # settled: no switches
+    c.set_cookie('jr_theme', 'notion')   # a theme that's been removed falls back to the first
+    assert 'data-jr-theme="current"' in c.get('/junk/manage').data.decode()
 
 
 def test_super_admin_view_as_crew_and_back(make_user):

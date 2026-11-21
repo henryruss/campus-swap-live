@@ -699,25 +699,8 @@
     });
   }
 
-  // Drag feel. The preview pill (super admins / dev) sets body[data-jr-drag]; the lifted-card
-  // look for each feel is in motion.css, the timing of the cards making room is here.
-  var DRAG_MOTION = {
-    theme: { animation: 160, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' },
-    float: { animation: 200, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' },
-    sharp: { animation: 120, easing: 'cubic-bezier(0.3, 0, 0.2, 1)' },
-    tilt:  { animation: 220, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },   // slight overshoot
-    snap:  { animation: 70,  easing: 'linear' },
-    glide: { animation: 340, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
-  };
-  function dragMotion() { return DRAG_MOTION[document.body.dataset.jrDrag] || DRAG_MOTION.theme; }
-  document.addEventListener('jr:motion', function () {
-    if (typeof Sortable === 'undefined') return;
-    var m = dragMotion();
-    document.querySelectorAll('.jr-list').forEach(function (list) {
-      var s = Sortable.get(list);
-      if (s) { s.option('animation', m.animation); s.option('easing', m.easing); }
-    });
-  });
+  // How fast the other cards slide out of the way of a dragged one (settled 2026-11-20).
+  var DRAG_ANIMATION = 160, DRAG_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
   function crewSortable(list, fromCard) {
     Sortable.create(list, {
@@ -799,8 +782,8 @@
         group: list === unscheduled ? { name: 'jobs', put: false } : 'jobs',
         sort: list !== unscheduled,       // Unscheduled is ordered by age, not by hand
         draggable: '.jr-card',
-        animation: dragMotion().animation,   // how fast the other cards slide out of the way
-        easing: dragMotion().easing,
+        animation: DRAG_ANIMATION,   // how fast the other cards slide out of the way
+        easing: DRAG_EASING,
         forceFallback: true,              // same lifted-card look on every browser
         fallbackOnBody: true,
         fallbackClass: 'is-drag',

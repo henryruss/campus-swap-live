@@ -15,13 +15,13 @@
   <link rel="stylesheet" href="{{ jr_asset('manage.css') }}">
   {% if jr_preview %}
   {# Preview tools (dev server, or a super admin): every theme's fonts and tokens, each scoped
-     to [data-jr-theme], then the drag / hover feels scoped to [data-jr-drag] / [data-jr-hover]. #}
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
+     to [data-jr-theme]. #}
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
   {% for key, _ in jr_themes %}<link rel="stylesheet" href="{{ jr_asset('themes/' ~ key ~ '.css') }}">
-  {% endfor %}<link rel="stylesheet" href="{{ jr_asset('motion.css') }}">
+  {% endfor %}
   {% endif %}
 </head>
-<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}"{% if jr_preview %} data-jr-theme="{{ jr_theme }}" data-jr-drag="{{ jr_drag }}" data-jr-hover="{{ jr_hover }}"{% endif %}>
+<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}"{% if jr_preview %} data-jr-theme="{{ jr_theme }}"{% endif %}>
   {% block body %}{% endblock %}
   {% if jr_preview %}
   {# Preview pills. Dev server: Manager / Crew sign in as the dev accounts (dev_switch_enabled).
@@ -44,8 +44,8 @@
       </form>
       {% endfor %}
     </div>
-    {# Each bubble is a .jr-pick: data-group (theme / drag / hover) + data-value. Theme bubbles
-       also carry data-jr-theme, so each paints itself in its own theme's colors. #}
+    {# Each bubble is a .jr-pick: data-group (theme) + data-value. Theme bubbles also carry
+       data-jr-theme, so each paints itself in its own theme's colors. #}
     <div class="jr-dev jr-dev--theme" role="group" aria-label="Preview: theme">
       <span class="jr-dev-tag">Theme</span>
       <span class="jr-pick-name" data-jr-name="theme">{{ (jr_themes | selectattr(0, 'equalto', jr_theme) | first)[1] }}</span>
@@ -55,22 +55,11 @@
               aria-pressed="{{ 'true' if key == jr_theme else 'false' }}"></button>
       {% endfor %}
     </div>
-    {% for group, tag, options, current in [('drag', 'Drag', jr_drags, jr_drag), ('hover', 'Hover', jr_hovers, jr_hover)] %}
-    <div class="jr-dev jr-dev--look" role="group" aria-label="Preview: {{ tag | lower }} feel">
-      <span class="jr-dev-tag">{{ tag }}</span>
-      <span class="jr-pick-name" data-jr-name="{{ group }}">{{ (options | selectattr(0, 'equalto', current) | first)[1] }}</span>
-      {% for key, label in options %}
-      <button type="button" class="jr-pick jr-look-dot {{ 'is-on' if key == current }}" data-group="{{ group }}" data-value="{{ key }}"
-              data-look="{{ group }}-{{ key }}" data-label="{{ label }}" title="{{ label }}" aria-label="{{ tag }}: {{ label }}"
-              aria-pressed="{{ 'true' if key == current else 'false' }}"><i></i></button>
-      {% endfor %}
-    </div>
-    {% endfor %}
     </div>
   </div>
   <script>
     // Preview bubbles: apply a pick in place (no reload) and remember it in a cookie.
-    // theme -> body[data-jr-theme], drag -> body[data-jr-drag], hover -> body[data-jr-hover].
+    // theme -> body[data-jr-theme].
     document.querySelectorAll('.jr-pick').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var group = btn.dataset.group, value = btn.dataset.value;
@@ -81,12 +70,8 @@
           b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
         });
         document.querySelector('[data-jr-name="' + group + '"]').textContent = btn.dataset.label;
-        if (group === 'theme') {
-          document.querySelector('[data-jr-mini="theme"]').textContent = btn.dataset.label;
-          document.querySelector('.jr-devbar-swatch').dataset.jrTheme = value;
-        } else {
-          document.dispatchEvent(new CustomEvent('jr:motion'));  // manage.js retimes drags
-        }
+        document.querySelector('[data-jr-mini="theme"]').textContent = btn.dataset.label;
+        document.querySelector('.jr-devbar-swatch').dataset.jrTheme = value;
       });
     });
 

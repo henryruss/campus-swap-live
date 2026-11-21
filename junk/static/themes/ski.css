@@ -1,0 +1,36 @@
+/* Theme: Ski — alpine. Glacier navy, ski-patrol red, snow-blue ground, ice-blue for done;
+   condensed trail-sign headings (Barlow Condensed) over Barlow. */
+:is(body.jr, .jr-theme-dot)[data-jr-theme="ski"] {
+  --primary: #0B2545;
+  --primary-rgb: 11, 37, 69;
+  --primary-light: #1D4E89;
+  --accent: #E63946;
+  --accent-hover: #B5202E;
+  --text-main: #0B2545;
+  --text-muted: #557089;
+  --text-light: #F7FAFC;
+  --bg-body: #FFFFFF;
+  --bg-cream: #EAF1F8;
+  --rule: #C6D4E3;
+  --sage: #7FAADB;
+  --sage-lt: #D9E8F7;
+  --amber-lt: #FCE1E3;
+  --slate: #23364D;
+  --card-ink: #0B1B2E;
+  --card-ink-muted: #5A6B7F;
+  --card-ink-faint: #9AA9BA;
+
+  --jr-round: 0.7;
+  --jr-pill-r: 999px;
+  --jr-dot-r: 50%;
+  --jr-font-body: 'Barlow', system-ui, sans-serif;
+  --jr-font-display: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  --jr-display-weight: 700;
+  --jr-display-tracking: 0.01em;
+}
+body.jr[data-jr-theme="ski"] {
+  --jr-today-bg: #E63946;              /* the red trail-marker dot */
+  --jr-shadow-sm: 0 1px 2px rgba(var(--primary-rgb), 0.08);
+  --jr-shadow-lift: 0 16px 30px -12px rgba(var(--primary-rgb), 0.35), 0 4px 10px -4px rgba(var(--primary-rgb), 0.14);
+}
+body.jr[data-jr-theme="ski"] :is(h1, h2, h3), body.jr[data-jr-theme="ski"] .jr-label { text-transform: uppercase; }
