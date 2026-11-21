@@ -246,7 +246,7 @@ body.jr-dragging, body.jr-dragging * { cursor: grabbing !important; }
 .jr-crewchip.is-drag, .jr-crew-tag.is-drag { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--jr-shadow-lift); opacity: 1 !important; }
 .jr-crewchip.is-ghost, .jr-crew-tag.is-ghost { opacity: 0.45; }
 .jr-card.is-crew-target { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--jr-shadow-sm); }
-.jr-crewside.is-drop-target { border-color: var(--primary-light); background: var(--sage-lt); }
+.jr-crewside.is-drop-target { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--bg-body)); }   /* navy: green means done */
 
 /* ── Month ─────────────────────────────────────────────── */
 .jr-month { background: var(--bg-body); border: 1px solid var(--rule); border-radius: calc(14px * var(--jr-round)); overflow: hidden; }
