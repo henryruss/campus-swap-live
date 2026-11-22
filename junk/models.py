@@ -40,6 +40,11 @@ class Job(db.Model):
                              order_by='JobEvent.id.desc()')
     assignments = db.relationship('JobAssignment', backref='job', lazy='select',
                                   order_by='JobAssignment.id', cascade='all, delete-orphan')
+    # The job-site checklist (feature_junk_jobsite.md): photos, and the answers that aren't photos.
+    photos = db.relationship('JobPhoto', backref='job', lazy='select',
+                             order_by='JobPhoto.id', cascade='all, delete-orphan')
+    checks = db.relationship('JobCheck', backref='job', lazy='select',
+                             order_by='JobCheck.id', cascade='all, delete-orphan')
 
     __table_args__ = (
         db.Index('ix_junk_job_day_queue', 'scheduled_date', 'queue_position'),
@@ -97,6 +102,46 @@ class JobAssignment(db.Model):
     user = db.relationship('User', foreign_keys=[user_id])
 
     __table_args__ = (db.UniqueConstraint('job_id', 'user_id', name='uq_junk_job_assignment'),)
+
+
+class JobPhoto(db.Model):
+    """One checklist photo: the cleared-out space, or a dump receipt. Moving a photo to another
+    job (a mix-up on site) just changes job_id; the file stays where it is."""
+    __tablename__ = 'junk_job_photo'
+
+    KINDS = ('cleared', 'dump')
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('junk_job.id', ondelete='CASCADE'), nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False)            # cleared | dump
+    key = db.Column(db.String(120), nullable=False)            # storage filename (S3 or disk)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    uploaded_by = db.relationship('User', foreign_keys=[uploaded_by_id])
+
+
+class JobCheck(db.Model):
+    """A checklist answer that isn't a photo, one per job per item:
+    dump: 'shared' (dumped with another job's load, so its receipt covers this one);
+    truck: 'returned' (to the rental place) | 'handed' (off to the next job). Who has it isn't
+    asked for now; handed_to is there for when it is."""
+    __tablename__ = 'junk_job_check'
+
+    ANSWERS = {'dump': ('shared',), 'truck': ('returned', 'handed')}
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('junk_job.id', ondelete='CASCADE'), nullable=False, index=True)
+    item = db.Column(db.String(20), nullable=False)
+    answer = db.Column(db.String(20), nullable=False)
+    handed_to_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    answered_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    answered_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    handed_to = db.relationship('User', foreign_keys=[handed_to_id])
+    answered_by = db.relationship('User', foreign_keys=[answered_by_id])
+
+    __table_args__ = (db.UniqueConstraint('job_id', 'item', name='uq_junk_job_check'),)
 
 
 def person_name(user):

@@ -628,8 +628,16 @@ body.jr-modal-open { overflow: hidden; }
   border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
 .jr-cmore:hover { border-color: var(--jr-hover-border); }
 .jr-cback { display: inline-block; margin-bottom: 12px; font-size: 0.88rem; font-weight: 600; color: var(--primary); text-decoration: none; }
-.jr-cfin { margin-top: 22px; }
-@media (min-width: 900px) { .jr-cfin { margin-top: 18px; } }
+.jr-cfin { margin-top: 18px; }
+/* Phones reach finished jobs from the "jobs done" total; the list is for wide screens. */
+@media (max-width: 899px) { .jr-cfin { display: none; } }
+.jr-cstat--link { text-decoration: none; }
+@media (hover: hover) { .jr-cstat--link:hover { border-color: var(--primary); } }
+/* Wide screens have the Finished list right below, so the total is just a total there. */
+@media (min-width: 900px) {
+  .jr-crew:not(.jr-crew--one) .jr-cstat--link { pointer-events: none; }
+  .jr-crew:not(.jr-crew--one) .jr-cstat--link .jr-cstat-go { display: none; }
+}
 /* A job's details: the map down the left, buttons and facts on the right. The map is at least
    square and runs to the bottom of the card when the details are longer; crew.js asks Google
    for a picture exactly that size, centered on the job, so the pin (CSS, at the center) is on it.
@@ -642,6 +650,12 @@ body.jr-modal-open { overflow: hidden; }
   border-radius: calc(10px * var(--jr-round)); border: 1px solid var(--rule); background: var(--bg-cream);
 }
 .jr-cj-map[hidden] { display: none; }
+.jr-cj-map--none {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px;
+  text-align: center; color: var(--text-muted); font-size: 0.74rem; font-weight: 600; line-height: 1.25;
+}
+.jr-cj-map--none svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; opacity: 0.7; }
+.jr-cj-map.jr-cj-map--none::after { content: none; }
 .jr-cj-map img { position: absolute; inset: 0; width: 100%; height: 100%; }
 .jr-cj-map img:not([src]) { visibility: hidden; }
 .jr-cj-map::after {
@@ -656,6 +670,97 @@ body.jr-modal-open { overflow: hidden; }
   .jr-cj-body.has-map .jr-cj-line { flex-direction: column; gap: 1px; font-size: 0.86rem; }
   .jr-cj-body.has-map .jr-cj-k { width: auto; padding: 0; font-size: 0.64rem; }
 }
+/* ─── The job-site checklist (Slice 3a) ───
+   Navy for what you can tap; green only for answered (the done color). */
+.jr-ck { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.jr-ck-head { display: flex; align-items: baseline; justify-content: space-between; }
+.jr-ck-title { margin: 0; font-family: var(--jr-font-body); font-size: 0.72rem !important; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.jr-ck-count { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.jr-ck-count.is-done { color: var(--jr-done-ink, var(--primary)); }
+.jr-ck-err { margin: 6px 0 0; font-size: 0.82rem; font-weight: 600; color: var(--accent-hover); }
+.jr-ck-err[hidden] { display: none; }
+.jr-ck-item { --sq: 64px; display: grid; grid-template-columns: 106px minmax(0, 1fr); gap: 8px; align-items: start; padding: 10px 0 2px; }
+@media (min-width: 600px) { .jr-ck-item { --sq: 72px; grid-template-columns: 124px minmax(0, 1fr); } }
+.jr-ck-mark { flex: none; position: relative; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 1.5px solid var(--rule); }
+.jr-ck-item.is-done .jr-ck-mark { background: var(--jr-done-ink, var(--primary)); border-color: var(--jr-done-ink, var(--primary)); }
+.jr-ck-item.is-done .jr-ck-mark::after {
+  content: ''; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px;
+  border: solid var(--bg-body); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.jr-ck-label { display: flex; gap: 7px; margin: 0; padding-top: 2px; font-size: 0.9rem; font-weight: 600; color: var(--card-ink); line-height: 1.3; }
+.jr-ck-label small { display: block; margin-top: 2px; font-size: 0.74rem; font-weight: 400; color: var(--text-muted); }
+.jr-ck-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.jr-ck-photos { display: contents; }
+.jr-ck-thumb { position: relative; width: var(--sq); height: var(--sq); flex: none; border-radius: calc(10px * var(--jr-round)); }
+.jr-ck-thumb > a { display: block; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; border: 1px solid var(--rule); background: var(--bg-cream); }
+.jr-ck-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.jr-ck-x {
+  position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: 1px solid var(--rule); border-radius: 50%; background: var(--bg-body); color: var(--text-muted); cursor: pointer;
+}
+.jr-ck-x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.jr-ck-photos { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+/* Add photos: a solid navy square the size of a photo, like Navigate. */
+.jr-ck-add {
+  position: relative; flex: none; display: grid; place-items: center; width: var(--sq); height: var(--sq); margin: 0; padding: 0; border: 0;
+  border-radius: calc(10px * var(--jr-round)); background: var(--jr-btn-bg, var(--primary)); color: var(--jr-btn-ink, var(--text-light));
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.jr-ck-add:active { background: var(--jr-btn-bg-hover, var(--primary-light)); }
+/* Waiting on iPhone to finish closing its last photo menu (crew.js): the tap was heard. */
+.jr-ck-add.is-opening { background: var(--jr-btn-bg-hover, var(--primary-light)); }
+.jr-ck-add.is-opening svg { animation: jr-pulse 0.6s ease-in-out infinite alternate; }
+@keyframes jr-pulse { from { opacity: 1; transform: scale(1); } to { opacity: 0.55; transform: scale(0.9); } }
+@media (hover: hover) { .jr-ck-add:hover { background: var(--jr-btn-bg-hover, var(--primary-light)); } }
+.jr-ck-add svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+/* The file picker crew.js makes for each tap: on the page (iPhone wants that), never seen. */
+.jr-ck-picker { position: fixed; left: 0; top: 0; width: 1px !important; height: 1px !important; padding: 0 !important; margin: 0 !important; border: 0 !important; opacity: 0; pointer-events: none; }
+
+.jr-ck-add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* A photo on its way up (a preview from the phone), or one that didn't make it. */
+.jr-ck-thumb.is-pending img { opacity: 0.45; }
+.jr-ck-thumb.is-pending::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border: 2px solid var(--primary); border-right-color: transparent; border-radius: 50%; animation: jr-spin 0.8s linear infinite;
+}
+.jr-ck-thumb.is-failed > a { border-color: var(--accent-hover); }
+.jr-ck-thumb.is-failed img { opacity: 0.35; }
+.jr-ck-retry { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: none; color: var(--accent-hover); font: 700 0.7rem var(--jr-font-body); cursor: pointer; }
+@keyframes jr-spin { to { transform: rotate(360deg); } }
+/* Answers fill the rest of their row (beside a photo square they're as tall as it): white until
+   chosen, navy once chosen. */
+.jr-ck-opt {
+  flex: 1 1 0; min-width: 0; min-height: 52px; margin: 0; padding: 6px 10px;
+  border: 1px solid var(--rule); border-radius: calc(10px * var(--jr-round)); background: var(--bg-body); color: var(--primary);
+  font: 600 0.86rem/1.2 var(--jr-font-body); text-align: center; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.jr-ck-opt.is-on { background: var(--primary); border-color: var(--primary); color: var(--text-light); }
+@media (hover: hover) { .jr-ck-opt:not(.is-on):hover { border-color: var(--primary); } }
+.jr-ck-ans { margin: 0; font-size: 0.9rem; color: var(--card-ink); }
+.jr-ck-ans--none { color: var(--text-muted); }
+.jr-ck-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--card-ink-muted); }
+.jr-ck.is-busy .jr-ck-opt { pointer-events: none; }
+
+/* ─── Photo viewer (crew.js) ─── */
+.jr-pv { position: fixed; inset: 0; z-index: 400; display: grid; grid-template-columns: 64px minmax(0, 1fr) 64px; align-items: center;
+  background: rgba(10, 14, 22, 0.92); touch-action: pan-y; }
+.jr-pv[hidden] { display: none; }
+.jr-pv-fig { grid-column: 2; margin: 0; display: flex; align-items: center; justify-content: center; height: 100dvh; padding: 56px 0; }
+.jr-pv-fig img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
+.jr-pv-close, .jr-pv-nav {
+  display: grid; place-items: center; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12); color: #fff; cursor: pointer;
+}
+.jr-pv-close svg, .jr-pv-nav svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.jr-pv-close { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; }
+.jr-pv-prev { grid-column: 1; justify-self: center; }
+.jr-pv-next { grid-column: 3; justify-self: center; }
+@media (hover: hover) { .jr-pv-close:hover, .jr-pv-nav:hover { background: rgba(255, 255, 255, 0.24); } }
+/* Phones swipe; arrows are for a mouse. One photo: no arrows, no count. */
+@media (hover: none) { .jr-pv { grid-template-columns: 8px minmax(0, 1fr) 8px; } .jr-pv-nav { display: none; } }
+.jr-pv.is-single .jr-pv-nav, .jr-pv.is-single .jr-pv-count { display: none; }
+.jr-pv-count { position: absolute; left: 0; right: 0; bottom: max(16px, env(safe-area-inset-bottom)); margin: 0; text-align: center; color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+
 .jr-empty { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
 .jr-cstats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .jr-cstat {
@@ -698,7 +803,11 @@ body.jr-modal-open { overflow: hidden; }
 .jr-cj-copy.is-copied .jr-cj-copy-ok { visibility: visible; }
 .jr-cj-cut { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: 1.02rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .jr-cj-cut small { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
-.jr-cj-when { margin: 4px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--accent-hover); }
+.jr-cj-status { display: flex; flex-wrap: wrap; column-gap: 8px; }
+.jr-cj-status:empty { display: none; }
+.jr-cj-st { margin-top: 3px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.jr-cj-st--late { color: var(--accent-hover); }
+.jr-cj-st--done { color: var(--jr-done-ink, var(--primary)); }
 .jr-cj-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 72px)); gap: 8px; margin: 0 0 2px; }
 .jr-cj-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1;
@@ -724,7 +833,13 @@ body.jr-modal-open { overflow: hidden; }
 .jr-cj-more .jr-cj-body { margin-top: 2px; }
 /* Done */
 .jr-cdone { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
-.jr-cdone li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 0.9rem; }
+.jr-cdone-row > summary { display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 14px; font-size: 0.9rem; list-style: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.jr-cdone-row > summary::-webkit-details-marker { display: none; }
+.jr-cdone-row > summary .jr-cj-chev { width: 16px; height: 16px; }
+.jr-cdone-row[open] > summary .jr-cj-chev { transform: rotate(90deg); }
+@media (hover: hover) { .jr-cdone-row > summary:hover .jr-cj-name { color: var(--primary); } }
+.jr-cdone-more { padding: 0 14px 14px; }
+.jr-cdone-more > .jr-cj-line:first-child { margin-top: 0; }
 .jr-cdone li + li { border-top: 1px solid var(--rule); }
 .jr-cdone .jr-cj-name { flex: 1; min-width: 0; font-size: 0.92rem; font-weight: 600; }
 .jr-cdone-date { color: var(--text-muted); font-size: 0.82rem; }

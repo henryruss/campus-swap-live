@@ -22,7 +22,7 @@ Each answer records who gave it and when.
 
 1. **Cleared out:** one or more photos of the empty space. This proves nothing was left behind; a dump receipt alone can't.
 2. **Dump:** a photo of the receipt, or one tap: **"Dumped with another job"** (one receipt can cover several jobs).
-3. **Truck:** **Returned it** · **Handed it to…** (pick a person) · **Still have it**. A handoff between crews is one crew's answer, and the manager sees the chain. For now this is one truck and a job or two a week; several trucks at once is out of scope.
+3. **Truck:** **Returned it** · **Handed off** (going on to the next job), each a single tap. Henry dropped "Still have it" and dropped picking a person on 2026-11-22. Ideas for closing the loop later: Ramp card checkouts, a regular drop spot for midday crews, an automatic return notice. None of these are built.
 4. **Payment:** see below.
 
 **At the top of the job, in big type:** **Paid ✓**, or **"Not paid: collect before you leave"** plus a **Show pay code** button. Once the crew leave the property, the business owns the stuff and the customer could flake. If the customer isn't home and hasn't paid, the crew wait.
@@ -65,6 +65,38 @@ Each answer records who gave it and when.
 - **Shape:**
   - **Crew:** the checklist is on the job card (Today and Not finished cards only). Payment goes at the top of the card, and a small "2 of 4" sits in the head.
   - **Manager:** the job window gets a Checklist section (photos, who and when, move, reopen, cash received). Calendar cards get one small progress mark. A "Needs attention" list goes on the desktop side.
+
+## Decided (Henry, 2026-11-22): the My jobs layout
+- **Every job is a row you tap open.** Today's jobs are open; Not finished yet, Coming up and Waiting on review are closed.
+- **When a checklist is complete,** the job folds up and says "Job done · waiting on manager review", and it moves to **Waiting on review**. Crew can still open it and change things until a manager marks it done. After that it's read-only for crew; managers can still change it.
+- **Finished jobs:**
+  - On a phone, the "jobs done" total opens the Finished page.
+  - On a wide screen, a **Finished** list sits in the right column, newest first.
+  - Every finished row opens that job.
+- **Photos:**
+  - A photo opens in a viewer on the same page: arrows and arrow keys on a computer, swipe on a phone, neither when there's only one.
+  - Add buttons are big enough for a thumb.
+- **Addresses:** a typed address that wasn't picked from suggestions gets no map, just "Address not confirmed", instead of Google's guess or error box.
+- **Closing a row** near the bottom of the page doesn't jump the page.
+- **Next:**
+  - Desktop photo upload by QR code, so a computer can hand off to a phone camera.
+  - Then the manager side.
+- **Later:** a quote-photos square beside the map that opens a carousel (reuse the viewer) when quoting is built.
+
+## Solved: a second tap on iPhone (2026-11-22)
+**What happened:**
+1. Tap a photo square; the iPhone photo menu opens.
+2. Dismiss the menu by tapping the page.
+3. The next tap on a photo square did nothing; the tap after that worked.
+
+**The cause** (found with a temporary tap log sent to the dev server):
+- iOS takes about 0.2–0.8s to finish closing the menu after the dismissing tap, and silently ignores any request to open a menu until then.
+- A quick next tap always landed inside that window.
+
+**The fix (`crew.js` `pickPhotos`):**
+- Each tap makes a fresh file input.
+- If the last menu hasn't reported closing yet (its `cancel` or `change` event), the new one waits for it (up to 900ms) and then opens. Safari still counts a request that soon after a tap as coming from the tap.
+- The square shows an "opening" pulse during the wait, so the ⅓-second delay reads as intended.
 
 ## Open questions
 - **Photo storage:** reuse the legacy upload path (`/var/data` on Render), with limits on size and count.

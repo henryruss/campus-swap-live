@@ -487,7 +487,7 @@ def test_my_jobs_for_managers_and_viewing_someone_else(make_user, monkeypatch):
     c = _login(mgr.id)
     j = _job(mgr, customer_name='Jordans Job', scheduled_date=date(2099, 6, 12), queue_position=1, quote_amount=Decimal('500'))
     _crew(c, j, jo)
-    for n in range(3):   # three finished; only the latest two show, then "View all"
+    for n in range(3):   # three finished: all in the Finished list, newest first
         d = _job(mgr, customer_name=f'Done {n}', scheduled_date=date(2099, 6, n + 1), queue_position=1,
                  quote_amount=Decimal('100'), completed_at=datetime(2099, 6, n + 1, 18))
         _crew(c, d, jo)
@@ -497,8 +497,8 @@ def test_my_jobs_for_managers_and_viewing_someone_else(make_user, monkeypatch):
     # …and can look at anyone's.
     page = c.get(f'/junk/crew?person={jo.id}').get_data(as_text=True)
     assert 'Jordans Job' in page and 'Jordan Lee’s jobs' in page and '$100' in page
-    assert 'Done 2' in page and 'Done 1' in page and 'Done 0' not in page
-    assert f'/junk/crew/done?person={jo.id}' in page and 'View all 3 finished jobs' in page
+    assert page.index('Done 2') < page.index('Done 1') < page.index('Done 0')
+    assert f'/junk/crew/done?person={jo.id}' in page          # "jobs done" opens the Finished page
     every = c.get(f'/junk/crew/done?person={jo.id}').get_data(as_text=True)
     assert 'Done 0' in every and 'Done 2' in every
     # Crew can't look at each other's.

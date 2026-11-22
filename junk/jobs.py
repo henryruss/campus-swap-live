@@ -276,11 +276,19 @@ def undo_done(job, user):
 def delete_job(job):
     """Permanently delete a job and its history. Closes the gap in the line it was in."""
     line = job.scheduled_date
+    keys = [p.key for p in job.photos]        # checklist photos go too
     db.session.execute(db.delete(JobEvent).where(JobEvent.job_id == job.id))
     db.session.delete(job)
     db.session.flush()
     renumber_day(line)
     db.session.commit()
+    if keys:
+        from storage import get_storage_instance
+        for key in keys:
+            try:
+                get_storage_instance().delete_photo(key)
+            except Exception:
+                pass
 
 
 class StaleBoard(Exception):

@@ -3,13 +3,16 @@
 {% import 'junk/_crew_job.html' as cj with context %}
 
 {% block content %}
-{# Phones: who · totals · the jobs · finished. Wider: the jobs on the left; who, totals and
-   finished on the right (and, later, open jobs to claim under them). #}
+{# Phones: who · totals · the jobs. Wider: the jobs on the left; who, totals and the Finished
+   list on the right (and, later, open jobs to claim under them). Today's jobs are open; the
+   rest are rows you tap open, so what's left to do today is what you see. #}
+{%- set mine = person.id == current_user.id %}
+{%- set done_url = url_for('junk.crew_done', person=none if mine else person.id) %}
 <div class="jr-crew">
   {{ cj.who('junk.crew_home') }}
 
   <section class="jr-cstats" aria-label="Totals">
-    <div class="jr-cstat"><strong>{{ stats.jobs }}</strong><span>{{ 'job' if stats.jobs == 1 else 'jobs' }} done</span></div>
+    <a class="jr-cstat jr-cstat--link" href="{{ done_url }}"><strong>{{ stats.jobs }}</strong><span>{{ 'job' if stats.jobs == 1 else 'jobs' }} done<span class="jr-cstat-go"> ›</span></span></a>
     <div class="jr-cstat"><strong>{{ stats.earned|jr_money or '$0' }}</strong><span>earned</span></div>
   </section>
 
@@ -17,48 +20,44 @@
     {% if earlier %}
     <section class="jr-csec">
       <h2 class="jr-csec-h">Not finished yet</h2>
-      {% for job in earlier %}
-      <article class="jr-cj">{{ cj.job_head(job, when=job.scheduled_date) }}{{ cj.job_body(job) }}</article>
-      {% endfor %}
+      {% for job in earlier %}{{ cj.job_card(job) }}{% endfor %}
     </section>
     {% endif %}
 
     <section class="jr-csec">
       <h2 class="jr-csec-h">Today <span>{{ today.strftime('%a, %b %-d') }}</span></h2>
-      {% for job in todays %}
-      <article class="jr-cj">{{ cj.job_head(job) }}{{ cj.job_body(job) }}</article>
-      {% else %}
-      <p class="jr-cnone">Nothing today.</p>
-      {% endfor %}
+      {% for job in todays %}{{ cj.job_card(job, open=true) }}
+      {% else %}<p class="jr-cnone">{{ 'Nothing left today.' if review|selectattr('scheduled_date', 'equalto', today)|list else 'Nothing today.' }}</p>{% endfor %}
     </section>
 
     <section class="jr-csec">
       <h2 class="jr-csec-h">Coming up</h2>
       {% for day, jobs in coming %}
         <h3 class="jr-cday">{{ day|jr_day(today) }}</h3>
-        {% for job in jobs %}
-        <details class="jr-cj jr-cj--row">
-          <summary>{{ cj.job_head(job, 'span') }}<svg class="jr-cj-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary>
-          <div class="jr-cj-more">{{ cj.job_body(job) }}</div>
-        </details>
-        {% endfor %}
+        {% for job in jobs %}{{ cj.job_card(job) }}{% endfor %}
       {% else %}
-      <p class="jr-cnone">Nothing scheduled yet. When a manager puts {{ 'you' if person.id == current_user.id else person|jr_person }} on a job, it shows up here.</p>
+      <p class="jr-cnone">Nothing scheduled yet. When a manager puts {{ 'you' if mine else person|jr_person }} on a job, it shows up here.</p>
       {% endfor %}
     </section>
+
+    {% if review %}
+    <section class="jr-csec">
+      <h2 class="jr-csec-h">Waiting on review</h2>
+      {% for job in review %}{{ cj.job_card(job) }}{% endfor %}
+    </section>
+    {% endif %}
   </div>
 
+  {# Wide screens: every finished job, newest first, each opening in place. Phones: the
+     "jobs done" total above opens the same list on its own page. #}
   <section class="jr-csec jr-cfin">
-    <h2 class="jr-csec-h">Finished</h2>
-    {% if recent %}
-    <ul class="jr-cdone">{% for job in recent %}{{ cj.done_row(job) }}{% endfor %}</ul>
-    {% if more_done %}<a class="jr-cmore" href="{{ url_for('junk.crew_done', person=person.id if person.id != current_user.id else none) }}">View all {{ stats.jobs }} finished jobs</a>{% endif %}
-    {% else %}
-    <p class="jr-cnone">None yet.</p>
-    {% endif %}
+    <h2 class="jr-csec-h">Finished <span>{{ done|length }}</span></h2>
+    {% if done %}<ul class="jr-cdone">{% for job in done %}{{ cj.done_row(job) }}{% endfor %}</ul>
+    {% else %}<p class="jr-cnone">None yet.</p>{% endif %}
   </section>
   {# Later: open jobs crew can claim go here, under Finished (feature_junk_crew.md). #}
 </div>
+{% include 'junk/_photo_viewer.html' %}
 {% endblock %}
 
 {% block scripts %}

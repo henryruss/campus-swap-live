@@ -34,12 +34,19 @@
     it goes away and the details take the full width. -#}
 {% macro job_body(job) %}
   {%- set src = job|jr_static_map %}
-  <div class="jr-cj-body{{ ' has-map' if src }}">
+  <div class="jr-cj-body{{ ' has-map' if job.address }}">
     {% if src %}
     {%- set maps = job|jr_maps %}
     <a class="jr-cj-map" href="{{ maps }}"{% if 'maps.apple.com' not in maps %} target="_blank" rel="noopener"{% endif %} aria-label="Map of {{ job.address or 'the job' }}">
       <img data-map="{{ src }}" alt="">
     </a>
+    {% elif job.address %}
+    {#- Typed by hand, not picked from suggestions: no pin, so no map (Google would only guess,
+        or show its error box). Navigate still searches the address. -#}
+    <div class="jr-cj-map jr-cj-map--none">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+      <span>Address not confirmed</span>
+    </div>
     {% endif %}
     <div class="jr-cj-info">
       {{ actions(job) }}
@@ -49,10 +56,35 @@
       <p class="jr-cj-line"><span class="jr-cj-k">Crew</span>{{ crew_line(job) }}</p>
     </div>
   </div>
+  {% from 'junk/_crew_checklist.html' import checklist with context %}{{ checklist(job) }}
 {% endmacro %}
 
-{#- Name, street (and "Was Mon, Nov 16" for a job left open), the cut. -#}
-{% macro job_head(job, tag='div', when=none) %}
+{#- Where the job stands, under the street: finished; done and waiting on a manager; left
+    open from an earlier day; or how far the checklist has got. crew.js swaps it after a change. -#}
+{% macro job_status(job) %}
+  {%- set ck = job|jr_checklist -%}
+  <span class="jr-cj-status" data-job-status>
+  {%- if job.completed_at -%}
+    <span class="jr-cj-st jr-cj-st--done">Finished{% if job.scheduled_date %} · {{ job.scheduled_date|jr_day(today) }}{% endif %}</span>
+  {%- elif ck.complete -%}
+    <span class="jr-cj-st jr-cj-st--done">Job done · waiting on manager review</span>
+  {%- else -%}
+    {%- if job.scheduled_date and job.scheduled_date < today -%}<span class="jr-cj-st jr-cj-st--late">Was {{ job.scheduled_date|jr_day(today) }}</span>{%- endif -%}
+    {%- if ck.done -%}<span class="jr-cj-st">{{ ck.done }} of {{ ck.total }} done</span>{%- endif -%}
+  {%- endif -%}
+  </span>
+{% endmacro %}
+
+{#- One job: the head is the row you tap; the details open under it. -#}
+{% macro job_card(job, open=false) %}
+  <details class="jr-cj jr-cj--row" id="job-{{ job.id }}" data-job-card{{ ' open' if open }}>
+    <summary>{{ job_head(job, 'span') }}<svg class="jr-cj-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary>
+    <div class="jr-cj-more">{{ job_body(job) }}</div>
+  </details>
+{% endmacro %}
+
+{#- Name, street, where the job stands, the cut. -#}
+{% macro job_head(job, tag='div') %}
   <{{ tag }} class="jr-cj-head">
     <span class="jr-cj-title">
       <span class="jr-cj-name">{{ job.display_name }}</span>
@@ -62,16 +94,29 @@
           <svg class="jr-cj-copy-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
           <svg class="jr-cj-copy-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
         </button></span>{% endif %}
-      {% if when %}<span class="jr-cj-when">Was {{ when|jr_day(today) }}</span>{% endif %}
+      {{ job_status(job) }}
     </span>
     <span class="jr-cj-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else 'TBD' }}<small>{{ cut_label() }}</small></span>
   </{{ tag }}>
 {% endmacro %}
 
+{#- A finished job: a row (name, day, cut) that opens to what happened. No map or buttons; the
+    work is over. The checklist is the proof, read-only for crew. -#}
 {% macro done_row(job) %}
-  <li><span class="jr-cj-name">{{ job.display_name }}</span>
-    <span class="jr-cdone-date">{{ job.scheduled_date|jr_day(today) if job.scheduled_date else '' }}</span>
-    <span class="jr-cdone-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else '—' }}</span></li>
+  <li><details class="jr-cdone-row" id="job-{{ job.id }}" data-job-card{{ ' open' if job.id == open_id|default(none) }}>
+    <summary>
+      <span class="jr-cj-name">{{ job.display_name }}</span>
+      <span class="jr-cdone-date">{{ job.scheduled_date|jr_day(today) if job.scheduled_date else '' }}</span>
+      <span class="jr-cdone-cut">{% set c = cuts[job.id] %}{{ c|jr_money if c is not none else '—' }}</span>
+      <svg class="jr-cj-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </summary>
+    <div class="jr-cdone-more">
+      {% if job.address %}<p class="jr-cj-line"><span class="jr-cj-k">Address</span>{{ job.address }}</p>{% endif %}
+      <p class="jr-cj-line"><span class="jr-cj-k">Crew</span>{{ crew_line(job) }}</p>
+      {% if job.notes %}<p class="jr-cj-line jr-cj-notes"><span class="jr-cj-k">Notes</span>{{ job.notes }}</p>{% endif %}
+      {% from 'junk/_crew_checklist.html' import checklist with context %}{{ checklist(job) }}
+    </div>
+  </details></li>
 {% endmacro %}
 
 {#- Managers: whose jobs am I looking at? The shared team picker, as links. -#}

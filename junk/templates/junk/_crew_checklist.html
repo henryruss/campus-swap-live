@@ -1,0 +1,79 @@
+{# The job-site checklist on a crew job card (feature_junk_jobsite.md, Slice 3a). crew.js sends
+   each change and swaps in the re-rendered section. Payment joins with Stripe. Once a manager
+   has marked the job done, crew see it read-only. #}
+
+{#- A photo opens the viewer (crew.js), with the rest of its item's photos to swipe through. -#}
+{% macro thumb(p, locked) %}
+  <span class="jr-ck-thumb">
+    <a href="{{ url_for('junk.job_photo', photo_id=p.id) }}" data-gallery="{{ p.job_id }}-{{ p.kind }}" target="_blank" rel="noopener">
+      <img src="{{ url_for('junk.job_photo', photo_id=p.id) }}" alt="{{ 'Cleared-out photo' if p.kind == 'cleared' else 'Dump receipt' }}" loading="lazy" decoding="async"></a>
+    {% if not locked %}
+    <button type="button" class="jr-ck-x" data-photo-remove="{{ url_for('junk.job_photo_remove', photo_id=p.id) }}" aria-label="Remove photo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+    {% endif %}
+  </span>
+{% endmacro %}
+
+{#- A solid navy square, the size of a photo (like Navigate). The phone offers its camera or
+    photo library; a computer, its files. The item's name to its left says what it's for. -#}
+{% macro add_button(kind, label) %}
+  {#- A plain button; crew.js makes a fresh file picker on every tap (iPhone gets stuck needing
+      two taps when the same file input is reused after its menu is cancelled). -#}
+  <button type="button" class="jr-ck-add" data-photo-add="{{ kind }}" aria-label="{{ label }}" title="{{ label }}">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+  </button>
+{% endmacro %}
+
+{#- One checklist item: its name on the left, then everything you can do, in one row (photos
+    wrap onto more rows under it). -#}
+{% macro item(name, hint, done) %}
+  <div class="jr-ck-item{{ ' is-done' if done }}">
+    <p class="jr-ck-label"><span class="jr-ck-mark" aria-hidden="true"></span><span>{{ name }}{% if hint %}<small>{{ hint }}</small>{% endif %}</span></p>
+    <div class="jr-ck-acts">{{ caller() }}</div>
+  </div>
+{% endmacro %}
+
+{% macro choice(item_name, answer, current, label) %}
+  <button type="button" class="jr-ck-opt{{ ' is-on' if current == answer }}" aria-pressed="{{ 'true' if current == answer else 'false' }}"
+          data-check="{{ item_name }}" data-answer="{{ '' if current == answer else answer }}">{{ label }}</button>
+{% endmacro %}
+
+{% macro checklist(job) %}
+{%- set ck = job|jr_checklist %}
+{%- set locked = job.completed_at and not jr_is_manager %}
+{%- set t = ck.truck.answer if ck.truck else none %}
+<section class="jr-ck{{ ' is-locked' if locked }}" data-checklist
+         data-photo-url="{{ url_for('junk.job_photo_add', job_id=job.id) }}"
+         data-check-url="{{ url_for('junk.job_check', job_id=job.id) }}">
+  <div class="jr-ck-head">
+    <h4 class="jr-ck-title">Checklist</h4>
+    <span class="jr-ck-count{{ ' is-done' if ck.complete }}">{{ ck.done }} of {{ ck.total }}</span>
+  </div>
+  {% if locked %}<p class="jr-ck-note">A manager has closed this job. Ask a manager if something needs changing.</p>{% endif %}
+  <p class="jr-ck-err" role="alert" data-ck-err hidden></p>
+
+  {# Cleared out: the add button, then the photos (as many as it takes). #}
+  {% call item('Cleared out', 'Photos of the empty space', ck.answered('cleared')) %}
+    {% if not locked %}{{ add_button('cleared', 'Add photos of the empty space') }}{% endif %}
+    <span class="jr-ck-photos" data-photos="cleared">{% for p in ck.cleared %}{{ thumb(p, locked)|trim }}{% endfor %}</span>
+    {% if locked and not ck.cleared %}<span class="jr-ck-ans jr-ck-ans--none">No photos</span>{% endif %}
+  {% endcall %}
+
+  {# Dump: one or the other. A receipt photo, or "dumped with another job" (that job's receipt
+     covers this one). Choosing one takes the other away; undo it to get the other back. #}
+  {% call item('Dump', 'Photo of the receipt', ck.answered('dump')) %}
+    {% if not locked and not ck.receipts and not ck.dump_shared %}{{ add_button('dump', 'Add a photo of the receipt') }}{% endif %}
+    <span class="jr-ck-photos" data-photos="dump">{% for p in ck.receipts %}{{ thumb(p, locked)|trim }}{% endfor %}</span>
+    {% if locked %}
+      {% if ck.dump_shared %}<span class="jr-ck-ans">Dumped with another job</span>
+      {% elif not ck.receipts %}<span class="jr-ck-ans jr-ck-ans--none">No receipt</span>{% endif %}
+    {% elif not ck.receipts %}{{ choice('dump', 'shared', 'shared' if ck.dump_shared else none, 'Dumped with another job') }}{% endif %}
+  {% endcall %}
+
+  {% call item('Truck', none, ck.answered('truck')) %}
+    {% if locked %}
+      <span class="jr-ck-ans{{ ' jr-ck-ans--none' if not t }}">{{ {'returned': 'Returned it', 'handed': 'Handed off'}.get(t, 'Not answered') }}</span>
+    {% else %}{{ choice('truck', 'returned', t, 'Returned it') }}{{ choice('truck', 'handed', t, 'Handed off') }}{% endif %}
+  {% endcall %}
+</section>
+{% endmacro %}

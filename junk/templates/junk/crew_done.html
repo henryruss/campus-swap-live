@@ -15,6 +15,10 @@
     {% endif %}
   </section>
 </div>
+{% include 'junk/_photo_viewer.html' %}
 {% endblock %}
 
-{% block scripts %}<script src="{{ jr_asset('teampick.js') }}"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ jr_asset('teampick.js') }}"></script>
+<script src="{{ jr_asset('crew.js') }}"></script>
+{% endblock %}

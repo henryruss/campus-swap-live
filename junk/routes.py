@@ -21,7 +21,8 @@ from junk.jobs import (
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start, crew_cut, crew_pay_pct,
 )
-from junk.models import Job, JobAssignment, initials, person_name, street_line
+from junk.checklist import Checklist, TRUCK_LABELS, add_photo, remove_photo, set_check
+from junk.models import Job, JobAssignment, JobPhoto, initials, person_name, street_line
 from sqlalchemy.orm import joinedload, selectinload
 from models import db, User
 
@@ -119,23 +120,25 @@ MINI_MAP_ZOOM = 15
 
 @junk_bp.app_template_filter('jr_static_map')
 def _jr_static_map(job):
-    """A picture of where the job is (Google Static Maps), at 2x for sharp phones, without its
+    """A picture of a job's confirmed pin (Google Static Maps), at 2x for sharp phones, without its
     size: crew.js adds the box's exact size, so the picture is never cropped (Google's logo has
-    to stay whole) whether the map is square or runs down a card with long notes. Centered on the pin when the address was picked from suggestions; on the address
-    itself (Google finds it) when it was typed by hand. The pin is drawn by CSS."""
+    to stay whole) whether the map is square or runs down a card with long notes. Only for an
+    address picked from suggestions; the pin is drawn by CSS."""
     from urllib.parse import urlencode
     key = os.environ.get('GOOGLE_MAPS_API_KEY', '')
     if not key:
         return ''
-    if job.address_lat is not None and job.address_lng is not None:
-        center = f'{job.address_lat:.6f},{job.address_lng:.6f}'
-    elif job.address:
-        center = job.address
-    else:
-        return ''
+    if job.address_lat is None or job.address_lng is None:
+        return ''   # typed by hand, not confirmed: Google would only guess (or show its error box)
+    center = f'{job.address_lat:.6f},{job.address_lng:.6f}'
     params = [('center', center), ('zoom', MINI_MAP_ZOOM), ('scale', 2),
               ('maptype', 'roadmap')] + [('style', s) for s in _MAP_STYLE] + [('key', key)]
     return 'https://maps.googleapis.com/maps/api/staticmap?' + urlencode(params)
+
+
+@junk_bp.app_template_filter('jr_checklist')
+def _jr_checklist(job):
+    return Checklist(job)
 
 
 @junk_bp.app_template_filter('jr_day')
@@ -159,7 +162,7 @@ def _junk_context():
     return {'google_maps_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''), 'jr_asset': _jr_asset,
             'jr_is_manager': is_junk_manager(), 'jr_is_crew': is_junk_crew(),
             'jr_dev_switch': dev_switch_enabled(), 'jr_preview': preview_enabled(),
-            'jr_dev_role': _dev_role(), 'jr_theme': JR_THEME}
+            'jr_dev_role': _dev_role(), 'jr_theme': JR_THEME, 'jr_truck_labels': TRUCK_LABELS}
 
 
 def _jr_asset(filename):
@@ -513,6 +516,7 @@ def _week_label_short(start):
 
 # Cards show their crew's initials: load assignments + people in one go, not one query per card.
 _WITH_CREW = selectinload(Job.assignments).joinedload(JobAssignment.user)
+_WITH_CHECKLIST = (selectinload(Job.photos), selectinload(Job.checks))
 
 
 def _jobs_by_day(first, last):
@@ -804,19 +808,17 @@ def _crew_person():
 def _crew_jobs(person):
     return (Job.query.join(JobAssignment, JobAssignment.job_id == Job.id)
             .filter(JobAssignment.user_id == person.id)
-            .options(_WITH_CREW))
-
-
-RECENT_DONE = 2   # finished jobs shown on My jobs; the rest are a tap away
+            .options(_WITH_CREW, *_WITH_CHECKLIST))
 
 
 @junk_bp.route('/crew')
 @junk_crew_required
 def crew_home():
     """My jobs, phone first (feature_junk_crew.md step 4). A list, not a calendar: crew have a
-    job or two a week and open this to see where they're going and what they'll make.
-    Managers see their own, or any team member's (?person=). Read-only; the job-site
-    checklist is Slice 3."""
+    job or two a week and open this to see what to do today. Today's jobs are open; everything
+    else is a row you tap open: jobs left open from before, coming up, and jobs whose checklist
+    is complete (waiting on a manager's review). Finished jobs are a tap away (jobs done, or the
+    Finished list on a wide screen). Managers see their own, or any team member's (?person=)."""
     person = _crew_person()
     today = today_eastern()
     pct = crew_pay_pct()
@@ -824,12 +826,14 @@ def crew_home():
     # Open jobs in calendar order: the day, then the manager's order within it. No date, no list.
     open_jobs = (mine.filter(Job.completed_at.is_(None), Job.scheduled_date.isnot(None))
                  .order_by(Job.scheduled_date, Job.queue_position, Job.id).all())
-    done = mine.filter(Job.completed_at.isnot(None)).order_by(Job.completed_at.desc()).all()
+    done = _finished(mine)
 
-    earlier = [j for j in open_jobs if j.scheduled_date < today]   # past their date, not closed yet
-    todays = [j for j in open_jobs if j.scheduled_date == today]
+    review = [j for j in open_jobs if Checklist(j).complete]
+    todo = [j for j in open_jobs if j not in review]
+    earlier = [j for j in todo if j.scheduled_date < today]   # past their date, not done yet
+    todays = [j for j in todo if j.scheduled_date == today]
     coming = defaultdict(list)
-    for j in open_jobs:
+    for j in todo:
         if j.scheduled_date > today:
             coming[j.scheduled_date].append(j)
 
@@ -837,19 +841,25 @@ def crew_home():
     stats = {'jobs': len(done), 'earned': sum((c for j in done if (c := cuts[j.id]) is not None), Decimal(0))}
     return render_template('junk/crew_home.html', person=person, team=_crew_team(), today=today,
                            earlier=earlier, todays=todays, coming=sorted(coming.items()),
-                           recent=done[:RECENT_DONE], more_done=len(done) > RECENT_DONE,
-                           cuts=cuts, stats=stats)
+                           review=review, done=done, cuts=cuts, stats=stats)
+
+
+def _finished(mine):
+    """Jobs a manager has marked done, newest first (by the job's day)."""
+    return (mine.filter(Job.completed_at.isnot(None))
+            .order_by(Job.scheduled_date.desc().nullslast(), Job.completed_at.desc()).all())
 
 
 @junk_bp.route('/crew/done')
 @junk_crew_required
 def crew_done():
-    """Every finished job, newest first, with what it paid."""
+    """Every finished job, newest first, each a row you can open (?job= opens one)."""
     person = _crew_person()
     pct = crew_pay_pct()
-    done = _crew_jobs(person).filter(Job.completed_at.isnot(None)).order_by(Job.completed_at.desc()).all()
+    done = _finished(_crew_jobs(person))
     return render_template('junk/crew_done.html', person=person, team=_crew_team(), today=today_eastern(),
-                           done=done, cuts={j.id: crew_cut(j, pct) for j in done})
+                           done=done, cuts={j.id: crew_cut(j, pct) for j in done},
+                           open_id=request.args.get('job', type=int))
 
 
 def _crew_team():
@@ -857,6 +867,92 @@ def _crew_team():
     if not is_junk_manager():
         return []
     return sorted(_team(), key=lambda u: u.id != current_user.id)
+
+
+# ─── the job-site checklist (Slice 3a) ───────────────────────────────────
+# Crew on the job and managers can answer, on any job, any day, in any order. Each change
+# answers with the checklist re-rendered, so the card swaps it in place (crew.js).
+
+def _job_for_work(job_id):
+    """A job the signed-in person may see and fill in: they're on it, or they're a manager."""
+    job = _get_job(job_id)
+    if not is_junk_manager() and current_user.id not in {a.user_id for a in job.assignments}:
+        abort(403)
+    return job
+
+
+def _locked(job):
+    """Once a manager has marked a job done, only managers can change its checklist."""
+    return bool(job.completed_at) and not is_junk_manager()
+
+
+def _locked_reply(job):
+    return _checklist_reply(job, 403, "A manager has closed this job. Ask a manager to change it.")
+
+
+def _checklist_reply(job, status=200, error=None):
+    html = render_template('junk/_checklist_frag.html', job=job)
+    ck = Checklist(job)
+    return jsonify(ok=error is None, error=error, html=html, complete=ck.complete,
+                   status=render_template('junk/_job_status_frag.html', job=job, today=today_eastern())), status
+
+
+@junk_bp.route('/job/<int:job_id>/photo', methods=['POST'])
+@junk_crew_required
+def job_photo_add(job_id):
+    job = _job_for_work(job_id)
+    if _locked(job):
+        return _locked_reply(job)
+    f = request.files.get('photo')
+    if not f or not f.filename:
+        return _checklist_reply(job, 400, "That photo didn't come through. Try again.")
+    try:
+        add_photo(job, request.form.get('kind'), f, current_user)
+    except JobFormError as e:
+        return _checklist_reply(job, 400, str(e))
+    return _checklist_reply(job)
+
+
+@junk_bp.route('/job/photo/<int:photo_id>/remove', methods=['POST'])
+@junk_crew_required
+def job_photo_remove(photo_id):
+    photo = db.session.get(JobPhoto, photo_id) or abort(404)
+    job = _job_for_work(photo.job_id)
+    if _locked(job):
+        return _locked_reply(job)
+    remove_photo(photo, current_user)
+    return _checklist_reply(job)
+
+
+@junk_bp.route('/job/<int:job_id>/check', methods=['POST'])
+@junk_crew_required
+def job_check(job_id):
+    """JSON {item: 'dump' | 'truck', answer: '' to clear}."""
+    job = _job_for_work(job_id)
+    if _locked(job):
+        return _locked_reply(job)
+    data = request.get_json(silent=True) or {}
+    try:
+        set_check(job, data.get('item'), data.get('answer'), current_user)
+    except JobFormError as e:
+        return _checklist_reply(job, 400, str(e))
+    return _checklist_reply(job)
+
+
+@junk_bp.route('/job/photo/<int:photo_id>')
+@junk_crew_required
+def job_photo(photo_id):
+    """A checklist photo. Customers' homes and receipts: only managers and the job's crew see
+    them, so they're served through here rather than the public /uploads link."""
+    from storage import get_storage_instance
+    photo = db.session.get(JobPhoto, photo_id) or abort(404)
+    _job_for_work(photo.job_id)
+    data = get_storage_instance().get_photo_bytes(photo.key)
+    if data is None:
+        abort(404)
+    resp = current_app.response_class(data, mimetype='image/jpeg')
+    resp.headers['Cache-Control'] = 'private, max-age=604800'   # a photo never changes
+    return resp
 
 
 # ─── dev-only role switch ────────────────────────────────────────────────
