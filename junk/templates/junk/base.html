@@ -16,9 +16,9 @@
   {# The locked look, for everyone (JR_THEME in routes.py; the other themes are shelved). #}
   <link rel="stylesheet" href="{{ jr_asset('themes/' ~ jr_theme ~ '.css') }}">
 </head>
-<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview }}" data-jr-theme="{{ jr_theme }}">
+<body class="jr {% block body_class %}{% endblock %}{{ ' jr-has-dev' if jr_preview and not hide_dev }}" data-jr-theme="{{ jr_theme }}">
   {% block body %}{% endblock %}
-  {% if jr_preview %}
+  {% if jr_preview and not hide_dev %}
   {# Preview pills. Dev server: Manager / Crew sign in as the dev accounts (dev_switch_enabled).
      Super admin on any server: Manager / Crew only switch what they see (dev_view_as). #}
   {# Folded by default: one small pill bottom-left. Click it to open the switches above it. #}

@@ -1,0 +1,16 @@
+{# The phone page's one item (snap.html): what to photograph, the add button, the photos so far.
+   crew.js sends each photo and swaps this back in, the same as on a job card. #}
+{% from 'junk/_crew_checklist.html' import add_button %}
+{%- set one = kind == 'dump' %}
+<section class="jr-ck jr-snap-sec" data-checklist data-photo-url="{{ url_for('junk.snap_photo_add', token=token) }}">
+  <h2 class="jr-snap-item">{{ item[0] }}</h2>
+  <p class="jr-snap-hint">{{ item[1] }}</p>
+  <p class="jr-ck-err" role="alert" data-ck-err hidden></p>
+  <div class="jr-ck-item jr-snap-row">
+    <div class="jr-ck-acts">
+      {% if not (one and photos) %}{{ add_button(kind, 'Add a photo of the receipt' if one else 'Add photos of the empty space') }}{% endif %}
+      <span class="jr-ck-photos" data-photos="{{ kind }}">{% for p in photos %}<span class="jr-ck-thumb"><a href="{{ url_for('junk.snap_photo', token=token, photo_id=p.id) }}" data-gallery="snap" target="_blank" rel="noopener"><img src="{{ url_for('junk.snap_photo', token=token, photo_id=p.id) }}" alt="" loading="lazy"></a></span>{% endfor %}</span>
+    </div>
+  </div>
+  {% if photos %}<p class="jr-snap-done">{{ 'Receipt added.' if one else (photos|length ~ (' photo' if photos|length == 1 else ' photos') ~ ' on the job.') }} You can close this page.</p>{% endif %}
+</section>

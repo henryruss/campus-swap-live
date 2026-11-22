@@ -1,0 +1,17 @@
+{% extends 'junk/base.html' %}
+{# Adding photos from a phone, opened from the QR code on a computer. No sign-in: the link is
+   signed for one job's one checklist item and lasts 30 minutes. #}
+{% block title %}Add photos{% endblock %}
+{% block body %}
+<main class="jr-snap">
+  {% if job %}
+  <p class="jr-snap-job">{{ job.display_name }}{% if job.address %} · {{ job.address|jr_street }}{% endif %}</p>
+  {{ section }}
+  {% else %}
+  <h1 class="jr-snap-item">{{ {'expired': 'This link has expired', 'closed': 'This job is closed'}.get(why, "This link doesn't work") }}</h1>
+  <p class="jr-snap-hint">{{ 'A manager has closed this job.' if why == 'closed' else 'Scan a new code on the computer.' }}</p>
+  {% endif %}
+</main>
+{% include 'junk/_photo_viewer.html' %}
+{% endblock %}
+{% block scripts %}<script src="{{ jr_asset('crew.js') }}"></script>{% endblock %}

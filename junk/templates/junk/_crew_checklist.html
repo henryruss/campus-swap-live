@@ -44,7 +44,9 @@
 {%- set t = ck.truck.answer if ck.truck else none %}
 <section class="jr-ck{{ ' is-locked' if locked }}" data-checklist
          data-photo-url="{{ url_for('junk.job_photo_add', job_id=job.id) }}"
-         data-check-url="{{ url_for('junk.job_check', job_id=job.id) }}">
+         data-check-url="{{ url_for('junk.job_check', job_id=job.id) }}"
+         data-snap-url="{{ url_for('junk.job_snap', job_id=job.id) }}"
+         data-poll-url="{{ url_for('junk.job_checklist', job_id=job.id) }}">
   <div class="jr-ck-head">
     <h4 class="jr-ck-title">Checklist</h4>
     <span class="jr-ck-count{{ ' is-done' if ck.complete }}">{{ ck.done }} of {{ ck.total }}</span>

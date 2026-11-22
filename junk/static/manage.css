@@ -741,6 +741,33 @@ body.jr-modal-open { overflow: hidden; }
 .jr-ck-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--card-ink-muted); }
 .jr-ck.is-busy .jr-ck-opt { pointer-events: none; }
 
+/* ─── Photos from a phone (snap.html, opened from a QR code) ─── */
+.jr-snap { max-width: 440px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
+.jr-snap-job { margin: 0 0 14px; font-size: 0.86rem; font-weight: 600; color: var(--text-muted); }
+.jr-snap-sec { margin: 0; padding: 18px 16px; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
+.jr-snap-item { margin: 0; font-family: var(--jr-font-body); font-size: 1.3rem !important; font-weight: 700; color: var(--card-ink); }
+.jr-snap-hint { margin: 2px 0 0; font-size: 0.92rem; color: var(--text-muted); }
+.jr-snap-row { --sq: 96px; display: block; padding-top: 16px; }
+.jr-snap-done { margin: 14px 0 0; font-size: 0.9rem; font-weight: 600; color: var(--jr-done-ink, var(--primary)); }
+
+/* ─── On a computer: the photo square's two ways in (crew.js) ─── */
+.jr-ck-ways {
+  position: fixed; z-index: 300; width: 260px; padding: 10px; border: 1px solid var(--rule);
+  border-radius: var(--jr-radius); background: var(--bg-body); box-shadow: var(--jr-shadow-lift);
+}
+.jr-ck-ways[hidden] { display: none; }
+.jr-ck-way {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin: 0; padding: 10px 12px; border: 0; border-radius: var(--jr-pill-r);
+  background: none; color: var(--primary); font: 600 0.9rem var(--jr-font-body); text-align: left; cursor: pointer;
+}
+.jr-ck-way:hover { background: var(--bg-cream); }
+.jr-ck-way svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.jr-ck-qr { min-height: 120px; padding: 6px 4px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--rule); text-align: center; }
+.jr-ck-ways .jr-ck-way { justify-content: center; white-space: nowrap; }
+.jr-ck-qr svg { display: block; width: 180px; height: 180px; margin: 0 auto 8px; }
+.jr-ck-qr p { margin: 0; font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+.jr-ck-qr .jr-ck-qr-got { margin-top: 6px; font-weight: 600; color: var(--jr-done-ink, var(--primary)); }
+
 /* ─── Photo viewer (crew.js) ─── */
 .jr-pv { position: fixed; inset: 0; z-index: 400; display: grid; grid-template-columns: 64px minmax(0, 1fr) 64px; align-items: center;
   background: rgba(10, 14, 22, 0.92); touch-action: pan-y; }

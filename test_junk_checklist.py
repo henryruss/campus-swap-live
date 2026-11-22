@@ -243,3 +243,40 @@ def test_my_jobs_shows_the_checklist(people):
     page = c.get('/junk/crew').get_data(as_text=True)
     assert 'data-checklist' in page and '1 of 3' in page
     assert 'data-answer="handed"' in page and 'data-hand-to' not in page
+
+
+# ── photos from a phone (QR on a computer) ──────────────────
+
+def test_qr_link_adds_photos_from_a_phone_without_signing_in(people):
+    c, job = _login(people['me']), people['job']
+    r = c.get(f'/junk/job/{job.id}/snap?kind=cleared')
+    assert r.status_code == 200 and r.json['ok'] and '<svg' in r.json['svg']
+    path = '/junk/snap/' + r.json['url'].split('/junk/snap/')[1]
+    phone = _Client(flask_app, flask_app.response_class, use_cookies=True)   # not signed in
+    page = phone.get(path)
+    assert page.status_code == 200 and 'Cleared out' in page.get_data(as_text=True)
+    up = phone.post(path + '/photo', data={'photo': (_jpeg(), 'p.jpg')}, content_type='multipart/form-data')
+    assert up.status_code == 200 and up.json['ok'] and '1 photo on the job' in up.json['html']
+    [photo] = _fresh(job).photos
+    assert (photo.kind, photo.uploaded_by_id) == ('cleared', people['me'].id)    # it's theirs
+    assert phone.get(f'{path}/photo/{photo.id}').status_code == 200
+    # The computer's card picks it up.
+    assert '1 of 3' in c.get(f'/junk/job/{job.id}/checklist').json['html']
+
+
+def test_qr_links_are_guarded(people, monkeypatch):
+    c, job = _login(people['me']), people['job']
+    assert _login(people['other']).get(f'/junk/job/{job.id}/snap?kind=cleared').status_code == 403
+    assert c.get(f'/junk/job/{job.id}/snap?kind=selfie').status_code == 400
+    phone = _Client(flask_app, flask_app.response_class, use_cookies=True)
+    assert phone.get('/junk/snap/not-a-real-token').status_code == 404
+    assert phone.post('/junk/snap/not-a-real-token/photo', data={}).status_code == 403
+    path = '/junk/snap/' + c.get(f'/junk/job/{job.id}/snap?kind=dump').json['url'].split('/junk/snap/')[1]
+    import junk.routes as jr
+    monkeypatch.setattr(jr, 'SNAP_MAX_AGE', -1)                                # expired
+    assert phone.get(path).status_code == 410
+    monkeypatch.setattr(jr, 'SNAP_MAX_AGE', 1800)
+    _login(people['mgr']).post(f'/junk/manage/job/{job.id}/done', data={})   # closed by a manager
+    r = phone.post(path + '/photo', data={'photo': (_jpeg(), 'p.jpg')}, content_type='multipart/form-data')
+    assert r.status_code == 403 and 'closed' in r.json['error']
+    assert c.get(f'/junk/job/{job.id}/snap?kind=cleared').status_code == 403

@@ -180,7 +180,13 @@
   // finish (iOS says so with a "cancel"), then opens. A request that soon after a real tap
   // still counts as that tap.
   var picker = null, closing = false;
+  var DESKTOP = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   function pickPhotos(btn) {
+    var sec = btn.closest('[data-checklist]');
+    if (DESKTOP && sec.dataset.snapUrl) { ways.open(btn); return; }
+    openPicker(btn);
+  }
+  function openPicker(btn) {
     var sec = btn.closest('[data-checklist]'), kind = btn.dataset.photoAdd;
     var input = document.createElement('input');
     input.type = 'file';
@@ -212,6 +218,99 @@
       setTimeout(wait, 30);
     })();
   }
+  // ─── On a computer: a QR code for your phone, or upload from this computer ───
+  // The phone page adds photos straight to the job; while the code is showing, this checks
+  // back every few seconds and swaps them into the card.
+  var ways = (function () {
+    var el = null, btn = null, timer = null, seen = 0;
+    var ICON_PC = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>';
+    function count(sec) { return sec ? sec.querySelectorAll('[data-photos="' + btn.dataset.photoAdd + '"] .jr-ck-thumb:not(.is-pending)').length : 0; }
+    function section() {   // the card's checklist (it's swapped out after every change)
+      return document.querySelector('[data-checklist][data-snap-url="' + btn._snap + '"]');
+    }
+    function build() {
+      el = document.createElement('div');
+      el.className = 'jr-ck-ways';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-label', 'Add photos');
+      el.hidden = true;
+      document.body.appendChild(el);
+      el.addEventListener('click', function (e) {
+        var w = e.target.closest('[data-way]');
+        if (!w) return;
+        if (w.dataset.way === 'pc') { var b = btn; close(); openPicker(b); }
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !el.hidden) close(); });
+      document.addEventListener('mousedown', function (e) {
+        if (!el.hidden && !el.contains(e.target) && !(btn && btn.contains(e.target))) close();
+      });
+      window.addEventListener('resize', place);
+      window.addEventListener('scroll', place, { passive: true });
+    }
+    function place() {
+      if (!el || el.hidden || !btn || !btn.isConnected) return;
+      var r = btn.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+      var left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+      var top = r.bottom + 8 + h > window.innerHeight - 12 ? Math.max(12, r.top - 8 - h) : r.bottom + 8;
+      el.style.left = left + 'px'; el.style.top = top + 'px';
+    }
+    function open(b) {
+      if (!el) build();
+      if (!el.hidden && btn === b) { close(); return; }
+      close();
+      btn = b;
+      btn._snap = b.closest('[data-checklist]').dataset.snapUrl;
+      el.innerHTML = '<div class="jr-ck-qr" data-qr><p>Making a code…</p></div>' +
+                     '<button type="button" class="jr-ck-way" data-way="pc">' + ICON_PC + 'Upload from this computer</button>';
+      el.hidden = false;
+      place();
+      el.querySelector('[data-way]').focus();
+      phone();
+    }
+    function phone() {
+      var sec = section();
+      if (!sec) { close(); return; }
+      var box = el.querySelector('[data-qr]');
+      fetch(sec.dataset.snapUrl + '?kind=' + encodeURIComponent(btn.dataset.photoAdd), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (el.hidden) return;
+          if (!d.ok) { box.innerHTML = '<p>' + (d.error || "That didn't work.") + '</p>'; return; }
+          box.innerHTML = d.svg + '<p>Scan with your phone’s camera to take photos. They show up here.</p>' +
+                          '<p class="jr-ck-qr-got" data-got hidden></p>';
+          place();
+          seen = count(section());
+          var startedAt = seen;
+          clearInterval(timer);
+          timer = setInterval(function () {
+            var s0 = section();
+            if (!s0 || document.hidden) return;
+            fetch(s0.dataset.pollUrl, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (reply) {
+              var s1 = section();
+              if (!s1 || !reply.html) return;
+              var tmp = document.createElement('div');
+              tmp.innerHTML = reply.html.trim();
+              var n = tmp.querySelectorAll('[data-photos="' + btn.dataset.photoAdd + '"] .jr-ck-thumb').length;
+              if (n === seen) return;
+              seen = n;
+              swap(s1, reply);
+              var got = el.querySelector('[data-got]');
+              if (got && n > startedAt) {
+                got.hidden = false;
+                got.textContent = (n - startedAt) + (n - startedAt === 1 ? ' photo' : ' photos') + ' added';
+              }
+            }).catch(function () {});
+          }, 2500);
+        })
+        .catch(function () { box.innerHTML = '<p>The code didn’t load. Check your connection.</p>'; });
+    }
+    function close() {
+      clearInterval(timer); timer = null;
+      if (el) el.hidden = true;
+    }
+    return { open: open };
+  })();
+
   function done(input) {                               // its menu has closed: picked or cancelled
     input.remove();
     if (picker === input) { picker = null; closing = false; }

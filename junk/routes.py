@@ -955,6 +955,128 @@ def job_photo(photo_id):
     return resp
 
 
+# ─── photos from a phone (QR on a computer) ─────────────────────────────
+# On a computer, the photo square offers a QR code. It opens a small page on the phone for one
+# checklist item of one job: take or pick photos there, and they land on the job (the computer's
+# card picks them up within a few seconds). No sign-in on the phone: the link itself is signed,
+# names the job, the item and who made it, and lasts SNAP_MAX_AGE.
+
+SNAP_MAX_AGE = 30 * 60
+
+
+def _snap_serializer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt='junk-snap')
+
+
+def _phone_base_url():
+    """The site's address as a phone can reach it. A computer on localhost hands out the Mac's
+    .local name instead (same Wi-Fi), or JUNK_PHONE_HOST if that's set."""
+    host = request.host
+    name, _, port = host.partition(':')
+    if name in ('localhost', '127.0.0.1'):
+        import socket
+        alt = os.environ.get('JUNK_PHONE_HOST') or socket.gethostname()
+        if alt and '.' in alt:
+            host = alt if ':' in alt else (f'{alt}:{port}' if port else alt)
+    return f'{request.scheme}://{host}'
+
+
+@junk_bp.route('/job/<int:job_id>/snap')
+@junk_crew_required
+def job_snap(job_id):
+    """The QR code for adding one item's photos from a phone: JSON {url, svg}."""
+    import qrcode
+    import qrcode.image.svg
+    job = _job_for_work(job_id)
+    if _locked(job):
+        return jsonify(ok=False, error="A manager has closed this job. Ask a manager to change it."), 403
+    kind = request.args.get('kind')
+    if kind not in JobPhoto.KINDS:
+        abort(400)
+    token = _snap_serializer().dumps({'j': job.id, 'k': kind, 'u': current_user.id})
+    url = _phone_base_url() + url_for('junk.snap', token=token)
+    svg = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2).to_string(encoding='unicode')
+    return jsonify(ok=True, url=url, svg=svg)
+
+
+@junk_bp.route('/job/<int:job_id>/checklist')
+@junk_crew_required
+def job_checklist(job_id):
+    """The checklist as it stands (the computer checks back while its QR code is showing)."""
+    return _checklist_reply(_job_for_work(job_id))
+
+
+def _snap_load(token):
+    """(job, kind, user) for a phone link, or a reason it doesn't work."""
+    try:
+        data = _snap_serializer().loads(token, max_age=SNAP_MAX_AGE)
+    except SignatureExpired:
+        return None, 'expired'
+    except BadSignature:
+        return None, 'bad'
+    job = db.session.get(Job, data.get('j'))
+    user = db.session.get(User, data.get('u'))
+    if not job or not user or data.get('k') not in JobPhoto.KINDS or not has_junk_access(user):
+        return None, 'bad'
+    if job.completed_at and not is_junk_manager(user):
+        return None, 'closed'
+    return (job, data['k'], user), None
+
+
+SNAP_ITEMS = {'cleared': ('Cleared out', 'Photos of the empty space'), 'dump': ('Dump', 'Photo of the receipt')}
+
+
+def _snap_section(job, kind, token):
+    return render_template('junk/_snap_section.html', job=job, kind=kind, token=token,
+                           item=SNAP_ITEMS[kind], photos=[p for p in job.photos if p.kind == kind])
+
+
+@junk_bp.route('/snap/<token>')
+def snap(token):
+    found, why = _snap_load(token)
+    if not found:
+        return render_template('junk/snap.html', why=why, hide_dev=True), (410 if why == 'expired' else 404)
+    job, kind, _ = found
+    from markupsafe import Markup
+    return render_template('junk/snap.html', job=job, section=Markup(_snap_section(job, kind, token)), hide_dev=True)
+
+
+@junk_bp.route('/snap/<token>/photo', methods=['POST'])
+def snap_photo_add(token):
+    found, why = _snap_load(token)
+    if not found:
+        msg = {'expired': "This link has expired. Scan a new code on the computer.",
+               'closed': "A manager has closed this job."}.get(why, "This link doesn't work. Scan a new code on the computer.")
+        return jsonify(ok=False, error=msg), 403
+    job, kind, user = found
+    f = request.files.get('photo')
+    error = None
+    if not f or not f.filename:
+        error = "That photo didn't come through. Try again."
+    else:
+        try:
+            add_photo(job, kind, f, user)
+        except JobFormError as e:
+            error = str(e)
+    return jsonify(ok=error is None, error=error, html=_snap_section(job, kind, token)), (400 if error else 200)
+
+
+@junk_bp.route('/snap/<token>/photo/<int:photo_id>')
+def snap_photo(token, photo_id):
+    """A photo already on the item, shown on the phone page (the link vouches for it)."""
+    from storage import get_storage_instance
+    found, _ = _snap_load(token)
+    photo = db.session.get(JobPhoto, photo_id)
+    if not found or not photo or photo.job_id != found[0].id:
+        abort(404)
+    data = get_storage_instance().get_photo_bytes(photo.key)
+    if data is None:
+        abort(404)
+    resp = current_app.response_class(data, mimetype='image/jpeg')
+    resp.headers['Cache-Control'] = 'private, max-age=604800'
+    return resp
+
+
 # ─── dev-only role switch ────────────────────────────────────────────────
 # One click to become the dev manager or the dev crew member, so both sides can be checked
 # side by side. Only on a local debug server: never on Render, never under tests unless a test
