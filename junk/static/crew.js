@@ -82,6 +82,16 @@
     });
   }
 
+  // A short note at the bottom (the calendar has one; elsewhere, nothing).
+  function toast(msg) {
+    var t = document.getElementById('jr-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('is-on');
+    clearTimeout(t._jr);
+    t._jr = setTimeout(function () { t.classList.remove('is-on'); }, 2400);
+  }
+
   function showError(sec, msg) {
     var el = sec && sec.querySelector('[data-ck-err]');
     if (!el) return;
@@ -108,6 +118,12 @@
     var wasDone = sec.querySelector('.jr-ck-count.is-done');
     sec.replaceWith(fresh);
     showError(fresh, error);
+    var wrap = fresh.closest('[data-ck-wrap]');           // the manager's job modal: keep its look in step
+    if (wrap && reply.review) {
+      var old = wrap.querySelector('[data-ck-review]');
+      tmp.innerHTML = reply.review.trim();
+      if (old) old.replaceWith(tmp.firstElementChild);
+    }
     if (card && reply.status) {
       var st = card.querySelector('[data-job-status]');
       if (st) { tmp.innerHTML = reply.status.trim(); st.replaceWith(tmp.firstElementChild); }
@@ -347,6 +363,14 @@
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target : null;
     if (!t) return;
+    // The manager's job modal: the checklist is to look at; Edit opens the working one.
+    var edit = t.closest('[data-ck-edit], [data-ck-done]');
+    if (edit) {
+      var w = edit.closest('[data-ck-wrap]');
+      w.classList.toggle('is-editing', edit.hasAttribute('data-ck-edit'));
+      if (edit.hasAttribute('data-ck-edit')) w.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
     var add = t.closest('[data-photo-add]');
     if (add) { pickPhotos(add); return; }
     var check = t.closest('[data-check]');
@@ -358,7 +382,7 @@
     if (shot && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       var all = [].slice.call(document.querySelectorAll('a[data-gallery="' + shot.dataset.gallery + '"]'));
-      viewer.open(all.map(function (a) { return a.href; }), all.indexOf(shot));
+      viewer.open(all, all.indexOf(shot));
       return;
     }
     var rm = t.closest('[data-photo-remove]');
@@ -405,21 +429,52 @@
   // ─── Photo viewer ───
   var viewer = (function () {
     var el = document.querySelector('[data-pv]');
-    if (!el) return { open: function (urls, i) { window.open(urls[i], '_blank'); } };
+    if (!el) return { open: function (links, i) { window.open(links[i].href, '_blank'); } };
     var img = el.querySelector('[data-pv-img]'), count = el.querySelector('[data-pv-count]');
-    var urls = [], at = 0, lastFocus = null;
+    var moveBtn = el.querySelector('[data-pv-move]'), panel = el.querySelector('[data-pv-panel]');
+    var jobsList = el.querySelector('[data-pv-jobs]');
+    var links = [], at = 0, lastFocus = null;
     function show() {
-      img.src = urls[at];
-      count.textContent = (at + 1) + ' of ' + urls.length;
+      img.src = links[at].href;
+      count.textContent = (at + 1) + ' of ' + links.length;
+      moveBtn.hidden = !links[at].dataset.move;
+      panel.hidden = true;
     }
     function step(d) {
-      if (urls.length < 2) return;
-      at = (at + d + urls.length) % urls.length;
+      if (links.length < 2 || !panel.hidden) return;
+      at = (at + d + links.length) % links.length;
       show();
     }
+    // Move: the jobs within a week of this one, nearest first; pick one and the photo goes there.
+    function pickJob() {
+      var link = links[at];
+      jobsList.innerHTML = '<li class="jr-pv-none">Loading…</li>';
+      panel.hidden = false;
+      fetch(link.dataset.targets, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+        jobsList.innerHTML = '';
+        if (!d.jobs || !d.jobs.length) { jobsList.innerHTML = '<li class="jr-pv-none">No other jobs within a week of this one.</li>'; return; }
+        d.jobs.forEach(function (j) {
+          var li = document.createElement('li'), b = document.createElement('button');
+          b.type = 'button'; b.className = 'jr-pv-job'; b.dataset.jobId = j.id;
+          var n = document.createElement('strong'); n.textContent = j.name;
+          var m = document.createElement('span'); m.textContent = [j.day, j.street].filter(Boolean).join(' · ') + (j.done ? ' · done' : '');
+          b.appendChild(n); b.appendChild(m); li.appendChild(b); jobsList.appendChild(li);
+        });
+      }).catch(function () { jobsList.innerHTML = '<li class="jr-pv-none">That didn’t load. Try again.</li>'; });
+    }
+    function moveTo(jobId, label) {
+      var link = links[at], wrap = link.closest('[data-ck-wrap]');
+      var sec = wrap ? wrap.querySelector('[data-checklist]') : link.closest('[data-checklist]');
+      send(link.dataset.move, { job_id: jobId }).then(function (d) {
+        if (!d.ok) { jobsList.innerHTML = '<li class="jr-pv-none">' + (d.error || 'That didn’t work.') + '</li>'; return; }
+        close();
+        if (sec) swap(sec, d);
+        toast('Photo moved to ' + label);
+      }, function () { jobsList.innerHTML = '<li class="jr-pv-none">That didn’t save. Check your connection.</li>'; });
+    }
     function open(list, i) {
-      urls = list; at = Math.max(0, i);
-      el.classList.toggle('is-single', urls.length < 2);
+      links = list; at = Math.max(0, i);
+      el.classList.toggle('is-single', links.length < 2);
       lastFocus = document.activeElement;
       el.hidden = false;
       document.documentElement.style.overflow = 'hidden';
@@ -435,14 +490,20 @@
     el.addEventListener('click', function (e) {
       var nav = e.target.closest('[data-pv-step]');
       if (nav) { step(+nav.dataset.pvStep); return; }
+      if (e.target.closest('[data-pv-move]')) { pickJob(); return; }
+      if (e.target.closest('[data-pv-cancel]')) { panel.hidden = true; return; }
+      var job = e.target.closest('[data-job-id]');
+      if (job) { moveTo(job.dataset.jobId, job.querySelector('strong').textContent); return; }
+      if (e.target.closest('[data-pv-panel]')) return;
       if (e.target.closest('[data-pv-close]') || e.target === el || e.target.matches('[data-pv-fig]')) close();
     });
-    document.addEventListener('keydown', function (e) {
+    document.addEventListener('keydown', function (e) {   // first, so Escape doesn't also close the job modal
       if (el.hidden) return;
-      if (e.key === 'Escape') close();
+      e.stopImmediatePropagation();
+      if (e.key === 'Escape') { if (!panel.hidden) panel.hidden = true; else close(); }
       else if (e.key === 'ArrowRight') step(1);
       else if (e.key === 'ArrowLeft') step(-1);
-    });
+    }, true);
     var x0 = null, y0 = 0;
     el.addEventListener('touchstart', function (e) {
       if (e.touches.length === 1) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }

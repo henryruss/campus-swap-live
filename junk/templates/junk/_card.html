@@ -1,10 +1,18 @@
-{# One job card: name, street, crew. The quote lives in the job modal. Done cards are green and not draggable. #}
+{# One job card: name, street, checklist dots, crew. The quote lives in the job modal. Done cards are green and not draggable. #}
 <div class="jr-card{{ ' jr-card--done' if job.completed_at }}" data-job-id="{{ job.id }}" tabindex="0" role="button"
      aria-label="{{ job.display_name }}{{ ', done' if job.completed_at }}">
   <div class="jr-card-body">
     <div class="jr-card-name{{ ' is-untitled' if not job.customer_name }}">{{ job.display_name }}</div>
     {% if job.address %}<div class="jr-card-addr" title="{{ job.address }}">{{ job.address|jr_street }}</div>{% endif %}
   </div>
+  {#- The crew's checklist, once they've started it: a dot per item, green when answered. All
+      green = done on site, waiting on your review (Mark done in the job). -#}
+  {%- set ck = job|jr_checklist %}
+  {%- if not job.completed_at and ck.done %}
+  <span class="jr-card-ck{{ ' is-complete' if ck.complete }}" title="{{ 'Checklist complete: ready for your review' if ck.complete else 'Checklist ' ~ ck.done ~ ' of ' ~ ck.total }}">
+    {%- for i in range(ck.total) %}<i{% if loop.index <= ck.done %} class="on"{% endif %}></i>{% endfor -%}
+  </span>
+  {%- endif %}
   {%- set crew = job.crew %}
   {%- if crew %}
   {# Desktop: a name pill per person, two to a row. Phone: initials bubbles. #}

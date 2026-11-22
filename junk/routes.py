@@ -21,7 +21,7 @@ from junk.jobs import (
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start, crew_cut, crew_pay_pct,
 )
-from junk.checklist import Checklist, TRUCK_LABELS, add_photo, remove_photo, set_check
+from junk.checklist import Checklist, TRUCK_LABELS, add_photo, move_photo, remove_photo, set_check
 from junk.models import Job, JobAssignment, JobPhoto, initials, person_name, street_line
 from sqlalchemy.orm import joinedload, selectinload
 from models import db, User
@@ -521,7 +521,7 @@ _WITH_CHECKLIST = (selectinload(Job.photos), selectinload(Job.checks))
 
 def _jobs_by_day(first, last):
     """{date: [jobs in line order]}. Done jobs keep their place."""
-    rows = (Job.query.options(_WITH_CREW)
+    rows = (Job.query.options(_WITH_CREW, *_WITH_CHECKLIST)
             .filter(Job.scheduled_date >= first, Job.scheduled_date <= last)
             .order_by(Job.scheduled_date, Job.queue_position.asc().nullslast(), Job.id.asc())
             .all())
@@ -543,7 +543,7 @@ def manage():
     except JobFormError:
         anchor = today
 
-    unscheduled = unscheduled_query().options(_WITH_CREW).all()
+    unscheduled = unscheduled_query().options(_WITH_CREW, *_WITH_CHECKLIST).all()
 
     # The Crew panel you drag people from: you on top (the chip you drag when you work a job
     # yourself), then everyone else by last name. No one else gets top billing, managers included.
@@ -893,7 +893,8 @@ def _locked_reply(job):
 def _checklist_reply(job, status=200, error=None):
     html = render_template('junk/_checklist_frag.html', job=job)
     ck = Checklist(job)
-    return jsonify(ok=error is None, error=error, html=html, complete=ck.complete,
+    review = render_template('junk/_checklist_review_frag.html', job=job) if is_junk_manager() else None
+    return jsonify(ok=error is None, error=error, html=html, complete=ck.complete, review=review,
                    status=render_template('junk/_job_status_frag.html', job=job, today=today_eastern())), status
 
 
@@ -937,6 +938,42 @@ def job_check(job_id):
     except JobFormError as e:
         return _checklist_reply(job, 400, str(e))
     return _checklist_reply(job)
+
+
+MOVE_WINDOW = 7   # days either side of a photo's job: where a mixed-up photo most likely belongs
+
+
+@junk_bp.route('/manage/photo/<int:photo_id>/targets')
+@junk_manager_required
+def job_photo_targets(photo_id):
+    """Jobs a photo could be moved to: those within a week of its job's day, nearest first."""
+    photo = db.session.get(JobPhoto, photo_id) or abort(404)
+    center = photo.job.scheduled_date or today_eastern()
+    near = (Job.query.filter(Job.id != photo.job_id,
+                             Job.scheduled_date >= center - timedelta(days=MOVE_WINDOW),
+                             Job.scheduled_date <= center + timedelta(days=MOVE_WINDOW))
+            .order_by(Job.scheduled_date, Job.queue_position.asc().nullslast(), Job.id).all())
+    near.sort(key=lambda j: abs((j.scheduled_date - center).days))
+    today = today_eastern()
+    return jsonify(ok=True, jobs=[{
+        'id': j.id, 'name': j.display_name, 'day': _jr_day(j.scheduled_date, today),
+        'street': street_line(j.address), 'done': bool(j.completed_at)} for j in near])
+
+
+@junk_bp.route('/manage/photo/<int:photo_id>/move', methods=['POST'])
+@junk_manager_required
+def job_photo_move(photo_id):
+    """JSON {job_id}. Answers with the photo's old job's checklist, re-rendered."""
+    photo = db.session.get(JobPhoto, photo_id) or abort(404)
+    source = photo.job
+    try:
+        target = db.session.get(Job, int((request.get_json(silent=True) or {}).get('job_id')))
+    except (TypeError, ValueError):
+        target = None
+    if target is None:
+        return _checklist_reply(source, 400, "That job was deleted. Refresh and try again.")
+    move_photo(photo, target, current_user)
+    return _checklist_reply(source)
 
 
 @junk_bp.route('/job/photo/<int:photo_id>')

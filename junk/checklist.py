@@ -53,6 +53,20 @@ class Checklist:
     def total(self):
         return len(ITEMS)
 
+    def who(self, item):
+        """(person, when) for the latest answer to an item, for managers to see."""
+        if item == 'cleared':
+            latest = self.cleared[-1] if self.cleared else None
+            return (latest.uploaded_by, latest.created_at) if latest else (None, None)
+        if item == 'dump':
+            if self.receipts:
+                return self.receipts[-1].uploaded_by, self.receipts[-1].created_at
+            check = next((c for c in self.job.checks if c.item == 'dump'), None)
+            return (check.answered_by, check.answered_at) if check else (None, None)
+        if item == 'truck' and self.truck:
+            return self.truck.answered_by, self.truck.answered_at
+        return None, None
+
     @property
     def complete(self):
         """Everything answered: the job waits on a manager's review."""
@@ -125,4 +139,21 @@ def set_check(job, item, answer, user):
     after = describe(current) if answer else None
     if before != after:
         log_event(job, user, 'checklist', {item: [before, after]})
+    db.session.commit()
+
+
+def move_photo(photo, target, user):
+    """A photo put on the wrong job (a mix-up on site): a manager moves it. The file stays put.
+    A receipt arriving on a job marked "dumped with another job" replaces that answer."""
+    source = photo.job
+    if target.id == source.id:
+        return
+    target.photos.append(photo)      # re-parents it (taking it off source.photos, not deleting it)
+    if photo.kind == 'dump':
+        shared = next((c for c in target.checks if c.item == 'dump'), None)
+        if shared is not None:
+            target.checks.remove(shared)
+    db.session.flush()
+    log_event(source, user, 'checklist', {'photo': [photo.kind, f'moved to job {target.id}']})
+    log_event(target, user, 'checklist', {'photo': [f'moved from job {source.id}', photo.kind]})
     db.session.commit()

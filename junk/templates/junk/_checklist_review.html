@@ -1,0 +1,48 @@
+{# The manager's look at a job's checklist (the job modal): three columns, left to right, read
+   only. Edit switches to the working checklist (_crew_checklist.html) under it; crew.js keeps
+   the two in step. #}
+{% macro shots(list, job, kind) %}
+  {%- for p in list[:3] %}
+  <a class="jr-ckr-shot" href="{{ url_for('junk.job_photo', photo_id=p.id) }}" data-gallery="r{{ job.id }}-{{ kind }}" target="_blank" rel="noopener"
+     data-move="{{ url_for('junk.job_photo_move', photo_id=p.id) }}" data-targets="{{ url_for('junk.job_photo_targets', photo_id=p.id) }}">
+    <img src="{{ url_for('junk.job_photo', photo_id=p.id) }}" alt="" loading="lazy" decoding="async">
+    {%- if loop.last and list|length > 3 %}<span class="jr-ckr-more">+{{ list|length - 3 }}</span>{% endif %}</a>
+  {%- endfor %}
+  {#- The rest are still in the viewer (swipe or arrow past the third). -#}
+  {%- for p in list[3:] %}<a href="{{ url_for('junk.job_photo', photo_id=p.id) }}" data-gallery="r{{ job.id }}-{{ kind }}" hidden
+     data-move="{{ url_for('junk.job_photo_move', photo_id=p.id) }}" data-targets="{{ url_for('junk.job_photo_targets', photo_id=p.id) }}"></a>{% endfor %}
+{% endmacro %}
+
+{% macro col(name, done, by) %}
+  <div class="jr-ckr-col{{ ' is-done' if done }}">
+    <p class="jr-ckr-label"><span class="jr-ck-mark" aria-hidden="true"></span>{{ name }}</p>
+    <div class="jr-ckr-body">{{ caller() }}</div>
+    {% if by[1] %}<p class="jr-ck-by">{{ (by[0]|jr_person).split(' ')[0] if by[0] else 'Someone' }} · {{ by[1]|jr_eastern }}</p>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro review(job) %}
+{%- set ck = job|jr_checklist %}
+{%- set t = ck.truck.answer if ck.truck else none %}
+<div class="jr-ckr" data-ck-review>
+  <div class="jr-ck-head">
+    <h4 class="jr-ck-title">Checklist</h4>
+    <span class="jr-ck-count{{ ' is-done' if ck.complete }}">{{ 'Ready for review' if ck.complete and not job.completed_at else ck.done ~ ' of ' ~ ck.total }}</span>
+    <button type="button" class="jr-ckr-edit" data-ck-edit>Edit</button>
+  </div>
+  <div class="jr-ckr-grid">
+    {% call col('Cleared out', ck.answered('cleared'), ck.who('cleared')) %}
+      {% if ck.cleared %}{{ shots(ck.cleared, job, 'cleared') }}{% else %}<span class="jr-ckr-none">No photos yet</span>{% endif %}
+    {% endcall %}
+    {% call col('Dump', ck.answered('dump'), ck.who('dump')) %}
+      {% if ck.receipts %}{{ shots(ck.receipts, job, 'dump') }}
+      {% elif ck.dump_shared %}<span class="jr-ckr-ans">With another job</span>
+      {% else %}<span class="jr-ckr-none">No receipt yet</span>{% endif %}
+    {% endcall %}
+    {% call col('Truck', ck.answered('truck'), ck.who('truck')) %}
+      {% if t %}<span class="jr-ckr-ans">{{ {'returned': 'Returned it', 'handed': 'Handed off'}[t] }}</span>
+      {% else %}<span class="jr-ckr-none">Not yet</span>{% endif %}
+    {% endcall %}
+  </div>
+</div>
+{% endmacro %}

@@ -1,5 +1,6 @@
 {# The photo viewer (crew.js): one photo at a time over the page. Arrows (and the arrow keys)
-   on a computer, swipe on a phone; neither when there's only one. #}
+   on a computer, swipe on a phone; neither when there's only one. Managers can move a photo
+   to another job from here. #}
 <div class="jr-pv" role="dialog" aria-modal="true" aria-label="Photo" hidden data-pv>
   <button type="button" class="jr-pv-close" aria-label="Close" data-pv-close>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -9,4 +10,11 @@
   <button type="button" class="jr-pv-nav jr-pv-next" aria-label="Next photo" data-pv-step="1">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
   <p class="jr-pv-count" data-pv-count></p>
+  {# Managers: a photo on the wrong job moves to the right one. #}
+  <button type="button" class="jr-pv-move" data-pv-move hidden>Move to another job…</button>
+  <div class="jr-pv-panel" data-pv-panel hidden>
+    <p class="jr-pv-panel-h">Move this photo to</p>
+    <ul class="jr-pv-jobs" data-pv-jobs></ul>
+    <button type="button" class="jr-pv-cancel" data-pv-cancel>Cancel</button>
+  </div>
 </div>

@@ -149,6 +149,10 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-card-name { font-size: 0.88rem; font-weight: 600; color: var(--card-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jr-card-name.is-untitled { color: var(--text-muted); font-style: italic; font-weight: 500; }
 .jr-card-addr { font-size: 0.78rem; color: var(--card-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.jr-card-ck { flex: none; display: inline-flex; gap: 3px; align-self: flex-start; margin-top: 5px; }
+.jr-card-ck i { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--rule); background: var(--bg-body); }
+.jr-card-ck i.on { border-color: var(--jr-done-ink, var(--primary)); background: var(--jr-done-ink, var(--primary)); }
+.jr-month .jr-card-ck { margin-top: 4px; }
 .jr-tag {
   flex: none; padding: 2px 7px; border-radius: calc(6px * var(--jr-round)); background: var(--jr-tag-bg); color: var(--jr-tag-ink);
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
@@ -381,10 +385,10 @@ body.jr-modal-open { overflow: hidden; }
 .jr-crew-chip-x:hover { background: var(--bg-cream); color: var(--accent-hover); }
 .jr-crew-add {
   height: 32px; width: auto; margin: 0; padding: 0 12px; border-radius: var(--jr-pill-r);
-  border: 1px dashed var(--sage); background: var(--bg-body); color: var(--primary);
+  border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--rule)); background: var(--bg-body); color: var(--primary);
   font: 600 0.82rem var(--jr-font-body); cursor: pointer;
 }
-.jr-crew-add:hover, .jr-crew-add[aria-expanded="true"] { border-style: solid; }
+.jr-crew-add:hover, .jr-crew-add[aria-expanded="true"] { border-style: solid; border-color: var(--primary); }
 /* "+ Add…": a floating search + scrolling list (manage.js positions it against the button,
    flipping above when there's no room below), styled like the address suggestions. */
 .jr-teampick-pop {
@@ -741,6 +745,37 @@ body.jr-modal-open { overflow: hidden; }
 .jr-ck-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--card-ink-muted); }
 .jr-ck.is-busy .jr-ck-opt { pointer-events: none; }
 
+/* ─── The checklist in the manager's job modal ─── */
+/* To look at: three columns, left to right. Edit swaps in the working checklist. */
+.jr-modal-ck { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--rule); }
+.jr-modal-ck.is-top { margin: 0 0 16px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--rule); }
+.jr-modal-ck .jr-ck { margin-top: 0; padding-top: 0; border-top: 0; }
+.jr-ck-editing, .jr-modal-ck.is-editing .jr-ckr { display: none; }
+.jr-modal-ck.is-editing .jr-ck-editing { display: block; }
+.jr-ck-editbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; padding: 6px 6px 6px 12px;
+  border-radius: var(--jr-pill-r); background: color-mix(in srgb, var(--primary) 7%, var(--bg-body)); font-size: 0.84rem; font-weight: 600; color: var(--primary); }
+.jr-ck-editbar .jr-btn { min-height: 0; padding: 6px 14px; }
+.jr-ckr .jr-ck-head { gap: 10px; }
+.jr-ckr .jr-ck-count { margin-left: auto; }
+.jr-ckr-edit { margin: 0; padding: 4px 12px; border: 1px solid var(--rule); border-radius: var(--jr-pill-r); background: var(--bg-body);
+  color: var(--primary); font: 600 0.8rem var(--jr-font-body); cursor: pointer; }
+@media (hover: hover) { .jr-ckr-edit:hover { border-color: var(--primary); } }
+.jr-ckr-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.jr-ckr-col { min-width: 0; padding: 10px; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-body); }
+.jr-ckr-label { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.84rem; font-weight: 600; color: var(--card-ink); }
+.jr-ckr-label .jr-ck-mark { width: 16px; height: 16px; margin: 0; }
+.jr-ckr-col.is-done .jr-ck-mark { background: var(--jr-done-ink, var(--primary)); border-color: var(--jr-done-ink, var(--primary)); }
+.jr-ckr-col.is-done .jr-ck-mark::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--bg-body); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.jr-ckr-body { display: flex; flex-wrap: wrap; gap: 4px; min-height: 44px; align-items: center; }
+.jr-ckr-shot { position: relative; display: block; width: 44px; height: 44px; border-radius: calc(8px * var(--jr-round)); overflow: hidden; border: 1px solid var(--rule); background: var(--bg-cream); }
+.jr-ckr-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.jr-ckr-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(var(--primary-rgb), 0.55); color: #fff; font-size: 0.8rem; font-weight: 700; }
+.jr-ckr-ans { font-size: 0.86rem; font-weight: 600; color: var(--card-ink); }
+.jr-ckr-none { font-size: 0.8rem; color: var(--text-muted); }
+.jr-ckr .jr-ck-by { margin: 6px 0 0; font-size: 0.7rem; color: var(--text-muted); }
+@media (max-width: 420px) { .jr-ckr-grid { gap: 6px; } .jr-ckr-col { padding: 8px; } .jr-ckr-shot { width: 36px; height: 36px; } }
+.jr-ck-by { display: block; margin-top: 4px !important; font-size: 0.7rem !important; color: var(--text-muted); }
+
 /* ─── Photos from a phone (snap.html, opened from a QR code) ─── */
 .jr-snap { max-width: 440px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
 .jr-snap-job { margin: 0 0 14px; font-size: 0.86rem; font-weight: 600; color: var(--text-muted); }
@@ -783,6 +818,30 @@ body.jr-modal-open { overflow: hidden; }
 .jr-pv-prev { grid-column: 1; justify-self: center; }
 .jr-pv-next { grid-column: 3; justify-self: center; }
 @media (hover: hover) { .jr-pv-close:hover, .jr-pv-nav:hover { background: rgba(255, 255, 255, 0.24); } }
+/* Managers: move a photo that's on the wrong job. */
+.jr-pv-move {
+  position: absolute; left: 50%; bottom: max(48px, calc(env(safe-area-inset-bottom) + 40px)); transform: translateX(-50%);
+  margin: 0; padding: 9px 16px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.92); color: var(--primary);
+  font: 600 0.86rem var(--jr-font-body); cursor: pointer; white-space: nowrap;
+}
+.jr-pv-move[hidden] { display: none; }
+.jr-pv-panel {
+  position: absolute; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  width: min(380px, calc(100vw - 24px)); max-height: 60dvh; display: flex; flex-direction: column; padding: 12px;
+  border-radius: var(--jr-radius); background: var(--bg-body); box-shadow: var(--jr-shadow-lift);
+}
+.jr-pv-panel[hidden] { display: none; }
+.jr-pv-panel-h { margin: 0 0 8px; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.jr-pv-jobs { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.jr-pv-job {
+  display: flex; flex-direction: column; gap: 1px; width: 100%; margin: 0; padding: 9px 10px; border: 0; border-radius: var(--jr-pill-r);
+  background: none; text-align: left; cursor: pointer; font-family: var(--jr-font-body);
+}
+.jr-pv-job:hover, .jr-pv-job:focus-visible { background: var(--bg-cream); }
+.jr-pv-job strong { font-size: 0.92rem; color: var(--card-ink); }
+.jr-pv-job span { font-size: 0.78rem; color: var(--text-muted); }
+.jr-pv-none { padding: 10px; font-size: 0.86rem; color: var(--text-muted); }
+.jr-pv-cancel { margin: 8px 0 0; padding: 9px; border: 1px solid var(--rule); border-radius: var(--jr-pill-r); background: var(--bg-body); color: var(--primary); font: 600 0.86rem var(--jr-font-body); cursor: pointer; }
 /* Phones swipe; arrows are for a mouse. One photo: no arrows, no count. */
 @media (hover: none) { .jr-pv { grid-template-columns: 8px minmax(0, 1fr) 8px; } .jr-pv-nav { display: none; } }
 .jr-pv.is-single .jr-pv-nav, .jr-pv.is-single .jr-pv-count { display: none; }

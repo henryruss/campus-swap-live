@@ -8,6 +8,23 @@
   <button type="button" class="jr-icon-btn jr-close" data-close aria-label="Close">&times;</button>
 </div>
 
+{#- The job-site checklist: what the crew sent in. Read-only to look at (open a photo to move it
+    to the right job); Edit opens the working checklist. Above the job's details once the crew
+    has started it (that's what you're opening it to see), below them while it's untouched. -#}
+{% macro ck_block(job, top) %}
+  {% from 'junk/_checklist_review.html' import review %}
+  {% from 'junk/_crew_checklist.html' import checklist with context %}
+  <div class="jr-modal-ck{{ ' is-top' if top }}" data-ck-wrap>
+    {{ review(job) }}
+    <div class="jr-ck-editing">
+      <div class="jr-ck-editbar"><span>Editing the checklist</span><button type="button" class="jr-btn jr-btn--quiet" data-ck-done>Done</button></div>
+      {{ checklist(job) }}
+    </div>
+  </div>
+{% endmacro %}
+{%- set ck_on_top = job and (job.completed_at or (job|jr_checklist).done) %}
+{% if ck_on_top %}{{ ck_block(job, true) }}{% endif %}
+
 <form class="jr-form" id="jr-job-form" method="post"{{ ' data-autosave' if job }}
       action="{{ url_for('junk.job_create') if is_new else url_for('junk.job_update', job_id=job.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -70,6 +87,8 @@
   </div>
 </form>
 
+{% if job and not ck_on_top %}{{ ck_block(job, false) }}{% endif %}
+
 {# Existing jobs save as you type (manage.js), so there's no Save or Cancel: just close. #}
 <div class="jr-form-foot">
   {% if job %}
@@ -85,7 +104,8 @@
         <form method="post" action="{{ url_for('junk.job_done', job_id=job.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="return_to" value="{{ return_to }}">
-          <button type="submit" class="jr-btn jr-btn--quiet">Mark done</button>
+          {# The crew's checklist is complete: this is the manager's review. #}
+          <button type="submit" class="jr-btn {{ 'jr-btn--primary' if (job|jr_checklist).complete else 'jr-btn--quiet' }}">Mark done</button>
         </form>
       {% endif %}
     </div>

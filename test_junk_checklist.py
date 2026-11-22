@@ -280,3 +280,73 @@ def test_qr_links_are_guarded(people, monkeypatch):
     r = phone.post(path + '/photo', data={'photo': (_jpeg(), 'p.jpg')}, content_type='multipart/form-data')
     assert r.status_code == 403 and 'closed' in r.json['error']
     assert c.get(f'/junk/job/{job.id}/snap?kind=cleared').status_code == 403
+
+
+# ── the manager side ────────────────────────────────────────
+
+def _other_job(people, **fields):
+    j = Job(created_by_id=people['mgr'].id, customer_name='Other Job', scheduled_date=date(2099, 5, 6), queue_position=1, **fields)
+    db.session.add(j)
+    db.session.commit()
+    return j
+
+
+def test_job_modal_shows_the_checklist_with_who_and_when(people, made):
+    c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
+    _upload(c, job)
+    _check(c, job, item='dump', answer='shared')
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'data-checklist' in form and '2 of 3' in form
+    assert 'Cal · ' in form                                  # who answered (first name) and when
+    assert 'data-move=' in form                              # managers can move photos
+    assert 'jr-btn--quiet">Mark done' in form                # not complete yet: Mark done stays quiet
+    _check(c, job, item='truck', answer='returned')
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'jr-btn--primary">Mark done' in form              # complete: ready for review
+    crew_page = c.get('/junk/crew').get_data(as_text=True)
+    assert 'data-move=' not in crew_page and 'Cal · ' not in crew_page   # crew don't get either
+
+
+def test_calendar_cards_show_checklist_dots(people):
+    c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
+    page = mgr.get('/junk/manage?date=2099-05-04').get_data(as_text=True)
+    assert 'jr-card-ck' not in page                          # nothing answered yet: no dots
+    _check(c, job, item='truck', answer='returned')
+    page = mgr.get('/junk/manage?date=2099-05-04').get_data(as_text=True)
+    assert 'Checklist 1 of 3' in page and page.count('class="on"') >= 1
+
+
+def test_manager_moves_a_photo_to_the_right_job(people, made):
+    c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
+    other = _other_job(people)
+    made['jobs'].append(other.id)
+    _check(c, job, item='dump', answer='')
+    _upload(c, job, 'dump')
+    photo = _fresh(job).photos[0]
+    targets = mgr.get(f'/junk/manage/photo/{photo.id}/targets').json['jobs']
+    assert other.id in [t['id'] for t in targets] and job.id not in [t['id'] for t in targets]
+    other_check = JobCheck(job_id=other.id, item='dump', answer='shared')   # the other job said "shared"
+    db.session.add(other_check)
+    db.session.commit()
+    r = mgr.post(f'/junk/manage/photo/{photo.id}/move', json={'job_id': other.id})
+    assert r.status_code == 200 and '0 of 3' in r.json['html']              # the old job's checklist
+    db.session.expire_all()
+    moved = db.session.get(JobPhoto, photo.id)
+    assert moved.job_id == other.id and moved.key == photo.key             # same file, new job
+    assert JobCheck.query.filter_by(job_id=other.id, item='dump').count() == 0   # the receipt wins
+    assert JobEvent.query.filter_by(job_id=other.id, action='checklist').count() == 1
+    assert _login(people['me']).post(f'/junk/manage/photo/{photo.id}/move', json={'job_id': job.id}).status_code == 403
+
+
+def test_job_modal_checklist_is_to_look_at_with_an_edit_button(people):
+    c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'data-ck-review' in form and 'data-ck-edit' in form
+    assert form.index('id="jr-job-form"') < form.index('data-ck-review')      # untouched: below the details
+    _check(c, job, item='truck', answer='handed')
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert form.index('data-ck-review') < form.index('id="jr-job-form"')      # started: on top
+    assert 'Handed off' in form and 'No photos yet' in form
+    r = _check(mgr, job, item='truck', answer='returned')                     # a manager edits
+    assert 'Returned it' in r.json['review']                                  # the look updates too
+    assert _check(c, job, item='truck', answer='handed').json['review'] is None   # crew don't get it
