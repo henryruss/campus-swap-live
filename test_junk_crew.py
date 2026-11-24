@@ -197,8 +197,9 @@ def test_team_adds_managers_and_leaves_super_admins_off(make_user):
     page = c.get('/junk/manage/team').data.decode()
     assert 'David Owner' in page and 'Henry Boss' not in page        # super admins aren't on the team
     email = f"jr-crew-test-{uuid.uuid4().hex[:10]}@example.com"
-    c.post('/junk/manage/team/add', data={'email': email, 'name': 'Pat Partner', 'role': 'manager'})
+    c.post('/junk/manage/team/add', data={'email': email, 'first_name': ' Pat ', 'last_name': 'Partner', 'role': 'manager'})
     pat = User.query.filter_by(email=email).one()
+    assert pat.full_name == 'Pat Partner'
     tracked_ids = pat.id
     try:
         assert pat.is_junk_manager and not pat.is_junk_crew

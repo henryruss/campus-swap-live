@@ -757,7 +757,11 @@ def team_add():
     """Give an email crew or manager access. Creates the account (no password) if there isn't
     one. Nothing is sent: they sign in with Google, or set a password from the sign-in page."""
     email = (request.form.get('email') or '').strip()
-    name = (request.form.get('name') or '').strip()[:100]
+    # First and last name, kept together as the account's full name ("Jordan Lee"); the team
+    # sorts by the last word of it.
+    name = ' '.join(p for p in ((request.form.get('first_name') or '').strip(),
+                                (request.form.get('last_name') or '').strip()) if p)
+    name = (name or (request.form.get('name') or '').strip())[:100]
     phone = (request.form.get('phone') or '').strip()[:20]
     if '@' not in email or ' ' in email or len(email) > 120:
         flash("Enter an email address.", 'error')
