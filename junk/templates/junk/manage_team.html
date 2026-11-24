@@ -39,6 +39,9 @@
     <p class="jr-team-hint">They sign in with Google, or set a password from the sign-in page.</p>
   </form>
 
+  {% if not people %}
+  <p class="jr-cnone">No one on the team yet. Add your first person with + Person.</p>
+  {% else %}
   <ul class="jr-team-list">
     {% for u in people %}
     {% set manager = u.is_junk_manager %}
@@ -63,6 +66,7 @@
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
 </div>
 {% endblock %}
 
