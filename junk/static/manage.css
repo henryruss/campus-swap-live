@@ -1014,6 +1014,14 @@ body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet 
 .jr-team-list { list-style: none; margin: 0; padding: 4px 0; }
 .jr-person { display: flex; align-items: center; gap: 14px; padding: 12px 20px; min-height: 64px; }
 .jr-person + .jr-person { border-top: 1px solid var(--rule); }
+.jr-person { flex-wrap: wrap; }
+.jr-person-edit { flex-basis: 100%; margin: 4px 0 4px; padding-top: 14px; border-top: 1px dashed var(--rule); }
+.jr-person-edit[hidden] { display: none; }
+.jr-person-side [data-person-edit]:hover, .jr-person.is-editing [data-person-edit] { color: var(--primary); }
+.jr-person-edit .jr-team-add-row { grid-template-columns: 1.4fr 0.9fr 0.9fr 0.9fr 0.8fr; }
+.jr-person-edit-btns { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; }
+.jr-person-edit-btns .jr-btn { height: 40px; }
+.jr-person-edit select:disabled { opacity: 0.6; cursor: not-allowed; }
 .jr-person-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .jr-person-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jr-person-meta { font-size: 0.85rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1026,6 +1034,8 @@ body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet 
   .jr-team-add { padding: 14px 16px; }
   .jr-team-add-row { grid-template-columns: 1fr; }
   .jr-team-add-row .jr-btn { width: 100%; }
+  .jr-person-edit .jr-team-add-row { grid-template-columns: 1fr; }
+  .jr-person-edit-btns .jr-btn { width: auto; flex: 1; }
   .jr-person { padding: 12px 16px; }
   .jr-person-side { flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; }
   .jr-person-meta { display: grid; }

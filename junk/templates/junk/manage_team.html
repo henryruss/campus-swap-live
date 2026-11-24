@@ -49,7 +49,11 @@
   <ul class="jr-team-list">
     {% for u in people %}
     {% set manager = u.is_junk_manager %}
-    <li class="jr-person">
+    {%- set words = (u.full_name or '').split() %}
+    {%- set first = (words[:-1]|join(' ')) if words|length > 1 else (words[0] if words else '') %}
+    {%- set last = words[-1] if words|length > 1 else '' %}
+    {%- set open_edit = editing == u.id %}
+    <li class="jr-person{{ ' is-editing' if open_edit }}" data-person>
       <div class="jr-person-main">
         <span class="jr-person-name">{{ u.full_name or u.email }}</span>
         <span class="jr-person-meta">
@@ -59,6 +63,7 @@
       </div>
       <div class="jr-person-side">
         <span class="jr-role">{{ 'Manager' if manager else 'Crew' }}</span>
+        <button type="button" class="jr-link-btn" data-person-edit aria-expanded="{{ 'true' if open_edit else 'false' }}">Edit</button>
         {% if u.id != current_user.id %}
         <form method="post" action="{{ url_for('junk.team_remove', user_id=u.id) }}"
               onsubmit="return confirm('Remove from the team? They lose access to the portal.')">
@@ -67,6 +72,41 @@
         </form>
         {% endif %}
       </div>
+      {#- Edit in place, under the row: the same fields as adding someone. -#}
+      <form class="jr-form jr-person-edit" method="post" action="{{ url_for('junk.team_edit', user_id=u.id) }}"
+            data-person-form {{ '' if open_edit else 'hidden' }}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="jr-team-add-row">
+          <div class="jr-field">
+            <label for="jr-pe-email-{{ u.id }}">Email</label>
+            <input id="jr-pe-email-{{ u.id }}" name="email" type="email" required maxlength="120" autocomplete="off" value="{{ u.email }}">
+          </div>
+          <div class="jr-field">
+            <label for="jr-pe-first-{{ u.id }}">First name</label>
+            <input id="jr-pe-first-{{ u.id }}" name="first_name" maxlength="50" autocomplete="off" value="{{ first }}">
+          </div>
+          <div class="jr-field">
+            <label for="jr-pe-last-{{ u.id }}">Last name</label>
+            <input id="jr-pe-last-{{ u.id }}" name="last_name" maxlength="50" autocomplete="off" value="{{ last }}">
+          </div>
+          <div class="jr-field">
+            <label for="jr-pe-phone-{{ u.id }}">Phone</label>
+            <input id="jr-pe-phone-{{ u.id }}" name="phone" type="tel" maxlength="20" autocomplete="off" value="{{ u.phone or '' }}">
+          </div>
+          <div class="jr-field">
+            <label for="jr-pe-role-{{ u.id }}">Role</label>
+            {#- Not your own: a manager can't take away their own access by mistake. -#}
+            <select id="jr-pe-role-{{ u.id }}" name="role"{{ ' disabled title="You can\'t change your own role"'|safe if u.id == current_user.id }}>
+              <option value="crew"{{ ' selected' if not manager }}>Crew</option>
+              <option value="manager"{{ ' selected' if manager }}>Manager</option>
+            </select>
+          </div>
+          <div class="jr-person-edit-btns">
+            <button type="button" class="jr-btn jr-btn--quiet" data-person-cancel>Cancel</button>
+            <button type="submit" class="jr-btn jr-btn--primary">Save</button>
+          </div>
+        </div>
+      </form>
     </li>
     {% endfor %}
   </ul>
@@ -86,6 +126,26 @@
   open.addEventListener('click', function () { show(true); });
   document.querySelector('[data-team-add-close]').addEventListener('click', function () { show(false); });
   if (!form.hidden) form.querySelector('input[name=email]').focus();
+
+  // Edit someone: open their row's form (one at a time); Cancel puts the fields back.
+  function closeEdit(li) {
+    var f = li.querySelector('[data-person-form]');
+    f.reset(); f.hidden = true;
+    li.classList.remove('is-editing');
+    li.querySelector('[data-person-edit]').setAttribute('aria-expanded', 'false');
+  }
+  document.querySelectorAll('[data-person]').forEach(function (li) {
+    var f = li.querySelector('[data-person-form]');
+    li.querySelector('[data-person-edit]').addEventListener('click', function () {
+      if (!f.hidden) { closeEdit(li); return; }
+      document.querySelectorAll('[data-person].is-editing').forEach(closeEdit);
+      f.hidden = false;
+      li.classList.add('is-editing');
+      this.setAttribute('aria-expanded', 'true');
+      f.querySelector('input[name=first_name]').focus();
+    });
+    li.querySelector('[data-person-cancel]').addEventListener('click', function () { closeEdit(li); });
+  });
 })();
 </script>
 {% endblock %}

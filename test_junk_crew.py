@@ -535,3 +535,38 @@ def test_my_jobs_for_managers_and_viewing_someone_else(make_user, monkeypatch):
     assert _login(sam.id).get(f'/junk/crew?person={jo.id}').status_code == 403
     g.pop('_login_user', None)
     assert _login(jo.id).get('/junk/crew').get_data(as_text=True).count('jr-cwho') == 0   # no picker for crew
+
+
+def test_team_edit_changes_details_and_role(make_user):
+    mgr = make_user(is_junk_manager=True)
+    crew = make_user(is_junk_crew=True, full_name='Jo Crew', phone='111')
+    taken = make_user()
+    c = _login(mgr.id)
+    page = c.get('/junk/manage/team').data.decode()
+    assert f'/junk/manage/team/{crew.id}/edit' in page and 'value="Jo"' in page and 'value="Crew"' in page
+    new_email = f"jr-crew-test-{uuid.uuid4().hex[:10]}@example.com"
+    r = c.post(f'/junk/manage/team/{crew.id}/edit', data={
+        'email': new_email.upper(), 'first_name': 'Joanna', 'last_name': 'Crewe', 'phone': '919 555 0199', 'role': 'manager'})
+    assert _path(r) == '/junk/manage/team'
+    db.session.expire_all()
+    u = db.session.get(User, crew.id)
+    assert u.email == new_email and u.full_name == 'Joanna Crewe' and u.phone == '919 555 0199'
+    assert u.is_junk_manager and not u.is_junk_crew
+    # Someone else's email: refused, nothing changes.
+    r = c.post(f'/junk/manage/team/{crew.id}/edit', data={'email': taken.email, 'first_name': 'X', 'role': 'crew'})
+    assert 'edit=' in r.headers['Location']
+    db.session.expire_all()
+    assert db.session.get(User, crew.id).email == new_email and db.session.get(User, crew.id).full_name == 'Joanna Crewe'
+
+
+def test_team_edit_never_changes_your_own_role(make_user):
+    mgr = make_user(is_junk_manager=True)
+    c = _login(mgr.id)
+    c.post(f'/junk/manage/team/{mgr.id}/edit', data={'email': mgr.email, 'first_name': 'New', 'last_name': 'Name', 'role': 'crew'})
+    db.session.expire_all()
+    u = db.session.get(User, mgr.id)
+    assert u.is_junk_manager and u.full_name == 'New Name'
+    assert c.post(f'/junk/manage/team/{make_user().id}/edit', data={'email': 'a@b.com'}).status_code == 404   # not on the team
+    g.pop('_login_user', None)
+    crew = make_user(is_junk_crew=True)
+    assert _login(crew.id).post(f'/junk/manage/team/{crew.id}/edit', data={'email': crew.email}).status_code == 403

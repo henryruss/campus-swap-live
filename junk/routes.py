@@ -748,7 +748,16 @@ def _team():
 @junk_manager_required
 def team():
     return render_template('junk/manage_team.html', people=_team(),
-                           adding=request.args.get('add') == '1')
+                           adding=request.args.get('add') == '1',
+                           editing=request.args.get('edit', type=int))
+
+
+def _form_name():
+    """First and last name from the team forms, kept together as the account's full name
+    ("Jordan Lee"); the team sorts by the last word of it."""
+    name = ' '.join(p for p in ((request.form.get('first_name') or '').strip(),
+                                (request.form.get('last_name') or '').strip()) if p)
+    return (name or (request.form.get('name') or '').strip())[:100]
 
 
 @junk_bp.route('/manage/team/add', methods=['POST'])
@@ -757,11 +766,7 @@ def team_add():
     """Give an email crew or manager access. Creates the account (no password) if there isn't
     one. Nothing is sent: they sign in with Google, or set a password from the sign-in page."""
     email = (request.form.get('email') or '').strip()
-    # First and last name, kept together as the account's full name ("Jordan Lee"); the team
-    # sorts by the last word of it.
-    name = ' '.join(p for p in ((request.form.get('first_name') or '').strip(),
-                                (request.form.get('last_name') or '').strip()) if p)
-    name = (name or (request.form.get('name') or '').strip())[:100]
+    name = _form_name()
     phone = (request.form.get('phone') or '').strip()[:20]
     if '@' not in email or ' ' in email or len(email) > 120:
         flash("Enter an email address.", 'error')
@@ -785,6 +790,36 @@ def team_add():
         user.phone = phone
     db.session.commit()
     flash(f"{user.full_name or user.email} added as {'a manager' if manager else 'crew'}.", 'success')
+    return redirect(url_for('junk.team'))
+
+
+@junk_bp.route('/manage/team/<int:user_id>/edit', methods=['POST'])
+@junk_manager_required
+def team_edit(user_id):
+    """Fix someone's name, email, phone or role. The email is how they sign in (Google or
+    password), so a new one must not belong to another account. Your own role stays put, so a
+    manager can't lock themselves out."""
+    user = db.session.get(User, user_id)
+    if user is None or not (user.is_junk_crew or user.is_junk_manager):
+        abort(404)
+    email = (request.form.get('email') or '').strip()
+    if '@' not in email or ' ' in email or len(email) > 120:
+        flash("Enter an email address.", 'error')
+        return redirect(url_for('junk.team', edit=user.id))
+    other = _find_user(email)
+    if other and other.id != user.id:
+        flash(f"{email} already belongs to another account.", 'error')
+        return redirect(url_for('junk.team', edit=user.id))
+    if email.lower() != (user.email or '').lower():
+        user.email = email.lower()
+    user.full_name = _form_name() or None
+    user.phone = (request.form.get('phone') or '').strip()[:20] or None
+    role = request.form.get('role')
+    if user.id != current_user.id and role in ('crew', 'manager'):
+        user.is_junk_manager = role == 'manager'
+        user.is_junk_crew = role == 'crew'
+    db.session.commit()
+    flash(f"Saved {user.full_name or user.email}.", 'success')
     return redirect(url_for('junk.team'))
 
 
