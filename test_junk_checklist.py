@@ -341,8 +341,17 @@ def test_manager_moves_a_photo_to_the_right_job(people, made):
 def test_job_modal_checklist_is_to_look_at_with_an_edit_button(people):
     c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
     form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
-    assert 'data-ck-review' not in form and 'Fill in the checklist' in form   # untouched: just a quiet link
-    assert form.index('id="jr-job-form"') < form.index('Fill in the checklist')
+    assert 'data-ck-review' not in form and 'jr-ck-later' in form          # future, untouched: a closed row
+    assert form.index('id="jr-job-form"') < form.index('jr-ck-later')
+    past = Job(created_by_id=people['mgr'].id, customer_name='Past Job', scheduled_date=date(2020, 1, 6), queue_position=1)
+    db.session.add(past)
+    db.session.commit()
+    try:
+        form = mgr.get(f'/junk/manage/job/form?id={past.id}').get_data(as_text=True)
+        assert form.index('data-ck-review') < form.index('id="jr-job-form"')  # past (or today): on top
+    finally:
+        db.session.delete(past)
+        db.session.commit()
     _check(c, job, item='truck', answer='handed')
     form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
     assert form.index('data-ck-review') < form.index('id="jr-job-form"')      # started: on top

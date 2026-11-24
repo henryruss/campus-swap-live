@@ -611,7 +611,7 @@ def job_form():
         except JobFormError:
             prefill_date = None
     return render_template(
-        'junk/_job_form.html', job=job, prefill_date=prefill_date, team=_team(),
+        'junk/_job_form.html', job=job, prefill_date=prefill_date, team=_team(), today=today_eastern(),
         return_to=request.args.get('return_to') or url_for('junk.manage'),
     )
 

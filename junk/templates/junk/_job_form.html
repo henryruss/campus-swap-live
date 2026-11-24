@@ -24,10 +24,10 @@
 </div>
 {% endif %}
 
-{#- The job-site checklist: what the crew sent in, at the top, once there's anything in it.
-    Read-only to look at (open a photo to move it to the right job); Edit opens the working
-    checklist. Untouched, it doesn't show: a quiet "Fill in the checklist" at the bottom opens
-    the editor for the rare time a manager fills it in for someone. -#}
+{#- The job-site checklist: what the crew sent in. On top for today's and past jobs (and any job
+    the crew has started or that's done). Read-only to look at (open a photo to move it to the
+    right job); Edit opens the working checklist. A future job that nobody's started gets a
+    closed "Checklist" row at the bottom instead, for the rare time a manager fills one in early. -#}
 {% macro ck_block(job, top) %}
   {% from 'junk/_checklist_review.html' import review %}
   {% from 'junk/_crew_checklist.html' import checklist with context %}
@@ -39,7 +39,8 @@
     </div>
   </div>
 {% endmacro %}
-{%- set ck_on_top = job and (job.completed_at or (job|jr_checklist).done) %}
+{%- set ck_on_top = job and (job.completed_at or (job|jr_checklist).done
+                             or (job.scheduled_date and job.scheduled_date <= today)) %}
 {% if ck_on_top %}{{ ck_block(job, true) }}{% endif %}
 
 <form class="jr-form" id="jr-job-form" method="post"{{ ' data-autosave' if job }}
@@ -107,7 +108,7 @@
 {% if job and not ck_on_top %}
 {% from 'junk/_crew_checklist.html' import checklist with context %}
 <details class="jr-ck-later" data-ck-wrap>
-  <summary>Fill in the checklist</summary>
+  <summary><span>Checklist</span><svg class="jr-cj-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary>
   {{ checklist(job, job_window=true) }}
 </details>
 {% endif %}

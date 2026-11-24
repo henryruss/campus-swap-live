@@ -775,9 +775,13 @@ body.jr-modal-open { overflow: hidden; }
 .jr-modal-ck .jr-ck { margin-top: 0; padding-top: 0; border-top: 0; }
 .jr-ck-editing, .jr-modal-ck.is-editing .jr-ckr { display: none; }
 .jr-ck-later { margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); }
-.jr-ck-later > summary { display: inline-block; list-style: none; padding: 2px 0; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.jr-ck-later > summary { display: flex; align-items: center; justify-content: space-between; list-style: none; padding: 4px 0; cursor: pointer;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
 .jr-ck-later > summary::-webkit-details-marker { display: none; }
+.jr-ck-later > summary .jr-cj-chev { width: 18px; height: 18px; }
 .jr-ck-later[open] > summary { margin-bottom: 8px; }
+.jr-ck-later[open] > summary .jr-cj-chev { transform: rotate(90deg); }
+@media (hover: hover) { .jr-ck-later > summary:hover { color: var(--primary); } }
 .jr-modal-ck.is-editing .jr-ck-editing { display: block; }
 .jr-ck-editbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; padding: 6px 6px 6px 12px;
   border-radius: var(--jr-pill-r); background: color-mix(in srgb, var(--primary) 7%, var(--bg-body)); font-size: 0.84rem; font-weight: 600; color: var(--primary); }
