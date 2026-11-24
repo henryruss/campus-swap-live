@@ -4,14 +4,14 @@
 {% block content %}
 <div class="jr-team" data-team>
   <div class="jr-team-bar">
-    <button type="button" class="jr-btn jr-btn--primary" data-team-add-open {{ 'hidden' if adding }}>+ Crew</button>
+    <button type="button" class="jr-btn jr-btn--primary" data-team-add-open {{ 'hidden' if adding }}>+ Person</button>
   </div>
 
   <form class="jr-form jr-team-add" method="post" action="{{ url_for('junk.team_add') }}"
         data-team-add {{ 'hidden' if not adding }}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="jr-form-head">
-      <h2>Add crew</h2>
+      <h2>Add someone</h2>
       <button type="button" class="jr-icon-btn jr-close" data-team-add-close aria-label="Close">&times;</button>
     </div>
     <div class="jr-team-add-row">
@@ -27,6 +27,13 @@
         <label for="jr-team-phone">Phone</label>
         <input id="jr-team-phone" name="phone" type="tel" maxlength="20" autocomplete="off">
       </div>
+      <div class="jr-field">
+        <label for="jr-team-role">Role</label>
+        <select id="jr-team-role" name="role">
+          <option value="crew" selected>Crew</option>
+          <option value="manager">Manager</option>
+        </select>
+      </div>
       <button type="submit" class="jr-btn jr-btn--primary">Add</button>
     </div>
     <p class="jr-team-hint">They sign in with Google, or set a password from the sign-in page.</p>
@@ -34,7 +41,7 @@
 
   <ul class="jr-team-list">
     {% for u in people %}
-    {% set manager = u.is_junk_manager or u.is_super_admin %}
+    {% set manager = u.is_junk_manager %}
     <li class="jr-person">
       <div class="jr-person-main">
         <span class="jr-person-name">{{ u.full_name or u.email }}</span>
@@ -45,9 +52,9 @@
       </div>
       <div class="jr-person-side">
         <span class="jr-role">{{ 'Manager' if manager else 'Crew' }}</span>
-        {% if u.is_junk_crew and not manager %}
+        {% if u.id != current_user.id %}
         <form method="post" action="{{ url_for('junk.team_remove', user_id=u.id) }}"
-              onsubmit="return confirm('Remove from crew? They lose access to the portal.')">
+              onsubmit="return confirm('Remove from the team? They lose access to the portal.')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="jr-link-btn">Remove</button>
         </form>

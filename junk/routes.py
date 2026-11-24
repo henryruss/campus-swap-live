@@ -735,10 +735,11 @@ def _by_last_name(u):
 
 
 def _team():
-    """Everyone with junk access, by last name. Managers get no top billing (Henry, 2026-11-19)."""
+    """Everyone on the team, by last name. Managers get no top billing (Henry, 2026-11-19).
+    Super admins (Henry, Ben) aren't on it unless they're given a role here: they have full
+    access to the portal without being someone jobs get assigned to (2026-11-23)."""
     people = (User.query
-              .filter(db.or_(User.is_junk_manager.is_(True), User.is_junk_crew.is_(True),
-                             User.is_super_admin.is_(True)))
+              .filter(db.or_(User.is_junk_manager.is_(True), User.is_junk_crew.is_(True)))
               .all())
     return sorted(people, key=_by_last_name)
 
@@ -753,41 +754,50 @@ def team():
 @junk_bp.route('/manage/team/add', methods=['POST'])
 @junk_manager_required
 def team_add():
-    """Give an email crew access. Creates the account (no password) if there isn't one.
-    Nothing is sent: they sign in with Google, or set a password from the sign-in page."""
+    """Give an email crew or manager access. Creates the account (no password) if there isn't
+    one. Nothing is sent: they sign in with Google, or set a password from the sign-in page."""
     email = (request.form.get('email') or '').strip()
     name = (request.form.get('name') or '').strip()[:100]
     phone = (request.form.get('phone') or '').strip()[:20]
     if '@' not in email or ' ' in email or len(email) > 120:
         flash("Enter an email address.", 'error')
         return redirect(url_for('junk.team', add=1))
+    manager = request.form.get('role') == 'manager'
     user = _find_user(email)
-    if user and user.is_junk_crew:
-        flash(f"{user.full_name or user.email} is already crew.", 'error')
+    if user and (user.is_junk_manager if manager else (user.is_junk_crew or user.is_junk_manager)):
+        flash(f"{user.full_name or user.email} is already {'a manager' if user.is_junk_manager else 'crew'}.", 'error')
         return redirect(url_for('junk.team', add=1))
     if user is None:
         user = User(email=email.lower())
         db.session.add(user)
-    user.is_junk_crew = True
+    if manager:
+        user.is_junk_manager = True
+        user.is_junk_crew = False
+    else:
+        user.is_junk_crew = True
     if name and not user.full_name:
         user.full_name = name
     if phone and not user.phone:
         user.phone = phone
     db.session.commit()
-    flash(f"{user.full_name or user.email} added to crew.", 'success')
+    flash(f"{user.full_name or user.email} added as {'a manager' if manager else 'crew'}.", 'success')
     return redirect(url_for('junk.team'))
 
 
 @junk_bp.route('/manage/team/<int:user_id>/remove', methods=['POST'])
 @junk_manager_required
 def team_remove(user_id):
-    """Takes away crew access. Never deletes the account."""
+    """Takes away portal access (crew or manager). Never deletes the account, and never you."""
     user = db.session.get(User, user_id)
-    if user is None or not user.is_junk_crew:
+    if user is None or not (user.is_junk_crew or user.is_junk_manager):
         abort(404)
+    if user.id == current_user.id:
+        flash("You can't remove yourself.", 'error')
+        return redirect(url_for('junk.team'))
     user.is_junk_crew = False
+    user.is_junk_manager = False
     db.session.commit()
-    flash(f"{user.full_name or user.email} removed from crew.", 'success')
+    flash(f"{user.full_name or user.email} removed from the team.", 'success')
     return redirect(url_for('junk.team'))
 
 
@@ -1169,9 +1179,12 @@ JR_THEME = 'navyforest'
 # super admins anywhere (switches what they see).
 
 def preview_enabled():
+    """The Manager / Crew pill: the local dev server only (2026-11-23: not on the live site).
+    A super admin still switched to the crew view gets it back, only to switch out again."""
     if dev_switch_enabled():
         return True
-    return bool(current_user.is_authenticated and getattr(current_user, 'is_super_admin', False))
+    return bool(current_user.is_authenticated and getattr(current_user, 'is_super_admin', False)
+                and viewing_as_crew())
 
 
 def _dev_role():
@@ -1219,3 +1232,38 @@ def dev_switch(role):
     logout_user()
     login_user(user, remember=True)
     return redirect(junk_home(user))
+
+
+# ─── one-off: clear every job (handing the portal over, 2026-11-23) ───────
+# `flask junk clear-jobs` shows what's there; `flask junk clear-jobs --yes` deletes every job with
+# its history, crew, checklist answers and photos (files too). People and settings stay.
+
+import click  # noqa: E402
+
+
+@junk_bp.cli.command('clear-jobs')
+@click.option('--yes', is_flag=True, help='Actually delete (otherwise it only counts).')
+def clear_jobs(yes):
+    from junk.models import JobCheck, JobEvent, JobPhoto
+    from storage import get_storage_instance
+    counts = {'jobs': Job.query.count(), 'history entries': JobEvent.query.count(),
+              'crew assignments': JobAssignment.query.count(), 'photos': JobPhoto.query.count(),
+              'checklist answers': JobCheck.query.count()}
+    click.echo('Found: ' + ', '.join(f'{n} {k}' for k, n in counts.items()))
+    if not yes:
+        click.echo('Nothing deleted. Run again with --yes to delete all of it.')
+        return
+    keys = [k for (k,) in db.session.query(JobPhoto.key)]
+    db.session.execute(db.delete(JobEvent))
+    db.session.execute(db.delete(JobCheck))
+    db.session.execute(db.delete(JobPhoto))
+    db.session.execute(db.delete(JobAssignment))
+    db.session.execute(db.delete(Job))
+    db.session.commit()
+    gone = 0
+    for key in keys:
+        try:
+            gone += bool(get_storage_instance().delete_photo(key))
+        except Exception as e:  # the rows are gone; a leftover file is harmless
+            click.echo(f'Could not delete photo file {key}: {e}')
+    click.echo(f'Deleted all jobs. Photo files removed: {gone} of {len(keys)}.')

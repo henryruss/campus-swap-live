@@ -1005,8 +1005,11 @@ body.jr-modal-open .jr-devbar { display: none; }  /* never covers the job sheet 
 .jr-team-add { padding: 16px 20px; }
 .jr-team-add .jr-form-head { margin: 0; }
 .jr-team-add h2 { font-size: 1.15rem !important; }
-.jr-team-add-row { display: grid; grid-template-columns: 1.4fr 1fr 0.9fr auto; gap: 10px; align-items: end; }
+.jr-team-add-row { display: grid; grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr auto; gap: 10px; align-items: end; }
 .jr-team-add-row .jr-btn { height: 40px; }
+.jr-team-add-row select { width: 100%; height: 40px; margin: 0; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--jr-pill-r);
+  background: var(--bg-body); color: var(--card-ink); font: inherit; font-size: 0.95rem; }
+.jr-team-add-row select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .jr-team-hint { margin: 10px 0 0; font-size: 0.82rem; color: var(--text-muted); }
 .jr-team-list { list-style: none; margin: 0; padding: 4px 0; }
 .jr-person { display: flex; align-items: center; gap: 14px; padding: 12px 20px; min-height: 64px; }

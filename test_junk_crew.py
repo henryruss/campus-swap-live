@@ -175,16 +175,44 @@ def test_dev_switch_both_ways(app_ctx, tracked):
 
 # ── preview tools for super admins (works on the live server) ──
 
-def test_preview_pills_super_admin_only(make_user):
-    """Off the dev server: super admins get the pills (view-as forms, not dev sign-in);
-    junk managers and crew never do."""
+def test_no_preview_pill_on_the_live_site(make_user):
+    """Off the dev server nobody gets the Manager / Crew pill (2026-11-23), except a super admin
+    still switched to the crew view, so they can switch back."""
     boss = make_user(is_super_admin=True, is_admin=True)
-    page = _login(boss.id).get('/junk/manage').data.decode()
-    assert 'jr-devbar' in page
-    assert '/junk/dev/view/crew' in page and '/junk/dev/as/' not in page
-    mgr = make_user(is_junk_manager=True)
-    page = _login(mgr.id).get('/junk/manage').data.decode()
-    assert 'jr-devbar' not in page
+    c = _login(boss.id)
+    assert 'jr-devbar' not in c.get('/junk/manage').data.decode()
+    c.post('/junk/dev/view/crew')
+    page = c.get('/junk/crew').data.decode()
+    assert 'jr-devbar' in page and '/junk/dev/view/manager' in page and '/junk/dev/as/' not in page
+    c.post('/junk/dev/view/manager')
+    assert 'jr-devbar' not in c.get('/junk/manage').data.decode()
+    g.pop('_login_user', None)
+    assert 'jr-devbar' not in _login(make_user(is_junk_manager=True).id).get('/junk/manage').data.decode()
+
+
+def test_team_adds_managers_and_leaves_super_admins_off(make_user):
+    boss = make_user(is_super_admin=True, full_name='Henry Boss')
+    mgr = make_user(is_junk_manager=True, full_name='David Owner')
+    c = _login(mgr.id)
+    page = c.get('/junk/manage/team').data.decode()
+    assert 'David Owner' in page and 'Henry Boss' not in page        # super admins aren't on the team
+    email = f"jr-crew-test-{uuid.uuid4().hex[:10]}@example.com"
+    c.post('/junk/manage/team/add', data={'email': email, 'name': 'Pat Partner', 'role': 'manager'})
+    pat = User.query.filter_by(email=email).one()
+    tracked_ids = pat.id
+    try:
+        assert pat.is_junk_manager and not pat.is_junk_crew
+        assert c.post(f'/junk/manage/team/{mgr.id}/remove').status_code == 302   # not yourself
+        db.session.expire_all()
+        assert db.session.get(User, mgr.id).is_junk_manager
+        c.post(f'/junk/manage/team/{pat.id}/remove')
+        db.session.expire_all()
+        assert not db.session.get(User, pat.id).is_junk_manager
+        g.pop('_login_user', None)
+        assert _login(boss.id).get('/junk/manage').status_code == 200   # still full access
+    finally:
+        db.session.execute(db.delete(User).where(User.id == tracked_ids))
+        db.session.commit()
 
 
 def test_navy_and_forest_is_locked_in_for_everyone(make_user):
