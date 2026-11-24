@@ -109,7 +109,6 @@ body.jr {
 }
 .jr-day { display: flex; flex-direction: column; border-right: 1px solid var(--rule); min-width: 0; cursor: pointer; padding-bottom: 10px; }
 .jr-day:last-child { border-right: none; }
-.jr-day.is-past { background: rgba(var(--primary-rgb), 0.015); }
 
 .jr-day-head { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px 10px; cursor: default; }
 .jr-dow { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
@@ -128,7 +127,7 @@ body.jr {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
   }
 }
-body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none; }
+body.jr-dragging .jr-mweek { background: none; }
 
 /* ── Cards ─────────────────────────────────────────────── */
 .jr-card {
