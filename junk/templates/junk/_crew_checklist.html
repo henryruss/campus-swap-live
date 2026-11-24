@@ -6,7 +6,7 @@
 {% macro thumb(p, locked) %}
   <span class="jr-ck-thumb">
     <a href="{{ url_for('junk.job_photo', photo_id=p.id) }}" data-gallery="{{ p.job_id }}-{{ p.kind }}" target="_blank" rel="noopener"
-       {%- if jr_is_manager %} data-move="{{ url_for('junk.job_photo_move', photo_id=p.id) }}" data-targets="{{ url_for('junk.job_photo_targets', photo_id=p.id) }}"{% endif %}>
+       {%- if jr_is_manager and not locked %} data-move="{{ url_for('junk.job_photo_move', photo_id=p.id) }}" data-targets="{{ url_for('junk.job_photo_targets', photo_id=p.id) }}"{% endif %}>
       <img src="{{ url_for('junk.job_photo', photo_id=p.id) }}" alt="{{ 'Cleared-out photo' if p.kind == 'cleared' else 'Dump receipt' }}" loading="lazy" decoding="async"></a>
     {% if not locked %}
     <button type="button" class="jr-ck-x" data-photo-remove="{{ url_for('junk.job_photo_remove', photo_id=p.id) }}" aria-label="Remove photo">
@@ -41,9 +41,12 @@
           data-check="{{ item_name }}" data-answer="{{ '' if current == answer else answer }}">{{ label }}</button>
 {% endmacro %}
 
-{% macro checklist(job) %}
+{#- job_window: the manager's job window on the calendar, the one place a finished job can still
+    be changed. Everywhere else (My jobs, the Finished list) a finished job is read-only for
+    everyone, managers included. -#}
+{% macro checklist(job, job_window=false) %}
 {%- set ck = job|jr_checklist %}
-{%- set locked = job.completed_at and not jr_is_manager %}
+{%- set locked = job.completed_at and not (jr_is_manager and job_window) %}
 {%- set t = ck.truck.answer if ck.truck else none %}
 <section class="jr-ck{{ ' is-locked' if locked }}" data-checklist
          data-photo-url="{{ url_for('junk.job_photo_add', job_id=job.id) }}"
@@ -54,7 +57,7 @@
     <h4 class="jr-ck-title">Checklist</h4>
     <span class="jr-ck-count{{ ' is-done' if ck.complete }}">{{ ck.done }} of {{ ck.total }}</span>
   </div>
-  {% if locked %}<p class="jr-ck-note">A manager has closed this job. Ask a manager if something needs changing.</p>{% endif %}
+  {% if locked %}<p class="jr-ck-note">{{ 'Finished. To change it, open the job on the calendar and use Edit.' if jr_is_manager else 'A manager has closed this job. Ask a manager if something needs changing.' }}</p>{% endif %}
   <p class="jr-ck-err" role="alert" data-ck-err hidden></p>
 
   {# Cleared out: the add button, then the photos (as many as it takes). #}

@@ -57,6 +57,7 @@
     </div>
   </div>
   {% from 'junk/_crew_checklist.html' import checklist with context %}{{ checklist(job) }}
+  {% from 'junk/_job_flag.html' import flag_box with context %}{{ flag_box(job) }}
 {% endmacro %}
 
 {#- Where the job stands, under the street: finished; done and waiting on a manager; left
@@ -64,6 +65,7 @@
 {% macro job_status(job) %}
   {%- set ck = job|jr_checklist -%}
   <span class="jr-cj-status" data-job-status>
+  {%- if job.flagged -%}<span class="jr-cj-st jr-cj-st--late">Flagged</span>{%- endif -%}
   {%- if job.completed_at -%}
     <span class="jr-cj-st jr-cj-st--done">Finished{% if job.scheduled_date %} · {{ job.scheduled_date|jr_day(today) }}{% endif %}</span>
   {%- elif ck.complete -%}

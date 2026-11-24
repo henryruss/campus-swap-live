@@ -29,6 +29,13 @@ class Job(db.Model):
     scheduled_date = db.Column(db.Date, nullable=True)       # Eastern calendar date; NULL = Unscheduled
     queue_position = db.Column(db.Integer, nullable=True)    # 1..n within its day, or within Unscheduled
 
+    # Crew flag a problem on a job (a note under the checklist); the card turns amber until a
+    # manager resolves it. A new or changed note flags it again.
+    flag_note = db.Column(db.Text, nullable=True)
+    flag_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    flag_at = db.Column(db.DateTime, nullable=True)              # UTC
+    flag_resolved_at = db.Column(db.DateTime, nullable=True)     # UTC
+
     completed_at = db.Column(db.DateTime, nullable=True)     # UTC
     completed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
@@ -63,6 +70,13 @@ class Job(db.Model):
     def crew(self):
         """People on this job, in the order they were added."""
         return [a.user for a in self.assignments]
+
+    flag_by = db.relationship('User', foreign_keys=[flag_by_id])
+
+    @property
+    def flagged(self):
+        """A problem the crew raised that no manager has resolved yet."""
+        return bool(self.flag_note) and self.flag_resolved_at is None
 
     @property
     def display_name(self):

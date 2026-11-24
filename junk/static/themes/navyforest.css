@@ -1,6 +1,6 @@
 /* Theme: Navy & Forest — the mix. Ledger's navy runs the page (buttons, today, headings, ink);
    finished work turns Current's forest green, so done still reads as clean and green.
-   Current's type and corners (DM Serif / DM Sans, Forest Sharp shape). */
+   Times New Roman throughout (Henry, 2026-11-23); Current's corners (Forest Sharp shape). */
 :is(body.jr, .jr-theme-dot)[data-jr-theme="navyforest"] {
   --primary: #0E2240;
   --primary-rgb: 14, 34, 64;
@@ -27,8 +27,8 @@
   --jr-round: 0.4;
   --jr-pill-r: 4px;
   --jr-dot-r: 4px;
-  --jr-font-body: 'DM Sans', system-ui, sans-serif;
-  --jr-font-display: 'DM Serif Display', Georgia, serif;
+  --jr-font-body: 'Times New Roman', Times, serif;       /* Henry chose Times New Roman 2026-11-23 (was DM Sans) */
+  --jr-font-display: 'Times New Roman', Times, serif;    /* (was DM Serif Display) */
   --jr-display-weight: 400;
 }
 body.jr[data-jr-theme="navyforest"] {

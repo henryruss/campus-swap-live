@@ -21,7 +21,8 @@ from junk.jobs import (
     parse_date, parse_job_form, parse_location, to_eastern, today_eastern, undo_done,
     unscheduled_query, update_job, week_start, crew_cut, crew_pay_pct,
 )
-from junk.checklist import Checklist, TRUCK_LABELS, add_photo, move_photo, remove_photo, set_check
+from junk.checklist import (Checklist, TRUCK_LABELS, add_photo, move_photo, remove_photo, resolve_flag,
+                            set_check, set_flag)
 from junk.models import Job, JobAssignment, JobPhoto, initials, person_name, street_line
 from sqlalchemy.orm import joinedload, selectinload
 from models import db, User
@@ -891,7 +892,8 @@ def _locked_reply(job):
 
 
 def _checklist_reply(job, status=200, error=None):
-    html = render_template('junk/_checklist_frag.html', job=job)
+    job_window = is_junk_manager() and request.headers.get('X-JR-Job-Window') == '1'
+    html = render_template('junk/_checklist_frag.html', job=job, job_window=job_window)
     ck = Checklist(job)
     review = render_template('junk/_checklist_review_frag.html', job=job) if is_junk_manager() else None
     return jsonify(ok=error is None, error=error, html=html, complete=ck.complete, review=review,
@@ -938,6 +940,25 @@ def job_check(job_id):
     except JobFormError as e:
         return _checklist_reply(job, 400, str(e))
     return _checklist_reply(job)
+
+
+@junk_bp.route('/job/<int:job_id>/flag', methods=['POST'])
+@junk_crew_required
+def job_flag(job_id):
+    """JSON {note}: crew tell the manager something went wrong (empty takes it back)."""
+    job = _job_for_work(job_id)
+    if _locked(job):
+        return jsonify(ok=False, error="A manager has closed this job. Ask a manager to change it."), 403
+    set_flag(job, (request.get_json(silent=True) or {}).get('note'), current_user)
+    return jsonify(ok=True, html=render_template('junk/_job_flag_frag.html', job=job),
+                   status=render_template('junk/_job_status_frag.html', job=job, today=today_eastern()))
+
+
+@junk_bp.route('/manage/job/<int:job_id>/flag/resolve', methods=['POST'])
+@junk_manager_required
+def job_flag_resolve(job_id):
+    resolve_flag(_get_job(job_id), current_user)
+    return redirect(_safe_return())
 
 
 MOVE_WINDOW = 7   # days either side of a photo's job: where a mixed-up photo most likely belongs

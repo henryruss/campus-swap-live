@@ -73,8 +73,11 @@
   var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
   var MAX_SIDE = 1600;
 
-  function send(url, body) {
-    var opts = { method: 'POST', headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' }, credentials: 'same-origin' };
+  // The checklist in a manager's job window (calendar) stays editable on a finished job; on My
+  // jobs a finished job is read-only for everyone. The server re-renders it to match.
+  function where(sec) { return sec && sec.closest && sec.closest('[data-ck-wrap]') ? { 'X-JR-Job-Window': '1' } : {}; }
+  function send(url, body, sec) {
+    var opts = { method: 'POST', headers: Object.assign({ 'X-CSRFToken': csrf, 'Accept': 'application/json' }, where(sec)), credentials: 'same-origin' };
     if (body instanceof FormData) { opts.body = body; }
     else { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
     return fetch(url, opts).then(function (r) {
@@ -167,7 +170,7 @@
         var fd = new FormData();
         fd.append('kind', tile.dataset.kind);
         fd.append('photo', blob, 'photo.jpg');
-        return send(sec.dataset.photoUrl, fd);
+        return send(sec.dataset.photoUrl, fd, sec);
       }).then(function (d) {
         sec = tile.closest('[data-checklist]');
         if (d.ok) { tile.remove(); URL.revokeObjectURL(tile._url); swap(sec, d); return; }
@@ -301,7 +304,7 @@
           timer = setInterval(function () {
             var s0 = section();
             if (!s0 || document.hidden) return;
-            fetch(s0.dataset.pollUrl, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (reply) {
+            fetch(s0.dataset.pollUrl, { credentials: 'same-origin', headers: where(s0) }).then(function (r) { return r.json(); }).then(function (reply) {
               var s1 = section();
               if (!s1 || !reply.html) return;
               var tmp = document.createElement('div');
@@ -352,7 +355,7 @@
 
   function answer(sec, body) {
     sec.classList.add('is-busy');
-    send(sec.dataset.checkUrl, body).then(function (d) {
+    send(sec.dataset.checkUrl, body, sec).then(function (d) {
       swap(sec, d);
     }, function () {
       sec.classList.remove('is-busy');
@@ -363,6 +366,29 @@
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target : null;
     if (!t) return;
+    // Something wrong? Send the note; the box comes back saying it's flagged.
+    var flagBtn = t.closest('[data-flag-send]');
+    if (flagBtn) {
+      var box = flagBtn.closest('[data-flag]');
+      flagBtn.disabled = true;
+      send(box.dataset.flagUrl, { note: box.querySelector('[data-flag-note]').value }).then(function (d) {
+        if (!d.ok || !d.html) {
+          flagBtn.disabled = false;
+          box.querySelector('[data-flag-state]').textContent = d.error || "That didn't send. Try again.";
+          return;
+        }
+        var tmp = document.createElement('div');
+        tmp.innerHTML = d.html.trim();
+        var card = box.closest('[data-job-card]');
+        box.replaceWith(tmp.firstElementChild);
+        var st = card && card.querySelector('[data-job-status]');
+        if (st && d.status) { tmp.innerHTML = d.status.trim(); st.replaceWith(tmp.firstElementChild); }
+      }, function () {
+        flagBtn.disabled = false;
+        box.querySelector('[data-flag-state]').textContent = "That didn't send. Check your signal and try again.";
+      });
+      return;
+    }
     // The manager's job modal: the checklist is to look at; Edit opens the working one.
     var edit = t.closest('[data-ck-edit], [data-ck-done]');
     if (edit) {
@@ -390,7 +416,7 @@
       e.preventDefault();
       if (!window.confirm('Remove this photo?')) return;
       var sec = rm.closest('[data-checklist]');
-      send(rm.dataset.photoRemove, {}).then(function (d) { swap(sec, d); },
+      send(rm.dataset.photoRemove, {}, sec).then(function (d) { swap(sec, d); },
         function () { showError(sec, "That didn't save. Check your signal and try again."); });
     }
   });
@@ -465,7 +491,7 @@
     function moveTo(jobId, label) {
       var link = links[at], wrap = link.closest('[data-ck-wrap]');
       var sec = wrap ? wrap.querySelector('[data-checklist]') : link.closest('[data-checklist]');
-      send(link.dataset.move, { job_id: jobId }).then(function (d) {
+      send(link.dataset.move, { job_id: jobId }, sec).then(function (d) {
         if (!d.ok) { jobsList.innerHTML = '<li class="jr-pv-none">' + (d.error || 'That didn’t work.') + '</li>'; return; }
         close();
         if (sec) swap(sec, d);

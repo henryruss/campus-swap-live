@@ -157,3 +157,30 @@ def move_photo(photo, target, user):
     log_event(source, user, 'checklist', {'photo': [photo.kind, f'moved to job {target.id}']})
     log_event(target, user, 'checklist', {'photo': [f'moved from job {source.id}', photo.kind]})
     db.session.commit()
+
+
+FLAG_MAX = 2000
+
+
+def set_flag(job, note, user):
+    """Crew raise a problem on a job (or change or take back what they said). Any new or
+    changed note flags the job again, even after a manager resolved the last one."""
+    note = (note or '').strip()[:FLAG_MAX] or None
+    before = job.flag_note
+    if note == before and (note is None or job.flag_resolved_at is None):
+        return
+    job.flag_note = note
+    job.flag_by_id = getattr(user, 'id', None) if note else None
+    job.flag_at = datetime.utcnow() if note else None
+    job.flag_resolved_at = None
+    log_event(job, user, 'checklist', {'flag': [before, note]})
+    db.session.commit()
+
+
+def resolve_flag(job, user):
+    """A manager has dealt with it: the card stops being amber. The note stays on the job."""
+    if not job.flagged:
+        return
+    job.flag_resolved_at = datetime.utcnow()
+    log_event(job, user, 'checklist', {'flag': ['open', 'resolved']})
+    db.session.commit()

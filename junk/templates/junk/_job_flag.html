@@ -1,0 +1,20 @@
+{# "Something wrong?": under the checklist on a crew job card. A note here flags the job (amber on
+   the manager's calendar) until a manager resolves it. crew.js sends it. #}
+{% macro flag_box(job) %}
+{%- set locked = job.completed_at and not jr_is_manager %}
+<section class="jr-flag{{ ' is-on' if job.flagged }}" data-flag data-flag-url="{{ url_for('junk.job_flag', job_id=job.id) }}">
+  <h4 class="jr-ck-title">Something wrong?</h4>
+  {% if locked %}
+    {% if job.flag_note %}<p class="jr-flag-note">{{ job.flag_note }}</p>{% else %}<p class="jr-ck-ans jr-ck-ans--none">Nothing flagged.</p>{% endif %}
+  {% else %}
+    <textarea class="jr-flag-text" rows="2" maxlength="2000" data-flag-note
+              placeholder="Tell the manager what went wrong: damage, a no-show, stuff you couldn't take…">{{ job.flag_note or '' }}</textarea>
+    <div class="jr-flag-foot">
+      <span class="jr-flag-state" role="status" data-flag-state>
+        {%- if job.flagged %}Flagged. Your manager can see it.{% elif job.flag_note %}A manager resolved this.{% endif -%}
+      </span>
+      <button type="button" class="jr-flag-send" data-flag-send>{{ 'Update' if job.flag_note else 'Flag it' }}</button>
+    </div>
+  {% endif %}
+</section>
+{% endmacro %}

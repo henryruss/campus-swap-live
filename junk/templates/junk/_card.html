@@ -1,8 +1,9 @@
-{# One job card: name, street, checklist dots, crew. The quote lives in the job modal. Done cards are green and not draggable. #}
-<div class="jr-card{{ ' jr-card--done' if job.completed_at }}" data-job-id="{{ job.id }}" tabindex="0" role="button"
-     aria-label="{{ job.display_name }}{{ ', done' if job.completed_at }}">
+{# One job card: name, street, checklist dots, crew. Amber with a ⚑ while crew have a problem flagged. The quote lives in the job modal. Done cards are green and not draggable. #}
+<div class="jr-card{{ ' jr-card--done' if job.completed_at }}{{ ' jr-card--flag' if job.flagged }}" data-job-id="{{ job.id }}" tabindex="0" role="button"
+     aria-label="{{ job.display_name }}{{ ', done' if job.completed_at }}{{ ', flagged by crew' if job.flagged }}"
+     {%- if job.flagged %} title="Crew flagged a problem: {{ job.flag_note }}"{% endif %}>
   <div class="jr-card-body">
-    <div class="jr-card-name{{ ' is-untitled' if not job.customer_name }}">{{ job.display_name }}</div>
+    <div class="jr-card-name{{ ' is-untitled' if not job.customer_name }}">{% if job.flagged %}<span class="jr-card-flag" aria-hidden="true">⚑</span>{% endif %}{{ job.display_name }}</div>
     {% if job.address %}<div class="jr-card-addr" title="{{ job.address }}">{{ job.address|jr_street }}</div>{% endif %}
   </div>
   {#- The crew's checklist, once they've started it: a dot per item, green when answered. All

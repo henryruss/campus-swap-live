@@ -341,8 +341,8 @@ def test_manager_moves_a_photo_to_the_right_job(people, made):
 def test_job_modal_checklist_is_to_look_at_with_an_edit_button(people):
     c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
     form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
-    assert 'data-ck-review' in form and 'data-ck-edit' in form
-    assert form.index('id="jr-job-form"') < form.index('data-ck-review')      # untouched: below the details
+    assert 'data-ck-review' not in form and 'Fill in the checklist' in form   # untouched: just a quiet link
+    assert form.index('id="jr-job-form"') < form.index('Fill in the checklist')
     _check(c, job, item='truck', answer='handed')
     form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
     assert form.index('data-ck-review') < form.index('id="jr-job-form"')      # started: on top
@@ -350,3 +350,43 @@ def test_job_modal_checklist_is_to_look_at_with_an_edit_button(people):
     r = _check(mgr, job, item='truck', answer='returned')                     # a manager edits
     assert 'Returned it' in r.json['review']                                  # the look updates too
     assert _check(c, job, item='truck', answer='handed').json['review'] is None   # crew don't get it
+
+
+def test_finished_jobs_are_read_only_on_my_jobs_even_for_managers(people):
+    job, mgr = people['job'], _login(people['mgr'])
+    db.session.add(JobAssignment(job_id=job.id, user_id=people['mgr'].id))
+    db.session.commit()
+    _upload(mgr, job)
+    mgr.post(f'/junk/manage/job/{job.id}/done', data={})
+    page = mgr.get(f'/junk/crew/done?job={job.id}').get_data(as_text=True)
+    assert 'open the job on the calendar and use Edit' in page
+    assert 'data-photo-add' not in page and 'data-check=' not in page and 'data-move=' not in page
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'data-photo-add' in form and 'data-check=' in form                 # the job window still can
+    r = mgr.post(f'/junk/job/{job.id}/check', json={'item': 'truck', 'answer': 'returned'},
+                 headers={'X-JR-Job-Window': '1'})
+    assert 'data-check=' in r.json['html']                                    # and stays editable after a change
+
+
+# ── crew flag a problem ─────────────────────────────────────
+
+def test_crew_flag_a_problem_and_a_manager_resolves_it(people):
+    c, job, mgr = _login(people['me']), people['job'], _login(people['mgr'])
+    r = c.post(f'/junk/job/{job.id}/flag', json={'note': '  Customer wants the couch back  '})
+    assert r.status_code == 200 and 'Flagged' in r.json['html'] and 'Flagged' in r.json['status']
+    j = _fresh(job)
+    assert j.flagged and j.flag_note == 'Customer wants the couch back' and j.flag_by_id == people['me'].id
+    cal = mgr.get('/junk/manage?date=2099-05-04').get_data(as_text=True)
+    assert 'jr-card--flag' in cal and 'Crew flagged a problem: Customer wants the couch back' in cal
+    form = mgr.get(f'/junk/manage/job/form?id={job.id}').get_data(as_text=True)
+    assert 'Crew flagged a problem' in form and '/flag/resolve' in form
+    mgr.post(f'/junk/manage/job/{job.id}/flag/resolve', data={})
+    j = _fresh(job)
+    assert not j.flagged and j.flag_note                                      # resolved, note kept
+    assert 'jr-card--flag' not in mgr.get('/junk/manage?date=2099-05-04').get_data(as_text=True)
+    c.post(f'/junk/job/{job.id}/flag', json={'note': 'Also the dresser'})   # a new note flags it again
+    assert _fresh(job).flagged
+    c.post(f'/junk/job/{job.id}/flag', json={'note': ''})                    # taken back
+    assert not _fresh(job).flagged and _fresh(job).flag_note is None
+    assert _login(people['other']).post(f'/junk/job/{job.id}/flag', json={'note': 'x'}).status_code == 403
+    assert c.post(f'/junk/manage/job/{job.id}/flag/resolve', data={}).status_code == 403

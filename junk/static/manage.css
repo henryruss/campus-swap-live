@@ -149,6 +149,10 @@ body.jr-dragging .jr-day.is-past, body.jr-dragging .jr-mweek { background: none;
 .jr-card-name { font-size: 0.88rem; font-weight: 600; color: var(--card-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jr-card-name.is-untitled { color: var(--text-muted); font-style: italic; font-weight: 500; }
 .jr-card-addr { font-size: 0.78rem; color: var(--card-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+/* Crew flagged a problem: amber until a manager resolves it (in the job window). */
+.jr-card.jr-card--flag { background: color-mix(in srgb, var(--amber-lt) 70%, var(--bg-body)); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.jr-card-flag { margin-right: 4px; color: var(--accent-hover); }
+.jr-month .jr-card.jr-card--flag { background: var(--amber-lt); border-color: var(--accent); box-shadow: none; }
 .jr-card-ck { flex: none; display: inline-flex; gap: 3px; align-self: flex-start; margin-top: 5px; }
 .jr-card-ck i { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--rule); background: var(--bg-body); }
 .jr-card-ck i.on { border-color: var(--jr-done-ink, var(--primary)); background: var(--jr-done-ink, var(--primary)); }
@@ -745,12 +749,35 @@ body.jr-modal-open { overflow: hidden; }
 .jr-ck-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--card-ink-muted); }
 .jr-ck.is-busy .jr-ck-opt { pointer-events: none; }
 
+/* --- Something wrong? (crew flag a problem) --- */
+.jr-flag { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.jr-flag.is-on { margin-left: -14px; margin-right: -14px; padding: 12px 14px 0; background: color-mix(in srgb, var(--amber-lt) 45%, var(--bg-body)); border-top-color: var(--accent); }
+.jr-flag-text { display: block; width: 100%; margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--jr-pill-r);
+  background: var(--bg-body); color: var(--card-ink); font: 0.92rem/1.4 var(--jr-font-body); resize: vertical; }
+.jr-flag-text:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.jr-flag-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-bottom: 12px; }
+.jr-flag-state { font-size: 0.8rem; font-weight: 600; color: var(--accent-hover); }
+.jr-flag-send { flex: none; min-height: 40px; margin: 0; padding: 0 16px; border: 0; border-radius: var(--jr-pill-r);
+  background: var(--jr-btn-bg, var(--primary)); color: var(--jr-btn-ink, var(--text-light)); font: 600 0.88rem var(--jr-font-body); cursor: pointer; }
+.jr-flag-note { margin: 8px 0 0; padding-bottom: 12px; font-size: 0.9rem; color: var(--card-ink); white-space: pre-line; }
+.jr-flag-banner { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--jr-radius); background: var(--bg-cream); }
+.jr-flag-banner.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--amber-lt) 60%, var(--bg-body)); }
+.jr-flag-banner-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: 0.86rem; font-weight: 700; color: var(--accent-hover); }
+.jr-flag-banner:not(.is-on) .jr-flag-banner-h { color: var(--text-muted); }
+.jr-flag-banner-h span { font-size: 0.76rem; font-weight: 500; color: var(--text-muted); }
+.jr-flag-banner-note { margin: 4px 0 0; font-size: 0.92rem; color: var(--card-ink); white-space: pre-line; }
+.jr-flag-banner form { margin-top: 8px; }
+
 /* ─── The checklist in the manager's job modal ─── */
 /* To look at: three columns, left to right. Edit swaps in the working checklist. */
 .jr-modal-ck { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--rule); }
 .jr-modal-ck.is-top { margin: 0 0 16px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--rule); }
 .jr-modal-ck .jr-ck { margin-top: 0; padding-top: 0; border-top: 0; }
 .jr-ck-editing, .jr-modal-ck.is-editing .jr-ckr { display: none; }
+.jr-ck-later { margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); }
+.jr-ck-later > summary { display: inline-block; list-style: none; padding: 2px 0; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.jr-ck-later > summary::-webkit-details-marker { display: none; }
+.jr-ck-later[open] > summary { margin-bottom: 8px; }
 .jr-modal-ck.is-editing .jr-ck-editing { display: block; }
 .jr-ck-editbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; padding: 6px 6px 6px 12px;
   border-radius: var(--jr-pill-r); background: color-mix(in srgb, var(--primary) 7%, var(--bg-body)); font-size: 0.84rem; font-weight: 600; color: var(--primary); }

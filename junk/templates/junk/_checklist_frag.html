@@ -1,2 +1,2 @@
 {# One job's checklist, for crew.js to swap in after a change. #}
-{% from 'junk/_crew_checklist.html' import checklist with context %}{{ checklist(job) }}
+{% from 'junk/_crew_checklist.html' import checklist with context %}{{ checklist(job, job_window=job_window|default(false)) }}

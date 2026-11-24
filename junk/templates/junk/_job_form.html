@@ -8,9 +8,26 @@
   <button type="button" class="jr-icon-btn jr-close" data-close aria-label="Close">&times;</button>
 </div>
 
-{#- The job-site checklist: what the crew sent in. Read-only to look at (open a photo to move it
-    to the right job); Edit opens the working checklist. Above the job's details once the crew
-    has started it (that's what you're opening it to see), below them while it's untouched. -#}
+{#- A problem the crew flagged: first thing in the window, amber, until it's resolved. -#}
+{% if job and job.flag_note %}
+<div class="jr-flag-banner{{ ' is-on' if job.flagged else '' }}">
+  <p class="jr-flag-banner-h">⚑ {{ 'Crew flagged a problem' if job.flagged else 'Crew flagged a problem (resolved)' }}
+    <span>{{ (job.flag_by|jr_person).split(' ')[0] if job.flag_by else 'Someone' }} · {{ job.flag_at|jr_eastern }}</span></p>
+  <p class="jr-flag-banner-note">{{ job.flag_note }}</p>
+  {% if job.flagged %}
+  <form method="post" action="{{ url_for('junk.job_flag_resolve', job_id=job.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <button type="submit" class="jr-btn jr-btn--quiet">Resolve</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{#- The job-site checklist: what the crew sent in, at the top, once there's anything in it.
+    Read-only to look at (open a photo to move it to the right job); Edit opens the working
+    checklist. Untouched, it doesn't show: a quiet "Fill in the checklist" at the bottom opens
+    the editor for the rare time a manager fills it in for someone. -#}
 {% macro ck_block(job, top) %}
   {% from 'junk/_checklist_review.html' import review %}
   {% from 'junk/_crew_checklist.html' import checklist with context %}
@@ -18,7 +35,7 @@
     {{ review(job) }}
     <div class="jr-ck-editing">
       <div class="jr-ck-editbar"><span>Editing the checklist</span><button type="button" class="jr-btn jr-btn--quiet" data-ck-done>Done</button></div>
-      {{ checklist(job) }}
+      {{ checklist(job, job_window=true) }}
     </div>
   </div>
 {% endmacro %}
@@ -87,7 +104,13 @@
   </div>
 </form>
 
-{% if job and not ck_on_top %}{{ ck_block(job, false) }}{% endif %}
+{% if job and not ck_on_top %}
+{% from 'junk/_crew_checklist.html' import checklist with context %}
+<details class="jr-ck-later" data-ck-wrap>
+  <summary>Fill in the checklist</summary>
+  {{ checklist(job, job_window=true) }}
+</details>
+{% endif %}
 
 {# Existing jobs save as you type (manage.js), so there's no Save or Cancel: just close. #}
 <div class="jr-form-foot">
